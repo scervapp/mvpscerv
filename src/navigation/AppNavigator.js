@@ -9,8 +9,10 @@ import colors from "../utils/styles/appStyles";
 import { SafeAreaView } from "react-native";
 import Login from "../screens/LoginScreen";
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
-import RestaurantDashboard from "../screens/restaurant/RestaurauntDashboard";
+import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
 import { AuthContext } from "../context/authContext";
+import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
+import RestaurantBottomNavigation from "./RestaurantBottomNav";
 
 //import CustomerVerification from "../screens/CustomerVerification";
 
@@ -61,11 +63,13 @@ const AppNavigator = () => {
           {currentUserData ? (
             <>
               {currentUserData.role === "restaurant" && (
-                <Stack.Screen
-                  name="RestaurantDashboard"
-                  component={RestaurantDashboard}
-                  options={{ headerShown: false }}
-                />
+                <>
+                  <Stack.Screen
+                    name="RestaurantHome"
+                    component={RestaurantBottomNavigation}
+                    options={{ headerShown: false }}
+                  ></Stack.Screen>
+                </>
               )}
               {currentUserData.role === "customer" && (
                 <Stack.Screen
@@ -78,11 +82,7 @@ const AppNavigator = () => {
           ) : null}
 
           {/*
-          <Stack.Screen
-            name="RestaurantProfile"
-            component={RestaurantProfile}
-            options={{ headerShown: false }}
-          />
+      
           <Stack.Screen
             name="RestaurantDetail"
             component={RestaurantDetail}

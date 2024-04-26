@@ -58,7 +58,7 @@ const AuthProvider = ({ children }) => {
         console.log(userData);
         setCurrentUserData(userData);
         if (userData.role === "restaurant") {
-          navigation.navigate("RestaurantDashboard");
+          navigation.navigate("RestaurantHome");
         } else if (userData.role === "customer") {
           navigation.navigate("CustomerDashboard");
         }
@@ -97,7 +97,7 @@ const AuthProvider = ({ children }) => {
       if (role === "customer") {
         navigation.navigate("CustomerDashboard");
       } else if (role === "restaurant") {
-        navigation.navigate("RestaurantDashboard");
+        navigation.navigate("RestaurantHome");
       }
     } catch (error) {
       const errorCode = error.code;
