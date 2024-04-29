@@ -123,7 +123,7 @@ const RestaurantProfile = ({ navigation }) => {
         profileData.imageUri = downloadUrl;
       }
       console.log("After Image Upload", imageUri);
-      const docRef = doc(db, "users", currentUserData.uid);
+      const docRef = doc(db, "restaurants", currentUserData.uid);
       await setDoc(docRef, {
         ...currentUserData,
         ...profileData,

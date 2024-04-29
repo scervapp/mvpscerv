@@ -13,6 +13,7 @@ import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
 import { AuthContext } from "../context/authContext";
 import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
 import RestaurantBottomNavigation from "./RestaurantBottomNav";
+import CustomerBottomNavigation from "./CustomerBottomNav";
 
 //import CustomerVerification from "../screens/CustomerVerification";
 
@@ -73,8 +74,8 @@ const AppNavigator = () => {
               )}
               {currentUserData.role === "customer" && (
                 <Stack.Screen
-                  name="CustomerDashboard"
-                  component={CustomerDashboard}
+                  name="CustomerHome"
+                  component={CustomerBottomNavigation}
                   options={{ headerShown: false }}
                 />
               )}

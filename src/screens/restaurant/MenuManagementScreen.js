@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   FlatList,
   Image,
+  Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
@@ -20,6 +21,8 @@ import {
   updateDoc,
   getDocs,
   onSnapshot,
+  where,
+  query,
 } from "firebase/firestore";
 import { AuthContext } from "../../context/authContext";
 import MenuItem from "../../components/restaurant/MenuItem";
@@ -35,13 +38,13 @@ const MenuManagementScreen = () => {
     const fetchMenuItems = async () => {
       try {
         // Reference the ssubcollection of the restaurant's menuItems collection
-        const menuItemsRef = collection(
-          db,
-          "restaurants",
-          currentUserData.uid,
-          "menuItems"
+        console.log("Current User Data", currentUserData.uid);
+        const menuItemsRef = collection(db, "menuItems");
+        const queryRest = query(
+          menuItemsRef,
+          where("restaurantId", "==", currentUserData.uid)
         );
-        const unsubscribe = onSnapshot(menuItemsRef, (snapshot) => {
+        const unsubscribe = onSnapshot(queryRest, (snapshot) => {
           let menuItemsData = [];
           snapshot.forEach((doc) => {
             menuItemsData.push({ id: doc.id, ...doc.data() });

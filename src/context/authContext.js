@@ -14,6 +14,7 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const AuthContext = createContext({
   currentUser: null,
@@ -28,6 +29,19 @@ const AuthProvider = ({ children }) => {
   const auth = getAuth(app);
   const db = getFirestore(app);
 
+  // Load authentication token from asyncstorage on app start
+  useEffect(() => {
+    setIsLoading(true);
+    const loadAuthState = async () => {
+      const authToken = await AsyncStorage.getItem("authToken");
+      if (authToken) {
+        setCurrentUser(authToken);
+      }
+      setIsLoading(false);
+    };
+    loadAuthState();
+  }, [AsyncStorage]);
+
   const initializeAuthListener = () => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -41,26 +55,51 @@ const AuthProvider = ({ children }) => {
     initializeAuthListener();
   }, [currentUser]);
 
+  // Save authenthentication tooken to AsyncStorage
+  const saveAuthTokenToStorage = async (token) => {
+    try {
+      await AsyncStorage.setItem("authToken", token);
+    } catch (error) {
+      console.log("Error saving authentication", error);
+    }
+  };
+
   const login = async (email, password, navigation) => {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password).then();
 
-      console.log("Login Successful");
-      const userDocRef = doc(db, "users", auth.currentUser.uid);
-      const userDoc = await getDoc(userDocRef);
+      // Parallel checks
+      const customerDocRef = doc(db, "customers", auth.currentUser.uid);
+      const restaurantDocRef = doc(db, "restaurants", auth.currentUser.uid);
+      const [customerDoc, restaurantDoc] = await Promise.all([
+        getDoc(customerDocRef),
+        getDoc(restaurantDocRef),
+      ]);
 
-      if (userDoc.exists()) {
+      console.log("Login Successful");
+
+      if (customerDoc.exists()) {
         const userData = {
           uid: auth.currentUser.uid,
-          ...userDoc.data(),
+          ...customerDoc.data(),
         };
         console.log(userData);
         setCurrentUserData(userData);
+        saveAuthTokenToStorage(userData.uid);
+        if (userData.role === "customer") {
+          navigation.navigate("CustomerHome");
+        }
+      } else if (restaurantDoc.exists()) {
+        const userData = {
+          uid: auth.currentUser.uid,
+          ...restaurantDoc.data(),
+        };
+        console.log(userData);
+        setCurrentUserData(userData);
+        saveAuthTokenToStorage(userData.uid);
         if (userData.role === "restaurant") {
           navigation.navigate("RestaurantHome");
-        } else if (userData.role === "customer") {
-          navigation.navigate("CustomerDashboard");
         }
       }
     } catch (error) {
@@ -88,15 +127,19 @@ const AuthProvider = ({ children }) => {
       );
 
       console.log("Signup Successful");
-      await setDoc(doc(db, "users", user.uid), {
+      const collectionName =
+        role === "restaurant" ? "restaurants" : "customers";
+      await setDoc(doc(db, collectionName, user.uid), {
         email,
         role,
         ...additionalUserData,
       });
 
       if (role === "customer") {
-        navigation.navigate("CustomerDashboard");
+        console.log("Customer Dashboard");
+        navigation.navigate("CustomerHome");
       } else if (role === "restaurant") {
+        console.log("Restaurant Home");
         navigation.navigate("RestaurantHome");
       }
     } catch (error) {

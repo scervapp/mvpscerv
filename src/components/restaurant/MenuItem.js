@@ -67,13 +67,15 @@ const MenuItem = ({ item, restaurantId }) => {
   // Handle item update
   const updateMenuItem = async (restaurantId, menuItemId, menuItemData) => {
     try {
-      const menuItemRef = doc(
-        db,
-        "restaurants",
-        restaurantId,
-        "menuItems",
-        menuItemId
-      );
+      const menuItemRef = doc(db, "menuItems", menuItemId);
+      const menuItemSnapshot = await getDoc(menuItemRef);
+      if (!menuItemSnapshot.exists()) {
+        throw new Error("Menu Item not found");
+      }
+
+      if (menuItemData.restaurantId !== restaurantId) {
+        throw new Error("Menu Item not found");
+      }
       await updateDoc(menuItemRef, menuItemData);
       console.log("Menu Item updated successfully");
     } catch (error) {

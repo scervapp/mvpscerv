@@ -75,10 +75,12 @@ const AddItemModal = ({
   // Add Menu Item
   const addMenuItem = async (restaurantId, menuItemData) => {
     try {
-      const menuItemsRef = doc(db, "restaurants", currentUserData.uid);
-      const colRef = collection(menuItemsRef, "menuItems");
+      const menuItemsRef = collection(db, "menuItems");
+      const newMenuItemRef = await addDoc(menuItemsRef, {
+        ...menuItemData,
+        restaurantId: restaurantId,
+      });
 
-      addDoc(colRef, menuItemData);
       console.log("Menu Item added successfully with ID", menuItemsRef.id);
     } catch (error) {
       console.log("Error adding menu item:", error);
