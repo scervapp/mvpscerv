@@ -9,8 +9,6 @@ import {
 } from "react-native";
 
 const MenuItemsList = ({ menuItems, isLoading }) => {
-  console.log("Menu Items from list", menuItems);
-
   const renderItem = ({ item }) => (
     <View style={styles.menuItem}>
       <View style={styles.imageContainer}>

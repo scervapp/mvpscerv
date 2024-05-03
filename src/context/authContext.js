@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from "react";
-import { app } from "../config/firebase";
+import { app, auth } from "../config/firebase";
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -22,47 +22,45 @@ const AuthContext = createContext({
 });
 
 const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(null);
 
-  const auth = getAuth(app);
   const db = getFirestore(app);
 
-  // Load authentication token from asyncstorage on app start
+  // Useeffect hook to listen to auth state changes
   useEffect(() => {
-    setIsLoading(true);
-    const loadAuthState = async () => {
-      const authToken = await AsyncStorage.getItem("authToken");
-      if (authToken) {
-        setCurrentUser(authToken);
-      }
-      setIsLoading(false);
-    };
-    loadAuthState();
-  }, [AsyncStorage]);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setIsLoading(true);
 
-  const initializeAuthListener = () => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+      // update the currentUserData if the user is authenticated
+
+      // Update currentUserData if the user is authenticated
+      if (user) {
+        try {
+          setCurrentUser(user);
+          const customerDoc = await getDoc(doc(db, "customers", user.uid));
+          const restaurantDo = await getDoc(doc(db, "restaurants", user.uid));
+          let userData;
+          if (customerDoc.exists()) {
+            userData = { ...customerDoc.data(), uid: user.uid };
+          } else if (restaurantDo.exists()) {
+            userData = { ...restaurantDo.data(), uid: user.uid };
+          }
+
+          setCurrentUserData(userData);
+        } catch (error) {
+          console.log("Error fetching user data", error);
+        }
+      } else {
+        setCurrentUser(null);
+        setCurrentUserData(null);
+      }
       setIsLoading(false);
     });
     return unsubscribe;
-  };
-
-  // See if the users auth status is changed
-  useEffect(() => {
-    initializeAuthListener();
-  }, [currentUser]);
-
-  // Save authenthentication tooken to AsyncStorage
-  const saveAuthTokenToStorage = async (token) => {
-    try {
-      await AsyncStorage.setItem("authToken", token);
-    } catch (error) {
-      console.log("Error saving authentication", error);
-    }
-  };
+  }, []);
 
   const login = async (email, password, navigation) => {
     setIsLoading(true);
@@ -77,30 +75,21 @@ const AuthProvider = ({ children }) => {
         getDoc(restaurantDocRef),
       ]);
 
-      console.log("Login Successful");
+      let userData;
 
       if (customerDoc.exists()) {
-        const userData = {
-          uid: auth.currentUser.uid,
-          ...customerDoc.data(),
-        };
-        console.log(userData);
-        setCurrentUserData(userData);
-        saveAuthTokenToStorage(userData.uid);
-        if (userData.role === "customer") {
-          navigation.navigate("CustomerHome");
-        }
+        userData = { ...customerDoc.data(), uid: auth.currentUser.uid };
       } else if (restaurantDoc.exists()) {
-        const userData = {
-          uid: auth.currentUser.uid,
-          ...restaurantDoc.data(),
-        };
-        console.log(userData);
-        setCurrentUserData(userData);
-        saveAuthTokenToStorage(userData.uid);
-        if (userData.role === "restaurant") {
-          navigation.navigate("RestaurantHome");
-        }
+        userData = { ...restaurantDoc.data(), uid: auth.currentUser.uid };
+      }
+
+      setCurrentUserData(userData);
+
+      // Navigation Logic
+      if (userData.role === "customer") {
+        navigation.navigate("CustomerHome");
+      } else if (userData.role === "restaurant") {
+        navigation.navigate("RestaurantHome");
       }
     } catch (error) {
       const errorCode = error.code;

@@ -24,6 +24,10 @@ const CustomerBottomNavigation = () => {
             iconName = focused ? "person" : "person-outline";
           } else if (route.name === "CustomerMenu") {
             iconName = focused ? "menu" : "menu-outline";
+          } else if (route.name === "RestaurantCheckin") {
+            iconName = focused
+              ? "checkmark-circle"
+              : "checkmark-circle-outline";
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;

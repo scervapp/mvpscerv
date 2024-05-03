@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   collection,
   getDocs,
   GeoPoint,
   query,
   where,
+  serverTimestamp,
+  addDoc,
 } from "firebase/firestore";
 import app, { db } from "../config/firebase";
 
@@ -16,7 +18,6 @@ const fetchRestaurants = async () => {
 
     const restaurants = restaurantSnapshot.docs.map((doc) => {
       if (doc.exists()) {
-        console.log("Document ID: ", doc.id);
         const data = doc.data();
         return { id: doc.id, ...data };
       } else {
@@ -51,4 +52,47 @@ const fetchMenu = async (restaurantId) => {
   }
 };
 
-export { fetchRestaurants, fetchMenu };
+// Checkin functionality
+const checkIn = async (
+  restaurantId,
+  customerId,
+  numberOfPeople,
+  customerName
+) => {
+  try {
+    // Set loading state to true
+
+    // Create a new check-in document
+    const checkInRef = collection(db, "checkIns");
+    const checkInDoc = await addDoc(checkInRef, {
+      restaurantId,
+      customerId,
+      numberOfPeople,
+      status: "REQUESTED",
+      //firestore time stamp
+      timestamp: serverTimestamp(),
+      customerName: customerName,
+    });
+
+    // create notification for the restaurant
+    await addDoc(collection(db, "notifications"), {
+      restaurantId,
+      customerId,
+      checkInId: checkInDoc.id,
+      type: "checkIn",
+      isRead: false,
+      customerName: customerName,
+      timestamp: serverTimestamp(),
+      status: "pending",
+      numberOfPeople: numberOfPeople,
+    });
+
+    // Update the local state for immediate UI feedBack
+    return { success: true, checkInId: checkInDoc.id };
+  } catch (error) {
+    console.log("Error checking in:", error);
+    throw error;
+  }
+};
+
+export { fetchRestaurants, fetchMenu, checkIn };

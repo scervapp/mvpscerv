@@ -38,29 +38,6 @@ const AppNavigator = () => {
     >
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator initialRouteName={WelcomeScreen}>
-          <>
-            <Stack.Screen
-              name="Welcome"
-              component={WelcomeScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Login"
-              component={Login}
-              options={{ headerShown: false }}
-            />
-
-            <Stack.Screen
-              name="RestaurantSignup"
-              component={RestaurantSignup}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="CustomerSignup"
-              component={CustomerSignup}
-              options={{ headerShown: false }}
-            />
-          </>
           {currentUserData ? (
             <>
               {currentUserData.role === "restaurant" && (
@@ -80,7 +57,31 @@ const AppNavigator = () => {
                 />
               )}
             </>
-          ) : null}
+          ) : (
+            <>
+              <Stack.Screen
+                name="Welcome"
+                component={WelcomeScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="Login"
+                component={Login}
+                options={{ headerShown: false }}
+              />
+
+              <Stack.Screen
+                name="RestaurantSignup"
+                component={RestaurantSignup}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="CustomerSignup"
+                component={CustomerSignup}
+                options={{ headerShown: false }}
+              />
+            </>
+          )}
 
           {/*
       

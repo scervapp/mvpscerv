@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,15 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import { fetchMenu } from "../../utils/customerUtils";
+import { checkIn, fetchMenu } from "../../utils/customerUtils";
 import MenuItemsList from "./MenuItemsList";
+import { AuthContext } from "../../context/authContext";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "../../config/firebase";
 
 const RestaurantDetail = ({ route }) => {
+  const { currentUserData } = useContext(AuthContext);
+
   // Extract the restaurant data from the route parameters
   const { restaurant } = route.params;
   const [isLoading, setIsLoading] = useState(false);
@@ -19,8 +24,28 @@ const RestaurantDetail = ({ route }) => {
   const [hasPendingCheckIn, setHasPendingCheckIn] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
 
-  const handleCheckin = () => {
-    console.log("Checkin button pressed");
+  const handleCheckin = async () => {
+    const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
+    try {
+      setIsLoading(true);
+      const numberOfPeople = 4;
+      const { success, checkInId } = await checkIn(
+        restaurant.id,
+        currentUserData.uid,
+        numberOfPeople,
+        customerName
+      );
+      if (success) {
+        setCurrentCheckInId(checkInId);
+        setCheckInStatus("REQUESTED");
+      } else {
+        return;
+      }
+    } catch (error) {
+      console.log("Error checking in:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -34,6 +59,37 @@ const RestaurantDetail = ({ route }) => {
     };
     loadMenu();
   }, [restaurant.id]);
+
+  // Monitor checkin status for the customer
+  useEffect(() => {
+    try {
+      setIsLoading(true);
+      const q = query(
+        collection(db, "checkIns"),
+        where("restaurantId", "==", restaurant.id),
+        where("customerId", "==", currentUserData.uid)
+      );
+
+      console.log("Query", q);
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          const updateStatus = change.doc.data().status;
+          if (updateStatus !== checkInStatus) {
+            setCurrentCheckInId(updateStatus);
+          }
+          setCheckInStatus(updateStatus);
+        });
+      });
+      return () => unsubscribe();
+    } catch (error) {
+      console.log("Error monitoring checkin status:", error);
+    } finally {
+      setIsLoading(false);
+    }
+
+    console.log("checkin status", checkInStatus);
+  }, [currentUserData.uid, restaurant.id]);
 
   return (
     <View style={styles.container}>

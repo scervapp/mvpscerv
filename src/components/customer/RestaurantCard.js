@@ -2,7 +2,6 @@ import React from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 
 const RestaurantCard = ({ restaurant, onPress }) => {
-  console.log("Restaurant Card", onPress);
   return (
     <TouchableOpacity onPress={onPress} style={styles.card}>
       <Image source={{ uri: restaurant.imageUri }} style={styles.thumbnail} />
