@@ -1,7 +1,13 @@
 import React, { useEffect, useState, useContext } from "react";
 import { View, Text, FlatList, TouchableOpacity } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import { collection, where, query, getDocs } from "firebase/firestore";
+import {
+  collection,
+  where,
+  query,
+  getDocs,
+  onSnapshot,
+} from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { StyleSheet } from "react-native";
 import moment from "moment";
@@ -25,9 +31,9 @@ const RestaurantCheckin = () => {
       where("status", "==", "pending")
     );
 
-    const unsubscribe = getDocs(querySnap).then((snapshot) => {
+    const unsubscribe = onSnapshot(querySnap, (snapshot) => {
       let checkInsData = [];
-      snapshot.forEach((doc) => {
+      snapshot.docChanges().forEach((change) => {
         checkInsData.push({
           id: doc.id,
           ...doc.data(),
@@ -115,11 +121,19 @@ const RestaurantCheckin = () => {
         <Text style={styles.title}>Customers Waiting</Text>
       </View>
       <View style={styles.listContainer}>
-        <FlatList
-          data={checkIns}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-        />
+        {checkIns.length === 0 ? (
+          <View style={styles.noCheckinsContainer}>
+            <Text style={styles.noCheckinsText}>
+              No customers waiting at the moment
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={checkIns}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+          />
+        )}
       </View>
     </View>
   );
@@ -189,6 +203,17 @@ const styles = StyleSheet.create({
   },
   partySize: {
     fontSize: 16,
+  },
+  noCheckinsContainer: {
+    height: 200,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  noCheckinsText: {
+    fontSize: 16,
+    color: "#999",
+    fontWeight: "500",
   },
 });
 

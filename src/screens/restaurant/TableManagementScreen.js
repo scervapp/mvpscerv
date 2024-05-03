@@ -65,6 +65,7 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: "#fff",
     padding: 20,
+    alignItems: "center",
   },
   tableList: {
     justifyContent: "space-between",

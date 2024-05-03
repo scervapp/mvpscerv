@@ -12,7 +12,7 @@ const TableItem = ({ item, onPress, isSelected, isCheckinFlow }) => {
     <TouchableOpacity
       disabled={!onPress}
       onPress={onPress}
-      style={[styles.tableItem, isSelected && styles.selected]}
+      style={[styles.tableItem, tableItemStyle, isSelected && styles.selected]}
     >
       <Text style={styles.tableNumber}>{item.name}</Text>
       {isCheckinFlow && item.status === "available" && (
@@ -25,11 +25,11 @@ const TableItem = ({ item, onPress, isSelected, isCheckinFlow }) => {
 const getTableItemStyle = (status) => {
   switch (status) {
     case "available":
-      return "green"; // Green style
+      return "#d1f2eb"; // Green style
     case "occupied":
-      return "red"; // Red style
+      return "#f8d7d"; // Red style
     case "checkedOut":
-      return "yellow"; // Yellow style
+      return "#fff3cd"; // Yellow style
     default:
       return {}; // Default styles (optional)
   }
@@ -39,20 +39,24 @@ const styles = StyleSheet.create({
     margin: 5,
   },
   tableItem: {
+    borderRadius: 10,
     padding: 10,
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 5,
     marginBottom: 5,
+    height: 100,
+    width: 100,
+    margin: 5,
   },
   availableTable: {
-    backgroundColor: "green",
+    backgroundColor: "#d1f2eb",
   },
   occupiedTable: {
-    backgroundColor: "red",
+    backgroundColor: "#f8d7da",
   },
   checkedOutTable: {
-    backgroundColor: "yellow",
+    backgroundColor: "#fff3cd",
   },
   tableNumber: {
     fontSize: 14, // Adjust as needed
@@ -65,6 +69,10 @@ const styles = StyleSheet.create({
   status: {
     color: "#999",
     fontSize: 12,
+  },
+  tableContainer: {
+    flex: 1,
+    width: "90%",
   },
 });
 

@@ -6,6 +6,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  Button,
 } from "react-native";
 import { checkIn, fetchMenu } from "../../utils/customerUtils";
 import MenuItemsList from "./MenuItemsList";
@@ -23,16 +26,20 @@ const RestaurantDetail = ({ route }) => {
   const [currentCheckInId, setCurrentCheckInId] = useState(null);
   const [hasPendingCheckIn, setHasPendingCheckIn] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
+  const [partySize, setPartySize] = useState("");
+  const [isModalVisible, setIsModalVisible] = useState(false);
 
+  const openModal = () => setIsModalVisible(true);
+  const closeModal = () => setIsModalVisible(false);
   const handleCheckin = async () => {
     const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
     try {
       setIsLoading(true);
-      const numberOfPeople = 4;
+
       const { success, checkInId } = await checkIn(
         restaurant.id,
         currentUserData.uid,
-        numberOfPeople,
+        partySize,
         customerName
       );
       if (success) {
@@ -46,6 +53,7 @@ const RestaurantDetail = ({ route }) => {
     } finally {
       setIsLoading(false);
     }
+    closeModal();
   };
 
   useEffect(() => {
@@ -70,8 +78,6 @@ const RestaurantDetail = ({ route }) => {
         where("customerId", "==", currentUserData.uid)
       );
 
-      console.log("Query", q);
-
       const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
           const updateStatus = change.doc.data().status;
@@ -87,15 +93,16 @@ const RestaurantDetail = ({ route }) => {
     } finally {
       setIsLoading(false);
     }
-
-    console.log("checkin status", checkInStatus);
   }, [currentUserData.uid, restaurant.id]);
 
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={styles.checkInButton}
-        onPress={handleCheckin}
+        style={[
+          styles.checkInButton,
+          checkInStatus === "ACCEPTED" && styles.checkInButtonCheckedIn,
+        ]}
+        onPress={() => openModal()}
         disabled={
           checkInStatus === "ACCEPTED" ||
           isLoading ||
@@ -126,6 +133,30 @@ const RestaurantDetail = ({ route }) => {
           </>
         )}
       </TouchableOpacity>
+      {isModalVisible && (
+        <Modal
+          transparent={true}
+          style={styles.modalContainer}
+          onRequestClose={closeModal}
+          isVisible={isModalVisible}
+          animationType="fade"
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.questionText}>How many in your party?</Text>
+            <TextInput
+              style={styles.input}
+              onChangeText={setPartySize}
+              keyboardType="numeric"
+              placeholder="5"
+            />
+            <View style={styles.buttonRow}>
+              <Button title="Cancel" onPress={closeModal} />
+              <Button title="Confirm" onPress={handleCheckin} />
+            </View>
+          </View>
+        </Modal>
+      )}
+
       <Image source={{ uri: restaurant.imageUri }} style={styles.image} />
       <View style={styles.infoContainer}>
         <Text style={styles.name}>{restaurant.restaurantName}</Text>
@@ -176,10 +207,56 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 20,
   },
+
+  checkInButtonCheckedIn: {
+    backgroundColor: "green",
+    padding: 15,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 20,
+  },
   checkInButtonText: {
     color: "white",
     fontWeight: "bold",
     fontSize: 16,
+  },
+
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    margin: 0,
+  },
+  modalContent: {
+    alignSelf: "center",
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 10,
+    // Adjust width as needed
+    width: "80%",
+    // Center the modal
+    alignItems: "center",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between", // Space between the buttons
+    width: "100%", // Occupy full width of modal
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 20,
+    marginTop: 20,
+    textAlign: "center",
+    fontSize: 18,
+  },
+  questionText: {
+    fontSize: 18, // Adjust the size as desired
+    fontWeight: "bold",
+    marginBottom: 10, // Add spacing below the text
   },
 });
 
