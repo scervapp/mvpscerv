@@ -34,7 +34,6 @@ const RestaurantList = () => {
   );
 
   const handleRestaurantPress = (restaurant) => {
-    console.log("Restaurant pressed:", restaurant);
     navigation.navigate("RestaurantDetail", { restaurant });
   };
 

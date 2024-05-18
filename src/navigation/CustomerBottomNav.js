@@ -1,5 +1,5 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
@@ -8,10 +8,15 @@ import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
 import CustomerProfile from "../screens/customer/CustomerProfile";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
+import BasketScreen from "../screens/customer/BasketScreen";
+import BackButton from "../utils/BackButton";
+import AccountScreen from "../screens/customer/AccountScreen";
+import PIPSListScreen from "../screens/customer/PIPScreen";
 
 const Tab = createBottomTabNavigator();
 
 const CustomerBottomNavigation = () => {
+  const navigation = useNavigation();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -20,14 +25,10 @@ const CustomerBottomNavigation = () => {
 
           if (route.name === "CustomerDashboard") {
             iconName = focused ? "home" : "home-outline";
-          } else if (route.name === "CustomerProfile") {
+          } else if (route.name === "AccountScreen") {
             iconName = focused ? "person" : "person-outline";
           } else if (route.name === "CustomerMenu") {
             iconName = focused ? "menu" : "menu-outline";
-          } else if (route.name === "RestaurantCheckin") {
-            iconName = focused
-              ? "checkmark-circle"
-              : "checkmark-circle-outline";
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -36,6 +37,11 @@ const CustomerBottomNavigation = () => {
         tabBarInactiveTintColor: "gray",
         tabBarShowLabel: false,
         tabBarStyle: [{ display: "flex" }, null],
+        headerShown: route.name === "BasketScreen",
+        headerTItle: "Basket",
+        headerLeft: () => {
+          <BackButton onPress={() => navigation.goBack()} />;
+        },
       })}
     >
       <Tab.Screen
@@ -52,6 +58,24 @@ const CustomerBottomNavigation = () => {
         options={{ headerShown: false }}
         name="RestaurantDetail"
         component={RestaurantDetail}
+      />
+      <Tab.Screen
+        options={{
+          headerSTitle: "Basket",
+          headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
+        }}
+        name="BasketScreen"
+        component={BasketScreen}
+      />
+      <Tab.Screen
+        options={{ headerShown: false }}
+        name="AccountScreen"
+        component={AccountScreen}
+      />
+      <Tab.Screen
+        options={{ headerShown: false }}
+        name="PipsScreen"
+        component={PIPSListScreen}
       />
     </Tab.Navigator>
   );

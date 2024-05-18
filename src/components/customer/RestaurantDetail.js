@@ -9,14 +9,17 @@ import {
   Modal,
   TextInput,
   Button,
+  ScrollView,
 } from "react-native";
 import { checkIn, fetchMenu } from "../../utils/customerUtils";
 import MenuItemsList from "./MenuItemsList";
 import { AuthContext } from "../../context/authContext";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../config/firebase";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useBasket } from "../../context/customer/BasketContext";
 
-const RestaurantDetail = ({ route }) => {
+const RestaurantDetail = ({ route, navigation }) => {
   const { currentUserData } = useContext(AuthContext);
 
   // Extract the restaurant data from the route parameters
@@ -28,6 +31,9 @@ const RestaurantDetail = ({ route }) => {
   const [menuItems, setMenuItems] = useState([]);
   const [partySize, setPartySize] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [basketCount, setBasketCount] = useState(4);
+
+  const { addItemToBasket } = useBasket();
 
   const openModal = () => setIsModalVisible(true);
   const closeModal = () => setIsModalVisible(false);
@@ -95,79 +101,115 @@ const RestaurantDetail = ({ route }) => {
     }
   }, [currentUserData.uid, restaurant.id]);
 
+  const navigateToBasketScreen = () => {
+    console.log("navigateToBasketScreen");
+    navigation.navigate("BasketScreen", {
+      restaurant,
+      checkInId: currentCheckInId,
+    });
+  };
+
+  // Floating basket button
+  const FloatingBasketButton = () => {
+    return (
+      <TouchableOpacity
+        style={{ backgroundColor: "blue" }}
+        onPress={() => navigateToBasketScreen()}
+      >
+        <View style={styles.fabContainer}>
+          <MaterialCommunityIcons name="basket" size={32} color="white" />
+          {basketCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{basketCount}</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={[
-          styles.checkInButton,
-          checkInStatus === "ACCEPTED" && styles.checkInButtonCheckedIn,
-        ]}
-        onPress={() => openModal()}
-        disabled={
-          checkInStatus === "ACCEPTED" ||
-          isLoading ||
-          checkInStatus === "REQUESTED"
-        }
-      >
-        {isLoading ? (
-          <ActivityIndicator size="small" color="white" />
-        ) : (
-          <>
-            {checkInStatus === "INITIAL" && (
-              <Text style={styles.checkInButtonText}>Check In</Text>
-            )}
-            {checkInStatus === "REQUESTED" && (
-              <>
-                <ActivityIndicator size="small" color="white" />
-                <Text style={styles.checkInButtonText}>
-                  Waiting on Restaurant...
-                </Text>
-              </>
-            )}
-            {checkInStatus === "ACCEPTED" && (
-              <Text style={styles.checkInButtonText}>You Are Checked In!</Text>
-            )}
-            {checkInStatus === "DECLINED" && (
-              <Text style={styles.checkInButtonText}>Check In Declined</Text>
-            )}
-          </>
-        )}
-      </TouchableOpacity>
-      {isModalVisible && (
-        <Modal
-          transparent={true}
-          style={styles.modalContainer}
-          onRequestClose={closeModal}
-          isVisible={isModalVisible}
-          animationType="fade"
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <TouchableOpacity
+          style={[
+            styles.checkInButton,
+            checkInStatus === "ACCEPTED" && styles.checkInButtonCheckedIn,
+          ]}
+          onPress={() => openModal()}
+          disabled={
+            checkInStatus === "ACCEPTED" ||
+            isLoading ||
+            checkInStatus === "REQUESTED"
+          }
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.questionText}>How many in your party?</Text>
-            <TextInput
-              style={styles.input}
-              onChangeText={setPartySize}
-              keyboardType="numeric"
-              placeholder="5"
-            />
-            <View style={styles.buttonRow}>
-              <Button title="Cancel" onPress={closeModal} />
-              <Button title="Confirm" onPress={handleCheckin} />
+          {isLoading ? (
+            <ActivityIndicator size="small" color="white" />
+          ) : (
+            <>
+              {checkInStatus === "INITIAL" && (
+                <Text style={styles.checkInButtonText}>Check In</Text>
+              )}
+              {checkInStatus === "REQUESTED" && (
+                <>
+                  <ActivityIndicator size="small" color="white" />
+                  <Text style={styles.checkInButtonText}>
+                    Waiting on Restaurant...
+                  </Text>
+                </>
+              )}
+              {checkInStatus === "ACCEPTED" && (
+                <Text style={styles.checkInButtonText}>
+                  You Are Checked In!
+                </Text>
+              )}
+              {checkInStatus === "DECLINED" && (
+                <Text style={styles.checkInButtonText}>Check In Declined</Text>
+              )}
+            </>
+          )}
+        </TouchableOpacity>
+        {isModalVisible && (
+          <Modal
+            transparent={true}
+            style={styles.modalContainer}
+            onRequestClose={closeModal}
+            isVisible={isModalVisible}
+            animationType="fade"
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.questionText}>How many in your party?</Text>
+              <TextInput
+                style={styles.input}
+                onChangeText={setPartySize}
+                keyboardType="numeric"
+                placeholder="5"
+              />
+              <View style={styles.buttonRow}>
+                <Button title="Cancel" onPress={closeModal} />
+                <Button title="Confirm" onPress={handleCheckin} />
+              </View>
             </View>
-          </View>
-        </Modal>
-      )}
+          </Modal>
+        )}
 
-      <Image source={{ uri: restaurant.imageUri }} style={styles.image} />
-      <View style={styles.infoContainer}>
-        <Text style={styles.name}>{restaurant.restaurantName}</Text>
-        <Text style={styles.address}>
-          {restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
-          {restaurant.zipcode}
-        </Text>
-        <Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
-      </View>
-      <Text style={styles.name}>Menu</Text>
-      <MenuItemsList menuItems={menuItems} isLoading={isLoading} />
+        <Image source={{ uri: restaurant.imageUri }} style={styles.image} />
+        <View style={styles.infoContainer}>
+          <Text style={styles.name}>{restaurant.restaurantName}</Text>
+          <Text style={styles.address}>
+            {restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
+            {restaurant.zipcode}
+          </Text>
+          <Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
+        </View>
+        <Text style={styles.name}>Menu</Text>
+        <MenuItemsList menuItems={menuItems} isLoading={isLoading} />
+      </ScrollView>
+      <FloatingBasketButton />
+      <Button
+        title="Navigate To Screen"
+        onPress={() => navigateToBasketScreen()}
+      />
     </View>
   );
 };
@@ -175,7 +217,7 @@ const RestaurantDetail = ({ route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 5,
     paddingTop: 20,
   },
   image: {
@@ -257,6 +299,26 @@ const styles = StyleSheet.create({
     fontSize: 18, // Adjust the size as desired
     fontWeight: "bold",
     marginBottom: 10, // Add spacing below the text
+  },
+  fabContainer: {
+    backgroundColor: "red", // Your FAB color
+    borderRadius: 50,
+    padding: 16,
+    position: "absolute",
+    bottom: 16,
+    right: 16,
+  },
+  badge: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "black",
+    borderRadius: 10,
+    padding: 4,
+  },
+  badgeText: {
+    color: "white",
+    fontSize: 12,
   },
 });
 

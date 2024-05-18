@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,15 @@ import {
 
 import { Button, SearchBar } from "react-native-elements";
 import RestaurantList from "../../components/customer/RestaurantList";
+import { AuthContext } from "../../context/authContext";
 
 const CustomerDashboard = ({ route, navigation }) => {
   const [searchText, setSearchText] = useState("");
+  const { logout } = useContext(AuthContext);
 
   const handleSignOut = async () => {
     try {
-      await signOut({ global: true });
+      await logout({ global: true });
       navigation.navigate("Welcome");
     } catch (error) {
       console.log("error signing out: ", error);

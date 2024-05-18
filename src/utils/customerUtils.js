@@ -12,7 +12,6 @@ import app, { db } from "../config/firebase";
 
 const fetchRestaurants = async () => {
   try {
-    console.log("Fetching restaurants...");
     const restaurantRef = collection(db, "restaurants");
     const restaurantSnapshot = await getDocs(restaurantRef);
 

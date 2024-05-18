@@ -62,8 +62,6 @@ const MenuItem = ({ item, restaurantId }) => {
     }
   };
 
-  console.log("Restaurant ID from menu", restaurantId);
-
   // Handle item update
   const updateMenuItem = async (restaurantId, menuItemId, menuItemData) => {
     try {
@@ -89,8 +87,9 @@ const MenuItem = ({ item, restaurantId }) => {
       <Image source={{ uri: item.imageUri }} style={styles.image} />
       <View style={styles.infoContainer}>
         <Text style={styles.title}>
-          {item.name} {item.price}
+          {item.name} {item.price.toString()}
         </Text>
+        <Text>{item.category}</Text>
         <Text style={styles.description}>{item.description}</Text>
       </View>
       <Button title="Edit" onPress={handleEdit} />
