@@ -7,6 +7,8 @@ import {
   onSnapshot,
   query,
   where,
+  serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import React, { createContext, useState, useEffect, useContext } from "react";
 import { db } from "../../config/firebase";
@@ -17,6 +19,10 @@ export const BasketProvider = ({ children }) => {
   const [basket, setBasket] = useState([]);
   const [checkedInStatus, setCheckedInStatus] = useState(false);
   const [basketItems, setBasketItems] = useState([]);
+  const [isCheckedin, setIsCheckedin] = useState(false);
+  const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
+
+  // Fetch the basket items from Firestore
 
   const fetchBasket = async (restaurantId, customerId) => {
     const basketsRef = collection(db, "baskets");
@@ -32,6 +38,11 @@ export const BasketProvider = ({ children }) => {
       itemName: doc.data().itemName,
       itemPrice: doc.data().itemPrice,
       selectedPeople: doc.data().selectedPeople,
+      sentToChefQ: doc.data().sentToChefQ,
+      tableNumber: doc.data().tableNumber,
+      restaurantId: doc.data().restaurantId,
+      customerId: doc.data().customerId,
+      timestamp: doc.data().timestamp,
     }));
 
     setBasketItems(fetchedBasketItems);
@@ -80,6 +91,48 @@ export const BasketProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
+  // Sends the order to the chefs Q
+  const sendToChefsQ = async (
+    restaurantId,
+    customerId,
+    tableNumber,
+    isCheckedIn
+  ) => {
+    const basketItems = await fetchBasket(restaurantId, customerId);
+
+    if (!isCheckedIn) return;
+
+    try {
+      setIsSendingToChefsQ(true);
+      const batch = writeBatch(db);
+      const unsentBasketItems = basketItems.filter((item) => !item.sentToChefQ);
+
+      // Only process unsent items
+      if (unsentBasketItems.length > 0) {
+        unsentBasketItems.forEach((item) => {
+          const itemRef = doc(db, "baskets", item.id);
+          batch.update(itemRef, {
+            sentToChefQ: true,
+            tableNumber: tableNumber,
+          });
+        });
+        await batch.commit();
+        console.log("Order sent to chefs Q successfully!");
+      }
+
+      // basketItems.forEach((item) => {
+      //   const itemRef = doc(db, "baskets", item.id);
+      //   batch.update(itemRef, { sentToChefQ: true, tableNumber: tableNumber });
+      // });
+      // await batch.commit();
+      // console.log("Order sent to chefs Q successfully!");
+    } catch (error) {
+      console.error("Error sending order to chefs Q:", error);
+    } finally {
+      setIsSendingToChefsQ(false);
+    }
+  };
+
   return (
     <BasketContext.Provider
       value={{
@@ -90,6 +143,8 @@ export const BasketProvider = ({ children }) => {
         removeItemFromBasket,
         basketItems,
         fetchBasket,
+        sendToChefsQ,
+        isSendingToChefsQ,
       }}
     >
       {children}

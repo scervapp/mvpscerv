@@ -23,6 +23,7 @@ const TableSelectionModal = ({
   const [selectedTableNumber, setSelectedTableNumber] = useState(null);
 
   useEffect(() => {
+    // Function to fetch tables from firestore
     const fetchMyTables = async () => {
       const allTables = await fetchTables(currentRestaurantId);
       const availableTables = allTables.filter(
@@ -31,6 +32,7 @@ const TableSelectionModal = ({
       setTables(availableTables);
     };
 
+    // Only fetch tables if the modal is visible
     if (isVisible) {
       fetchMyTables();
     }
@@ -43,8 +45,6 @@ const TableSelectionModal = ({
   };
 
   const handleConfirm = async () => {
-    console.log("Checkin ID", selectedCheckinId);
-    console.log("Table ID", selectedTableId);
     if (selectedTableId) {
       try {
         //1. Update checkins document in firestore

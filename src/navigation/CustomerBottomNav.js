@@ -12,6 +12,7 @@ import BasketScreen from "../screens/customer/BasketScreen";
 import BackButton from "../utils/BackButton";
 import AccountScreen from "../screens/customer/AccountScreen";
 import PIPSListScreen from "../screens/customer/PIPScreen";
+import CheckoutScreen from "../screens/customer/CheckoutScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -61,11 +62,18 @@ const CustomerBottomNavigation = () => {
       />
       <Tab.Screen
         options={{
-          headerSTitle: "Basket",
+          headerTitle: "Basket",
           headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
         }}
         name="BasketScreen"
         component={BasketScreen}
+      />
+      <Tab.Screen
+        options={{
+          headerShown: false,
+        }}
+        name="CheckoutScreen"
+        component={CheckoutScreen}
       />
       <Tab.Screen
         options={{ headerShown: false }}

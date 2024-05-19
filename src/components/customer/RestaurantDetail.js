@@ -32,6 +32,7 @@ const RestaurantDetail = ({ route, navigation }) => {
   const [partySize, setPartySize] = useState("");
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [basketCount, setBasketCount] = useState(4);
+  const [tableNumber, setTableNumber] = useState(null);
 
   const { addItemToBasket } = useBasket();
 
@@ -86,11 +87,12 @@ const RestaurantDetail = ({ route, navigation }) => {
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
-          const updateStatus = change.doc.data().status;
-          if (updateStatus !== checkInStatus) {
-            setCurrentCheckInId(updateStatus);
+          const updateStatus = change.doc.data();
+          if (updateStatus.status !== checkInStatus) {
+            setCurrentCheckInId(updateStatus.status);
           }
-          setCheckInStatus(updateStatus);
+          setCheckInStatus(updateStatus.status);
+          setTableNumber(updateStatus.tableNumber);
         });
       });
       return () => unsubscribe();

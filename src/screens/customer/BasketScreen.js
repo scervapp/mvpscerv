@@ -2,21 +2,57 @@ import React, { useContext, useEffect, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
-import { AntDesign } from "@expo/vector-icons";
+import { Button, FAB, Portal, Provider } from "react-native-paper";
+import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
 import { useBasket } from "../../context/customer/BasketContext";
 import { AuthContext } from "../../context/authContext";
+import { checkinStatus } from "../../utils/customerUtils";
 
-const BasketScreen = ({ route }) => {
+const BasketScreen = ({ route, navigation }) => {
   const { restaurant } = route.params;
   const { currentUserData } = useContext(AuthContext);
-  const { basketItems, fetchBasket, removeItemFromBasket } = useBasket();
+  const {
+    basketItems,
+    fetchBasket,
+    removeItemFromBasket,
+    sendToChefsQ,
+    isSendingToChefsQ,
+  } = useBasket();
   const [filteredBasketData, setFilteredBasketData] = useState([]);
+  const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [checkinDetails, setCheckinDetails] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Helper function to check if there are unsent items
+  const hasUnsentItems = () => {
+    return filteredBasketData.some((personData) =>
+      personData.items.some((item) => !item.menuItems.sentToChefQ)
+    );
+  };
+
+  // Check the status of the checkin
+  useEffect(() => {
+    const unsubscribeCheckinStatus = checkinStatus(
+      restaurant.uid,
+      currentUserData.uid,
+      (status) => {
+        setIsCheckedIn(status.isCheckedIn);
+        setCheckinDetails(status);
+      }
+    );
+
+    return () => {
+      if (typeof unsubscribeCheckinStatus === "function") {
+        unsubscribeCheckinStatus();
+      } // Clean up the listner
+    };
+  }, [restaurant.uid, currentUserData.uid]);
 
   useEffect(() => {
     const fetchBasketData = async () => {
@@ -58,6 +94,8 @@ const BasketScreen = ({ route }) => {
                 id: basketItem.itemId,
                 name: basketItem.itemName,
                 price: basketItem.itemPrice,
+                sentToChefQ: basketItem.sentToChefQ,
+                tableNumber: basketItem.tableNumber,
               },
               quantity: 1,
             });
@@ -99,64 +137,123 @@ const BasketScreen = ({ route }) => {
   };
 
   const handleSendToChef = async () => {
-    if (filteredBasketData.length > 0) {
-      console.log("Sending to chef's queue");
+    if (filteredBasketData.length > 0 && isCheckedIn) {
+      try {
+        setIsLoading(true);
+
+        // Send the order to the chef's queue and get the order ID
+        const orderId = await sendToChefsQ(
+          restaurant.uid,
+          currentUserData.uid,
+          checkinDetails.tableNumber,
+          isCheckedIn
+        );
+
+        // Navigate to OrderConfirmationScreen, passing the order ID
+        navigation.navigate("CheckoutScreen", { orderId });
+      } catch (error) {
+        console.error("Error sending to chef's queue:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (!isCheckedIn) {
+      Alert.alert("Not Checked In", "Please check in to place an order.");
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {filteredBasketData.length > 0 ? (
-        filteredBasketData.map((personData) => {
-          return (
-            <View key={personData.personId}>
-              <Text style={styles.personHeader}>
-                {personData.pipName} - {personData.totalPrice.toFixed(2)}
-              </Text>
-              {personData.items.map((basketItem, index) => (
-                <View
-                  key={`${personData.personId}_${basketItem.menuItems.id}`}
-                  style={styles.menuItemContainer}
-                >
-                  <TouchableOpacity
-                    onPress={() =>
-                      handleDeleteItem(
-                        personData.personId,
-                        basketItem.menuItems.id
-                      )
-                    }
+    <Provider>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.container}>
+        {filteredBasketData.length > 0 ? (
+          filteredBasketData.map((personData) => {
+            return (
+              <View key={personData.personId}>
+                <Text style={styles.personHeader}>
+                  {personData.pipName} - {personData.totalPrice.toFixed(2)}
+                </Text>
+                {personData.items.map((basketItem, index) => (
+                  <View
+                    key={`${personData.personId}_${basketItem.menuItems.id}`}
+                    style={styles.menuItemContainer}
                   >
-                    <AntDesign name="delete" size={24} color="red" />
-                  </TouchableOpacity>
-                  <Text style={styles.itemName}>
-                    {basketItem.menuItems.name} x {basketItem.quantity} $
-                    {(basketItem.menuItems.price * basketItem.quantity).toFixed(
-                      2
+                    {/* Check if the item is sent to the chefs q */}
+
+                    {basketItem.menuItems.sentToChefQ ? (
+                      <AntDesign
+                        name="checkcircle"
+                        size={20}
+                        color="green"
+                        style={styles.sentToChefsQIcon}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() =>
+                          handleDeleteItem(
+                            personData.personId,
+                            basketItem.menuItems.id
+                          )
+                        }
+                      >
+                        <AntDesign name="delete" size={20} color="red" />
+                      </TouchableOpacity>
                     )}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          );
-        })
-      ) : (
-        <Text>
-          {filteredBasketData.length === 0 ? "Basket is empty" : "Loading..."}
-        </Text>
-      )}
-      <TouchableOpacity
-        style={[
-          styles.sendButton,
-          filteredBasketData.length > 0
-            ? styles.sendButtonActive
-            : styles.sendButtonInactive,
-        ]}
-        onPress={handleSendToChef}
-        disabled={filteredBasketData.length === 0}
-      >
-        <Text style={styles.sendButtonText}>Send To Chef's Q</Text>
-      </TouchableOpacity>
-    </ScrollView>
+
+                    <Text style={styles.itemName}>
+                      {basketItem.menuItems.name} x {basketItem.quantity} $
+                      {(
+                        basketItem.menuItems.price * basketItem.quantity
+                      ).toFixed(2)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })
+        ) : (
+          <Text>
+            {filteredBasketData.length === 0 ? "Basket is empty" : "Loading..."}
+          </Text>
+        )}
+        {isSendingToChefsQ ? (
+          <ActivityIndicator size="large" />
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              isCheckedIn && hasUnsentItems() && filteredBasketData.length > 0
+                ? styles.sendButtonActive
+                : styles.sendButtonInactive,
+            ]}
+            onPress={handleSendToChef}
+            disabled={
+              filteredBasketData.length === 0 ||
+              !isCheckedIn ||
+              !hasUnsentItems()
+            }
+          >
+            <Text style={styles.sendButtonText}>Send To Chef's Q</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      <Portal>
+        {/* Use Portal for correct positioning */}
+        <Button
+          icon={() => (
+            <FontAwesome5 name="credit-card" size={20} color="white" />
+          )}
+          mode="contained"
+          style={styles.checkoutButton}
+          contentStyle={styles.checkoutButtonContent}
+          labelStyle={styles.checkoutButtonLabel}
+          onPress={() => navigation.navigate("CheckoutScreen")}
+          disabled={!isCheckedIn || filteredBasketData.length === 0} // Disable if not checked in or basket is empty
+        >
+          Checkout
+        </Button>
+      </Portal>
+    </Provider>
   );
 };
 
@@ -180,11 +277,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   sendButton: {
-    backgroundColor: "#007AFF",
     padding: 15,
     borderRadius: 8,
     alignItems: "center",
     marginVertical: 10,
+    marginBottom: 20,
   },
   sendButtonText: {
     color: "white",
@@ -194,7 +291,38 @@ const styles = StyleSheet.create({
   sendButtonActive: {
     backgroundColor: "#008000",
   },
-  sendButtonInactive: {},
+  sendButtonInactive: {
+    backgroundColor: "#CCCCCC",
+    marginBottom: 20,
+  },
+  deleteButton: {
+    marginRight: 5,
+  },
+  sentToChefsQIcon: {
+    marginRight: 5,
+  },
+  fab: {
+    position: "absolute",
+    margin: 16,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#FF6C44", // Example color
+  },
+  checkoutButton: {
+    position: "absolute",
+    bottom: 16,
+    right: 16,
+    alignSelf: "flex-end",
+  },
+  checkoutButtonContent: {
+    flexDirection: "column",
+    alignItems: "center", // Center horizontally
+    justifyContent: "center", // Center vertically
+    height: 80, // Adjust height as needed
+  },
+  checkoutButtonLabel: {
+    marginTop: 8,
+  },
 });
 
 export default BasketScreen;

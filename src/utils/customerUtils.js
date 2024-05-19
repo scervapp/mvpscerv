@@ -7,6 +7,7 @@ import {
   where,
   serverTimestamp,
   addDoc,
+  onSnapshot,
 } from "firebase/firestore";
 import app, { db } from "../config/firebase";
 
@@ -49,6 +50,33 @@ const fetchMenu = async (restaurantId) => {
     console.log("Error fetching menu items:", error);
     throw error;
   }
+};
+
+// Get the checkin Status from firestore
+const checkinStatus = async (crestaurantId, customerId, onStatusChange) => {
+  try {
+    const checkinRef = collection(db, "checkIns");
+    const q = query(
+      checkinRef,
+      where("restaurantId", "==", crestaurantId),
+      where("customerId", "==", customerId)
+    );
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      if (!querySnapshot.empty) {
+        const checkInDoc = querySnapshot.docs[0];
+        const checkInData = checkInDoc.data();
+
+        onStatusChange({
+          isCheckedIn: checkInData.status === "ACCEPTED",
+          checkInId: checkInDoc.id,
+          tableNumber: checkInData.tableNumber,
+        });
+      } else {
+        onStatusChange({ isCheckedIn: false });
+      }
+    });
+    return unsubscribe;
+  } catch (error) {}
 };
 
 // Checkin functionality
@@ -94,4 +122,4 @@ const checkIn = async (
   }
 };
 
-export { fetchRestaurants, fetchMenu, checkIn };
+export { fetchRestaurants, fetchMenu, checkIn, checkinStatus };
