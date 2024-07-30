@@ -6,21 +6,6 @@ import colors from "../utils/styles/appStyles";
 const WelcomeScreen = ({ navigation }) => {
   const { currentUser, isLoading, currentUserData } = useContext(AuthContext);
 
-  //   useEffect(() => {
-  //     if (isLoading) {
-  //       return;
-  //     }
-
-  //     if (currentUserData) {
-  //       // Redirect based on user type (restaurant or customer)
-  //       if (currentUserData.role === "restaurant") {
-  //         navigation.replace("RestaurantDashboard");
-  //       } else if (currentUserData.role === "customer") {
-  //         navigation.replace("CustomerDashboard");
-  //       }
-  //     }
-  //   }, [currentUser, isLoading, navigation]);
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Welcome to Scerv</Text>

@@ -7,6 +7,7 @@ import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
 import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
 import RestaurantCheckin from "../screens/restaurant/RestaurantCheckin";
 import TableManagementScreen from "../screens/restaurant/TableManagementScreen";
+import ChefsQScreen from "../screens/restaurant/ChefsQScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -21,6 +22,8 @@ const RestaurantBottomNavigation = () => {
             iconName = focused ? "home" : "home-outline";
           } else if (route.name === "RestaurantProfile") {
             iconName = focused ? "person" : "person-outline";
+          } else if (route.name === "ChefsQ") {
+            iconName = focused ? "cog" : "cog-outline";
           } else if (route.name === "RestaurantMenu") {
             iconName = focused ? "menu" : "menu-outline";
           } else if (route.name === "RestaurantCheckin") {
@@ -48,6 +51,11 @@ const RestaurantBottomNavigation = () => {
         options={{ headerShown: false }}
         name="Tables"
         component={TableManagementScreen}
+      />
+      <Tab.Screen
+        options={{ headerShown: false }}
+        name="ChefsQ"
+        component={ChefsQScreen}
       />
 
       <Tab.Screen

@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import colors from "../../utils/styles/appStyles";
 import { AuthContext } from "../../context/authContext";
+import { ActivityIndicator } from "react-native-paper";
 
 const RestaurantSignup = ({ navigation }) => {
   // State variables for all attributes
@@ -29,6 +30,7 @@ const RestaurantSignup = ({ navigation }) => {
   const handleSignupSubmit = async () => {
     setIsLoading(true);
     try {
+      setSignupError("");
       await signup(
         email,
         password,
@@ -42,7 +44,7 @@ const RestaurantSignup = ({ navigation }) => {
         navigation
       );
     } catch (error) {
-      console.log("Could not signup restaurant", error);
+      setSignupError(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -121,17 +123,17 @@ const RestaurantSignup = ({ navigation }) => {
           {/* ... Input fields for custom attributes */}
         </View>
 
-        <Button
-          title="Sign Up"
-          onPress={handleSignupSubmit}
-          style={styles.button}
-        />
-
         {signupError && (
           <View style={styles.errorArea}>
             <Text style={styles.errorText}>{signupError}</Text>
           </View>
         )}
+        {isLoading && <ActivityIndicator size="large" />}
+        <Button
+          title="Sign Up"
+          onPress={handleSignupSubmit}
+          style={styles.button}
+        />
       </ScrollView>
     </>
   );
@@ -182,6 +184,13 @@ const styles = StyleSheet.create({
   },
   errorArea: {
     // ... Add styles for error display
+  },
+  errorText: {
+    color: "red", // Red is a common color for error messages
+    fontWeight: "bold", // Make the text stand out
+    textAlign: "center", // Center the error message
+    marginTop: 10, // Add some spacing above the error message
+    marginBottom: 10, // Add some spacing below the error message
   },
 });
 

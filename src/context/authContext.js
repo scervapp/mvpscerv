@@ -6,6 +6,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import {
   getFirestore,
@@ -25,6 +26,7 @@ const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState(null);
   const [currentUserData, setCurrentUserData] = useState(null);
 
   const db = getFirestore(app);
@@ -64,6 +66,7 @@ const AuthProvider = ({ children }) => {
 
   const login = async (email, password, navigation) => {
     setIsLoading(true);
+    setLoginError(null);
     try {
       await signInWithEmailAndPassword(auth, email, password).then();
 
@@ -92,9 +95,19 @@ const AuthProvider = ({ children }) => {
         navigation.navigate("RestaurantHome");
       }
     } catch (error) {
-      const errorCode = error.code;
-      const errorMessage = error.message;
-      console.log(errorCode, errorMessage);
+      if (
+        error.code === "auth/invalid-email" ||
+        error.code === "auth/invalid-password"
+      ) {
+        setLoginError("Invalid Credentials");
+      } else if (error.code === "auth/user-not-found") {
+        setLoginError("User not found");
+      } else {
+        setLoginError("An error occurred during login. Please try again.");
+        console.log(" Error logging in ", error);
+      }
+
+      //console.error("Error logging in:", error); // Log the error for debugging
     } finally {
       setIsLoading(false);
     }
@@ -132,11 +145,37 @@ const AuthProvider = ({ children }) => {
         navigation.navigate("RestaurantHome");
       }
     } catch (error) {
-      const errorCode = error.code;
-      const errorMessage = error.message;
-      console.log(errorCode, errorMessage);
+      if (error.code === "auth/email-already-in-use") {
+        throw new Error("Email is already in use");
+      } else if (error.code === "auth/invalid-email") {
+        throw new Error("Invalid email address");
+      } else if (error.code === "auth/weak-password") {
+        throw new Error("Password should be at least 6 characters");
+      } else {
+        throw new Error("An error occurred during signup. Please try again."); // General error
+      }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const sendPasswordResetEmail = async (email) => {
+    try {
+      setIsLoading(true);
+      await sendPasswordResetEmail(auth, email);
+      console.log("Password reset email sent successfully");
+    } catch (error) {
+      console.log("Error sending password reset email", error);
+      // Handle errors appropriately, providing user-friendly messages
+      if (error.code === "auth/invalid-email") {
+        setLoginError("Invalid email address");
+      } else if (error.code === "auth/user-not-found") {
+        setLoginError("User not found");
+      } else {
+        setLoginError("An error occurred. Please try again later.");
+      }
+    } finally {
+      setIsLoading(false); // Hide loading indicator (if used)
     }
   };
 
@@ -172,7 +211,16 @@ const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ currentUser, isLoading, login, signup, logout, currentUserData }}
+      value={{
+        currentUser,
+        isLoading,
+        login,
+        signup,
+        logout,
+        currentUserData,
+        loginError,
+        sendPasswordResetEmail,
+      }}
     >
       {children}
     </AuthContext.Provider>

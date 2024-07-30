@@ -34,7 +34,7 @@ const CustomerSignup = ({ navigation }) => {
         navigation
       );
     } catch (error) {
-      console.log("Could not signup customer", error);
+      setSignupError(error.message);
     }
   };
 
@@ -100,13 +100,6 @@ const CustomerSignup = ({ navigation }) => {
 
         {/* ... Input fields for custom attributes */}
       </View>
-
-      <Button
-        title="Sign Up"
-        onPress={handleSignupSubmit}
-        style={styles.button}
-        disabled={isLoading}
-      />
       {isLoading && (
         <View>
           <ActivityIndicator size="large" />
@@ -117,6 +110,12 @@ const CustomerSignup = ({ navigation }) => {
           <Text style={styles.errorText}>{signupError}</Text>
         </View>
       )}
+      <Button
+        title="Sign Up"
+        onPress={handleSignupSubmit}
+        style={styles.button}
+        disabled={isLoading}
+      />
     </View>
   );
 };
@@ -166,6 +165,13 @@ const styles = StyleSheet.create({
   },
   errorArea: {
     // ... Add styles for error display
+  },
+  errorText: {
+    color: "red", // Red is a common color for error messages
+    fontWeight: "bold", // Make the text stand out
+    textAlign: "center", // Center the error message
+    marginTop: 10, // Add some spacing above the error message
+    marginBottom: 10, // Add some spacing below the error message
   },
 });
 

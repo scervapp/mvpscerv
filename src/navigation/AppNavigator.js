@@ -18,6 +18,8 @@ import BackButton from "../utils/BackButton";
 import BasketScreen from "../screens/customer/BasketScreen";
 import MenuItemsList from "../components/customer/MenuItemsList";
 
+import PasswordResetScreen from "../screens/auth/PasswordResetScreen";
+
 //import CustomerVerification from "../screens/CustomerVerification";
 
 // import Login from "../screens/Login";
@@ -83,6 +85,11 @@ const AppNavigator = () => {
               <Stack.Screen
                 name="CustomerSignup"
                 component={CustomerSignup}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="PasswordReset"
+                component={PasswordResetScreen}
                 options={{ headerShown: false }}
               />
             </>
