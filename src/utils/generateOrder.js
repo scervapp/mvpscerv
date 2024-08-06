@@ -1,20 +1,16 @@
-import { serverTimestamp } from "firebase/firestore";
+function generateOrderId(customerId, restaurantId, timestamp) {
+  const date = new Date(timestamp);
+  const year = date.getFullYear().toString().slice(-2); // Last two digits of the year
+  const month = (date.getMonth() + 1).toString().padStart(2, "0"); // Month (01-12)
+  const day = date.getDate().toString().padStart(2, "0"); // Day (01-31)
+  const hours = date.getHours().toString().padStart(2, "0"); // Hours (00-23)
+  const minutes = date.getMinutes().toString().padStart(2, "0"); // Minutes (00-59)
+  const seconds = date.getSeconds().toString().padStart(2, "0"); // Seconds (00-59)
 
-function generateOrderId(customerId, restaurantId) {
-  const timestamp = serverTimestamp();
-  const date = new Date(timestamp.seconds * 1000); // Convert to milliseconds for Date object
-
-  const year = date.getFullYear().toString();
-  const month = (date.getMonth() + 1).toString().padStart(2, "0"); // Month is 0-indexed
-  const day = date.getDate().toString().padStart(2, "0");
-
-  // Customer-specific part (use a hash or substring of customerId)
-  const customerIdentifier = customerId.slice(-4); // Last 4 characters of ID
-
-  // Combine into a unique order ID
-  const orderId = `${year}-${month}-${day}-${customerIdentifier}-${restaurantId}`;
+  // Combine parts to form the order ID
+  const orderId = `${restaurantId.slice(0, 3)}-${customerId.slice(
+    -4
+  )}-${year}${month}${day}${hours}${minutes}${seconds}`;
 
   return orderId;
 }
-
-export default generateOrderId;

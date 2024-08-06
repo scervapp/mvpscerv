@@ -5,6 +5,7 @@ const colors = {
   background: "#F0F0F0", // Example light gray background
   text: "#333333", // Dark text
   inputBackground: "#f0f0f0",
+  warning: "#FF6C44", // light yellow color
 };
 
 export default colors;

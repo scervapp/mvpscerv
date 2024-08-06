@@ -8,6 +8,10 @@ import {
   serverTimestamp,
   addDoc,
   onSnapshot,
+  deleteDoc,
+  doc,
+  updateDoc,
+  setDoc,
 } from "firebase/firestore";
 import app, { db } from "../config/firebase";
 
@@ -53,12 +57,12 @@ const fetchMenu = async (restaurantId) => {
 };
 
 // Get the checkin Status from firestore
-const checkinStatus = async (crestaurantId, customerId, onStatusChange) => {
+const checkinStatus = async (restaurantId, customerId, onStatusChange) => {
   try {
     const checkinRef = collection(db, "checkIns");
     const q = query(
       checkinRef,
-      where("restaurantId", "==", crestaurantId),
+      where("restaurantId", "==", restaurantId),
       where("customerId", "==", customerId)
     );
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -80,46 +84,76 @@ const checkinStatus = async (crestaurantId, customerId, onStatusChange) => {
 };
 
 // Checkin functionality
-const checkIn = async (
-  restaurantId,
-  customerId,
-  numberOfPeople,
-  customerName
-) => {
+const checkIn = async (restaurantId, customerId, partySize, customerName) => {
   try {
-    // Set loading state to true
+    // 1. Query Firestore to find any existing check-in requests for this user and restaurant
+    const checkInsRef = collection(db, "checkIns");
+    const q = query(
+      checkInsRef,
+      where("restaurantId", "==", restaurantId),
+      where("customerId", "==", customerId)
+    );
 
-    // Create a new check-in document
-    const checkInRef = collection(db, "checkIns");
-    const checkInDoc = await addDoc(checkInRef, {
-      restaurantId,
-      customerId,
-      numberOfPeople,
-      status: "REQUESTED",
-      //firestore time stamp
-      timestamp: serverTimestamp(),
-      customerName: customerName,
-    });
+    const querySnapshot = await getDocs(q);
 
-    // create notification for the restaurant
-    await addDoc(collection(db, "notifications"), {
-      restaurantId,
-      customerId,
-      checkInId: checkInDoc.id,
-      type: "checkIn",
-      isRead: false,
-      customerName: customerName,
-      timestamp: serverTimestamp(),
-      status: "pending",
-      numberOfPeople: numberOfPeople,
-    });
-
-    // Update the local state for immediate UI feedBack
-    return { success: true, checkInId: checkInDoc.id };
+    if (!querySnapshot.empty) {
+      // If a check-in request already exists, update it
+      const checkInDoc = querySnapshot.docs[0];
+      await updateDoc(checkInDoc.ref, {
+        partySize: parseInt(partySize, 10), // Convert to number
+        status: "REQUESTED",
+        timestamp: new Date(),
+      });
+      return { success: true, checkInId: checkInDoc.id };
+    } else {
+      // If no check-in request exists, create a new one
+      const checkInRef = doc(collection(db, "checkIns"));
+      await setDoc(checkInRef, {
+        restaurantId: restaurantId,
+        customerId: customerId,
+        partySize: parseInt(partySize, 10),
+        customerName,
+        status: "REQUESTED",
+        timestamp: new Date(),
+      });
+      return { success: true, checkInId: checkInRef.id };
+    }
   } catch (error) {
-    console.log("Error checking in:", error);
+    console.error("Error checking in:", error);
+    throw error;
+  }
+};
+// Function to cancel a check-in request
+const cancelCheckIn = async (restaurantId, customerId) => {
+  try {
+    // 1. Query Firestore to find the check-in document
+    const checkInsRef = collection(db, "checkIns");
+    const q = query(
+      checkInsRef,
+      where("restaurantId", "==", restaurantId),
+      where("customerId", "==", customerId),
+      where("status", "==", "REQUESTED") // Only cancel if status is "requested"
+    );
+
+    const querySnapshot = await getDocs(q);
+
+    if (!querySnapshot.empty) {
+      const checkInDoc = querySnapshot.docs[0];
+
+      // 2. Delete the check-in document
+      await deleteDoc(doc(db, "checkIns", checkInDoc.id));
+
+      console.log("Check-in request cancelled successfully!");
+      return true; // Indicate success
+    } else {
+      console.warn("No pending check-in request found to cancel.");
+      return false; // Indicate no pending request found
+    }
+  } catch (error) {
+    console.error("Error cancelling check-in:", error);
+    // You might want to throw the error here to handle it in the calling component
     throw error;
   }
 };
 
-export { fetchRestaurants, fetchMenu, checkIn, checkinStatus };
+export { fetchRestaurants, fetchMenu, checkIn, checkinStatus, cancelCheckIn };
