@@ -1,41 +1,32 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
-import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import React, { useContext, useEffect, useState } from "react";
+import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { SafeAreaView, View, ActivityIndicator } from "react-native";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
+
+import { AuthContext } from "../context/authContext";
+import { BasketProvider } from "../context/customer/BasketContext";
+import { db } from "../config/firebase";
+
+// Import your screen components
 import WelcomeScreen from "../screens/WelcomeScreen";
 import CustomerSignup from "../screens/auth/CustomerSignupScreen";
 import RestaurantSignup from "../screens/auth/RestaurantSignupScreen";
-
-import colors from "../utils/styles/appStyles";
-import { SafeAreaView } from "react-native";
 import Login from "../screens/LoginScreen";
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
 import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
-import { AuthContext } from "../context/authContext";
 import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
 import RestaurantBottomNavigation from "./RestaurantBottomNav";
 import CustomerBottomNavigation from "./CustomerBottomNav";
-import BackButton from "../utils/BackButton";
-import BasketScreen from "../screens/customer/BasketScreen";
-import MenuItemsList from "../components/customer/MenuItemsList";
-
 import PasswordResetScreen from "../screens/auth/PasswordResetScreen";
-
-//import CustomerVerification from "../screens/CustomerVerification";
-
-// import Login from "../screens/Login";
-// import decodeIdToken from "../utils/decodedIdToken";
-// import { checkAuthStatus } from "../service/authService";
-// import { useAuth } from "../context/authContext";
-// import RestaurantProfile from "../screens/RestaurantProfile";
-// import { SafeAreaView } from "react-native";
-// import colors from "../styles/appStyles";
-// import RestaurantDetail from "../components/Customer/RestaurantDetail";
+import colors from "../utils/styles/appStyles";
 
 const Stack = createNativeStackNavigator();
 const navigationRef = React.createRef();
 
 const AppNavigator = () => {
-  const { currentUser, isLoading, currentUserData } = useContext(AuthContext);
+  const { currentUserData } = useContext(AuthContext);
+  const [isLoading, setIsLoading] = useState(true);
 
   return (
     <SafeAreaView

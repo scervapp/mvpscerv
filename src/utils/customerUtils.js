@@ -49,38 +49,72 @@ const fetchMenu = async (restaurantId) => {
       id: doc.id,
       ...doc.data(),
     }));
+
     return menuItems;
   } catch (error) {
-    console.log("Error fetching menu items:", error);
-    throw error;
+    console.error("Error fetching menu items:", error);
+    // Handle errors based on Firebase error codes
+    if (error.code === "permission-denied") {
+      throw new Error("You do not have permission to access this menu.");
+    } else if (error.code === "unavailable") {
+      throw new Error(
+        "The menu is currently unavailable. Please try again later."
+      );
+    } else {
+      throw new Error(
+        "An error occurred while fetching the menu. Please try again."
+      );
+    }
   }
 };
 
-// Get the checkin Status from firestore
-const checkinStatus = async (restaurantId, customerId, onStatusChange) => {
-  try {
-    const checkinRef = collection(db, "checkIns");
-    const q = query(
-      checkinRef,
-      where("restaurantId", "==", restaurantId),
-      where("customerId", "==", customerId)
-    );
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      if (!querySnapshot.empty) {
-        const checkInDoc = querySnapshot.docs[0];
-        const checkInData = checkInDoc.data();
+const useCheckInStatus = (restaurantId, customerId) => {
+  const [checkInStatus, setCheckInStatus] = useState(null);
+  const [tableNumber, setTableNumber] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-        onStatusChange({
-          isCheckedIn: checkInData.status === "ACCEPTED",
-          checkInId: checkInDoc.id,
-          tableNumber: checkInData.tableNumber,
+  useEffect(() => {
+    const fetchCheckInStatus = async () => {
+      try {
+        setIsLoading(true);
+
+        // Query Firestore for check-ins that match the restaurant and user
+        const q = query(
+          collection(db, "checkIns"),
+          where("restaurantId", "==", restaurantId),
+          where("customerId", "==", customerId)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          if (!snapshot.empty) {
+            // If a matching check-in is found (regardless of its status)
+            const checkInData = snapshot.docs[0].data();
+            setCheckInStatus(checkInData.status);
+
+            // Only set tableNumber if the status is "accepted"
+            if (checkInData.status === "accepted") {
+              setTableNumber(checkInData.tableNumber);
+            } else {
+              setTableNumber(null); // Reset tableNumber if not accepted
+            }
+          } else {
+            setCheckInStatus("notCheckedIn");
+            setTableNumber(null); // Reset tableNumber if no check-in found
+          }
         });
-      } else {
-        onStatusChange({ isCheckedIn: false });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error("Error fetching checkin status:", error);
+        // Handle the error here (e.g., set an error state or display a message)
+      } finally {
+        setIsLoading(false);
       }
-    });
-    return unsubscribe;
-  } catch (error) {}
+    };
+
+    fetchCheckInStatus();
+  }, [restaurantId, customerId]);
+  return { checkInStatus, isLoading };
 };
 
 // Checkin functionality
@@ -146,7 +180,7 @@ const cancelCheckIn = async (restaurantId, customerId) => {
       console.log("Check-in request cancelled successfully!");
       return true; // Indicate success
     } else {
-      console.warn("No pending check-in request found to cancel.");
+      console.warn("No pending check-in requestg found to cancel.");
       return false; // Indicate no pending request found
     }
   } catch (error) {
@@ -156,4 +190,10 @@ const cancelCheckIn = async (restaurantId, customerId) => {
   }
 };
 
-export { fetchRestaurants, fetchMenu, checkIn, checkinStatus, cancelCheckIn };
+export {
+  fetchRestaurants,
+  fetchMenu,
+  checkIn,
+  cancelCheckIn,
+  useCheckInStatus,
+};

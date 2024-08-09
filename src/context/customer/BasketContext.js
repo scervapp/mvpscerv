@@ -35,27 +35,55 @@ export const BasketProvider = ({ children }) => {
   const [basketError, setBasketError] = useState(null);
   const [checkedInStatus, setCheckedInStatus] = useState(false);
   const [basketItems, setBasketItems] = useState([]);
-  const [isCheckedin, setIsCheckedin] = useState(false);
   const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
 
   // Fetch the basket for the logged in user when the component mounts
+  // Fetch basket data when the component mounts or current user changes
   useEffect(() => {
-    if (currentUser) {
-      const fetchBaskets = async () => {
-        try {
-          const basketsRef = collection(db, "baskets");
-          const querySnapshot = await getDoc(doc(basketsRef, currentUser.uid));
+    let unsubscribe; // Declare unsubscribe variable outside to allow cleanup
 
-          if (querySnapshot.exists()) {
-            setBaskets(querySnapshot.data());
+    const fetchBaskets = async () => {
+      if (!currentUser) {
+        return;
+      }
+
+      try {
+        const userBasketRef = doc(db, "baskets", currentUser.uid);
+
+        unsubscribe = onSnapshot(userBasketRef, (docSnapshot) => {
+          console.log("checking for baskets...");
+          // Use onSnapshot for real-time updates
+          if (docSnapshot.exists()) {
+            setBaskets(docSnapshot.data());
+            console.log("Baskets we fetched", baskets);
+          } else {
+            // Handle the case where no basket document exists for the user (e.g., new user)
+            // You might want to create an empty basket document here if needed
+            // await setDoc(userBasketRef, {});
+            setBaskets({}); // Set baskets to an empty object if the document doesn't exist
+            console.log("No baskets found", baskets);
           }
-        } catch (error) {
-          console.error("Error Fetching baskets", error);
-          setBasketError(error.message);
-        }
-      };
-      fetchBaskets();
-    }
+          //  setIsLoading(false); // Data fetching is complete, set isLoading to false
+        });
+      } catch (error) {
+        console.error("Error fetching baskets:", error);
+        setBasketError(error.message); // Set an error state in your context if you have one
+        // You might want to display an error message to the user here
+        Alert.alert(
+          "Error",
+          "Failed to fetch your basket. Please try again later."
+        );
+      }
+    };
+
+    fetchBaskets();
+
+    // Cleanup function to unsubscribe from the listener when the component unmounts or currentUserData changes
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [currentUser]);
 
   const addItemToBasket = async (
@@ -64,7 +92,7 @@ export const BasketProvider = ({ children }) => {
     specialInstructions = ""
   ) => {
     try {
-      setBasketError(null); // clear any previous errors
+      setBasketError(null); // Clear previous errors
       if (!currentUser) {
         throw new Error("You need to be logged in to add items to the basket.");
       }
@@ -83,7 +111,7 @@ export const BasketProvider = ({ children }) => {
       );
 
       if (existingDishIndex > -1) {
-        //If the dish exists, update its quantity
+        // If the dish exists, update its quantity
         const updatedItem = {
           ...currentBasket.items[existingDishIndex],
           quantity: currentBasket.items[existingDishIndex].quantity + 1,
@@ -91,10 +119,11 @@ export const BasketProvider = ({ children }) => {
 
         // Update the item in the firestore document
         await updateDoc(userBasketRef, {
-          [`${restaurantId}.items.${existingDishIndex}`]: updatedItem,
+          [`<span class="math-inline">\{restaurantId\}\.items\.</span>{existingDishIndex}`]:
+            updatedItem,
         });
 
-        // update the local state
+        // Update the local state
         currentBasket.items[existingDishIndex] = updatedItem;
       } else {
         // If the dish is new, create a new entry
@@ -109,11 +138,11 @@ export const BasketProvider = ({ children }) => {
           [`${restaurantId}.items`]: arrayUnion(newItem),
         });
 
-        // Update teh local state
+        // Update the local state
         currentBasket.items.push(newItem);
       }
 
-      // UPdate the overall baskets state
+      // Update the overall baskets state
       setBaskets({ ...baskets, [restaurantId]: currentBasket });
     } catch (error) {
       setBasketError(error.message);
@@ -128,33 +157,31 @@ export const BasketProvider = ({ children }) => {
           "You need to be logged in to remove items from the basket."
         );
       }
+
       const userBasketRef = doc(db, "baskets", currentUser.uid);
 
-      // find the idnex of the dish to remove
+      // Find the index of the dish to remove
       const currentBasket = baskets[restaurantId];
       const dishIndex = currentBasket.items.findIndex(
         (item) => item.dish.id === dishId
       );
 
       if (dishIndex === -1) {
-        // Dish not found. handle accordingly
-        setBasketError("Dish not found in basket.");
-
-        console.log("Dish not found in basket.");
+        // Dish not found, handle accordingly (maybe log an error)
         return;
       }
 
-      // Remove the dish from the firestore document
+      // Remove the dish from the Firestore document
       await updateDoc(userBasketRef, {
         [`${restaurantId}.items`]: arrayRemove(currentBasket.items[dishIndex]),
       });
 
-      // Update the lcoal state
+      // Update the local state
       const updatedItems = currentBasket.items.filter(
         (_, index) => index !== dishIndex
       );
       setBaskets({
-        baskfets,
+        ...baskets,
         [restaurantId]: { ...currentBasket, items: updatedItems },
       });
     } catch (error) {
@@ -171,26 +198,21 @@ export const BasketProvider = ({ children }) => {
     });
   };
 
-  const sendToChefsQ = async (
-    restaurantId,
-    customerId,
-    tableNumber,
-    isCheckedIn
-  ) => {
+  const sendToChefsQ = async (restaurantId) => {
     try {
       setIsSendingToChefsQ(true);
 
-      // 1. Check if user is checked in
-      if (!isCheckedIn) {
+      // 1. Check if the user is checked in
+      if (!customerCheckIn || customerCheckIn.restaurantId !== restaurantId) {
         throw new Error(
           "You must be checked in to this restaurant to place an order."
         );
       }
 
-      // 2. Get the current basket from the BasketContext (assuming you have a way to access it)
+      // 2. Get the current basket
       const currentBasket = baskets[restaurantId];
 
-      // 3. If there are no items in the basket, show a message or return
+      // 3. If the basket is empty, show a message or return
       if (!currentBasket || currentBasket.items.length === 0) {
         throw new Error(
           "Your basket is empty. Please add items before placing an order."
@@ -274,195 +296,6 @@ export const BasketProvider = ({ children }) => {
     }
   };
 
-  // const fetchBasket = async (restaurantId, customerId) => {
-  //   const basketsRef = collection(db, "baskets");
-  //   const q = query(
-  //     basketsRef,
-  //     where("customerId", "==", customerId),
-  //     where("restaurantId", "==", restaurantId)
-  //   );
-  //   const querySnapshot = await getDocs(q);
-  //   const fetchedBasketItems = querySnapshot.docs.map((doc) => ({
-  //     id: doc.id,
-  //     itemId: doc.id,
-  //     itemName: doc.data().itemName,
-  //     itemPrice: doc.data().itemPrice,
-  //     selectedPeople: doc.data().selectedPeople,
-  //     sentToChefQ: doc.data().sentToChefQ,
-  //     tableNumber: doc.data().tableNumber,
-  //     restaurantId: doc.data().restaurantId,
-  //     customerId: doc.data().customerId,
-  //     timestamp: doc.data().timestamp,
-  //   }));
-
-  //   setBasketItems(fetchedBasketItems);
-  //   return fetchedBasketItems;
-  // };
-
-  // const addItemToBasket = async (menuItem, selectedPeople, customerId) => {
-  //   const basketItem = {
-  //     itemId: menuItem.id,
-  //     itemName: menuItem.name,
-  //     itemPrice: menuItem.price,
-  //     selectedPeople,
-  //     customerId: customerId,
-  //     restaurantId: menuItem.restaurantId,
-  //   };
-
-  //   await addDoc(collection(db, "baskets"), basketItem);
-  //   await fetchBasket(menuItem.restaurantId, customerId);
-  // };
-
-  // const removeItemFromBasket = async (
-  //   restaurantId,
-  //   customerId,
-  //   personId,
-  //   itemId
-  // ) => {
-  //   try {
-  //     const docRef = doc(db, "baskets", itemId);
-  //     await deleteDoc(docRef);
-  //     await fetchBasket(restaurantId, customerId);
-  //   } catch (error) {
-  //     console.error("Error removing item from basket:", error);
-  //   }
-  // };
-
-  // useEffect(() => {
-  //   const unsubscribe = onSnapshot(
-  //     collection(db, "baskets"),
-  //     (querySnapshot) => {
-  //       querySnapshot.docs.forEach(async (doc) => {
-  //         const data = doc.data();
-  //         await fetchBasket(data.restaurantId, data.customerId);
-  //       });
-  //     }
-  //   );
-  //   return () => unsubscribe();
-  // }, []);
-
-  // Sends the order to the chefs Q
-  // const sendToChefsQ = async (
-  //   restaurantId,
-  //   customerId,
-  //   tableNumber,
-  //   isCheckedIn
-  // ) => {
-  //   try {
-  //     setIsSendingToChefsQ(true);
-
-  //     // 1. Fetch all items associated with the customer and restaurant
-  //     const basketItems = await fetchBasket(restaurantId, customerId);
-
-  //     // 2. Check if user is checked in (optional, based on your requirements)
-  //     if (!isCheckedIn) {
-  //       console.warn("User is not checked in. Cannot send order.");
-  //       return;
-  //     }
-
-  //     // 3. Filter basketItems for unsent items
-  //     const unsentBasketItems = basketItems.filter((item) => !item.sentToChefQ);
-
-  //     // 4. If there are no unsent items, show a message or return
-  //     if (unsentBasketItems.length === 0) {
-  //       console.log("No new items to send to chef's queue.");
-  //       return;
-  //     }
-
-  //     // 5. Combine unsent basket items into a single order object (sentToChefAt is now at the top level)
-  //     const orderData = {
-  //       customerId,
-
-  //       restaurantId,
-  //       tableNumber,
-  //       timestamp: serverTimestamp(),
-  //       items: unsentBasketItems.flatMap((item) => {
-  //         return Object.keys(item.selectedPeople)
-  //           .filter((personId) => item.selectedPeople[personId])
-  //           .map((personId) => {
-  //             const pip = item.selectedPeople.find((p) => p.id === personId);
-  //             return {
-  //               itemId: item.itemId,
-  //               itemName: item.itemName,
-  //               itemPrice: item.itemPrice,
-  //               quantity: 1, // Assuming each document represents one quantity
-  //               specialInstructions: item.specialInstructions || "",
-  //               pipName: pip?.name || "Guest",
-  //             };
-  //           });
-  //       }),
-  //       orderStatus: "pending",
-  //       paymentStatus: "unpaid",
-  //       sentToChefAt: serverTimestamp(), // Add the timestamp here
-  //     };
-
-  //     // 6. Check if an order already exists for this check-in
-  //     const existingOrderQuery = query(
-  //       collection(db, "orders"),
-  //       where("customerId", "==", customerId),
-  //       where("restaurantId", "==", restaurantId),
-  //       where("orderStatus", "==", "pending")
-  //     );
-  //     const existingOrderSnapshot = await getDocs(existingOrderQuery);
-  //     let orderRef; // Reference to the order document
-
-  //     if (existingOrderSnapshot.empty) {
-  //       orderData.totalPrice = orderData.items.reduce(
-  //         (total, item) => total + item.itemPrice,
-  //         0
-  //       );
-  //       // 7a. No existing order, create a new one
-  //       orderRef = addDoc(collection(db, "orders"), orderData); // Create a new document reference
-
-  //       // Generate unique order ID here
-  //       const orderId = generateOrderId(customerId, restaurantId);
-  //       orderData.orderId = orderId;
-  //       await setDoc(orderRef, orderData); // Include generated order ID
-  //     } else {
-  //       // 7b. Existing order found, use its reference
-  //       orderRef = existingOrderSnapshot.docs[0].ref;
-  //       const orderSnap = await getDoc(orderRef); // Get the data of the existing order
-  //       orderData.totalPrice = orderData.items.reduce(
-  //         (total, item) => total + item.itemPrice,
-  //         0
-  //       );
-
-  //       // 8. Update the order with new items and update total price
-  //       await updateDoc(orderRef, {
-  //         items: arrayUnion(...orderData.items),
-  //         totalPrice: orderSnap.data().totalPrice + orderData.totalPrice,
-  //       });
-  //     }
-
-  //     // 9. Update basketItems in Firestore to mark them as sentToChefQ = true
-  //     const batch = writeBatch(db); // Use a batch write for efficiency
-  //     unsentBasketItems.forEach((item) => {
-  //       const itemRef = doc(db, "baskets", item.id);
-  //       batch.update(itemRef, { sentToChefQ: true, tableNumber: tableNumber });
-  //     });
-  //     await batch.commit();
-
-  //     // 10. Clear the basket (or just remove the sent items)
-  //     setBasketItems(basketItems.filter((item) => item.sentToChefQ));
-
-  //     const orderSnap = await getDoc(orderRef);
-
-  //     const orderId = generateOrderId(
-  //       orderData.customerId,
-  //       orderData.restaurantId,
-  //       orderSnap.data().timestamp
-  //     );
-  //     await updateDoc(orderRef, { orderId });
-  //     console.log("Order sent to chefs Q successfully!");
-  //     return orderRef.id;
-  //   } catch (error) {
-  //     console.error("Error sending order to chefs Q:", error);
-  //     // Handle errors here (e.g., show error message)
-  //   } finally {
-  //     setIsSendingToChefsQ(false);
-  //   }
-  // };
-
   return (
     <BasketContext.Provider
       value={{
@@ -472,6 +305,7 @@ export const BasketProvider = ({ children }) => {
         addItemToBasket,
         removeItemFromBasket,
         basketItems,
+        baskets,
 
         sendToChefsQ,
         isSendingToChefsQ,

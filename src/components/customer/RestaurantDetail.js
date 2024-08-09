@@ -14,9 +14,9 @@ import {
 } from "react-native";
 import {
   checkIn,
-  checkinStatus,
   fetchMenu,
   cancelCheckIn,
+  useCheckInStatus,
 } from "../../utils/customerUtils";
 import MenuItemsList from "./MenuItemsList";
 import { AuthContext } from "../../context/authContext";
@@ -38,6 +38,7 @@ import colors from "../../utils/styles/appStyles";
 const RestaurantDetail = ({ route, navigation }) => {
   // 1: Extract the restaurant data from the route parameters and retrieve context values
   const { restaurant } = route.params;
+
   const { currentUserData } = useContext(AuthContext);
   const { baskets, sendToChefsQ, clearBasket } = useBasket();
 
@@ -48,55 +49,17 @@ const RestaurantDetail = ({ route, navigation }) => {
   const basketCount = restaurantBasket?.items?.length || 0;
 
   // 2. State variables for UI and data
-  const [isLoading, setIsLoading] = useState(true);
-  const [checkInStatus, setCheckInStatus] = useState(null); // fetch initial status
+  const [isLoading, setIsLoading] = useState(false); // fetch initial status
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [partySize, setPartySize] = useState("");
   const [menuItems, setMenuItems] = useState([]);
-  const [tableNumber, setTableNumber] = useState(null);
 
   // 3. Effect to fetch initial check-in status
-  useEffect(() => {
-    const fetchCheckInStatus = async () => {
-      try {
-        setIsLoading(true);
-
-        // Query Firestore for check-ins that match the restaurant and user
-        const q = query(
-          collection(db, "checkIns"),
-          where("restaurantId", "==", restaurant.id),
-          where("customerId", "==", currentUserData.uid)
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-          if (!snapshot.empty) {
-            // If a matching check-in is found (regardless of its status)
-            const checkInData = snapshot.docs[0].data();
-            setCheckInStatus(checkInData.status);
-
-            // Only set tableNumber if the status is "accepted"
-            if (checkInData.status === "accepted") {
-              setTableNumber(checkInData.tableNumber);
-            } else {
-              setTableNumber(null); // Reset tableNumber if not accepted
-            }
-          } else {
-            setCheckInStatus("notCheckedIn");
-            setTableNumber(null); // Reset tableNumber if no check-in found
-          }
-        });
-
-        return () => unsubscribe();
-      } catch (error) {
-        console.error("Error fetching checkin status:", error);
-        // Handle the error here (e.g., set an error state or display a message)
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCheckInStatus();
-  }, [restaurant.id, currentUserData.uid]);
+  const {
+    checkInStatus,
+    tableNumber,
+    isLoading: isLoadingCheckIn,
+  } = useCheckInStatus(restaurant.id, currentUserData.uid);
 
   // 4. Effect to fetch menu items for the restaurant
   useEffect(() => {
@@ -133,9 +96,6 @@ const RestaurantDetail = ({ route, navigation }) => {
         await updateDoc(doc(db, "checkIns", checkInId), {
           status: "REQUESTED",
         });
-
-        // Update local state to reflect the requested status
-        setCheckInStatus("REQUESTED");
       } else {
         Alert.alert("Check-In Failed", "Please try again later.");
       }
@@ -154,8 +114,6 @@ const RestaurantDetail = ({ route, navigation }) => {
       const success = await cancelCheckIn(restaurant.id, currentUserData.uid);
 
       if (success) {
-        // Update local state to reflect cancellation
-        setCheckInStatus("notCheckedIn");
         Alert.alert("Success", "Your check-in request has been cancelled.");
       } else {
         // Handle cancellation failure (e.g., show error message)
@@ -182,10 +140,8 @@ const RestaurantDetail = ({ route, navigation }) => {
   });
 
   const navigateToBasketScreen = () => {
-    console.log("navigateToBasketScreen");
     navigation.navigate("BasketScreen", {
       restaurant,
-      checkInId: currentCheckInId,
     });
   };
 
@@ -193,10 +149,10 @@ const RestaurantDetail = ({ route, navigation }) => {
   const FloatingBasketButton = () => {
     return (
       <TouchableOpacity
-        style={{ backgroundColor: "blue" }}
+        style={styles.fabContainer}
         onPress={() => navigateToBasketScreen()}
       >
-        <View style={styles.fabContainer}>
+        <View style={styles.fabContent}>
           <MaterialCommunityIcons name="basket" size={32} color="white" />
           {basketCount > 0 && (
             <View style={styles.badge}>
@@ -446,6 +402,11 @@ const styles = StyleSheet.create({
     bottom: 16,
     right: 16,
   },
+  fabContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   badge: {
     position: "absolute",
     top: -8,

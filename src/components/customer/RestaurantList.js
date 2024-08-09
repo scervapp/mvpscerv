@@ -34,7 +34,10 @@ const RestaurantList = () => {
   );
 
   const handleRestaurantPress = (restaurant) => {
-    navigation.navigate("RestaurantDetail", { restaurant });
+    navigation.navigate("RestaurantDetail", {
+      screen: "RestaurantDetail",
+      params: { restaurant },
+    });
   };
 
   return (
