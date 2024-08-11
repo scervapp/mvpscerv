@@ -1,63 +1,149 @@
-import React from "react";
-import { Button, TouchableOpacity } from "react-native";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useState, useContext } from "react";
+import {
+  View,
+  Text,
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+} from "react-native";
+import { Checkbox, Button } from "react-native-paper";
+import colors from "../../utils/styles/appStyles";
 
 const SelectedItemModal = ({
+  visible,
   selectedItem,
-  handlePipSelection,
+  onClose,
   pips,
-  handleConfirmSelection,
+  selectedPIPs,
+  confirmAddToBasket,
+  handlePIPSelection,
 }) => {
-  return (
-    <View style={styles.modalContainer}>
-      {selectedItem ? (
-        <View>
-          <Text style={styles.itemName}>{selectedItem.item.name}</Text>
-          {/* ... other details (price, description) */}
+  const [customerError, setCustomerError] = useState("");
 
-          <Text style={styles.sectionTitle}>Choose People</Text>
-          {pips && Array.isArray(pips) ? (
-            pips.map((pip) => (
-              <TouchableOpacity
-                key={pip.id}
-                onPress={() => handlePipSelection(pip.id, selectedItem.item.id)}
-                style={[
-                  styles.pipWithCheckbox,
-                  selectedItem.selectedPeople[pip.id] && styles.selectedPip,
-                ]}
-              >
-                <Text style={styles.pipLabel}>{pip.name}</Text>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <Text>Loading pips...</Text>
-          )}
-        </View>
-      ) : (
-        <Text>Loading Item details...</Text>
-      )}
-      <Button title="Add To Basket" onPress={handleConfirmSelection} />
-    </View>
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalContainer}>
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          {/* Item Details */}
+          <View style={styles.itemDetailsContainer}>
+            <Text style={styles.itemName}>{selectedItem?.name}</Text>
+            {selectedItem?.description && (
+              <Text style={styles.itemDescription}>
+                {selectedItem?.description}
+              </Text>
+            )}
+            <Text style={styles.itemPrice}>${selectedItem?.price}</Text>
+          </View>
+
+          {/* PIP Selection */}
+          <View>
+            <Text style={styles.sectionTitle}>Select for:</Text>
+            {customerError ? (
+              <Text style={styles.errorText}>Error: {customerError}</Text>
+            ) : pips.length > 0 ? (
+              pips.map((pip) => (
+                <TouchableOpacity
+                  key={pip.id}
+                  style={styles.pipCheckbox}
+                  onPress={() => handlePIPSelection(pip.id)}
+                >
+                  <Checkbox
+                    status={
+                      selectedPIPs.some(
+                        (selectedPip) => selectedPip.id === pip.id
+                      )
+                        ? "checked"
+                        : "unchecked"
+                    }
+                    onPress={() => handlePIPSelection(pip.id)}
+                    color={colors.primary}
+                  />
+                  <Text>{pip.name}</Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text>No PIPs found.</Text>
+            )}
+          </View>
+
+          {/* Buttons */}
+          <View style={styles.buttonContainer}>
+            <Button
+              mode="contained"
+              onPress={confirmAddToBasket}
+              style={styles.addButton}
+            >
+              Add to Basket
+            </Button>
+            <Button onPress={onClose}>Cancel</Button>
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
   );
 };
+
 const styles = StyleSheet.create({
-  // ... your modal styles ...
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 10,
+    width: "80%",
+    maxHeight: "80%",
+    backgroundColor: "white",
+  },
+  itemDetailsContainer: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
   itemName: {
     fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 15,
     marginBottom: 5,
   },
-  pipWithCheckbox: {
-    // ...
+  itemDescription: {
+    fontSize: 16,
+    marginBottom: 10,
+    textAlign: "center",
   },
-  selectedPip: {
-    backgroundColor: "lightblue",
+  itemPrice: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "black",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  pipCheckbox: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    marginTop: 20,
+  },
+  addButton: {
+    backgroundColor: colors.primary,
+    marginRight: 10,
+  },
+  errorText: {
+    color: "red",
+    marginBottom: 10,
+    textAlign: "center",
   },
 });
 

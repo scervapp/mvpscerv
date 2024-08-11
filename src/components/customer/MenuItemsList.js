@@ -7,6 +7,7 @@ import {
   Image,
   TouchableOpacity,
   Modal,
+  Alert,
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
 import { Button, Snackbar } from "react-native-paper";
@@ -19,9 +20,11 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
   const { currentUserData } = useContext(AuthContext);
   const { addItemToBasket } = useBasket();
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [selectedItems, setSelectedItems] = useState({});
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedPIPs, setSelectedPIPs] = useState([]);
   const [pips, setPips] = useState([]);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [specialInstructions, setSpecialInstructions] = useState("");
 
   const showSnackbar = () => {
     setSnackbarVisible(true);
@@ -46,50 +49,39 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
   }, [currentUserData.uid]);
 
   const handleAddToBasket = (menuItem) => {
-    setSelectedItems((prevItems) => ({
-      ...prevItems,
-      [menuItem.id]: {
-        item: menuItem,
-        selectedPeople: {},
-      },
-    }));
+    setSelectedItem(menuItem);
+    setSelectedPIPs([]);
     setIsModalVisible(true);
   };
 
-  const handlePipSelection = (pipId, itemId) => {
-    setSelectedItems((prevItems) => ({
-      ...prevItems,
-      [itemId]: {
-        ...prevItems[itemId],
-        selectedPeople: {
-          ...prevItems[itemId].selectedPeople,
-          [pipId]: !prevItems[itemId].selectedPeople[pipId],
-        },
-      },
-    }));
+  const handlePipSelection = (pipId) => {
+    setSelectedPIPs((prevSelectedPIPs) => {
+      if (prevSelectedPIPs.some((selectedPip) => selectedPip.id === pipId)) {
+        // If already selected, remove it
+        return prevSelectedPIPs.filter(
+          (selectedPip) => selectedPip.id !== pipId
+        );
+      } else {
+        // If not selected, add it along with the name
+        const selectedPip = pips.find((pip) => pip.id === pipId);
+        return [...prevSelectedPIPs, { id: pipId, name: selectedPip.name }];
+      }
+    });
   };
 
   const closeModal = () => {
     setIsModalVisible(false);
   };
-
-  const confirmAddToBasket = () => {
-    const selectedItem = selectedItems[Object.keys(selectedItems).pop()];
+  const confirmAddToBasket = async () => {
     if (selectedItem) {
-      const selectPeopleWithName = Object.keys(selectedItem.selectedPeople)
-        .filter((pipId) => selectedItem.selectedPeople[pipId])
-        .map((pipId) => {
-          const pip = pips.find((pip) => pip.id === pipId);
-          return { name: pip.name, id: pipId };
-        });
-
-      addItemToBasket(
-        selectedItem.item,
-        selectPeopleWithName,
-        currentUserData.uid
-      );
-      showSnackbar();
-      closeModal();
+      try {
+        addItemToBasket(selectedItem, selectedPIPs, specialInstructions); // Pass selectedPIPs to addItemToBasket
+        showSnackbar();
+        closeModal();
+      } catch (error) {
+        console.error("Error adding to basket:", error);
+        Alert.alert("Error", "Failed to add item to basket. Please try again.");
+      }
     }
   };
 
@@ -119,15 +111,18 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
           </TouchableOpacity>
         ))
       )}
-      <Modal visible={isModalVisible} onRequestClose={closeModal}>
+      {selectedItem && (
         <SelectedItemModal
-          selectedItem={selectedItems[Object.keys(selectedItems).pop()]}
-          handlePipSelection={handlePipSelection}
+          visible={isModalVisible}
+          selectedItem={selectedItem}
+          handlePIPSelection={handlePipSelection}
           pips={pips}
-          handleConfirmSelection={confirmAddToBasket}
+          selectedPIPs={selectedPIPs}
+          onClose={closeModal}
+          confirmAddToBasket={confirmAddToBasket}
         />
-        <Button onPress={closeModal}>Close Modal</Button>
-      </Modal>
+      )}
+
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
@@ -185,14 +180,7 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: "white",
   },
-  modal: {
-    width: "80%",
-    height: 300,
-    alignSelf: "center",
-    backgroundColor: "white",
-    borderRadius: 10,
-    padding: 20,
-  },
+
   checkboxGroup: {
     flexDirection: "row",
     flexWrap: "wrap",

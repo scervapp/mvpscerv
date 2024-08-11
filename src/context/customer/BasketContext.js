@@ -87,66 +87,96 @@ export const BasketProvider = ({ children }) => {
   }, [currentUser]);
 
   const addItemToBasket = async (
-    restaurant,
     dish,
-    specialInstructions = ""
+    selectedPIPs = [],
+    specialInstructions
   ) => {
     try {
-      setBasketError(null); // Clear previous errors
+      setBasketError(null); // Clear any previous errors
+
+      // 1. Validate Input
       if (!currentUser) {
         throw new Error("You need to be logged in to add items to the basket.");
       }
 
-      const restaurantId = restaurant.id;
-
-      // Get the user's basket document reference
-      const userBasketRef = doc(db, "baskets", currentUser.uid);
-
-      // Get the current basket or create a new one
-      let currentBasket = baskets[restaurantId] || { items: [] };
-
-      // Check if the dish is already in the basket
-      const existingDishIndex = currentBasket.items.findIndex(
-        (item) => item.dish.id === dish.id
-      );
-
-      if (existingDishIndex > -1) {
-        // If the dish exists, update its quantity
-        const updatedItem = {
-          ...currentBasket.items[existingDishIndex],
-          quantity: currentBasket.items[existingDishIndex].quantity + 1,
-        };
-
-        // Update the item in the firestore document
-        await updateDoc(userBasketRef, {
-          [`<span class="math-inline">\{restaurantId\}\.items\.</span>{existingDishIndex}`]:
-            updatedItem,
-        });
-
-        // Update the local state
-        currentBasket.items[existingDishIndex] = updatedItem;
-      } else {
-        // If the dish is new, create a new entry
-        const newItem = {
-          dish: dish,
-          quantity: 1,
-          specialInstructions: specialInstructions,
-        };
-
-        // Update the Firestore document
-        await updateDoc(userBasketRef, {
-          [`${restaurantId}.items`]: arrayUnion(newItem),
-        });
-
-        // Update the local state
-        currentBasket.items.push(newItem);
+      if (!dish.restaurantId) {
+        throw new Error("Invalid restaurant data.");
       }
 
-      // Update the overall baskets state
-      setBaskets({ ...baskets, [restaurantId]: currentBasket });
+      if (!dish || !dish.id) {
+        throw new Error("Invalid dish data.");
+      }
+
+      // 2. Prepare Data
+      const restaurantId = dish.restaurantId;
+      const userBasketRef = doc(db, "baskets", currentUser.uid);
+
+      // Check if the basket document exists
+      const basketSnapshot = await getDoc(userBasketRef);
+
+      if (basketSnapshot.exists()) {
+        let currentBasket = baskets[restaurantId] || { items: [] };
+        // 3. Check for Existing Item with the Same PIPs
+        const existingDishIndex = currentBasket.items.findIndex(
+          (item) =>
+            item.dish.id === dish.id &&
+            JSON.stringify(item.pips) === JSON.stringify(selectedPIPs)
+        );
+
+        if (existingDishIndex > -1) {
+          // 4a. If the dish with the same PIPs exists, update its quantity
+          const updatedItem = {
+            ...currentBasket.items[existingDishIndex],
+            quantity: currentBasket.items[existingDishIndex].quantity + 1,
+          };
+
+          await updateDoc(userBasketRef, {
+            [`${restaurantId}.items.${existingDishIndex}`]: updatedItem,
+          });
+
+          currentBasket.items[existingDishIndex] = updatedItem;
+        } else {
+          // 4b. If the dish is new or has different PIPs, create a new entry
+          const newItem = {
+            dish: dish,
+            quantity: 1,
+            specialInstructions: specialInstructions, // You can add special instructions handling here if needed
+            pips: selectedPIPs,
+          };
+
+          await updateDoc(userBasketRef, {
+            [`${restaurantId}.items`]: arrayUnion(newItem),
+          });
+
+          currentBasket.items.push(newItem);
+
+          // 5. Update the overall baskets state
+          setBaskets({ ...baskets, [restaurantId]: currentBasket });
+        }
+      } else {
+        // If the basket document doesnt exists, create a new one with the first item
+        const newBasket = {
+          [restaurantId]: {
+            items: [
+              {
+                dish,
+                quantity: 1,
+                specialInstructions: specialInstructions,
+                pips: selectedPIPs,
+              },
+            ],
+          },
+        };
+        console.log("Trying to add this to basket...", newBasket);
+        await setDoc(userBasketRef, newBasket);
+        // Update the localState
+        setBaskets(newBasket);
+        console.log("Basket added", newBasket);
+      }
     } catch (error) {
+      console.error("Error adding to basket:", error);
       setBasketError(error.message);
-      Alert.alert("Error adding to basket:", error.message);
+      Alert.alert("Error", "Failed to add item to basket. Please try again.");
     }
   };
 
@@ -306,7 +336,7 @@ export const BasketProvider = ({ children }) => {
         removeItemFromBasket,
         basketItems,
         baskets,
-
+        basketError,
         sendToChefsQ,
         isSendingToChefsQ,
       }}
