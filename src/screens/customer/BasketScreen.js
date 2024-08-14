@@ -6,82 +6,99 @@ import {
   TouchableOpacity,
   FlatList,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
 import { Ionicons, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { Provider, Portal, FAB, IconButton } from "react-native-paper";
+import { Provider, Portal, FAB, Snackbar } from "react-native-paper";
 import { Button } from "react-native-elements";
+import { useCheckInStatus } from "../../utils/customerUtils";
+import { AuthContext } from "../../context/authContext";
 
 const BasketScreen = ({ route, navigation }) => {
+  const { currentUserData } = useContext(AuthContext);
   const { restaurant } = route.params;
-  const { baskets, basketError } = useBasket(); // Access baskets from the context
+  const { baskets, basketError, removeItemFromBasket } = useBasket(); // Access baskets from the context
   const [filteredBasketData, setFilteredBasketData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [checkInStatus, setCheckInStatus] = useState(false);
-
+  const [showDeleteSnackbar, setShowDeleteSnackbar] = useState(false);
+  const { checkInStatus, tableNumber } = useCheckInStatus(
+    restaurant.uid,
+    currentUserData.uid
+  );
   // Retrieve the basket for the current restaurant // Get the basket for the current restaurant
   const restaurantBasket = baskets[restaurant.id] || { items: [] };
 
   useEffect(() => {
-    // Transform the basket data and filter out empty groups
-    const transformedData = transformBasketData(restaurantBasket.items);
+    // Get basket items for the current restaurant
+    const restaurantBasketItems = baskets[restaurant.id]?.items || [];
+
+    const transformedData = transformBasketData(restaurantBasketItems);
     const filteredData = transformedData.filter(
       (personData) => personData.items && personData.items.length > 0
     );
-
     setFilteredBasketData(filteredData);
-    setIsLoading(false); // Update loading state after data transformation
-  }, [baskets, restaurant.id]); // Re-run the effect when baskets or restaurant changes
+  }, [baskets, restaurant.id]);
 
+  // Transform basket data to group items by PIP
   const transformBasketData = (basketItems) => {
     const groupedBasketItems = {};
 
     basketItems.forEach((basketItem) => {
-      // Iterate through each selected person for this basket item
-      (basketItem.pips || []).forEach((person) => {
-        const personId = person.id;
-        const personName = person.name;
+      const pipId = basketItem.pip.id;
+      const pipName = basketItem.pip.name;
 
-        // If this person doesn't have a group yet, create one
-        if (!groupedBasketItems[personId]) {
-          groupedBasketItems[personId] = {
-            personId,
-            pipName: personName,
-            items: [],
-            totalPrice: 0,
-          };
-        }
+      if (!groupedBasketItems[pipId]) {
+        groupedBasketItems[pipId] = {
+          personId: pipId,
+          pipName: pipName,
+          items: [],
+          totalPrice: 0,
+        };
+      }
 
-        // Check if this dish is already in this person's order
-        const existingItemIndex = groupedBasketItems[personId].items.findIndex(
-          (existing) => existing.dish.id === basketItem.dish.id
-        );
-
-        if (existingItemIndex > -1) {
-          // If the dish exists, increment its quantity'
-          const prevQuantity =
-            groupedBasketItems[personId].items[existingItemIndex].quantity;
-          groupedBasketItems[personId].items[existingItemIndex].quantity += 1;
-
-          // Update the total price, considering the quantity
-          groupedBasketItems[personId].totalPrice +=
-            basketItem.dish.price * (basketItem.quantity - prevQuantity); // Multiply price by quantity
-        } else {
-          // If the dish is new, add it to the person's order
-          groupedBasketItems[personId].items.push({
-            dish: basketItem.dish,
-            quantity: 1,
-            specialInstructions: basketItem.specialInstructions || "",
-          });
-        }
-
-        // Update the total price for this person
-        groupedBasketItems[personId].totalPrice += basketItem.dish.price;
+      groupedBasketItems[pipId].items.push({
+        ...basketItem,
+        id: basketItem.id,
       });
+      groupedBasketItems[pipId].totalPrice +=
+        basketItem.dish.price * basketItem.quantity;
     });
 
     return Object.values(groupedBasketItems);
+  };
+
+  const handleDeleteItem = (basketItem) => {
+    setIsLoading(true);
+    Alert.alert(
+      "Confirm Delete",
+      `Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              await removeItemFromBasket(restaurant.id, basketItem.id);
+            } catch (error) {
+              console.error("Error deleting item:", error);
+              Alert.alert("Error", "Failed to remove item from basket.");
+            } finally {
+              setIsLoading(false);
+              setShowDeleteSnackbar(true); // Show the snackbar
+              setTimeout(() => setShowDeleteSnackbar(false), 2000); // Hide after 2 seconds
+            }
+          },
+          style: "destructive", // Use a visually distinct style for the delete action
+        },
+      ]
+    );
+    setIsLoading(false);
   };
 
   // Calculate subtotal and total
@@ -97,9 +114,7 @@ const BasketScreen = ({ route, navigation }) => {
       <View style={styles.container}>
         {/* Header with Restaurant Name */}
         <View style={styles.header}>
-          <Text style={styles.restaurantName}>
-            {restaurant.restaurantName} Basket
-          </Text>
+          <Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
           {basketError && <Text style={styles.errorText}>{basketError}</Text>}
         </View>
 
@@ -116,7 +131,7 @@ const BasketScreen = ({ route, navigation }) => {
                 </Text>
                 {personData.items.map((basketItem) => (
                   <View
-                    key={`${personData.personId}_${basketItem.dish.id}`}
+                    key={basketItem.id} // Use the basketItem's ID as the key
                     style={styles.basketItem}
                   >
                     <View style={styles.itemInfoContainer}>
@@ -142,18 +157,13 @@ const BasketScreen = ({ route, navigation }) => {
                     )}
 
                     {/* Remove Button */}
-                    <Button
-                      title="Remove"
-                      onPress={() =>
-                        handleDeleteItem(
-                          personData.personId,
-                          basketItem.dish.id
-                        )
-                      }
-                      buttonStyle={styles.removeButton}
-                      icon={<AntDesign name="delete" size={14} color="red" />} // Add icon directly
-                      iconPosition="left" // Position the icon to the left of the text
-                    />
+                    <TouchableOpacity
+                      icon={<AntDesign name="delete" size={14} color="red" />}
+                      onPress={() => handleDeleteItem(basketItem)}
+                      style={styles.removeButton}
+                    >
+                      <AntDesign name="delete" size={16} color="red" />
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -167,16 +177,22 @@ const BasketScreen = ({ route, navigation }) => {
                 Total: ${overallTotal.toFixed(2)}
               </Text>
             </View>
+            <Snackbar
+              visible={showDeleteSnackbar}
+              onDismiss={() => setShowSnackbar(false)}
+            >
+              Item removed from basket
+            </Snackbar>
 
             {/* Send to Chef's Q Button (Conditional Rendering) */}
-            {checkInStatus === "accepted" &&
+            {checkInStatus === "ACCEPTED" &&
               restaurantBasket.items.length > 0 &&
               !isSendingToChefsQ && (
                 <Button
                   mode="contained"
                   onPress={handleSendToChef}
                   loading={isSendingToChefsQ}
-                  disabled={isSendingToChefsQ}
+                  disabled={isSendingToChefsQ || checkInStatus !== "ACCEPTED"}
                   style={styles.sendButtonActive}
                 >
                   Send To Chef's Q
@@ -198,7 +214,7 @@ const BasketScreen = ({ route, navigation }) => {
           )}
           style={styles.checkoutButton}
           onPress={() => navigation.navigate("CheckoutScreen")}
-          disabled={!checkInStatus === "ACCEPTED" || baskets.length === 0}
+          disabled={checkInStatus !== "ACCEPTED" || baskets.length === 0}
         />
       </Portal>
     </Provider>
@@ -207,13 +223,12 @@ const BasketScreen = ({ route, navigation }) => {
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 20,
     flex: 1,
-    padding: 8,
-    backgroundColor: colors.background, // Use a light background color
+    padding: 16,
+    backgroundColor: colors.background,
   },
   header: {
-    marginBottom: 4,
+    marginBottom: 20,
   },
   restaurantName: {
     fontSize: 24,
@@ -236,45 +251,49 @@ const styles = StyleSheet.create({
     color: colors.textLight,
   },
   personSection: {
-    marginBottom: 10,
-    backgroundColor: colors.accent,
+    marginBottom: 20,
+    backgroundColor: colors.lightGray, // Use a light background color for sections
     borderRadius: 8,
     padding: 10,
   },
   personHeader: {
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 5,
+    marginBottom: 10,
   },
   basketItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 5, // Reduced margin for tighter spacing
+    padding: 10,
   },
   itemInfoContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    marginRight: 10,
   },
   dishName: {
-    fontSize: 12,
-    fontWeight: "500", // Slightly less bold than the person header
+    fontSize: 16,
+    fontWeight: "500",
   },
   quantity: {
     marginHorizontal: 5,
   },
   itemPrice: {
     fontWeight: "bold",
-    color: colors.lightGray,
   },
   specialInstructions: {
     fontSize: 14,
     color: colors.textLight,
+    marginTop: 5,
   },
   removeButton: {
-    backgroundColor: colors.danger, // Use a danger color (e.g., red)
+    backgroundColor: colors.danger,
     borderRadius: 5,
     padding: 5,
-    alighSelf: "flex-start",
+    alignSelf: "flex-start",
   },
   orderSummary: {
     marginTop: 20,

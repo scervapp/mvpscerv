@@ -75,7 +75,12 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
   const confirmAddToBasket = async () => {
     if (selectedItem) {
       try {
-        addItemToBasket(selectedItem, selectedPIPs, specialInstructions); // Pass selectedPIPs to addItemToBasket
+        addItemToBasket(
+          selectedItem.restaurantId,
+          selectedItem,
+          selectedPIPs,
+          specialInstructions
+        ); // Pass selectedPIPs to addItemToBasket
         showSnackbar();
         closeModal();
       } catch (error) {
