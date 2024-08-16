@@ -8,19 +8,35 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Button,
 } from "react-native";
-import { useBasket } from "../../context/customer/BasketContext";
+import {
+  useBasket,
+  handleQuantityChange,
+} from "../../context/customer/BasketContext";
 import { Ionicons, FontAwesome5, AntDesign } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { Provider, Portal, FAB, Snackbar } from "react-native-paper";
-import { Button } from "react-native-elements";
+import {
+  Provider,
+  Portal,
+  FAB,
+  Snackbar,
+  IconButton,
+} from "react-native-paper";
+
 import { useCheckInStatus } from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
 
 const BasketScreen = ({ route, navigation }) => {
   const { currentUserData } = useContext(AuthContext);
   const { restaurant } = route.params;
-  const { baskets, basketError, removeItemFromBasket } = useBasket(); // Access baskets from the context
+  const {
+    baskets,
+    basketError,
+    removeItemFromBasket,
+    handleSendToChefQ,
+    handleQuantityChange,
+  } = useBasket(); // Access baskets from the context
   const [filteredBasketData, setFilteredBasketData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDeleteSnackbar, setShowDeleteSnackbar] = useState(false);
@@ -59,46 +75,26 @@ const BasketScreen = ({ route, navigation }) => {
         };
       }
 
-      groupedBasketItems[pipId].items.push({
-        ...basketItem,
-        id: basketItem.id,
-      });
+      // Check if this dish is already in the person order
+      const existingItemIndex = groupedBasketItems[pipId].items.findIndex(
+        (existing) => existing.dish.id === basketItem.dish.id
+      );
+
+      if (existingItemIndex > -1) {
+        // If the dish exists, increment its quantity
+        groupedBasketItems[pipId].items[existingItemIndex].quantity +=
+          basketItem.quantity;
+      } else {
+        // If the dish is new, add it to the person's order
+        groupedBasketItems[pipId].items.push({ ...basketItem });
+      }
+
+      // Update the total price for this person
       groupedBasketItems[pipId].totalPrice +=
         basketItem.dish.price * basketItem.quantity;
     });
 
     return Object.values(groupedBasketItems);
-  };
-
-  const handleDeleteItem = (basketItem) => {
-    setIsLoading(true);
-    Alert.alert(
-      "Confirm Delete",
-      `Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Delete",
-          onPress: async () => {
-            try {
-              await removeItemFromBasket(restaurant.id, basketItem.id);
-            } catch (error) {
-              console.error("Error deleting item:", error);
-              Alert.alert("Error", "Failed to remove item from basket.");
-            } finally {
-              setIsLoading(false);
-              setShowDeleteSnackbar(true); // Show the snackbar
-              setTimeout(() => setShowDeleteSnackbar(false), 2000); // Hide after 2 seconds
-            }
-          },
-          style: "destructive", // Use a visually distinct style for the delete action
-        },
-      ]
-    );
-    setIsLoading(false);
   };
 
   // Calculate subtotal and total
@@ -126,46 +122,92 @@ const BasketScreen = ({ route, navigation }) => {
             {/* Basket Items Grouped by PIP */}
             {filteredBasketData.map((personData) => (
               <View key={personData.personId} style={styles.personSection}>
-                <Text style={styles.personHeader}>
-                  {personData.pipName} - ${personData.totalPrice.toFixed(2)}
-                </Text>
+                {/* PIP Name */}
+                <Text style={styles.personName}>{personData.pipName}</Text>
+
+                {/* Items for this PIP */}
                 {personData.items.map((basketItem) => (
-                  <View
-                    key={basketItem.id} // Use the basketItem's ID as the key
-                    style={styles.basketItem}
-                  >
+                  <View key={basketItem.id} style={styles.basketItem}>
                     <View style={styles.itemInfoContainer}>
                       <Text style={styles.dishName}>
                         {basketItem.dish.name}
                       </Text>
-                      <Text style={styles.quantity}>
-                        x {basketItem.quantity}
-                      </Text>
-                      <Text style={styles.itemPrice}>
-                        $
-                        {(basketItem.dish.price * basketItem.quantity).toFixed(
-                          2
-                        )}
-                      </Text>
+
+                      {/* Quantity Controls */}
+                      <View style={styles.itemActionsContainer}>
+                        <View style={styles.quantityControls}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (basketItem.quantity === 1) {
+                                // Trigger confirmation alert
+                                Alert.alert(
+                                  "Confirm Delete",
+                                  `Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
+                                  [
+                                    {
+                                      text: "Cancel",
+                                      style: "cancel",
+                                    },
+                                    {
+                                      text: "Delete",
+                                      onPress: () =>
+                                        handleQuantityChange(basketItem.id, 0),
+                                      style: "destructive",
+                                    },
+                                  ]
+                                );
+                              } else {
+                                handleQuantityChange(
+                                  basketItem.id,
+                                  basketItem.quantity - 1
+                                );
+                              }
+                            }}
+                            disabled={basketItem.quantity <= 0}
+                            style={styles.quantityButton}
+                          >
+                            <AntDesign name="minus" size={20} color="black" />
+                          </TouchableOpacity>
+                          <Text style={styles.quantity}>
+                            {basketItem.quantity}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() =>
+                              handleQuantityChange(
+                                basketItem.id,
+                                basketItem.quantity + 1
+                              )
+                            }
+                            style={styles.quantityButton}
+                          >
+                            <AntDesign name="plus" size={20} color="black" />
+                          </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.itemPrice}>
+                          $
+                          {(
+                            basketItem.dish.price * basketItem.quantity
+                          ).toFixed(2)}
+                        </Text>
+                      </View>
+
+                      {/* Special Instructions (if any) */}
+                      {basketItem.specialInstructions && (
+                        <Text style={styles.specialInstructions}>
+                          {basketItem.specialInstructions}
+                        </Text>
+                      )}
                     </View>
-
-                    {/* Special Instructions (if any) */}
-                    {basketItem.specialInstructions && (
-                      <Text style={styles.specialInstructions}>
-                        {basketItem.specialInstructions}
-                      </Text>
-                    )}
-
-                    {/* Remove Button */}
-                    <TouchableOpacity
-                      icon={<AntDesign name="delete" size={14} color="red" />}
-                      onPress={() => handleDeleteItem(basketItem)}
-                      style={styles.removeButton}
-                    >
-                      <AntDesign name="delete" size={16} color="red" />
-                    </TouchableOpacity>
                   </View>
                 ))}
+
+                {/* Total for this PIP */}
+                <View style={styles.pipTotalContainer}>
+                  <Text style={styles.pipTotalText}>
+                    Total: ${personData.totalPrice.toFixed(2)}
+                  </Text>
+                </View>
               </View>
             ))}
 
@@ -186,17 +228,14 @@ const BasketScreen = ({ route, navigation }) => {
 
             {/* Send to Chef's Q Button (Conditional Rendering) */}
             {checkInStatus === "ACCEPTED" &&
-              restaurantBasket.items.length > 0 &&
-              !isSendingToChefsQ && (
+              restaurantBasket.items.length > 0 && (
                 <Button
-                  mode="contained"
-                  onPress={handleSendToChef}
-                  loading={isSendingToChefsQ}
-                  disabled={isSendingToChefsQ || checkInStatus !== "ACCEPTED"}
+                  title="Send To Chef's Q"
+                  onPress={handleSendToChefQ}
+                  loading={isLoading}
+                  disabled={isLoading || checkInStatus !== "ACCEPTED"}
                   style={styles.sendButtonActive}
-                >
-                  Send To Chef's Q
-                </Button>
+                />
               )}
           </ScrollView>
         ) : (
@@ -207,16 +246,6 @@ const BasketScreen = ({ route, navigation }) => {
       </View>
 
       {/* Checkout Button (using Portal for positioning) */}
-      <Portal>
-        <FAB
-          icon={() => (
-            <FontAwesome5 name="credit-card" size={20} color="white" />
-          )}
-          style={styles.checkoutButton}
-          onPress={() => navigation.navigate("CheckoutScreen")}
-          disabled={checkInStatus !== "ACCEPTED" || baskets.length === 0}
-        />
-      </Portal>
     </Provider>
   );
 };
@@ -251,35 +280,65 @@ const styles = StyleSheet.create({
     color: colors.textLight,
   },
   personSection: {
-    marginBottom: 20,
+    marginBottom: 10,
     backgroundColor: colors.lightGray, // Use a light background color for sections
     borderRadius: 8,
     padding: 10,
+    backgroundColor: "white",
   },
-  personHeader: {
+  personName: {
     fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 10,
+    marginBottom: 5,
   },
+
   basketItem: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 5, // Reduced margin for tighter spacing
-    padding: 10,
+    paddingHorizontal: 10,
   },
+  pipTotalContainer: {
+    // New style for PIP total
+    alignSelf: "flex-end", // Align to the right
+    marginTop: 10,
+  },
+  pipTotalText: {
+    fontWeight: "bold",
+  },
+
   itemInfoContainer: {
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
     marginRight: 10,
+    justifyContent: "space-between",
   },
   dishName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "500",
+    paddingRight: 10,
   },
+
+  itemActionsContainer: {
+    // New style for quantity controls, price, and remove button
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  quantityControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 10, // Add some spacing to the right
+    borderRadius: 8,
+    backgroundColor: colors.lightGray,
+    paddingVertical: 2,
+  },
+
   quantity: {
     marginHorizontal: 5,
+  },
+  quantityButton: {
+    paddingHorizontal: 3,
   },
   itemPrice: {
     fontWeight: "bold",
@@ -289,12 +348,7 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     marginTop: 5,
   },
-  removeButton: {
-    backgroundColor: colors.danger,
-    borderRadius: 5,
-    padding: 5,
-    alignSelf: "flex-start",
-  },
+
   orderSummary: {
     marginTop: 20,
     borderTopWidth: 1,
@@ -307,7 +361,7 @@ const styles = StyleSheet.create({
   },
   sendButtonActive: {
     backgroundColor: colors.primary,
-    padding: 15,
+    padding: 15, // Increase padding or remove paddingVertical if it's causing the issue
     borderRadius: 8,
     alignItems: "center",
     marginVertical: 10,
@@ -319,7 +373,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     marginVertical: 10,
-    marginBottom: 20,
+    marginBottom: 5,
   },
   sendButtonText: {
     color: "white",

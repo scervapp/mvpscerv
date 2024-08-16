@@ -24,7 +24,7 @@ import { Alert } from "react-native";
 const BasketContext = createContext({
   baskets: {},
   addItemToBasket: (restaurant, dish, specialInstructions) => [],
-  removeItemFromBasket: (restaurantId, dishId) => {},
+  removeItemFromBasket: (restaurantId, basketItemId) => {},
   clearBasket: (restaurantId) => {},
   basketError: null,
 });
@@ -239,8 +239,7 @@ export const BasketProvider = ({ children }) => {
     }
   };
 
-  const removeItemFromBasket = async (restaurantId, basketItemId) => {
-    console.log("Basket item id", basketItemId);
+  const removeItemFromBasket = async (basketItemId) => {
     try {
       if (!currentUser) {
         throw new Error(
@@ -279,6 +278,34 @@ export const BasketProvider = ({ children }) => {
       delete updatedBaskets[restaurantId];
       return updatedBaskets;
     });
+  };
+
+  // Handle Quantity Change
+  const handleQuantityChange = async (basketItemId, newQuantity) => {
+    console.log("New Quantity", newQuantity);
+    try {
+      if (newQuantity === 0) {
+        removeItemFromBasket(basketItemId);
+      } else {
+        // Ensure newQuantity is within a valid range
+        newQuantity = Math.max(0, Math.min(20, newQuantity));
+
+        // Get the basket item document reference
+        const basketItemRef = doc(
+          db,
+          "baskets",
+          currentUser.uid,
+          "basketItems",
+          basketItemId
+        );
+
+        // Update the quantity in fireStore
+        await updateDoc(basketItemRef, { quantity: newQuantity });
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to update item quantity");
+      console.error("Error updating quantity", error);
+    }
   };
 
   const sendToChefsQ = async (restaurantId) => {
@@ -387,6 +414,7 @@ export const BasketProvider = ({ children }) => {
         setCheckedInStatus,
         addItemToBasket,
         removeItemFromBasket,
+        handleQuantityChange,
         basketItems,
         baskets,
         basketError,
