@@ -94,7 +94,7 @@ const useCheckInStatus = (restaurantId, customerId) => {
 						setCheckInStatus(checkInData.status);
 
 						// Only set tableNumber if the status is "accepted"
-						if (checkInData.status === "accepted") {
+						if (checkInData.status === "ACCEPTED") {
 							setTableNumber(checkInData.tableNumber);
 						} else {
 							setTableNumber(null); // Reset tableNumber if not accepted
@@ -116,7 +116,7 @@ const useCheckInStatus = (restaurantId, customerId) => {
 
 		fetchCheckInStatus();
 	}, [restaurantId, customerId]);
-	return { checkInStatus, isLoading };
+	return { checkInStatus, isLoading, tableNumber };
 };
 
 const checkIn = async (restaurantId, customerId, partySize, customerName) => {

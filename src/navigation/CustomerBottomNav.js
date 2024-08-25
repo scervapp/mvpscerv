@@ -22,106 +22,106 @@ const Stack = createNativeStackNavigator();
 
 // Define separate functions for each screen's content (if not already defined)
 const CustomerDashboardStack = () => (
-  <Stack.Navigator>
-    <Stack.Screen
-      options={{ headerShown: false }}
-      name="CustomerDashboardInner"
-      component={CustomerDashboard}
-    />
-  </Stack.Navigator>
+	<Stack.Navigator>
+		<Stack.Screen
+			options={{ headerShown: false }}
+			name="CustomerDashboardInner"
+			component={CustomerDashboard}
+		/>
+	</Stack.Navigator>
 );
 
 const CustomerProfileStack = () => (
-  <Stack.Navigator>
-    <Stack.Screen
-      options={{ headerShown: false }}
-      name="CustomerProfileInner"
-      component={CustomerProfile}
-    />
-  </Stack.Navigator>
+	<Stack.Navigator>
+		<Stack.Screen
+			options={{ headerShown: false }}
+			name="CustomerProfileInner"
+			component={CustomerProfile}
+		/>
+	</Stack.Navigator>
 );
 
 const RestaurantDetailStack = ({ navigation }) => (
-  <Stack.Navigator>
-    {/* <Stack.Screen
+	<Stack.Navigator>
+		{/* <Stack.Screen
       options={{ headerShown: false }}
       name="RestaurantList" // Or whatever your restaurant list screen is called
       component={RestaurantDetail} // Assuming this is your restaurant list screen
     /> */}
-    <Stack.Screen
-      name="RestaurantDetail" // Give it a unique name
-      component={RestaurantDetail}
-      options={{ headerShown: false }}
-    />
-    <Stack.Screen
-      name="BasketScreen"
-      component={BasketScreen}
-      options={{
-        headerTitle: "Basket",
-        headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
-        headerShown: false,
-      }}
-    />
-  </Stack.Navigator>
+		<Stack.Screen
+			name="RestaurantDetail" // Give it a unique name
+			component={RestaurantDetail}
+			options={{ headerShown: false }}
+		/>
+		<Stack.Screen
+			name="BasketScreen"
+			component={BasketScreen}
+			options={{
+				headerTitle: "Basket",
+				headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
+				headerShown: false,
+			}}
+		/>
+	</Stack.Navigator>
 );
 
 const AccountScreenStack = () => (
-  <Stack.Navigator>
-    <Stack.Screen
-      options={{ headerShown: false }}
-      name="AccountScreenInner"
-      component={AccountScreen}
-    />
-  </Stack.Navigator>
+	<Stack.Navigator>
+		<Stack.Screen
+			options={{ headerShown: false }}
+			name="AccountScreenInner"
+			component={AccountScreen}
+		/>
+	</Stack.Navigator>
 );
 
 const PipsScreenStack = () => (
-  <Stack.Navigator>
-    <Stack.Screen
-      options={{ headerShown: false }}
-      name="PipsScreenInner"
-      component={PIPSListScreen}
-    />
-  </Stack.Navigator>
+	<Stack.Navigator>
+		<Stack.Screen
+			options={{ headerShown: false }}
+			name="PipsScreenInner"
+			component={PIPSListScreen}
+		/>
+	</Stack.Navigator>
 );
 
 const CustomerBottomNavigation = () => {
-  const navigation = useNavigation();
+	const navigation = useNavigation();
 
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
+	return (
+		<Tab.Navigator
+			screenOptions={({ route }) => ({
+				tabBarIcon: ({ focused, color, size }) => {
+					let iconName;
 
-          if (route.name === "CustomerDashboard") {
-            iconName = focused ? "home" : "home-outline";
-          } else if (route.name === "AccountScreen") {
-            iconName = focused ? "person" : "person-outline";
-          } else if (route.name === "CustomerMenu") {
-            iconName = focused ? "menu" : "menu-outline";
-          }
+					if (route.name === "CustomerDashboard") {
+						iconName = focused ? "home" : "home-outline";
+					} else if (route.name === "AccountScreen") {
+						iconName = focused ? "person" : "person-outline";
+					} else if (route.name === "CustomerMenu") {
+						iconName = focused ? "menu" : "menu-outline";
+					}
 
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: "tomato",
-        tabBarInactiveTintColor: "gray",
-        tabBarShowLabel: false,
-        tabBarStyle: [{ display: "flex" }, null],
-      })}
-    >
-      {/* Use the separate functions for each Tab.Screen */}
-      <Tab.Screen name="CustomerDashboard" component={CustomerDashboardStack} />
-      <Tab.Screen name="CustomerProfile" component={CustomerProfileStack} />
-      <Tab.Screen
-        options={{ headerShown: false }}
-        name="RestaurantDetail"
-        component={RestaurantDetailStack}
-      />
-      <Tab.Screen name="AccountScreen" component={AccountScreenStack} />
-      <Tab.Screen name="PipsScreen" component={PipsScreenStack} />
-    </Tab.Navigator>
-  );
+					return <Ionicons name={iconName} size={size} color={color} />;
+				},
+				tabBarActiveTintColor: "tomato",
+				tabBarInactiveTintColor: "gray",
+				tabBarShowLabel: false,
+				tabBarStyle: [{ display: "flex" }, null],
+			})}
+		>
+			{/* Use the separate functions for each Tab.Screen */}
+			<Tab.Screen name="CustomerDashboard" component={CustomerDashboardStack} />
+			<Tab.Screen name="CustomerProfile" component={CustomerProfileStack} />
+			<Tab.Screen
+				options={{ headerShown: false }}
+				name="RestaurantDetails"
+				component={RestaurantDetailStack}
+			/>
+			<Tab.Screen name="AccountScreen" component={AccountScreenStack} />
+			<Tab.Screen name="PipsScreen" component={PipsScreenStack} />
+		</Tab.Navigator>
+	);
 };
 
 export default CustomerBottomNavigation;

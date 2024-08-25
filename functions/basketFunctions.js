@@ -199,8 +199,53 @@ async function updateBasketItemQuantity(data, context) {
 	}
 }
 
+// Clear Basket
+async function clearBasket(data, context) {
+	const { userId, restaurantId } = data;
+
+	try {
+		// 1. Input Validation
+		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User not authenticated"
+			);
+		}
+
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Invalid data provided"
+			);
+		}
+
+		// 2. Get the basketItems subcollection reference
+		const basketItemsRef = db
+			.collection("baskets")
+			.doc(userId)
+			.collection("basketItems");
+
+		// 3. Query for all basket items for the specified restaurant
+		const q = basketItemsRef.where("restaurantId", "==", restaurantId);
+		const querySnapshot = await q.get();
+
+		// 4. Delete all matching basket item documents in a batch write
+		const batch = db.batch();
+		querySnapshot.forEach((doc) => {
+			batch.delete(doc.ref);
+		});
+		await batch.commit();
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error clearing basket:", error);
+		throw new functions.https.HttpsError("internal", error.message);
+	}
+}
+
 exports.addItemToBasket = functions.https.onCall(addItemToBasket);
 exports.removeItemFromBasket = functions.https.onCall(removeItemFromBasket);
 exports.updateBasketItemQuantity = functions.https.onCall(
 	updateBasketItemQuantity
 );
+exports.clearBasket = functions.https.onCall(clearBasket);
