@@ -62,6 +62,11 @@ const RestaurantDetailStack = ({ navigation }) => (
 				headerShown: false,
 			}}
 		/>
+		<Stack.Screen
+			name="CheckoutScreen"
+			component={CheckoutScreen}
+			options={{ headerTitle: "Checkout", headerShown: false }}
+		/>
 	</Stack.Navigator>
 );
 
@@ -119,7 +124,6 @@ const CustomerBottomNavigation = () => {
 				component={RestaurantDetailStack}
 			/>
 			<Tab.Screen name="AccountScreen" component={AccountScreenStack} />
-			<Tab.Screen name="PipsScreen" component={PipsScreenStack} />
 		</Tab.Navigator>
 	);
 };

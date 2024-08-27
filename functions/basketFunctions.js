@@ -28,7 +28,7 @@ async function addItemToBasket(data, context) {
 			.doc(userId)
 			.collection("basketItems");
 
-		// 3. Check for Existing Item with the Same PIPs
+		// 3. Check for Existing Item with any of the selected PIPs
 		const existingItemsQuery = basketItemsRef
 			.where("restaurantId", "==", restaurantId)
 			.where("dish.id", "==", dish.id)
@@ -40,33 +40,43 @@ async function addItemToBasket(data, context) {
 		const existingItemsSnapshot = await existingItemsQuery.get();
 
 		if (!existingItemsSnapshot.empty) {
-			// 4a. If the dish exists for any of the selected PIPs, update its quantity in the first matching instance or create new documents for the rest
+			// 4a. If the dish exists for any of the selected PIPs
+			// update its quantity or create new documents for the rest
 			const batch = db.batch();
-			let existingItemUpdated = false;
+
+			// Keep track of PIPs for which the quantity has been updated or a new doc created
+			const processedPIPs = new Set();
 
 			for (const pip of selectedPIPs) {
 				const existingItemForPIP = existingItemsSnapshot.docs.find(
 					(doc) => doc.data().pip.id === pip.id
 				);
 
-				if (existingItemForPIP && !existingItemUpdated) {
-					// Update the quantity of the first matching instance
+				if (existingItemForPIP) {
+					// Update the quantity of the existing item
 					batch.update(existingItemForPIP.ref, {
 						quantity: admin.firestore.FieldValue.increment(1),
 					});
-					existingItemUpdated = true;
-				} else {
-					// Create a new basket item document for this PIP
-					const newItemRef = basketItemsRef.doc();
-					batch.set(newItemRef, {
-						restaurantId,
-						dish,
-						quantity: 1,
-						specialInstructions: "",
-						pip,
-					});
+
+					processedPIPs.add(pip.id); // Mark this PIP as processed
 				}
 			}
+
+			// Create new documents for PIPs that didn't have an existing item
+			const newItemsForPIPs = selectedPIPs.filter(
+				(pip) => !processedPIPs.has(pip.id)
+			);
+			newItemsForPIPs.forEach((pip) => {
+				const newItemRef = basketItemsRef.doc();
+				batch.set(newItemRef, {
+					restaurantId,
+					dish,
+					quantity: 1,
+					specialInstructions: "",
+					pip,
+					sentToChefQ: false, // Add the sentToChefQ field
+				});
+			});
 
 			await batch.commit();
 		} else {
@@ -80,6 +90,7 @@ async function addItemToBasket(data, context) {
 					quantity: 1,
 					specialInstructions: "",
 					pip,
+					sentToChefQ: false, // Add the sentToChefQ field
 				});
 			});
 			await batch.commit();
@@ -243,9 +254,49 @@ async function clearBasket(data, context) {
 	}
 }
 
+async function sendToChefsQ(data, context) {
+	const { userId, restaurantId, items } = data;
+
+	try {
+		if (
+			!restaurantId ||
+			!items ||
+			!Array.isArray(items) ||
+			items.length === 0
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Invalid data provided"
+			);
+		}
+
+		// 2. Update basketItems in Firestore to mark them as sentToChefQ = true
+		const batch = db.batch();
+		items.forEach((item) => {
+			console.log("itemId", item.id);
+			const basketItemRef = db
+				.collection("baskets")
+				.doc(userId)
+				.collection("basketItems")
+				.doc(item.id);
+			batch.update(basketItemRef, { sentToChefQ: true });
+		});
+		await batch.commit();
+
+		// 3. Optionally, send notifications to the restaurant staff
+		// ...
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error sending items to chef's queue:", error);
+		throw new functions.https.HttpsError("internal", error.message);
+	}
+}
+
 exports.addItemToBasket = functions.https.onCall(addItemToBasket);
 exports.removeItemFromBasket = functions.https.onCall(removeItemFromBasket);
 exports.updateBasketItemQuantity = functions.https.onCall(
 	updateBasketItemQuantity
 );
 exports.clearBasket = functions.https.onCall(clearBasket);
+exports.sendToChefsQ = functions.https.onCall(sendToChefsQ);

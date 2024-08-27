@@ -11,7 +11,7 @@ import {
 	Button,
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
-import { AntDesign } from "@expo/vector-icons";
+import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { Provider, Portal, FAB, Snackbar } from "react-native-paper";
 
@@ -33,6 +33,7 @@ const BasketScreen = ({ route, navigation }) => {
 		currentUserData.uid
 	);
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
+	const [orderId, setOrderId] = useState("");
 	// Retrieve the basket for the current restaurant // Get the basket for the current restaurant
 	const restaurantBasket = baskets[restaurant.id] || { items: [] };
 
@@ -44,7 +45,17 @@ const BasketScreen = ({ route, navigation }) => {
 		const filteredData = transformedData.filter(
 			(personData) => personData.items && personData.items.length > 0
 		);
-		setFilteredBasketData(filteredData);
+		// Add itemId to each basketItem in filteredData
+		const filteredDataWithIds = filteredData.map((personData) => ({
+			...personData,
+			items: personData.items.map((basketItem) => ({
+				...basketItem,
+				itemId: basketItem.id, // Add the itemId here
+				newThing: "",
+			})),
+		}));
+
+		setFilteredBasketData(filteredDataWithIds);
 	}, [baskets, restaurant.id]);
 
 	// Transform basket data to group items by PIP
@@ -54,6 +65,7 @@ const BasketScreen = ({ route, navigation }) => {
 		basketItems.forEach((basketItem) => {
 			const pipId = basketItem.pip.id;
 			const pipName = basketItem.pip.name;
+			const id = basketItem.id;
 
 			if (!groupedBasketItems[pipId]) {
 				groupedBasketItems[pipId] = {
@@ -61,6 +73,7 @@ const BasketScreen = ({ route, navigation }) => {
 					pipName: pipName,
 					items: [],
 					totalPrice: 0,
+					id: id,
 				};
 			}
 
@@ -75,7 +88,10 @@ const BasketScreen = ({ route, navigation }) => {
 					basketItem.quantity;
 			} else {
 				// If the dish is new, add it to the person's order
-				groupedBasketItems[pipId].items.push({ ...basketItem });
+				groupedBasketItems[pipId].items.push({
+					...basketItem,
+					id: basketItem.id,
+				});
 			}
 
 			// Update the total price for this person
@@ -97,56 +113,44 @@ const BasketScreen = ({ route, navigation }) => {
 	const handleSendToChefsQ = async () => {
 		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
 			try {
-				setIsSendingToChefsQ(true); // Set loading state
+				setIsLoading(true);
 
 				// Extract the items from filteredBasketData, keeping only the necessary properties
 				const orderItems = filteredBasketData.flatMap((personData) =>
 					personData.items.map((basketItem) => ({
-						dish: basketItem.dish, // Include the entire dish object
+						dish: basketItem.dish,
 						quantity: basketItem.quantity,
 						specialInstructions: basketItem.specialInstructions,
-						pips: basketItem.pips,
+						pips: [basketItem.pip], // Include the PIP object for this item
+						id: basketItem.id,
 					}))
 				);
 
-				console.log(
-					`Being sent to sendToChefsQ ${restaurant.id}, ${currentUserData.uid} ${tableNumber}`
-				);
-				// Call the sendToChefsQ Cloud Function directly
+				// Call the sendToChefsQ Cloud Function
 				const sendToChefsQFunction = httpsCallable(functions, "sendToChefsQ");
 				const result = await sendToChefsQFunction({
+					userId: currentUserData.uid,
 					restaurantId: restaurant.id,
-					customerId: currentUserData.uid,
-					tableNumber: tableNumber,
 					items: orderItems,
 				});
 
 				if (result.data.success) {
-					// Clear the basket for this restaurant
-					clearBasket(restaurant.id);
-					navigation.navigate("CheckoutScreen"),
-						{ orderId: result.data.orderId };
-
-					// Navigate to OrderConfirmationScreen
-					navigation.navigate("CheckoutScreen", {
-						orderId: result.data.orderId,
-					});
+					// No need to clear the basket here, as we are only marking items as sent
+					// You might want to update the UI to reflect that the items have been sent
+					// For example, you could add a 'sentToChefQ' property to your basket items in the state
+					// and conditionally render a checkmark or gray them out in the UI
 				} else {
-					// Handle error from Cloud Function
 					throw new Error(
 						result.data.error || "Failed to send order to chef's queue"
 					);
 				}
 			} catch (error) {
-				console.error("Error sending to chef's queue:", error);
-				Alert.alert(
-					"Error",
-					error.message || "An error occurred while placing the order."
-				);
+				// ... (error handling)
+				console.log("Failed to send Order", error);
 			} finally {
-				setIsSendingToChefsQ(false); // Reset loading state
+				setIsLoading(false);
 			}
-		} else if (checkInStatus !== "ACCEPTED") {
+		} else if (checkInStatus !== "accepted") {
 			Alert.alert("Not Checked In", "Please check in to place an order.");
 		} else {
 			Alert.alert(
@@ -168,6 +172,7 @@ const BasketScreen = ({ route, navigation }) => {
 	const isButtonDisabled =
 		checkInStatus !== "ACCEPTED" ||
 		restaurantBasket.items.length === 0 ||
+		!hasUnsentItems() ||
 		isLoading;
 
 	const buttonMessage = isButtonDisabled
@@ -180,6 +185,7 @@ const BasketScreen = ({ route, navigation }) => {
 			: "Sending Order..."
 		: "Send To Chef's Q";
 
+	console.log("Buutton disabled status", isButtonDisabled);
 	return (
 		<Provider>
 			<View style={styles.container}>
@@ -204,7 +210,12 @@ const BasketScreen = ({ route, navigation }) => {
 								{personData.items.map((basketItem) => (
 									<View key={basketItem.id} style={styles.basketItem}>
 										<View style={styles.itemInfoContainer}>
-											<Text style={styles.dishName}>
+											<Text
+												style={[
+													styles.dishName,
+													basketItem.sentToChefQ && styles.sentItem,
+												]}
+											>
 												{basketItem.dish.name}
 											</Text>
 
@@ -238,7 +249,9 @@ const BasketScreen = ({ route, navigation }) => {
 																);
 															}
 														}}
-														disabled={basketItem.quantity <= 0}
+														disabled={
+															basketItem.quantity <= 0 || basketItem.sentToChefQ
+														}
 														style={styles.quantityButton}
 													>
 														<AntDesign name="minus" size={20} color="black" />
@@ -254,6 +267,7 @@ const BasketScreen = ({ route, navigation }) => {
 															)
 														}
 														style={styles.quantityButton}
+														disabled={basketItem.sentToChefQ}
 													>
 														<AntDesign name="plus" size={20} color="black" />
 													</TouchableOpacity>
@@ -323,6 +337,18 @@ const BasketScreen = ({ route, navigation }) => {
 			</View>
 
 			{/* Checkout Button (using Portal for positioning) */}
+			<Portal>
+				<FAB
+					icon={() => (
+						<FontAwesome5 name="credit-card" size={20} color="white" />
+					)}
+					style={styles.checkoutButton}
+					onPress={() =>
+						navigation.navigate("CheckoutScreen", { restaurant, orderId })
+					} // Pass the restaurant object
+					accessibilityLabel="Proceed to Checkout"
+				/>
+			</Portal>
 		</Provider>
 	);
 };
@@ -484,6 +510,11 @@ const styles = StyleSheet.create({
 		marginBottom: 10,
 		color: colors.textLight,
 		fontSize: 12, // Make the message text smaller
+	},
+
+	sentItem: {
+		textDecorationLine: "line-through",
+		color: "gray", // Or any other suitable color to indicate a disabled state
 	},
 });
 
