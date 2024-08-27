@@ -169,10 +169,56 @@ const handleCancelCheckIn = async (restaurantId, userId) => {
 	}
 };
 
+// Function to transform basket data, grouping items by PIP and calculating totals
+// Transform basket data to group items by PIP
+const transformBasketData = (basketItems) => {
+	const groupedBasketItems = {};
+
+	basketItems.forEach((basketItem) => {
+		const pipId = basketItem.pip.id;
+		const pipName = basketItem.pip.name;
+
+		if (!groupedBasketItems[pipId]) {
+			groupedBasketItems[pipId] = {
+				personId: pipId,
+				pipName: pipName,
+				items: [],
+				totalPrice: 0,
+			};
+		}
+
+		// Check if this dish is already in this person's UNSENT orders
+		const existingItemIndex = groupedBasketItems[pipId].items.findIndex(
+			(existing) =>
+				existing.dish.id === basketItem.dish.id && !existing.sentToChefQ
+		);
+
+		if (existingItemIndex > -1 && !basketItem.sentToChefQ) {
+			// If the UNSENT dish exists, increment its quantity
+			groupedBasketItems[pipId].items[existingItemIndex].quantity += 1;
+		} else {
+			// If the dish is new or has been sent to the chef's queue, add it as a new entry
+			groupedBasketItems[pipId].items.push({ ...basketItem });
+		}
+
+		// Update the total price for this person (only for unsent items)
+		if (!basketItem.sentToChefQ) {
+			groupedBasketItems[pipId].totalPrice +=
+				basketItem.dish.price * basketItem.quantity;
+		}
+	});
+
+	const sortedData = Object.values(groupedBasketItems).sort((a, b) =>
+		a.personId.localeCompare(b.personId)
+	);
+	return sortedData;
+};
+
 export {
 	fetchRestaurants,
 	fetchMenu,
 	checkIn,
 	handleCancelCheckIn,
 	useCheckInStatus,
+	transformBasketData,
 };

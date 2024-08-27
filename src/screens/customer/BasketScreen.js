@@ -13,9 +13,18 @@ import {
 import { useBasket } from "../../context/customer/BasketContext";
 import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { Provider, Portal, FAB, Snackbar } from "react-native-paper";
+import {
+	Provider,
+	Portal,
+	FAB,
+	Snackbar,
+	IconButton,
+} from "react-native-paper";
 
-import { useCheckInStatus } from "../../utils/customerUtils";
+import {
+	transformBasketData,
+	useCheckInStatus,
+} from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../../config/firebase";
@@ -51,64 +60,51 @@ const BasketScreen = ({ route, navigation }) => {
 			items: personData.items.map((basketItem) => ({
 				...basketItem,
 				itemId: basketItem.id, // Add the itemId here
-				newThing: "",
 			})),
 		}));
 
 		setFilteredBasketData(filteredDataWithIds);
 	}, [baskets, restaurant.id]);
 
-	// Transform basket data to group items by PIP
-	const transformBasketData = (basketItems) => {
-		const groupedBasketItems = {};
+	// Function to calculate totals and summary
+	const calculateTotals = () => {
+		const subtotal = restaurantBasket.items.reduce(
+			(total, item) => total + item.dish.price * item.quantity,
+			0
+		);
+		const tax = subtotal * 0.08; // Example 8% tax (adjust as needed)
+		const overallTotal = subtotal + tax;
 
-		basketItems.forEach((basketItem) => {
-			const pipId = basketItem.pip.id;
-			const pipName = basketItem.pip.name;
-			const id = basketItem.id;
+		let overallConfirmedTotal = 0;
+		let overallUnconfirmedTotal = 0;
 
-			if (!groupedBasketItems[pipId]) {
-				groupedBasketItems[pipId] = {
-					personId: pipId,
-					pipName: pipName,
-					items: [],
-					totalPrice: 0,
-					id: id,
-				};
-			}
-
-			// Check if this dish is already in the person order
-			const existingItemIndex = groupedBasketItems[pipId].items.findIndex(
-				(existing) => existing.dish.id === basketItem.dish.id
+		filteredBasketData.forEach((personData) => {
+			const confirmedSubtotal = personData.items.reduce(
+				(total, item) =>
+					item.sentToChefQ ? total + item.dish.price * item.quantity : total,
+				0
 			);
-
-			if (existingItemIndex > -1) {
-				// If the dish exists, increment its quantity
-				groupedBasketItems[pipId].items[existingItemIndex].quantity +=
-					basketItem.quantity;
-			} else {
-				// If the dish is new, add it to the person's order
-				groupedBasketItems[pipId].items.push({
-					...basketItem,
-					id: basketItem.id,
-				});
-			}
-
-			// Update the total price for this person
-			groupedBasketItems[pipId].totalPrice +=
-				basketItem.dish.price * basketItem.quantity;
+			overallConfirmedTotal += confirmedSubtotal;
+			overallUnconfirmedTotal += personData.totalPrice;
 		});
 
-		return Object.values(groupedBasketItems);
+		return {
+			subtotal,
+			tax,
+			overallTotal,
+			overallConfirmedTotal,
+			overallUnconfirmedTotal,
+		};
 	};
 
-	// Calculate subtotal and total
-	const subtotal = filteredBasketData.reduce(
-		(total, personData) => total + personData.totalPrice,
-		0
-	);
-	const tax = subtotal * 0.08; // Example 8% tax (adjust as needed)
-	const overallTotal = subtotal + tax;
+	// Call the calculateTotals function and destructure the returned values
+	const {
+		subtotal,
+		tax,
+		overallTotal,
+		overallConfirmedTotal,
+		overallUnconfirmedTotal,
+	} = calculateTotals();
 
 	const handleSendToChefsQ = async () => {
 		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
@@ -185,7 +181,6 @@ const BasketScreen = ({ route, navigation }) => {
 			: "Sending Order..."
 		: "Send To Chef's Q";
 
-	console.log("Buutton disabled status", isButtonDisabled);
 	return (
 		<Provider>
 			<View style={styles.container}>
@@ -196,124 +191,173 @@ const BasketScreen = ({ route, navigation }) => {
 				</View>
 
 				{/* Loading Indicator or Basket Content */}
+				{/* Loading Indicator or Basket Content */}
 				{isLoading ? (
 					<ActivityIndicator size="large" color={colors.primary} />
 				) : filteredBasketData.length > 0 ? (
 					<ScrollView showsVerticalScrollIndicator={false}>
-						{/* Basket Items Grouped by PIP */}
-						{filteredBasketData.map((personData) => (
-							<View key={personData.personId} style={styles.personSection}>
-								{/* PIP Name */}
-								<Text style={styles.personName}>{personData.pipName}</Text>
+						{filteredBasketData.map((personData) => {
+							// Calculate confirmed and unconfirmed totals for this PIP
+							const confirmedSubtotal = personData.items.reduce(
+								(total, item) =>
+									item.sentToChefQ
+										? total + item.dish.price * item.quantity
+										: total, // Only consider sent items
+								0
+							);
 
-								{/* Items for this PIP */}
-								{personData.items.map((basketItem) => (
-									<View key={basketItem.id} style={styles.basketItem}>
-										<View style={styles.itemInfoContainer}>
-											<Text
-												style={[
-													styles.dishName,
-													basketItem.sentToChefQ && styles.sentItem,
-												]}
+							// Calculate unconfirmed subtotal by filtering unsent items
+							const unconfirmedSubtotal = personData.items.reduce(
+								(total, item) =>
+									!item.sentToChefQ
+										? total + item.dish.price * item.quantity
+										: total, // Only consider unsent items
+								0
+							);
+
+							return (
+								<View key={personData.personId} style={styles.personSection}>
+									<Text style={styles.personName}>{personData.pipName}</Text>
+
+									{/* Items for this PIP */}
+									{personData.items
+										.sort((a, b) => b.sentToChefQ - a.sentToChefQ)
+										.map((basketItem, index) => (
+											<View
+												key={`${personData.personId}_${basketItem.dish.id}_${index}`}
+												style={styles.basketItem}
 											>
-												{basketItem.dish.name}
-											</Text>
-
-											{/* Quantity Controls */}
-											<View style={styles.itemActionsContainer}>
-												<View style={styles.quantityControls}>
-													<TouchableOpacity
-														onPress={() => {
-															if (basketItem.quantity === 1) {
-																// Trigger confirmation alert
-																Alert.alert(
-																	"Confirm Delete",
-																	`Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
-																	[
-																		{
-																			text: "Cancel",
-																			style: "cancel",
-																		},
-																		{
-																			text: "Delete",
-																			onPress: () =>
-																				handleQuantityChange(basketItem.id, 0),
-																			style: "destructive",
-																		},
-																	]
-																);
-															} else {
-																handleQuantityChange(
-																	basketItem.id,
-																	basketItem.quantity - 1
-																);
-															}
-														}}
-														disabled={
-															basketItem.quantity <= 0 || basketItem.sentToChefQ
-														}
-														style={styles.quantityButton}
+												<View style={styles.itemInfoContainer}>
+													<Text
+														style={[
+															styles.dishName,
+															basketItem.sentToChefQ && styles.sentItem,
+														]}
 													>
-														<AntDesign name="minus" size={20} color="black" />
-													</TouchableOpacity>
-													<Text style={styles.quantity}>
-														{basketItem.quantity}
+														{basketItem.dish.name} x {basketItem.quantity}
 													</Text>
-													<TouchableOpacity
-														onPress={() =>
-															handleQuantityChange(
-																basketItem.id,
-																basketItem.quantity + 1
-															)
-														}
-														style={styles.quantityButton}
-														disabled={basketItem.sentToChefQ}
+
+													{/* Quantity Controls */}
+													{!basketItem.sentToChefQ && (
+														<View style={styles.quantityControls}>
+															<TouchableOpacity
+																onPress={() => {
+																	if (basketItem.quantity === 1) {
+																		// Trigger confirmation alert
+																		Alert.alert(
+																			"Confirm Delete",
+																			`Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
+																			[
+																				{
+																					text: "Cancel",
+																					style: "cancel",
+																				},
+																				{
+																					text: "Delete",
+																					onPress: () =>
+																						handleQuantityChange(
+																							basketItem.id,
+																							0
+																						),
+																					style: "destructive",
+																				},
+																			]
+																		);
+																	} else {
+																		handleQuantityChange(
+																			basketItem.id,
+																			basketItem.quantity - 1
+																		);
+																	}
+																}}
+																disabled={
+																	basketItem.quantity <= 0 ||
+																	basketItem.sentToChefQ
+																}
+																style={styles.quantityButton}
+															>
+																<AntDesign
+																	name="minus"
+																	size={20}
+																	color="black"
+																/>
+															</TouchableOpacity>
+															<Text style={styles.quantity}>
+																{basketItem.quantity}
+															</Text>
+															<TouchableOpacity
+																icon="plus"
+																onPress={() =>
+																	handleQuantityChange(
+																		basketItem.id,
+																		basketItem.quantity + 1
+																	)
+																}
+																disabled={basketItem.sentToChefQ}
+															>
+																<AntDesign
+																	name="plus"
+																	size={20}
+																	color="black"
+																/>
+															</TouchableOpacity>
+														</View>
+													)}
+
+													<Text
+														style={[
+															styles.itemPrice,
+															basketItem.sentToChefQ && styles.sentItem,
+														]}
 													>
-														<AntDesign name="plus" size={20} color="black" />
-													</TouchableOpacity>
+														$
+														{(
+															basketItem.dish.price * basketItem.quantity
+														).toFixed(2)}
+													</Text>
 												</View>
 
-												<Text style={styles.itemPrice}>
-													$
-													{(
-														basketItem.dish.price * basketItem.quantity
-													).toFixed(2)}
-												</Text>
+												{/* Special Instructions (if any) */}
+												{basketItem.specialInstructions && (
+													<Text style={styles.specialInstructions}>
+														{basketItem.specialInstructions}
+													</Text>
+												)}
 											</View>
+										))}
 
-											{/* Special Instructions (if any) */}
-											{basketItem.specialInstructions && (
-												<Text style={styles.specialInstructions}>
-													{basketItem.specialInstructions}
-												</Text>
-											)}
-										</View>
+									{/* Totals for this PIP */}
+									<View style={styles.pipTotalsContainer}>
+										{unconfirmedSubtotal.toFixed(2) > 0 && (
+											<Text style={styles.pipTotalText}>
+											New Charges: ${unconfirmedSubtotal.toFixed(2)}
+										</Text>
+										)}
+										
+										{confirmedSubtotal > 0 && (
+											<Text style={styles.pipTotalText}>
+												Confirmed Total: ${confirmedSubtotal.toFixed(2)}
+											</Text>
+										)}
 									</View>
-								))}
-
-								{/* Total for this PIP */}
-								<View style={styles.pipTotalContainer}>
-									<Text style={styles.pipTotalText}>
-										Total: ${personData.totalPrice.toFixed(2)}
-									</Text>
 								</View>
-							</View>
-						))}
+							);
+						})}
 
 						{/* Overall Order Summary */}
 						<View style={styles.orderSummary}>
-							<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
-							<Text>Tax (8%): ${tax.toFixed(2)}</Text>
+							<Text>
+								Unconfirmed New Charges: ${overallUnconfirmedTotal.toFixed(2)}
+							</Text>
+							{overallConfirmedTotal > 0 && (
+								<Text>
+									Confirmed Total: ${overallConfirmedTotal.toFixed(2)}
+								</Text>
+							)}
 							<Text style={styles.totalPrice}>
 								Total: ${overallTotal.toFixed(2)}
 							</Text>
 						</View>
-						<Snackbar
-							visible={showDeleteSnackbar}
-							onDismiss={() => setShowSnackbar(false)}
-						>
-							Item removed from basket
-						</Snackbar>
 
 						{/* Send to Chef's Q Button (Conditional Rendering) */}
 						<View style={styles.buttonContainer}>
@@ -322,10 +366,15 @@ const BasketScreen = ({ route, navigation }) => {
 							)}
 							<Button
 								title="Send To Chef's Q"
+								mode="contained"
 								onPress={handleSendToChefsQ}
-								loading={isLoading}
+								loading={isSendingToChefsQ}
 								disabled={isButtonDisabled}
-								style={styles.sendButtonActive}
+								style={
+									isButtonDisabled
+										? styles.sendButtonInactive
+										: styles.sendButtonActive
+								}
 							/>
 						</View>
 					</ScrollView>
@@ -457,6 +506,23 @@ const styles = StyleSheet.create({
 		borderTopWidth: 1,
 		borderTopColor: colors.lightGray,
 		paddingTop: 10,
+	},
+	newItemSummary: {
+		// New style for the new item summary section
+		marginTop: 20,
+		padding: 10,
+		borderWidth: 1,
+		borderColor: colors.lightGray,
+		borderRadius: 5,
+	},
+	sectionTitle: {
+		fontSize: 16,
+		fontWeight: "bold",
+		marginBottom: 5,
+	},
+	newItemText: {
+		// Style for individual new items
+		marginBottom: 3,
 	},
 	totalPrice: {
 		fontSize: 18,

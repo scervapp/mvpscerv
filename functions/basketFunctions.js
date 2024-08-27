@@ -28,7 +28,7 @@ async function addItemToBasket(data, context) {
 			.doc(userId)
 			.collection("basketItems");
 
-		// 3. Check for Existing Item with any of the selected PIPs
+		// 3. Check for Existing UNSENT Item with the Same PIPs
 		const existingItemsQuery = basketItemsRef
 			.where("restaurantId", "==", restaurantId)
 			.where("dish.id", "==", dish.id)
@@ -36,51 +36,21 @@ async function addItemToBasket(data, context) {
 				"pip.id",
 				"in",
 				selectedPIPs.map((pip) => pip.id)
-			);
+			)
+			.where("sentToChefQ", "==", false);
 		const existingItemsSnapshot = await existingItemsQuery.get();
 
 		if (!existingItemsSnapshot.empty) {
-			// 4a. If the dish exists for any of the selected PIPs
-			// update its quantity or create new documents for the rest
+			// 4a. If any unsent items with the same dish and PIPs exist, update their quantities
 			const batch = db.batch();
-
-			// Keep track of PIPs for which the quantity has been updated or a new doc created
-			const processedPIPs = new Set();
-
-			for (const pip of selectedPIPs) {
-				const existingItemForPIP = existingItemsSnapshot.docs.find(
-					(doc) => doc.data().pip.id === pip.id
-				);
-
-				if (existingItemForPIP) {
-					// Update the quantity of the existing item
-					batch.update(existingItemForPIP.ref, {
-						quantity: admin.firestore.FieldValue.increment(1),
-					});
-
-					processedPIPs.add(pip.id); // Mark this PIP as processed
-				}
-			}
-
-			// Create new documents for PIPs that didn't have an existing item
-			const newItemsForPIPs = selectedPIPs.filter(
-				(pip) => !processedPIPs.has(pip.id)
-			);
-			newItemsForPIPs.forEach((pip) => {
-				const newItemRef = basketItemsRef.doc();
-				batch.set(newItemRef, {
-					restaurantId,
-					dish,
-					quantity: 1,
-					specialInstructions: "",
-					pip,
-					sentToChefQ: false, // Add the sentToChefQ field
+			existingItemsSnapshot.forEach((doc) => {
+				batch.update(doc.ref, {
+					quantity: admin.firestore.FieldValue.increment(1),
 				});
 			});
-
 			await batch.commit();
 		} else {
-			// 4b. If the dish is new for all selected PIPs, create a new entry for each PIP
+			// 4b. If the dish is new for all selected PIPs, or all existing instances are sent, create new documents
 			const batch = db.batch();
 			selectedPIPs.forEach((pip) => {
 				const newItemRef = basketItemsRef.doc();
@@ -90,7 +60,7 @@ async function addItemToBasket(data, context) {
 					quantity: 1,
 					specialInstructions: "",
 					pip,
-					sentToChefQ: false, // Add the sentToChefQ field
+					sentToChefQ: false,
 				});
 			});
 			await batch.commit();
