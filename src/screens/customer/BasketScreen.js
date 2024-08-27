@@ -330,10 +330,10 @@ const BasketScreen = ({ route, navigation }) => {
 									<View style={styles.pipTotalsContainer}>
 										{unconfirmedSubtotal.toFixed(2) > 0 && (
 											<Text style={styles.pipTotalText}>
-											New Charges: ${unconfirmedSubtotal.toFixed(2)}
-										</Text>
+												New Charges: ${unconfirmedSubtotal.toFixed(2)}
+											</Text>
 										)}
-										
+
 										{confirmedSubtotal > 0 && (
 											<Text style={styles.pipTotalText}>
 												Confirmed Total: ${confirmedSubtotal.toFixed(2)}
@@ -346,14 +346,18 @@ const BasketScreen = ({ route, navigation }) => {
 
 						{/* Overall Order Summary */}
 						<View style={styles.orderSummary}>
-							<Text>
-								Unconfirmed New Charges: ${overallUnconfirmedTotal.toFixed(2)}
-							</Text>
+							{overallUnconfirmedTotal.toFixed(2) > 0 && (
+								<Text>
+									Unconfirmed New Charges: ${overallUnconfirmedTotal.toFixed(2)}
+								</Text>
+							)}
+
 							{overallConfirmedTotal > 0 && (
 								<Text>
 									Confirmed Total: ${overallConfirmedTotal.toFixed(2)}
 								</Text>
 							)}
+							{overallConfirmedTotal > 0 && <Text>Tax: ${tax.toFixed(2)}</Text>}
 							<Text style={styles.totalPrice}>
 								Total: ${overallTotal.toFixed(2)}
 							</Text>
