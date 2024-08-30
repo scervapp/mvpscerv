@@ -28,6 +28,7 @@ import {
 import { AuthContext } from "../../context/authContext";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../../config/firebase";
+import { jsx } from "react/jsx-runtime";
 
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
@@ -391,16 +392,23 @@ const BasketScreen = ({ route, navigation }) => {
 
 			{/* Checkout Button (using Portal for positioning) */}
 			<Portal>
-				<FAB
-					icon={() => (
-						<FontAwesome5 name="credit-card" size={20} color="white" />
-					)}
-					style={styles.checkoutButton}
-					onPress={() =>
-						navigation.navigate("CheckoutScreen", { restaurant, orderId })
-					} // Pass the restaurant object
-					accessibilityLabel="Proceed to Checkout"
-				/>
+				<View style={styles.checkoutButtonContainer}>
+					{/* New container for FAB and text */}
+					<Text style={styles.checkoutButtonText}>Checkout and Pay</Text>
+					<FAB
+						icon={() => (
+							<FontAwesome5 name="credit-card" size={20} color="white" />
+						)}
+						style={styles.checkoutButton}
+						onPress={() =>
+							navigation.navigate("CheckoutScreen", { baskets, restaurant })
+						}
+						disabled={
+							!checkInStatus === "ACCEPTED" ||
+							restaurantBasket.items.length === 0
+						}
+					/>
+				</View>
 			</Portal>
 		</Provider>
 	);
@@ -553,12 +561,22 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "bold",
 	},
-	checkoutButton: {
+
+	checkoutButtonContainer: {
+		flexDirection: "row",
+		alignItems: "center",
 		position: "absolute",
 		bottom: 16,
 		right: 16,
-		alignSelf: "flex-end",
-		backgroundColor: colors.primary,
+	},
+	checkoutButton: {
+		backgroundColor: "green",
+	},
+	checkoutButtonText: {
+		marginRight: 10, // Add some spacing between text and FAB
+		fontSize: 16,
+		fontWeight: "bold",
+		color: "green", // Or any suitable color that contrasts with the background
 	},
 	checkoutButtonContent: {
 		flexDirection: "column",

@@ -5,97 +5,240 @@ import {
 	StyleSheet,
 	ScrollView,
 	ActivityIndicator,
+	TouchableOpacity,
+	Button,
 } from "react-native";
-import { collection, doc, getDoc, query, where } from "firebase/firestore";
-
+import {
+	doc,
+	getDoc,
+	setDoc,
+	collection,
+	serverTimestamp,
+} from "firebase/firestore";
+import { transformBasketData } from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
+import colors from "../../utils/styles/appStyles";
+import { Picker } from "@react-native-picker/picker";
+import { CreditCardInput } from "react-native-credit-card-input";
 import { db } from "../../config/firebase";
 
 const CheckoutScreen = ({ route }) => {
-	const { orderId } = route.params;
+	const { restaurant, baskets } = route.params;
 	const { currentUserData } = useContext(AuthContext);
-	const [order, setOrder] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
-	const [error, setError] = useState(null);
+	const [filteredBasketData, setFilteredBasketData] = useState([]);
+	const [expandedPIPs, setExpandedPIPs] = useState({});
+	const [gratuityPercentage, setGratuityPercentage] = useState("15");
+	const [isShowFeesBreakdown, setIsShowFeesBreakdown] = useState(false);
+	const [cardDetails, setCardDetails] = useState([]);
+	const restaurantBasketItems =
+		baskets[restaurant.id]?.items.filter((item) => item.sentToChefQ) || [];
+	const [paymentError, setPaymentError] = useState(null);
+	const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+	const [fees, setFees] = useState(null);
 
 	useEffect(() => {
-		const fetchOrderDetails = async () => {
+		const fetchFees = async () => {
+			setIsLoading(true);
 			try {
-				const ordersRef = collection(db, "orders");
-				const q = query(
-					ordersRef,
-					where("orderId", "==", orderId),
-					where("customerId", "==", currentUserData.uid)
-				); // Add customerId filter
-				const querySnapshot = await getDocs(q);
-
-				if (!querySnapshot.empty) {
-					const orderData = querySnapshot.docs[0].data();
-					setOrder(orderData);
+				const feesDocRef = doc(db, "appConfig", "general");
+				const docSnapshot = await getDoc(feesDocRef);
+				if (docSnapshot.exists()) {
+					setFees(docSnapshot.data().fees);
 				} else {
-					console.error("Order not found:", orderId);
-					setError("Order not found");
+					console.log("Fee not found");
 				}
 			} catch (error) {
-				console.error("Error fetching order details:", error);
-				setError(
-					error.message || "An error occurred while fetching the order details."
-				);
+				console.log("Error fetching fee", error);
 			} finally {
 				setIsLoading(false);
 			}
 		};
+		fetchFees();
+	}, []);
 
-		fetchOrderDetails();
-	}, [orderId, currentUserData.uid]); // Add currentUserData.uid as a dependency
+	const handleCardDetailsChange = (form) => {
+		setCardDetails(form);
+	};
+
+	const handlePayment = () => {
+		console.log("handlepayment");
+	};
+	// State to track expanded collaped state of each pip section
+	// Function to toggle the expanded state of a PIP section
+	const toggleExpandPIP = (personId) => {
+		setExpandedPIPs((prevExpandedPIPs) => ({
+			...prevExpandedPIPs,
+			[personId]: !prevExpandedPIPs[personId],
+		}));
+	};
+
+	// Get the basket items for the current restaurant, filtered by sentToChefQ
+
+	useEffect(() => {
+		const transformedData = transformBasketData(restaurantBasketItems);
+		const filteredData = transformedData.filter(
+			(personData) => personData.items && personData.items.length > 0
+		);
+		setFilteredBasketData(filteredData);
+		setIsLoading(false);
+	}, [baskets, restaurant.id]);
+
+	// Calculate subtotal, tax, fee, gratuity, and overall total (using filteredBasketData)
+	const calculateTotals = () => {
+		const subtotal = restaurantBasketItems.reduce(
+			(total, item) => total + item.dish.price * item.quantity,
+			0
+		);
+		const tax = subtotal * restaurant.taxRate; // Example 8% tax
+		const fee = subtotal * fees;
+		const gratuityAmount = (subtotal * parseFloat(gratuityPercentage)) / 100;
+		const overallTotal = subtotal + tax + fee + gratuityAmount;
+
+		return {
+			subtotal,
+			tax,
+			fee,
+			gratuity: gratuityAmount,
+			overallTotal,
+		};
+	};
+
+	const { subtotal, tax, fee, gratuity, overallTotal } = calculateTotals();
 
 	return (
 		<View style={styles.container}>
+			{/* Loading or Error or Order Details */}
 			{isLoading ? (
 				<ActivityIndicator size="large" />
-			) : error ? (
-				<Text style={styles.errorText}>{error}</Text>
-			) : order ? (
-				<ScrollView>
-					{/* Display order summary */}
+			) : restaurantBasketItems.length > 0 ? (
+				<ScrollView showsVerticalScrollIndicator={false}>
+					{/* Order Summary */}
 					<Text style={styles.heading}>Order Summary</Text>
 
 					{/* Restaurant Name */}
-					<Text style={styles.restaurantName}>
-						{/* Fetch restaurant name based on order.restaurantId */}
-					</Text>
+					<Text style={styles.restaurantName}>{restaurant.name}</Text>
 
-					{/* Order Items */}
-					{order.items.map((item, index) => (
-						<View key={index} style={styles.orderItem}>
-							<Text>
-								{item.dish.name} x {item.quantity}
+					{/* Basket Items Grouped by PIP */}
+					{filteredBasketData.map((personData) => {
+						const isExpanded = expandedPIPs[personData.personId] || false;
+
+						// Calculate totals for PIP
+						const pipTotal = personData.items.reduce(
+							(total, item) => total + item.dish.price * item.quantity,
+							0
+						);
+
+						return (
+							<View key={personData.personId} style={styles.personSection}>
+								{/* PIP Name and Total (always visible) */}
+								<TouchableOpacity
+									onPress={() => toggleExpandPIP(personData.personId)}
+									style={styles.personHeader}
+								>
+									<Text style={styles.personName}>{personData.pipName}</Text>
+									<View style={styles.pipTotalsContainer}>
+										<Text style={styles.pipTotalText}>
+											Total: ${pipTotal.toFixed(2)}
+											{/* Display only the total for this PIP */}
+										</Text>
+									</View>
+								</TouchableOpacity>
+
+								{/* Items for this PIP (conditionally rendered) */}
+								{isExpanded &&
+									personData.items.map((basketItem) => (
+										<View key={basketItem.id} style={styles.basketItem}>
+											<View style={styles.itemInfoContainer}>
+												<Text
+													style={[
+														styles.dishName,
+														basketItem.sentToChefQ && styles.sentItem,
+													]}
+												>
+													{basketItem.dish.name} x {basketItem.quantity}
+												</Text>
+
+												<Text
+													style={[
+														styles.itemPrice,
+														basketItem.sentToChefQ && styles.sentItem,
+													]}
+												>
+													$
+													{(
+														basketItem.dish.price * basketItem.quantity
+													).toFixed(2)}
+												</Text>
+											</View>
+
+											{/* Special Instructions (if any) */}
+											{basketItem.specialInstructions && (
+												<Text style={styles.specialInstructions}>
+													{basketItem.specialInstructions}
+												</Text>
+											)}
+										</View>
+									))}
+							</View>
+						);
+					})}
+
+					{/* Overall Order Summary with Taxes & Fees and Gratuity */}
+					<View style={styles.orderSummary}>
+						<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
+						<TouchableOpacity
+							onPress={() => setIsShowFeesBreakdown(!isShowFeesBreakdown)}
+						>
+							<Text style={styles.feesText}>
+								Taxes & Fees: ${(tax + fee).toFixed(2)}
+								{isShowFeesBreakdown && (
+									<View style={styles.feeBreakdownContainer}>
+										<Text style={styles.feeBreakdown}>
+											- Tax: ${tax.toFixed(2)}
+										</Text>
+										<Text style={styles.feeBreakdown}>
+											- Scerv Fee: ${fee.toFixed(2)}
+										</Text>
+									</View>
+								)}
 							</Text>
-							<Text>${(item.dish.price * item.quantity).toFixed(2)}</Text>
-							{/* Display PIPs if available */}
-							{item.pips && item.pips.length > 0 && (
-								<Text style={styles.pipsText}>
-									For: {item.pips.map((pip) => pip.name).join(", ")}
-								</Text>
-							)}
-							{/* Display special instructions if any */}
-							{item.specialInstructions && (
-								<Text style={styles.specialInstructions}>
-									{item.specialInstructions}
-								</Text>
-							)}
+						</TouchableOpacity>
+						<View style={styles.gratuityContainer}>
+							{/* Gratuity selection */}
+							<Text>Gratuity:</Text>
+							<Picker
+								selectedValue={gratuityPercentage}
+								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
+								style={styles.gratuityPicker}
+							>
+								<Picker.Item label="0%" value="0" />
+								<Picker.Item label="10%" value="10" />
+								<Picker.Item label="15%" value="15" />
+								<Picker.Item label="20%" value="20" />
+								{/* Add more options or custom input as needed */}
+							</Picker>
 						</View>
-					))}
-
-					{/* Order Total */}
-					<View style={styles.orderTotal}>
-						<Text style={styles.totalLabel}>Total:</Text>
 						<Text style={styles.totalPrice}>
-							${order.totalPrice.toFixed(2)}
+							Total: ${overallTotal.toFixed(2)}
 						</Text>
 					</View>
+
+					{/* Payment Information Input */}
+					<Text style={styles.heading}>Payment Information</Text>
+					<CreditCardInput onChange={handleCardDetailsChange} />
+					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
+
+					{/* Pay Button with Loading Indicator */}
+					{isPaymentLoading ? (
+						<ActivityIndicator size="large" color={colors.primary} />
+					) : (
+						<Button title="Pay Now" onPress={handlePayment} />
+					)}
 				</ScrollView>
-			) : null}
+			) : (
+				<Text>Basket is empty</Text>
+			)}
 		</View>
 	);
 };
@@ -104,41 +247,78 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		padding: 16,
+		backgroundColor: colors.background,
 	},
 	heading: {
 		fontSize: 20,
 		fontWeight: "bold",
 		marginBottom: 10,
+		color: colors.primary,
 	},
 	restaurantName: {
 		fontSize: 18,
 		marginBottom: 10,
 	},
-	orderItem: {
+	personSection: {
+		marginBottom: 20,
+		backgroundColor: colors.accent,
+		borderRadius: 8,
+		padding: 10,
+	},
+	personHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 4,
+	},
+	personName: {
+		fontSize: 18,
+		fontWeight: "bold",
+	},
+	pipTotalsContainer: {
+		flexDirection: "column",
+		alignItems: "flex-end",
+	},
+	pipTotalText: {
+		fontWeight: "bold",
+		fontSize: 14,
+	},
+	basketItem: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
 		marginBottom: 5,
-		borderBottomWidth: 1,
-		borderBottomColor: "#ccc",
-		padding: 10,
+		paddingHorizontal: 10,
 	},
-	pipsText: {
-		fontSize: 12,
-		color: "gray",
+	itemInfoContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		flex: 1,
+	},
+	dishName: {
+		fontSize: 16,
+		fontWeight: "500",
+	},
+	quantity: {
+		marginHorizontal: 5,
+	},
+	itemPrice: {
+		fontWeight: "bold",
+		color: colors.accent,
 	},
 	specialInstructions: {
-		fontSize: 12,
-		color: "gray",
+		fontSize: 14,
+		color: colors.textLight,
 		marginTop: 5,
 	},
-	orderTotal: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
+	sentItem: {
+		textDecorationLine: "line-through",
+		color: "gray",
+	},
+	orderSummary: {
 		marginTop: 20,
 		borderTopWidth: 1,
-		borderTopColor: "#ccc",
+		borderTopColor: colors.lightGray,
 		paddingTop: 10,
 	},
 	totalLabel: {
@@ -149,9 +329,40 @@ const styles = StyleSheet.create({
 		fontSize: 18,
 		fontWeight: "bold",
 	},
+	paymentInfo: {
+		marginTop: 20,
+	},
+	cardInput: {
+		marginBottom: 10,
+	},
 	errorText: {
 		color: "red",
 		marginBottom: 10,
+	},
+	payButton: {
+		backgroundColor: colors.primary,
+		borderRadius: 5,
+		paddingVertical: 10,
+	},
+	feesText: {
+		marginBottom: 5,
+	},
+	feeBreakdownContainer: {
+		marginLeft: 10, // Indent the breakdown slightly
+		marginTop: 5, // Add some spacing above the breakdown
+	},
+	feeBreakdown: {
+		fontSize: 12,
+		color: "gray",
+	},
+	gratuityContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 10,
+	},
+	gratuityPicker: {
+		width: 70,
 	},
 });
 
