@@ -1,9 +1,9 @@
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-
 admin.initializeApp();
 
 const checkInFunctions = require("./checkInFunctions");
+const orderFunctions = require("./orderFunctions");
+const paymentFunctions = require("./paymentFunctions");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -18,4 +18,7 @@ exports.clearBasket = require("./basketFunctions").clearBasket;
 
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
+exports.createOrder = orderFunctions.createOrder;
+exports.createPaymentIntent = paymentFunctions.createPaymentIntent;
+exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 

@@ -64,108 +64,51 @@ async function generateOrderId(restaurantId, customerId) {
 	}
 }
 
-// exports.sendToChefsQ = functions.https.onCall(async (data, context) => {
-// 	const { restaurantId, customerId, tableNumber, items } = data;
+exports.createOrder = functions.https.onCall(async (data, context) => {
+	const { userId, restaurantId, tableNumber, items, totalPrice } = data;
+	try {
+		// Input validation
+		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User not authenticated"
+			);
+		}
 
-// 	try {
-// 		// 1. Input Validation
-// 		if (!context.auth || !context.auth.uid) {
-// 			throw new functions.https.HttpsError(
-// 				"unauthenticated",
-// 				"User not authenticated"
-// 			);
-// 		}
+		if (
+			!restaurantId ||
+			!items ||
+			!Array.isArray(items) ||
+			items.length === 0 ||
+			isNaN(totalPrice) ||
+			totalPrice <= 0
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Invalid data provided"
+			);
+		}
 
-// 		if (
-// 			!restaurantId ||
-// 			!customerId ||
-// 			!tableNumber ||
-// 			!items ||
-// 			!Array.isArray(items) ||
-// 			items.length === 0
-// 		) {
-// 			throw new functions.https.HttpsError(
-// 				"invalid-argument",
-// 				"Invalid data provided"
-// 			);
-// 		}
+		// 2. Generate OrderId
+		const orderId = await generateOrderId(restaurantId, userId);
 
-// 		// 2. Check if an order already exists for this check-in and is pending
-// 		const existingOrderQuery = db
-// 			.collection("orders")
-// 			.where("customerId", "==", customerId)
-// 			.where("restaurantId", "==", restaurantId)
-// 			.where("orderStatus", "==", "PENDING");
-// 		const existingOrderSnapshot = await existingOrderQuery.get();
+		//3. Create the order document
+		const orderRef = await db.collection("orders").add({
+			orderId,
+			customerId: userId,
+			tableNumber,
+			items,
+			orderStatus: "pending",
+			paymentStatus: "paid",
+			totalPrice,
+			timestamp: admin.firestore.FieldValue.serverTimestamp(),
+		});
 
-// 		let orderRef;
-// 		let orderId;
+		console.log("Order created with ID:", orderId);
 
-// 		if (existingOrderSnapshot.empty) {
-// 			// 3a. No existing order, create a new one
-// 			const orderData = {
-// 				customerId,
-// 				restaurantId,
-// 				tableNumber,
-// 				items: items.map((item) => ({ ...item, sentToChefQ: true })), // Mark items as sent
-// 				orderStatus: "PENDING",
-// 				paymentStatus: "unpaid",
-// 				createdAt: admin.firestore.FieldValue.serverTimestamp(),
-// 				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-// 			};
-
-// 			// Calculate total price
-// 			orderData.totalPrice = items.reduce((total, item) => {
-// 				return total + item.dish.price * item.quantity;
-// 			}, 0);
-
-// 			orderRef = await db.collection("orders").add(orderData);
-
-// 			orderId = await generateOrderId(restaurantId, customerId);
-// 			await orderRef.update({ orderId });
-// 		} else {
-// 			// 3b. Existing order found, update it with new items
-// 			orderRef = existingOrderSnapshot.docs[0].ref;
-// 			const existingOrderData = existingOrderSnapshot.docs[0].data();
-
-// 			// Calculate the price of the new items
-// 			const newItemsTotalPrice = items.reduce((total, item) => {
-// 				return total + item.dish.price * item.quantity;
-// 			}, 0);
-
-// 			// Mark new items as sent and add them to the existing order
-// 			const updatedItems = items.map((item) => ({
-// 				...item,
-// 				sentToChefQ: true,
-// 			}));
-
-// 			await orderRef.update({
-// 				items: admin.firestore.FieldValue.arrayUnion(...updatedItems),
-// 				totalPrice: existingOrderData.totalPrice + newItemsTotalPrice,
-// 				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-// 			});
-
-// 			orderId = existingOrderData.orderId;
-// 		}
-
-// 		// 4. Update basketItems in Firestore to mark them as sentToChefQ = true
-// 		const batch = db.batch();
-// 		items.forEach((item) => {
-// 			const basketItemRef = db
-// 				.collection("baskets")
-// 				.doc(userId)
-// 				.collection("basketItems")
-// 				.doc(item.id);
-// 			batch.update(basketItemRef, { sentToChefQ: true });
-// 		});
-// 		await batch.commit();
-
-// 		// 5. Optionally, send notifications to the restaurant staff
-// 		// ...
-
-// 		return { success: true, orderId };
-// 	} catch (error) {
-// 		console.error("Error sending order to chef's queue:", error);
-// 		throw new functions.https.HttpsError("internal", error.message);
-// 	}
-// });
+		return { success: true, orderId };
+	} catch (error) {
+		console.error("Error creating order: ", error);
+		throw new functions.https.HttpsError("Internal Error", error.message);
+	}
+});

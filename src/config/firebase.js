@@ -9,6 +9,7 @@ import {
 	getReactNativePersistence,
 	connectAuthEmulator,
 } from "firebase/auth";
+//import { getRemoteConfig, fetchAndActivate } from "firebase/remote-config";
 
 const firebaseConfig = {
 	apiKey: "AIzaSyB4Bi4Ql9nqG73nCzlJ_mv8WNQHKB0ugVI",
@@ -31,6 +32,29 @@ export const db = getFirestore(app);
 export const auth = initializeAuth(app, {
 	persistence: getReactNativePersistence(ReactNativeAsyncStorage),
 });
+
+//const remoteConfig = getRemoteConfig(app);
+
+// Set to use memory storage
+// remoteConfig.settings = {
+// 	minimumFetchIntervalMillis: 3600000, // Adjust fetch interval as needed
+// 	fetchTimeoutMillis: 60000, // Adjust timeout as needed
+// };
+
+// Function to fetch the Stripe publishable key from Remote Config
+// export const getStripePublishableKeyFromRemoteConfig = async () => {
+// 	try {
+// 		await fetchAndActivate(remoteConfig); // Fetch and activate the latest remote config values
+// 		return remoteConfig.getValue("stripe_publishable_key").asString();
+// 	} catch (error) {
+// 		console.error(
+// 			"Error fetching stripe publishable key from remote config",
+// 			error
+// 		);
+// 		// Handle the error appropriately (e.g., use a default key or show an error message)
+// 		return "YOUR_DEFAULT_STRIPE_PUBLISHABLE_KEY"; // Replace with an actual default key or error handling logic
+// 	}
+// };
 
 export const functions = getFunctions(app);
 

@@ -2561,6 +2561,11 @@
   dependencies:
     "@sinonjs/commons" "^3.0.0"
 
+"@stripe/stripe-react-native@0.37.2":
+  version "0.37.2"
+  resolved "https://registry.yarnpkg.com/@stripe/stripe-react-native/-/stripe-react-native-0.37.2.tgz#17da4c6865d5af2006d52e1ff5ef240a158190ae"
+  integrity sha512-dLM4jknWQEmqIAXgWpskwty6fL7EHpaW70P+75hVYrGasxMNEbZpdNQIN9SEUppULiyrMIeMp5NtksCZCcolUQ==
+
 "@tootallnate/once@2":
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/@tootallnate/once/-/once-2.0.0.tgz#f544a148d3ab35801c1f633a7441fd87c2e484bf"
@@ -5445,6 +5450,11 @@ expo-status-bar@~1.12.1:
   version "1.12.1"
   resolved "https://registry.yarnpkg.com/expo-status-bar/-/expo-status-bar-1.12.1.tgz#52ce594aab5064a0511d14375364d718ab78aa66"
   integrity sha512-/t3xdbS8KB0prj5KG5w7z+wZPFlPtkgs95BsmrP/E7Q0xHXTcDcQ6Cu2FkFuRM+PKTb17cJDnLkawyS5vDLxMA==
+
+expo-stripe@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/expo-stripe/-/expo-stripe-1.0.0.tgz#af7cfb9df10dfa2aeb228067f4bb241035845599"
+  integrity sha512-tcju8IQUk4bD8A9F0KMaKJbE7oL5+s9l+yPIv0yVectUBOlkbuzj0hrufQGqHZ+2QLbyftRFTQJO+43sc5nmCA==
 
 expo@51.0.0:
   version "51.0.0"

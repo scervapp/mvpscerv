@@ -7,6 +7,7 @@ import {
 	ActivityIndicator,
 	TouchableOpacity,
 	Button,
+	Alert,
 } from "react-native";
 import {
 	doc,
@@ -14,13 +15,24 @@ import {
 	setDoc,
 	collection,
 	serverTimestamp,
+	addDoc,
 } from "firebase/firestore";
-import { transformBasketData } from "../../utils/customerUtils";
+import {
+	transformBasketData,
+	useCheckInStatus,
+} from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { CreditCardInput } from "react-native-credit-card-input";
-import { db } from "../../config/firebase";
+import {
+	db,
+	functions,
+	getStripePublishableKeyFromRemoteConfig,
+} from "../../config/firebase";
+import { httpsCallable } from "firebase/functions";
+
+import { useStripe } from "@stripe/stripe-react-native";
 
 const CheckoutScreen = ({ route }) => {
 	const { restaurant, baskets } = route.params;
@@ -36,6 +48,64 @@ const CheckoutScreen = ({ route }) => {
 	const [paymentError, setPaymentError] = useState(null);
 	const [isPaymentLoading, setIsPaymentLoading] = useState(false);
 	const [fees, setFees] = useState(null);
+	const [isStripeInitialized, setIsStripeInitialized] = useState(false);
+	const { checkInStatus, tableNumber } = useCheckInStatus(
+		restaurant.uid,
+		currentUserData.uid
+	);
+	const [stripePublishableKey, setStripePublishableKey] = useState(null);
+
+	const { initPaymentSheet, presentPaymentSheet } = useStripe();
+
+	useEffect(() => {
+		const fetchStripePublishableKey = async () => {
+			try {
+				const getStripePublishableKeyFunction = httpsCallable(
+					functions,
+					"getStripePublishableKey"
+				);
+				const {
+					data: { stripePublishableKey },
+				} = await getStripePublishableKeyFunction();
+
+				if (stripePublishableKey) {
+					setStripePublishableKey(stripePublishableKey);
+				} else {
+					throw new Error("Failed to fetch stripe publishable key");
+				}
+			} catch (error) {
+				console.error("Error fetching stripe publishable key", error);
+				setPaymentError("Could not initialize Stripe. PLease try again");
+			}
+		};
+		fetchStripePublishableKey();
+	}, []);
+
+	// Initialize Stripe Payment Sheet
+	useEffect(() => {
+		if (stripePublishableKey) {
+			const initializeStripe = async () => {
+				try {
+					const initResult = await initPaymentSheet({
+						merchantDisplayName: restaurant.restaurantName,
+					});
+					if (initResult.error) {
+						console.error(
+							"Error initializing payment sheet:",
+							initResult.error
+						);
+						setPaymentError(initResult.error.message);
+					}
+				} catch (error) {
+					console.error("Error during payment sheet initialization:", error);
+					setPaymentError(
+						"Error initializing payment sheet. Please try again."
+					);
+				}
+			};
+			initializeStripe();
+		}
+	}, [stripePublishableKey]);
 
 	useEffect(() => {
 		const fetchFees = async () => {
@@ -61,9 +131,78 @@ const CheckoutScreen = ({ route }) => {
 		setCardDetails(form);
 	};
 
-	const handlePayment = () => {
-		console.log("handlepayment");
+	const handlePayment = async () => {
+		if (!cardDetails.valid) {
+			Alert.alert("Invalid Card", "Please check your card details.");
+			return;
+		}
+
+		try {
+			setIsPaymentLoading(true);
+			setPaymentError(null);
+
+			// 1. Create a PaymentIntent on the backend (commented out for now)
+			const createPaymentIntentFunction = httpsCallable(
+				functions,
+				"createPaymentIntent"
+			);
+			const {
+				data: { clientSecret },
+			} = await createPaymentIntentFunction({
+				amount: Math.round(overallTotal * 100),
+				subtotal: subtotal * 100,
+				tax: tax * 100,
+				fee: fee * 100,
+				gratuity: gratuity & 100,
+			});
+
+			// Initialize the payment sheet
+			const { error: initSheetError } = await initPaymentSheet({
+				paymentIntentClientSecret: clientSecret,
+				merchantDisplayName: restaurant.restaurantName,
+			});
+
+			if (initSheetError) {
+				console.error("Error initializing payment sheet: ", initSheetError);
+				setPaymentError(initSheetError.message);
+				return; // Exit the function early if there is an initializatioin error
+			}
+
+			// 3. Present the payment sheet to the user
+			const { error: paymentSheetError } = await presentPaymentSheet();
+			if (paymentSheetError) {
+				console.error("Error processing payment: ", paymentSheetError);
+				setPaymentError(paymentSheetError.message);
+				return;
+				// Retry payment or offer alternative. Remember
+			} else {
+				//4. Payment successful, create the order document in Firestore
+				const createOrderFunction = httpsCallable(functions, "createOrder");
+				const {
+					data: { orderId },
+				} = await createOrderFunction({
+					userId: currentUserData.uid,
+					restaurantId: restaurant.id,
+					tableNumber: tableNumber || null,
+					items: restaurantBasketItems,
+					totalPrice: overallTotal,
+				});
+
+				Alert.alert("Success", "Payment Successful!");
+
+				// 5. Clear the basket for this restaurant
+				//clearBasket(restaurant.id),
+				// 6. Navigate to a confirmation screen
+				console.log("Navigate to Order Confirmation");
+			}
+		} catch (error) {
+			console.error("Error processing payment:", error);
+			setPaymentError(error.message);
+		} finally {
+			setIsPaymentLoading(false);
+		}
 	};
+
 	// State to track expanded collaped state of each pip section
 	// Function to toggle the expanded state of a PIP section
 	const toggleExpandPIP = (personId) => {
