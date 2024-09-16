@@ -16,6 +16,7 @@ import {
 	collection,
 	serverTimestamp,
 	addDoc,
+	updateDoc,
 } from "firebase/firestore";
 import {
 	transformBasketData,
@@ -32,7 +33,8 @@ import {
 } from "../../config/firebase";
 import { httpsCallable } from "firebase/functions";
 
-import { useStripe } from "@stripe/stripe-react-native";
+import { createPaymentMethod, useStripe } from "@stripe/stripe-react-native";
+import { Checkbox } from "react-native-paper";
 
 const CheckoutScreen = ({ route }) => {
 	const { restaurant, baskets } = route.params;
@@ -49,13 +51,16 @@ const CheckoutScreen = ({ route }) => {
 	const [isPaymentLoading, setIsPaymentLoading] = useState(false);
 	const [fees, setFees] = useState(null);
 	const [isStripeInitialized, setIsStripeInitialized] = useState(false);
+	const [saveCard, setSaveCard] = useState(true);
+	const [savedCard, setSavedCard] = useState(null);
+	const [showCardInput, setShowCardInput] = useState(true);
 	const { checkInStatus, tableNumber } = useCheckInStatus(
 		restaurant.uid,
 		currentUserData.uid
 	);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
-	const { initPaymentSheet, presentPaymentSheet } = useStripe();
+	const { initPaymentSheet, presentPaymentSheet } = useStripe(null);
 
 	useEffect(() => {
 		const fetchStripePublishableKey = async () => {
@@ -107,6 +112,28 @@ const CheckoutScreen = ({ route }) => {
 		}
 	}, [stripePublishableKey]);
 
+	// Fetch saved card details (if any) when the component mounts
+	useEffect(() => {
+		const fetchSavedCard = async () => {
+			try {
+				// locic to fetch saved card details
+				const userDocRef = doc(db, "customers", currentUserData.uid);
+				const userDocSnapshot = await getDoc(userDocRef);
+
+				if (userDocSnapshot.exists()) {
+					const userData = userDocSnapshot.data();
+					if (userData.paymentMethods && userData.paymentMethods.length > 0) {
+						setSavedCard(userData.paymentMethods[0]); // Get the first saved card we can handle multiple cards later
+						setShowCardInput(false); // Hid the card input form if there is a saved card
+					}
+				}
+			} catch (error) {
+				console.error("Error fetching saved card: ", error);
+			}
+		};
+		fetchSavedCard();
+	}, []);
+
 	useEffect(() => {
 		const fetchFees = async () => {
 			setIsLoading(true);
@@ -132,16 +159,56 @@ const CheckoutScreen = ({ route }) => {
 	};
 
 	const handlePayment = async () => {
-		if (!cardDetails.valid) {
-			Alert.alert("Invalid Card", "Please check your card details.");
-			return;
-		}
+		setIsLoading(true);
 
 		try {
-			setIsPaymentLoading(true);
-			setPaymentError(null);
+			let stripeCustomerId = null;
+			let ephemeralKey = null;
 
-			// 1. Create a PaymentIntent on the backend (commented out for now)
+			if (saveCard) {
+				const userDocRef = doc(db, "customers", currentUserData.uid);
+				const userDocSnapshot = await getDoc(userDocRef);
+
+				if (
+					userDocSnapshot.exists() &&
+					userDocSnapshot.data().stripeCustomerId
+				) {
+					// User already has a Stripe customer ID, use it
+					stripeCustomerId = userDocSnapshot.data().stripeCustomerId;
+				} else {
+					// Create a new Stripe customer if it doesn't exist
+					const createStripeCustomerFunction = httpsCallable(
+						functions,
+						"createStripeCustomer"
+					);
+					const {
+						data: { customerId },
+					} = await createStripeCustomerFunction({
+						userId: currentUserData.uid,
+						email: currentUserData.email,
+					});
+
+					stripeCustomerId = customerId;
+
+					// Update the user's document in Firestore with the new stripeCustomerId
+					await updateDoc(userDocRef, { stripeCustomerId }, { merge: true });
+				}
+			}
+
+			// Get ephemeral key for the customer
+			const createEphemeralKeyFunction = httpsCallable(
+				functions,
+				"createEphemeralKey"
+			);
+			const {
+				data: { ephemeralKey: newEphemeralKey },
+			} = await createEphemeralKeyFunction({
+				customerId: stripeCustomerId,
+				apiVersion: "2024-06-20", // Or your desired Stripe API version
+			});
+			ephemeralKey = newEphemeralKey;
+
+			//1. Call your firebase cloud function to create a paymentIntent
 			const createPaymentIntentFunction = httpsCallable(
 				functions,
 				"createPaymentIntent"
@@ -150,56 +217,45 @@ const CheckoutScreen = ({ route }) => {
 				data: { clientSecret },
 			} = await createPaymentIntentFunction({
 				amount: Math.round(overallTotal * 100),
-				subtotal: subtotal * 100,
-				tax: tax * 100,
-				fee: fee * 100,
-				gratuity: gratuity & 100,
+				customerId: stripeCustomerId,
 			});
 
-			// Initialize the payment sheet
+			// 2. Initialize the PaymentSheet
 			const { error: initSheetError } = await initPaymentSheet({
 				paymentIntentClientSecret: clientSecret,
-				merchantDisplayName: restaurant.restaurantName,
+				merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
+				allowsDelayedPaymentMethods: true,
+				customerEphemeralKeySecret: ephemeralKey,
 			});
 
 			if (initSheetError) {
-				console.error("Error initializing payment sheet: ", initSheetError);
-				setPaymentError(initSheetError.message);
-				return; // Exit the function early if there is an initializatioin error
-			}
-
-			// 3. Present the payment sheet to the user
-			const { error: paymentSheetError } = await presentPaymentSheet();
-			if (paymentSheetError) {
-				console.error("Error processing payment: ", paymentSheetError);
-				setPaymentError(paymentSheetError.message);
+				console.error("PaymentSheet initialization error: ", initSheetError);
 				return;
-				// Retry payment or offer alternative. Remember
-			} else {
-				//4. Payment successful, create the order document in Firestore
-				const createOrderFunction = httpsCallable(functions, "createOrder");
-				const {
-					data: { orderId },
-				} = await createOrderFunction({
-					userId: currentUserData.uid,
-					restaurantId: restaurant.id,
-					tableNumber: tableNumber || null,
-					items: restaurantBasketItems,
-					totalPrice: overallTotal,
-				});
-
-				Alert.alert("Success", "Payment Successful!");
-
-				// 5. Clear the basket for this restaurant
-				//clearBasket(restaurant.id),
-				// 6. Navigate to a confirmation screen
-				console.log("Navigate to Order Confirmation");
 			}
+
+			// 3. Present the PaymentSheet to the user
+			const { error: presentError } = await presentPaymentSheet();
+
+			if (presentError) {
+				console.error("PaymentSheet presentation error: ", presentError);
+				return;
+			}
+
+			//4. Payment successful, create the order document in Firestore
+			const createOrderFunction = httpsCallable(functions, "createOrder");
+			const {
+				data: { orderId },
+			} = await createOrderFunction({
+				userId: currentUserData.uid,
+				restaurantId: restaurant.id,
+				tableNumber: tableNumber || null,
+				items: restaurantBasketItems,
+				totalPrice: overallTotal,
+			});
 		} catch (error) {
-			console.error("Error processing payment:", error);
-			setPaymentError(error.message);
+			console.error("Error during payment: ", error);
 		} finally {
-			setIsPaymentLoading(false);
+			setIsLoading(false);
 		}
 	};
 
@@ -364,16 +420,34 @@ const CheckoutScreen = ({ route }) => {
 					</View>
 
 					{/* Payment Information Input */}
-					<Text style={styles.heading}>Payment Information</Text>
-					<CreditCardInput onChange={handleCardDetailsChange} />
-					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
+					<View style={styles.paymentInfo}>
+						<Text style={styles.heading}>Payment Information</Text>
 
-					{/* Pay Button with Loading Indicator */}
-					{isPaymentLoading ? (
-						<ActivityIndicator size="large" color={colors.primary} />
-					) : (
-						<Button title="Pay Now" onPress={handlePayment} />
-					)}
+						{!showCardInput && (
+							<Button
+								title="Add New Card"
+								buttonStyle={styles.addnewCardButton}
+								onPress={() => setShowCardInput(true)}
+							/>
+						)}
+						{/* Conditionally render the CreditCardInput */}
+						{showCardInput && (
+							<>
+								<Checkbox.Item
+									label="Save card for future use"
+									status={saveCard ? "checked" : "unchecked"}
+									onPress={() => setSaveCard(!saveCard)}
+								/>
+							</>
+						)}
+
+						{/* Pay Button with Loading Indicator */}
+						{isPaymentLoading ? (
+							<ActivityIndicator size="large" color={colors.primary} />
+						) : (
+							<Button title="Pay Now" onPress={handlePayment} />
+						)}
+					</View>
 				</ScrollView>
 			) : (
 				<Text>Basket is empty</Text>
@@ -502,6 +576,10 @@ const styles = StyleSheet.create({
 	},
 	gratuityPicker: {
 		width: 70,
+	},
+	addNewCardButton: {
+		backgroundColor: colors.secondary,
+		marginBottom: 10,
 	},
 });
 

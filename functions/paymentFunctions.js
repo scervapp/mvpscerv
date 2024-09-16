@@ -2,7 +2,10 @@
 const functions = require("firebase-functions");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const { createStripeCustomer } = require("./userFunctions");
 const stripe = require("stripe");
+const { onCall } = require("firebase-functions/v1/https");
+const db = admin.firestore();
 
 const STRIPE_PUBLISHABLE_KEY = defineSecret("STRIPE_PUBLISHABLE_KEY");
 
@@ -20,9 +23,10 @@ exports.createPaymentIntent = functions
 			tax,
 			gratuity,
 			fee,
-			customerId,
+			currentUserData,
 			restaurantNumber,
 		} = data;
+
 		try {
 			if (isNaN(amount) || amount <= 0) {
 				throw new functions.https.HttpsError(
@@ -33,25 +37,33 @@ exports.createPaymentIntent = functions
 
 			const paymentIntent = await stripe(stripeSecretKey).paymentIntents.create(
 				{
-					amount,
+					amount: amount,
 					currency: "usd",
-					automatic_payment_methods: {
-						enabled: true,
-					},
-					metadata: {
-						subtotal,
-						tax,
-						fee,
-						gratuity,
-						customerId,
-						restaurantNumber,
-					},
 				}
 			);
 
 			return { clientSecret: paymentIntent.client_secret };
 		} catch (error) {
 			console.error("Error creating PaymentIntent: ", error);
+			throw new functions.https.HttpsError("internal", error.message);
+		}
+	});
+
+// Function to allow custome to select cards using setupIntent
+exports.createSetupIntent = functions
+	.runWith({
+		secrets: [STRIPE_SECRET_KEY], // Declare required secrets
+	})
+	.https.onCall(async (data, context) => {
+		const stripeSecretKey = STRIPE_SECRET_KEY.value();
+		const { customerId } = data;
+		try {
+			const setupIntent = await stripe(stripeSecretKey).setupIntents.create({
+				customer: customerId,
+			});
+
+			return { clientSecret: setupIntent.client_secret };
+		} catch (error) {
 			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
@@ -81,5 +93,32 @@ exports.getStripePublishableKey = functions
 				"internal",
 				"An error occurred while fetching the Stripe publishable key."
 			);
+		}
+	});
+
+exports.createEphemeralKey = functions
+	.runWith({
+		secrets: [STRIPE_SECRET_KEY],
+	})
+	.https.onCall(async (data, context) => {
+		const { userId, apiVersion, customerId } = data;
+
+		const stripeSecretKey = STRIPE_SECRET_KEY.value();
+
+		try {
+			// 2. Retrieve the stripe secret key using secret
+			// Create an ephemeral key
+			const ephemeralKey = await stripe(stripeSecretKey).ephemeralKeys.create(
+				{
+					customer: customerId,
+				},
+				{ apiVersion: apiVersion }
+			);
+
+			// 4. Return the ephemeral key
+			return { ephemeralKey: ephemeralKey.secret };
+		} catch (error) {
+			console.error("Error creating ephermeral key: ", error);
+			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
