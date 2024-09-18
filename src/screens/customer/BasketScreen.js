@@ -401,7 +401,10 @@ const BasketScreen = ({ route, navigation }) => {
 						)}
 						style={styles.checkoutButton}
 						onPress={() =>
-							navigation.navigate("CheckoutScreen", { baskets, restaurant })
+							navigation.navigate("CheckoutScreen", {
+								baskets,
+								restaurant,
+							})
 						}
 						disabled={
 							!checkInStatus === "ACCEPTED" ||

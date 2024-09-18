@@ -23,6 +23,7 @@ import {
 	useCheckInStatus,
 } from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
+import { useBasket } from "../../context/customer/BasketContext";
 import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { CreditCardInput } from "react-native-credit-card-input";
@@ -36,9 +37,10 @@ import { httpsCallable } from "firebase/functions";
 import { createPaymentMethod, useStripe } from "@stripe/stripe-react-native";
 import { Checkbox } from "react-native-paper";
 
-const CheckoutScreen = ({ route }) => {
+const CheckoutScreen = ({ route, navigation }) => {
 	const { restaurant, baskets } = route.params;
 	const { currentUserData } = useContext(AuthContext);
+	const { clearBasket } = useBasket();
 	const [isLoading, setIsLoading] = useState(true);
 	const [filteredBasketData, setFilteredBasketData] = useState([]);
 	const [expandedPIPs, setExpandedPIPs] = useState({});
@@ -239,19 +241,26 @@ const CheckoutScreen = ({ route }) => {
 			if (presentError) {
 				console.error("PaymentSheet presentation error: ", presentError);
 				return;
-			}
+			} else {
+				// 5. Payment successful, create the order document in Fire
+				//4. Payment successful, create the order document in Firestore
+				const createOrderFunction = httpsCallable(functions, "createOrder");
+				const {
+					data: { orderId },
+				} = await createOrderFunction({
+					userId: currentUserData.uid,
+					restaurantId: restaurant.id,
+					tableNumber: tableNumber || null,
+					items: restaurantBasketItems,
+					totalPrice: overallTotal,
+				});
 
-			//4. Payment successful, create the order document in Firestore
-			const createOrderFunction = httpsCallable(functions, "createOrder");
-			const {
-				data: { orderId },
-			} = await createOrderFunction({
-				userId: currentUserData.uid,
-				restaurantId: restaurant.id,
-				tableNumber: tableNumber || null,
-				items: restaurantBasketItems,
-				totalPrice: overallTotal,
-			});
+				clearBasket(restaurant.id);
+
+				if (orderId) {
+					navigation.navigate("OrderConfirmation", { orderId });
+				}
+			}
 		} catch (error) {
 			console.error("Error during payment: ", error);
 		} finally {

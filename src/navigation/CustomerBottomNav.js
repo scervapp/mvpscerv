@@ -16,6 +16,7 @@ import BackButton from "../utils/BackButton";
 import AccountScreen from "../screens/customer/AccountScreen";
 import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
+import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -53,6 +54,7 @@ const RestaurantDetailStack = ({ navigation }) => (
 			component={RestaurantDetail}
 			options={{ headerShown: false }}
 		/>
+
 		<Stack.Screen
 			name="BasketScreen"
 			component={BasketScreen}
@@ -66,6 +68,10 @@ const RestaurantDetailStack = ({ navigation }) => (
 			name="CheckoutScreen"
 			component={CheckoutScreen}
 			options={{ headerTitle: "Checkout", headerShown: false }}
+		/>
+		<Stack.Screen
+			name="OrderConfirmation"
+			component={OrderConfirmationScreen}
 		/>
 	</Stack.Navigator>
 );
