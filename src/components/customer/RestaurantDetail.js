@@ -81,6 +81,8 @@ const RestaurantDetail = ({ route, navigation }) => {
 	const handleCheckin = async (values) => {
 		const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
 
+		console.log("customername", customerName);
+
 		try {
 			setIsLoading(true);
 

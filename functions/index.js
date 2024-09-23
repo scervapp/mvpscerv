@@ -19,6 +19,7 @@ exports.clearBasket = require("./basketFunctions").clearBasket;
 
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
+exports.handleCheckInResponse = checkInFunctions.handleCheckInResponse;
 exports.createOrder = orderFunctions.createOrder;
 exports.createPaymentIntent = paymentFunctions.createPaymentIntent;
 exports.createSetupIntent = paymentFunctions.createSetupIntent;

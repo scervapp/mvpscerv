@@ -106,3 +106,62 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("internal", error.message);
 	}
 });
+
+// Handle Checkin-In Response (Accept or Decline)
+exports.handleCheckInResponse = functions.https.onCall(
+	async (data, context) => {
+		const { checkInId, action, tableNumber, employeeName, serverId } = data;
+
+		try {
+			if (!checkInId || !action || (action === "accept" && !tableNumber)) {
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Invalid data provided"
+				);
+			}
+
+			// 2. Get the checkin document reference
+			const checkInRef = db.collection("checkIns").doc(checkInId);
+
+			const checkInSnapshot = await checkInRef.get();
+			if (!checkInSnapshot.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Check-in request not found"
+				);
+			}
+
+			// 4. Update teh checkin status optionally assign talbe number
+			let updatedData = { status: action }; // Default update
+			if (action === "ACCEPTED") {
+				updatedData = {
+					...updatedData,
+					tableNumber: tableNumber,
+					employeeName: employeeName,
+					employeeId: serverId,
+				};
+			}
+
+			await checkInRef.update(updatedData);
+
+			// 6. Delete the associated notification document
+			const notificationsRef = db.collection("notifications");
+			const notificationQuery = notificationsRef.where(
+				"checkInId",
+				"==",
+				checkInId
+			);
+			const notificationSnapshot = await notificationQuery.get();
+
+			if (!notificationSnapshot.empty) {
+				const notificationDoc = notificationSnapshot.docs[0];
+				await notificationDoc.ref.delete();
+			}
+
+			return { success: true };
+		} catch (error) {
+			console.error("Error handling checkin response", error);
+			throw new functions.https.HttpsError("internal", error.message);
+		}
+	}
+);
