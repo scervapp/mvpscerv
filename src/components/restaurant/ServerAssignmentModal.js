@@ -22,8 +22,6 @@ const ServerAssignmentModal = ({
 		}
 	};
 
-	console.log("Servers", selectedServer);
-
 	return (
 		<Modal>
 			<View style={styles.modalContainer}>

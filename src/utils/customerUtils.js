@@ -74,6 +74,7 @@ const useCheckInStatus = (restaurantId, customerId) => {
 	const [checkInStatus, setCheckInStatus] = useState(null);
 	const [tableNumber, setTableNumber] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
+	const [checkInObj, setCheckInObj] = useState(null);
 
 	useEffect(() => {
 		const fetchCheckInStatus = async () => {
@@ -99,6 +100,9 @@ const useCheckInStatus = (restaurantId, customerId) => {
 						} else {
 							setTableNumber(null); // Reset tableNumber if not accepted
 						}
+						if (checkInData) {
+							setCheckInObj(checkInData);
+						}
 					} else {
 						setCheckInStatus("notCheckedIn");
 						setTableNumber(null); // Reset tableNumber if no check-in found
@@ -116,7 +120,7 @@ const useCheckInStatus = (restaurantId, customerId) => {
 
 		fetchCheckInStatus();
 	}, [restaurantId, customerId]);
-	return { checkInStatus, isLoading, tableNumber };
+	return { checkInStatus, isLoading, tableNumber, checkInObj };
 };
 
 const checkIn = async (restaurantId, customerId, partySize, customerName) => {

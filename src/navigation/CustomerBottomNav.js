@@ -17,6 +17,7 @@ import AccountScreen from "../screens/customer/AccountScreen";
 import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
+import OrderHistoryScreen from "../screens/customer/OrderHistory";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -83,18 +84,25 @@ const AccountScreenStack = () => (
 			name="AccountScreenInner"
 			component={AccountScreen}
 		/>
-	</Stack.Navigator>
-);
-
-const PipsScreenStack = () => (
-	<Stack.Navigator>
 		<Stack.Screen
 			options={{ headerShown: false }}
 			name="PipsScreenInner"
 			component={PIPSListScreen}
 		/>
+		<Stack.Screen
+			options={{ headerShown: false }}
+			name="OrderHistoryScreenInner"
+			component={OrderHistoryScreen}
+		/>
+		<Stack.Screen
+			name="OrderConfirmation"
+			options={{ headerShown: false }}
+			component={OrderConfirmationScreen}
+		/>
 	</Stack.Navigator>
 );
+
+const PipsScreenStack = () => <Stack.Navigator></Stack.Navigator>;
 
 const CustomerBottomNavigation = () => {
 	const navigation = useNavigation();

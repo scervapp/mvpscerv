@@ -38,7 +38,7 @@ const BasketScreen = ({ route, navigation }) => {
 	const [filteredBasketData, setFilteredBasketData] = useState([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [showDeleteSnackbar, setShowDeleteSnackbar] = useState(false);
-	const { checkInStatus, tableNumber } = useCheckInStatus(
+	const { checkInStatus, checkInObj } = useCheckInStatus(
 		restaurant.uid,
 		currentUserData.uid
 	);
@@ -64,7 +64,7 @@ const BasketScreen = ({ route, navigation }) => {
 			})),
 		}));
 
-		setFilteredBasketData(filteredDataWithIds);
+		setFilteredBasketData(filteredData);
 	}, [baskets, restaurant.id]);
 
 	// Function to calculate totals and summary
@@ -107,6 +107,8 @@ const BasketScreen = ({ route, navigation }) => {
 		overallUnconfirmedTotal,
 	} = calculateTotals();
 
+	
+
 	const handleSendToChefsQ = async () => {
 		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
 			try {
@@ -129,6 +131,8 @@ const BasketScreen = ({ route, navigation }) => {
 					userId: currentUserData.uid,
 					restaurantId: restaurant.id,
 					items: orderItems,
+					server: checkInObj.server,
+					table: checkInObj.table,
 				});
 
 				if (result.data.success) {
@@ -147,7 +151,7 @@ const BasketScreen = ({ route, navigation }) => {
 			} finally {
 				setIsLoading(false);
 			}
-		} else if (checkInStatus !== "accepted") {
+		} else if (checkInStatus !== "ACCEPTED") {
 			Alert.alert("Not Checked In", "Please check in to place an order.");
 		} else {
 			Alert.alert(
@@ -324,6 +328,9 @@ const BasketScreen = ({ route, navigation }) => {
 														{basketItem.specialInstructions}
 													</Text>
 												)}
+												<View>
+													<Text> {basketItem.itemStatus}</Text>
+												</View>
 											</View>
 										))}
 

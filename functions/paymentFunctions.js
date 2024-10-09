@@ -25,6 +25,8 @@ exports.createPaymentIntent = functions
 			fee,
 			currentUserData,
 			restaurantNumber,
+			customerId,
+			table,
 		} = data;
 
 		try {
@@ -39,6 +41,14 @@ exports.createPaymentIntent = functions
 				{
 					amount: amount,
 					currency: "usd",
+					customer: customerId,
+					setup_future_usage: "off_session",
+					metadata: {
+						tax: tax,
+						gratuity: gratuity,
+						table: table,
+						fee,
+					},
 				}
 			);
 
@@ -60,6 +70,7 @@ exports.createSetupIntent = functions
 		try {
 			const setupIntent = await stripe(stripeSecretKey).setupIntents.create({
 				customer: customerId,
+				payment_method_types: ["card"],
 			});
 
 			return { clientSecret: setupIntent.client_secret };

@@ -110,10 +110,18 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 // Handle Checkin-In Response (Accept or Decline)
 exports.handleCheckInResponse = functions.https.onCall(
 	async (data, context) => {
-		const { checkInId, action, tableNumber, employeeName, serverId } = data;
+		const {
+			checkInId,
+			action,
+			table,
+			server,
+			restaurantId,
+			customerId,
+			numInParty,
+		} = data;
 
 		try {
-			if (!checkInId || !action || (action === "accept" && !tableNumber)) {
+			if (!checkInId || !action || (action === "accept" && !table)) {
 				throw new functions.https.HttpsError(
 					"invalid-argument",
 					"Invalid data provided"
@@ -123,6 +131,12 @@ exports.handleCheckInResponse = functions.https.onCall(
 			// 2. Get the checkin document reference
 			const checkInRef = db.collection("checkIns").doc(checkInId);
 
+			// 2a. Get the table document reference
+			const tableRef = db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.collection("tables")
+				.doc(table.id);
 			const checkInSnapshot = await checkInRef.get();
 			if (!checkInSnapshot.exists) {
 				throw new functions.https.HttpsError(
@@ -136,13 +150,19 @@ exports.handleCheckInResponse = functions.https.onCall(
 			if (action === "ACCEPTED") {
 				updatedData = {
 					...updatedData,
-					tableNumber: tableNumber,
-					employeeName: employeeName,
-					employeeId: serverId,
+					table,
+					server,
 				};
 			}
 
 			await checkInRef.update(updatedData);
+			await tableRef.update({
+				status: "OCCUPIED",
+				restaurantId: restaurantId,
+				customerId: customerId,
+				numInParty: numInParty,
+				tableId: table.id,
+			});
 
 			// 6. Delete the associated notification document
 			const notificationsRef = db.collection("notifications");

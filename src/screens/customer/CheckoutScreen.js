@@ -34,7 +34,11 @@ import {
 } from "../../config/firebase";
 import { httpsCallable } from "firebase/functions";
 
-import { createPaymentMethod, useStripe } from "@stripe/stripe-react-native";
+import {
+	createPaymentMethod,
+	useStripe,
+	StripeProvider,
+} from "@stripe/stripe-react-native";
 import { Checkbox } from "react-native-paper";
 
 const CheckoutScreen = ({ route, navigation }) => {
@@ -52,18 +56,15 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [paymentError, setPaymentError] = useState(null);
 	const [isPaymentLoading, setIsPaymentLoading] = useState(false);
 	const [fees, setFees] = useState(null);
-	const [isStripeInitialized, setIsStripeInitialized] = useState(false);
 	const [saveCard, setSaveCard] = useState(true);
 	const [savedCard, setSavedCard] = useState(null);
 	const [showCardInput, setShowCardInput] = useState(true);
-	const { checkInStatus, tableNumber } = useCheckInStatus(
-		restaurant.uid,
-		currentUserData.uid
-	);
+	const { checkInObj } = useCheckInStatus(restaurant.uid, currentUserData.uid);
+	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
+
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe(null);
-
 	useEffect(() => {
 		const fetchStripePublishableKey = async () => {
 			try {
@@ -91,50 +92,94 @@ const CheckoutScreen = ({ route, navigation }) => {
 	// Initialize Stripe Payment Sheet
 	useEffect(() => {
 		if (stripePublishableKey) {
-			const initializeStripe = async () => {
+			const initializePaymentSheet = async () => {
+				setIsLoading(true);
 				try {
-					const initResult = await initPaymentSheet({
-						merchantDisplayName: restaurant.restaurantName,
-					});
-					if (initResult.error) {
-						console.error(
-							"Error initializing payment sheet:",
-							initResult.error
+					let stripeCustomerId = null;
+					let ephemeralKey = null;
+
+					// Get customer Stripe ID from Firestore or create one
+					const userDocRef = doc(db, "customers", currentUserData.uid);
+					const userDocSnapshot = await getDoc(userDocRef);
+
+					if (
+						userDocSnapshot.exists() &&
+						userDocSnapshot.data().stripeCustomerId
+					) {
+						stripeCustomerId = userDocSnapshot.data().stripeCustomerId;
+					} else {
+						const createStripeCustomerFunction = httpsCallable(
+							functions,
+							"createStripeCustomer"
 						);
-						setPaymentError(initResult.error.message);
+						const {
+							data: { customerId },
+						} = await createStripeCustomerFunction({
+							userId: currentUserData.uid,
+							email: currentUserData.email,
+						});
+						stripeCustomerId = customerId;
+						await updateDoc(userDocRef, { stripeCustomerId });
+					}
+
+					// Create an ephemeral key for the customer
+					const createEphemeralKeyFunction = httpsCallable(
+						functions,
+						"createEphemeralKey"
+					);
+					const {
+						data: { ephemeralKey: newEphemeralKey },
+					} = await createEphemeralKeyFunction({
+						customerId: stripeCustomerId,
+						apiVersion: "2024-06-20",
+					});
+					ephemeralKey = newEphemeralKey;
+
+					// Call your Firebase Cloud Function to create a PaymentIntent
+					const createPaymentIntentFunction = httpsCallable(
+						functions,
+						"createPaymentIntent"
+					);
+					const {
+						data: { clientSecret },
+					} = await createPaymentIntentFunction({
+						amount: Math.round(overallTotal * 100),
+						customerId: stripeCustomerId,
+						gratuity: gratuity,
+						tax: tax,
+						fee: fee,
+						table: checkInObj.table.name,
+					});
+
+					const { error: initSheetError } = await initPaymentSheet({
+						merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
+						paymentIntentClientSecret: clientSecret,
+						allowsDelayedPaymentMethods: true,
+						customerEphemeralKeySecret: ephemeralKey,
+						customerId: stripeCustomerId,
+					});
+
+					if (!initSheetError) {
+						setIsPaymentSheetReady(true);
+					}
+
+					if (initSheetError) {
+						console.error("PaymentSheet, initialization error", initSheetError);
 					}
 				} catch (error) {
 					console.error("Error during payment sheet initialization:", error);
 					setPaymentError(
 						"Error initializing payment sheet. Please try again."
 					);
+				} finally {
+					setIsLoading(false);
 				}
 			};
-			initializeStripe();
+			initializePaymentSheet();
 		}
-	}, [stripePublishableKey]);
+	}, [stripePublishableKey, currentUserData.uid, restaurant.restaurantName]);
 
-	// Fetch saved card details (if any) when the component mounts
-	useEffect(() => {
-		const fetchSavedCard = async () => {
-			try {
-				// locic to fetch saved card details
-				const userDocRef = doc(db, "customers", currentUserData.uid);
-				const userDocSnapshot = await getDoc(userDocRef);
 
-				if (userDocSnapshot.exists()) {
-					const userData = userDocSnapshot.data();
-					if (userData.paymentMethods && userData.paymentMethods.length > 0) {
-						setSavedCard(userData.paymentMethods[0]); // Get the first saved card we can handle multiple cards later
-						setShowCardInput(false); // Hid the card input form if there is a saved card
-					}
-				}
-			} catch (error) {
-				console.error("Error fetching saved card: ", error);
-			}
-		};
-		fetchSavedCard();
-	}, []);
 
 	useEffect(() => {
 		const fetchFees = async () => {
@@ -156,85 +201,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 		fetchFees();
 	}, []);
 
-	const handleCardDetailsChange = (form) => {
-		setCardDetails(form);
-	};
-
 	const handlePayment = async () => {
 		setIsLoading(true);
 
 		try {
-			let stripeCustomerId = null;
-			let ephemeralKey = null;
-
-			if (saveCard) {
-				const userDocRef = doc(db, "customers", currentUserData.uid);
-				const userDocSnapshot = await getDoc(userDocRef);
-
-				if (
-					userDocSnapshot.exists() &&
-					userDocSnapshot.data().stripeCustomerId
-				) {
-					// User already has a Stripe customer ID, use it
-					stripeCustomerId = userDocSnapshot.data().stripeCustomerId;
-				} else {
-					// Create a new Stripe customer if it doesn't exist
-					const createStripeCustomerFunction = httpsCallable(
-						functions,
-						"createStripeCustomer"
-					);
-					const {
-						data: { customerId },
-					} = await createStripeCustomerFunction({
-						userId: currentUserData.uid,
-						email: currentUserData.email,
-					});
-
-					stripeCustomerId = customerId;
-
-					// Update the user's document in Firestore with the new stripeCustomerId
-					await updateDoc(userDocRef, { stripeCustomerId }, { merge: true });
-				}
-			}
-
-			// Get ephemeral key for the customer
-			const createEphemeralKeyFunction = httpsCallable(
-				functions,
-				"createEphemeralKey"
-			);
-			const {
-				data: { ephemeralKey: newEphemeralKey },
-			} = await createEphemeralKeyFunction({
-				customerId: stripeCustomerId,
-				apiVersion: "2024-06-20", // Or your desired Stripe API version
-			});
-			ephemeralKey = newEphemeralKey;
-
-			//1. Call your firebase cloud function to create a paymentIntent
-			const createPaymentIntentFunction = httpsCallable(
-				functions,
-				"createPaymentIntent"
-			);
-			const {
-				data: { clientSecret },
-			} = await createPaymentIntentFunction({
-				amount: Math.round(overallTotal * 100),
-				customerId: stripeCustomerId,
-			});
-
-			// 2. Initialize the PaymentSheet
-			const { error: initSheetError } = await initPaymentSheet({
-				paymentIntentClientSecret: clientSecret,
-				merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
-				allowsDelayedPaymentMethods: true,
-				customerEphemeralKeySecret: ephemeralKey,
-			});
-
-			if (initSheetError) {
-				console.error("PaymentSheet initialization error: ", initSheetError);
-				return;
-			}
-
 			// 3. Present the PaymentSheet to the user
 			const { error: presentError } = await presentPaymentSheet();
 
@@ -250,12 +220,12 @@ const CheckoutScreen = ({ route, navigation }) => {
 				} = await createOrderFunction({
 					userId: currentUserData.uid,
 					restaurantId: restaurant.id,
-					tableNumber: tableNumber || null,
+					table: checkInObj.table,
 					items: restaurantBasketItems,
 					totalPrice: overallTotal,
 				});
 
-				clearBasket(restaurant.id);
+				//clearBasket(restaurant.id);
 
 				if (orderId) {
 					navigation.navigate("OrderConfirmation", { orderId });
@@ -311,157 +281,165 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const { subtotal, tax, fee, gratuity, overallTotal } = calculateTotals();
 
 	return (
-		<View style={styles.container}>
-			{/* Loading or Error or Order Details */}
-			{isLoading ? (
-				<ActivityIndicator size="large" />
-			) : restaurantBasketItems.length > 0 ? (
-				<ScrollView showsVerticalScrollIndicator={false}>
-					{/* Order Summary */}
-					<Text style={styles.heading}>Order Summary</Text>
+		<StripeProvider publishableKey={stripePublishableKey}>
+			<View style={styles.container}>
+				{/* Loading or Error or Order Details */}
+				{isLoading ? (
+					<ActivityIndicator size="large" />
+				) : restaurantBasketItems.length > 0 ? (
+					<ScrollView showsVerticalScrollIndicator={false}>
+						{/* Order Summary */}
+						<Text style={styles.heading}>Order Summary</Text>
 
-					{/* Restaurant Name */}
-					<Text style={styles.restaurantName}>{restaurant.name}</Text>
+						{/* Restaurant Name */}
+						<Text style={styles.restaurantName}>{restaurant.name}</Text>
 
-					{/* Basket Items Grouped by PIP */}
-					{filteredBasketData.map((personData) => {
-						const isExpanded = expandedPIPs[personData.personId] || false;
+						{/* Basket Items Grouped by PIP */}
+						{filteredBasketData.map((personData) => {
+							const isExpanded = expandedPIPs[personData.personId] || false;
 
-						// Calculate totals for PIP
-						const pipTotal = personData.items.reduce(
-							(total, item) => total + item.dish.price * item.quantity,
-							0
-						);
+							// Calculate totals for PIP
+							const pipTotal = personData.items.reduce(
+								(total, item) => total + item.dish.price * item.quantity,
+								0
+							);
 
-						return (
-							<View key={personData.personId} style={styles.personSection}>
-								{/* PIP Name and Total (always visible) */}
-								<TouchableOpacity
-									onPress={() => toggleExpandPIP(personData.personId)}
-									style={styles.personHeader}
-								>
-									<Text style={styles.personName}>{personData.pipName}</Text>
-									<View style={styles.pipTotalsContainer}>
-										<Text style={styles.pipTotalText}>
-											Total: ${pipTotal.toFixed(2)}
-											{/* Display only the total for this PIP */}
-										</Text>
-									</View>
-								</TouchableOpacity>
-
-								{/* Items for this PIP (conditionally rendered) */}
-								{isExpanded &&
-									personData.items.map((basketItem) => (
-										<View key={basketItem.id} style={styles.basketItem}>
-											<View style={styles.itemInfoContainer}>
-												<Text
-													style={[
-														styles.dishName,
-														basketItem.sentToChefQ && styles.sentItem,
-													]}
-												>
-													{basketItem.dish.name} x {basketItem.quantity}
-												</Text>
-
-												<Text
-													style={[
-														styles.itemPrice,
-														basketItem.sentToChefQ && styles.sentItem,
-													]}
-												>
-													$
-													{(
-														basketItem.dish.price * basketItem.quantity
-													).toFixed(2)}
-												</Text>
-											</View>
-
-											{/* Special Instructions (if any) */}
-											{basketItem.specialInstructions && (
-												<Text style={styles.specialInstructions}>
-													{basketItem.specialInstructions}
-												</Text>
-											)}
+							return (
+								<View key={personData.personId} style={styles.personSection}>
+									{/* PIP Name and Total (always visible) */}
+									<TouchableOpacity
+										onPress={() => toggleExpandPIP(personData.personId)}
+										style={styles.personHeader}
+									>
+										<Text style={styles.personName}>{personData.pipName}</Text>
+										<View style={styles.pipTotalsContainer}>
+											<Text style={styles.pipTotalText}>
+												Total: ${pipTotal.toFixed(2)}
+												{/* Display only the total for this PIP */}
+											</Text>
 										</View>
-									))}
-							</View>
-						);
-					})}
+									</TouchableOpacity>
 
-					{/* Overall Order Summary with Taxes & Fees and Gratuity */}
-					<View style={styles.orderSummary}>
-						<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
-						<TouchableOpacity
-							onPress={() => setIsShowFeesBreakdown(!isShowFeesBreakdown)}
-						>
-							<Text style={styles.feesText}>
-								Taxes & Fees: ${(tax + fee).toFixed(2)}
-								{isShowFeesBreakdown && (
-									<View style={styles.feeBreakdownContainer}>
-										<Text style={styles.feeBreakdown}>
-											- Tax: ${tax.toFixed(2)}
-										</Text>
-										<Text style={styles.feeBreakdown}>
-											- Scerv Fee: ${fee.toFixed(2)}
-										</Text>
-									</View>
-								)}
-							</Text>
-						</TouchableOpacity>
-						<View style={styles.gratuityContainer}>
-							{/* Gratuity selection */}
-							<Text>Gratuity:</Text>
-							<Picker
-								selectedValue={gratuityPercentage}
-								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
-								style={styles.gratuityPicker}
+									{/* Items for this PIP (conditionally rendered) */}
+									{isExpanded &&
+										personData.items.map((basketItem) => (
+											<View key={basketItem.id} style={styles.basketItem}>
+												<View style={styles.itemInfoContainer}>
+													<Text
+														style={[
+															styles.dishName,
+															basketItem.sentToChefQ && styles.sentItem,
+														]}
+													>
+														{basketItem.dish.name} x {basketItem.quantity}
+													</Text>
+
+													<Text
+														style={[
+															styles.itemPrice,
+															basketItem.sentToChefQ && styles.sentItem,
+														]}
+													>
+														$
+														{(
+															basketItem.dish.price * basketItem.quantity
+														).toFixed(2)}
+													</Text>
+												</View>
+
+												{/* Special Instructions (if any) */}
+												{basketItem.specialInstructions && (
+													<Text style={styles.specialInstructions}>
+														{basketItem.specialInstructions}
+													</Text>
+												)}
+											</View>
+										))}
+								</View>
+							);
+						})}
+
+						{/* Overall Order Summary with Taxes & Fees and Gratuity */}
+						<View style={styles.orderSummary}>
+							<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
+							<TouchableOpacity
+								onPress={() => setIsShowFeesBreakdown(!isShowFeesBreakdown)}
 							>
-								<Picker.Item label="0%" value="0" />
-								<Picker.Item label="10%" value="10" />
-								<Picker.Item label="15%" value="15" />
-								<Picker.Item label="20%" value="20" />
-								{/* Add more options or custom input as needed */}
-							</Picker>
+								<Text style={styles.feesText}>
+									Taxes & Fees: ${(tax + fee).toFixed(2)}
+									{isShowFeesBreakdown && (
+										<View style={styles.feeBreakdownContainer}>
+											<Text style={styles.feeBreakdown}>
+												- Tax: ${tax.toFixed(2)}
+											</Text>
+											<Text style={styles.feeBreakdown}>
+												- Scerv Fee: ${fee.toFixed(2)}
+											</Text>
+										</View>
+									)}
+								</Text>
+							</TouchableOpacity>
+							<View style={styles.gratuityContainer}>
+								{/* Gratuity selection */}
+								<Text>Gratuity:</Text>
+								<Picker
+									selectedValue={gratuityPercentage}
+									onValueChange={(itemValue) =>
+										setGratuityPercentage(itemValue)
+									}
+									style={styles.gratuityPicker}
+								>
+									<Picker.Item label="0%" value="0" />
+									<Picker.Item label="10%" value="10" />
+									<Picker.Item label="15%" value="15" />
+									<Picker.Item label="20%" value="20" />
+									{/* Add more options or custom input as needed */}
+								</Picker>
+							</View>
+							<Text style={styles.totalPrice}>
+								Total: ${overallTotal.toFixed(2)}
+							</Text>
 						</View>
-						<Text style={styles.totalPrice}>
-							Total: ${overallTotal.toFixed(2)}
-						</Text>
-					</View>
 
-					{/* Payment Information Input */}
-					<View style={styles.paymentInfo}>
-						<Text style={styles.heading}>Payment Information</Text>
+						{/* Payment Information Input */}
+						<View style={styles.paymentInfo}>
+							<Text style={styles.heading}>Payment Information</Text>
 
-						{!showCardInput && (
-							<Button
-								title="Add New Card"
-								buttonStyle={styles.addnewCardButton}
-								onPress={() => setShowCardInput(true)}
-							/>
-						)}
-						{/* Conditionally render the CreditCardInput */}
-						{showCardInput && (
-							<>
-								<Checkbox.Item
-									label="Save card for future use"
-									status={saveCard ? "checked" : "unchecked"}
-									onPress={() => setSaveCard(!saveCard)}
+							{/* {!showCardInput && (
+								<Button
+									title="Add New Card"
+									buttonStyle={styles.addnewCardButton}
+									onPress={() => setShowCardInput(true)}
 								/>
-							</>
-						)}
+							)} */}
+							{/* Conditionally render the CreditCardInput */}
+							{/* {showCardInput && (
+								<>
+									<Checkbox.Item
+										label="Save card for future use"
+										status={saveCard ? "checked" : "unchecked"}
+										onPress={() => setSaveCard(!saveCard)}
+									/>
+								</>
+							)} */}
 
-						{/* Pay Button with Loading Indicator */}
-						{isPaymentLoading ? (
-							<ActivityIndicator size="large" color={colors.primary} />
-						) : (
-							<Button title="Pay Now" onPress={handlePayment} />
-						)}
-					</View>
-				</ScrollView>
-			) : (
-				<Text>Basket is empty</Text>
-			)}
-		</View>
+							{/* Pay Button with Loading Indicator */}
+							{isPaymentLoading ? (
+								<ActivityIndicator size="large" color={colors.primary} />
+							) : (
+								<Button
+									title="Pay Now"
+									disabled={!isPaymentSheetReady || isPaymentLoading}
+									onPress={handlePayment}
+								/>
+							)}
+						</View>
+					</ScrollView>
+				) : (
+					<Text>Basket is empty</Text>
+				)}
+			</View>
+		</StripeProvider>
 	);
 };
 

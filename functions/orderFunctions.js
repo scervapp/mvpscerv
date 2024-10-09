@@ -10,29 +10,36 @@ async function generateOrderId(restaurantId, customerId) {
 		const month = (today.getMonth() + 1).toString().padStart(2, "0"); // Month (01-12)
 		const day = today.getDate().toString().padStart(2, "0"); // Day (01-31)
 
+		// Calculate start and end of the current day (00:00:00 to 23:59:59)
+		const startOfDay = new Date(
+			Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
+		);
+
+		const endOfDay = new Date(
+			Date.UTC(
+				today.getFullYear(),
+				today.getMonth(),
+				today.getDate(),
+				23,
+				59,
+				59
+			)
+		);
+
+		// Get the last order for this restaurant today
 		// Get the last order for this restaurant today
 		const lastOrderQuery = db
 			.collection("orders")
 			.where("restaurantId", "==", restaurantId)
-			.where(
-				"timestamp",
-				">=",
-				admin.firestore.Timestamp.fromDate(
-					new Date(today.getFullYear(), today.getMonth(), today.getDate())
-				)
-			) // Start of today
-			.where(
-				"timestamp",
-				"<",
-				admin.firestore.Timestamp.fromDate(
-					new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
-				)
-			) // End of today
+			.where("timestamp", ">=", admin.firestore.Timestamp.fromDate(startOfDay)) // Start of today
+			.where("timestamp", "<=", admin.firestore.Timestamp.fromDate(endOfDay)) // End of today
 			.orderBy("timestamp", "desc")
 			.limit(1);
+
 		const lastOrderSnapshot = await lastOrderQuery.get();
 
-		let orderNumber = 1; // Default to 1 if no previous orders today
+		let orderNumber = 1;
+		//let orderNumber = 1; // Default to 1 if no previous orders today
 		if (!lastOrderSnapshot.empty) {
 			const lastOrderData = lastOrderSnapshot.docs[0].data();
 			const lastOrderId = lastOrderData.orderId;
@@ -65,7 +72,7 @@ async function generateOrderId(restaurantId, customerId) {
 }
 
 exports.createOrder = functions.https.onCall(async (data, context) => {
-	const { userId, restaurantId, tableNumber, items, totalPrice } = data;
+	const { userId, restaurantId, table, items, totalPrice } = data;
 	try {
 		// Input validation
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
@@ -88,25 +95,32 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 				"Invalid data provided"
 			);
 		}
-
 		// 2. Generate OrderId
 		const orderId = await generateOrderId(restaurantId, userId);
-
 		//3. Create the order document
 		const orderRef = await db.collection("orders").add({
 			orderId,
 			customerId: userId,
-			tableNumber,
+			table,
 			items,
 			orderStatus: "pending",
 			paymentStatus: "paid",
 			totalPrice,
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
+			restaurantId,
 		});
 
-		console.log("Order created with ID:", orderId);
+		const tableRef = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(table.id);
 
-		return { success: true, orderId };
+		tableRef.update({
+			status: "checkedOut",
+		});
+
+		return { success: true, orderId, orderRef: orderRef.id };
 	} catch (error) {
 		console.error("Error creating order: ", error);
 		throw new functions.https.HttpsError("Internal Error", error.message);

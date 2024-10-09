@@ -1,6 +1,21 @@
 import React, { useContext, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
-import { doc, getDoc } from "firebase/firestore";
+import {
+	View,
+	Text,
+	StyleSheet,
+	ActivityIndicator,
+	ScrollView,
+	Button,
+	TouchableOpacity,
+} from "react-native";
+import {
+	collection,
+	doc,
+	getDoc,
+	getDocs,
+	query,
+	where,
+} from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { transformBasketData } from "../../utils/customerUtils";
@@ -18,19 +33,19 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 	useEffect(() => {
 		const fetchOrderDetails = async () => {
 			try {
-				const orderRef = doc(db, "orders", orderId);
-				const orderSnapshot = await getDoc(orderRef);
+				const orderRef = collection(db, "orders");
+				const q = query(orderRef, where("orderId", "==", orderId));
+				const orderSnapshot = await getDocs(q);
 
-				if (orderSnapshot.exists()) {
-					setOrder(orderSnapshot.data());
+				if (!orderSnapshot.empty) {
+					const orderDoc = orderSnapshot.docs[0];
+					setOrder(orderDoc.data());
 
 					// Transform basket data (if needed)
-					const transformedData = transformBasketData(
-						orderSnapshot.data().items
-					);
+					const transformedData = transformBasketData(orderDoc.data().items);
 					setFilteredBasketData(transformedData);
 				} else {
-					console.error("Order not found:", orderId);
+					console.error("Order notr found:", orderId);
 					setError("Order not found");
 				}
 			} catch (error) {
@@ -97,10 +112,13 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 					})}
 
 					<View style={styles.orderSummary}>
-						<Text>Subtotal: ${order.subtotal.toFixed(2)}</Text>
+						{/* <Text>Subtotal: ${order.subtotal.toFixed(2)}</Text>
 						<Text>Tax: ${order.tax.toFixed(2)}</Text>
 						<Text>Fee: ${order.fee.toFixed(2)}</Text>
 						<Text>Gratuity: ${order.gratuity.toFixed(2)}</Text>
+						<Text style={styles.totalPrice}>
+							Total: ${order.totalPrice.toFixed(2)}
+						</Text> */}
 						<Text style={styles.totalPrice}>
 							Total: ${order.totalPrice.toFixed(2)}
 						</Text>

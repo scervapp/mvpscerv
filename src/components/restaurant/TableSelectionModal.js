@@ -20,6 +20,7 @@ const TableSelectionModal = ({
 	selectedCheckinId,
 	currentRestaurantId,
 	selectedCustomerId,
+	numInParty,
 }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const [tables, setTables] = useState([]);
@@ -28,7 +29,9 @@ const TableSelectionModal = ({
 	const [isServerModalVisible, setisServerModalVisible] = useState(false);
 	const [employees, setEmployees] = useState(null);
 	const [assignedServer, setAssignedServer] = useState(null);
+	const [table, setTable] = useState(null);
 
+	const [server, setServer] = useState(null);
 	useEffect(() => {
 		// Function to fetch tables from firestore
 		const fetchMyTables = async () => {
@@ -46,9 +49,8 @@ const TableSelectionModal = ({
 	}, [isVisible, currentRestaurantId]);
 
 	const handleTableSelect = (table) => {
-		setSelectedTableId(table.id);
-		setSelectedTableNumber(table.name);
-		if (setSelectedTableId) {
+		setTable(table);
+		if (setTable) {
 			setisServerModalVisible(true);
 		}
 	};
@@ -70,29 +72,28 @@ const TableSelectionModal = ({
 
 	const onAssignServer = async (selectedServer) => {
 		try {
-			setAssignedServer(selectedServer);
+			setServer(selectedServer);
 		} catch (error) {
 			console.log("Error assigning server", error);
 		}
 	};
 
 	const handleConfirm = async () => {
-		if (selectedTableId && assignedServer) {
+		if (table && server) {
 			try {
 				const handleCheckInResponseFunction = httpsCallable(
 					functions,
 					"handleCheckInResponse"
 				);
 
-				console.log("Assigned Server", assignedServer);
-
 				const result = await handleCheckInResponseFunction({
 					checkInId: selectedCheckinId,
 					action: "ACCEPTED",
-					tableNumber: selectedTableNumber,
-					employeeName:
-						assignedServer.firstName + " " + assignedServer.lastName,
-					serverId: assignedServer.id,
+					table,
+					server,
+					customerId: selectedCustomerId,
+					restaurantId: currentRestaurantId,
+					numInParty: numInParty,
 				});
 
 				if (result.data.success) {
@@ -107,7 +108,7 @@ const TableSelectionModal = ({
 				}
 
 				// 3. Send notification to the customer
-				await sendNotification(selectedCustomerId, selectedTableNumber);
+				await sendNotification(selectedCustomerId, table);
 			} catch (error) {
 				console.log("Error in confirmation flow", error);
 			} finally {
@@ -131,11 +132,7 @@ const TableSelectionModal = ({
 				/>
 				<View style={styles.buttonContainer}>
 					<Button title="Cancel" onPress={onClose} />
-					<Button
-						title="Confirm"
-						onPress={handleConfirm}
-						disabled={!selectedTableId}
-					/>
+					<Button title="Confirm" onPress={handleConfirm} disabled={!table} />
 				</View>
 				{/*Server assignment modal*/}
 				{isServerModalVisible && (

@@ -59,6 +59,7 @@ const RestaurantDetail = ({ route, navigation }) => {
 		checkInStatus,
 		tableNumber,
 		isLoading: isLoadingCheckIn,
+		checkInObj,
 	} = useCheckInStatus(restaurant.id, currentUserData.uid);
 
 	// 4. Effect to fetch menu items for the restaurant
@@ -80,8 +81,6 @@ const RestaurantDetail = ({ route, navigation }) => {
 	// 5. Function to handle check-in request
 	const handleCheckin = async (values) => {
 		const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
-
-		console.log("customername", customerName);
 
 		try {
 			setIsLoading(true);
@@ -182,14 +181,16 @@ const RestaurantDetail = ({ route, navigation }) => {
 				{/* Check-in Button (Conditional Rendering) */}
 				{isLoading ? (
 					<ActivityIndicator size="small" color="white" />
-				) : checkInStatus === "notCheckedIn" || checkInStatus === "declined" ? (
+				) : checkInObj?.status === "notCheckedIn" ||
+				  checkInObj?.status === "declined" ||
+				  !checkInObj?.status ? (
 					<TouchableOpacity
 						style={styles.checkInButton}
 						onPress={() => openModal()}
 					>
 						<Text style={styles.checkInButtonText}>Check In</Text>
 					</TouchableOpacity>
-				) : checkInStatus === "REQUESTED" ? (
+				) : checkInObj?.status === "REQUESTED" ? (
 					<View style={styles.checkInRequestContainer}>
 						{/* New container for better layout */}
 						<ActivityIndicator
@@ -209,10 +210,13 @@ const RestaurantDetail = ({ route, navigation }) => {
 							</Text>
 						</TouchableOpacity>
 					</View>
-				) : checkInStatus === "ACCEPTED" ? (
+				) : checkInObj?.status === "ACCEPTED" ? (
 					<View style={[styles.checkInButton, styles.checkInButtonCheckedIn]}>
 						<Text style={styles.checkInButtonText}>
-							Checked In! {tableNumber && `(Table ${tableNumber})`}
+							Checked In at {checkInObj.table?.name}
+						</Text>
+						<Text style={styles.checkInButtonText}>
+							Your Server is {checkInObj.server?.firstName}
 						</Text>
 					</View>
 				) : null}

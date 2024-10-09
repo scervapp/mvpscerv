@@ -26,6 +26,7 @@ const RestaurantCheckin = () => {
 	const [selectedCustomerId, setSelectedCustomerId] = useState(null);
 	const [checkInRequests, setCheckInRequests] = useState(null);
 	const [isLoading, setIsLoading] = useState(false);
+	const [numInParty, setNumInParty] = useState(null);
 
 	const { isLandscape } = userOrientation();
 
@@ -64,6 +65,7 @@ const RestaurantCheckin = () => {
 	const openTableModal = (item) => {
 		setSelectedCheckInId(item.id);
 		setSelectedCustomerId(item.customerId);
+		setNumInParty(item.numberOfPeople);
 		setIsTableModalVisible(true);
 	};
 
@@ -118,6 +120,7 @@ const RestaurantCheckin = () => {
 					selectedCheckinId={selectedCheckInId}
 					currentRestaurantId={currentUserData.uid}
 					selectedCustomerId={selectedCustomerId}
+					numInParty={numInParty}
 				/>
 			)}
 

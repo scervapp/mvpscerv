@@ -65,7 +65,7 @@ export const pickImage = async () => {
 // Generates a table for the restaurant if their are none
 // This is only for demo purposes
 export const generateTables = async (restaurantId) => {
-	const tablesRef = collection(db, "tables");
+	const tablesRef = collection(db, "restaurants", restaurantId, "tables");
 	for (let i = 1; i <= 10; i++) {
 		const tableData = {
 			name: `Table ${i}`,
@@ -81,7 +81,7 @@ export const generateTables = async (restaurantId) => {
 // Fetches the tables for the restaurant
 export const fetchTables = async (restaurantId) => {
 	try {
-		const tablesRef = collection(db, "tables");
+		const tablesRef = collection(db, "restaurants", restaurantId, "tables");
 		const queryTable = query(
 			tablesRef,
 			where("restaurantId", "==", restaurantId)

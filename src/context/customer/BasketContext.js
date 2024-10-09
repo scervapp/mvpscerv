@@ -1,4 +1,4 @@
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, where, query } from "firebase/firestore";
 import React, { createContext, useState, useEffect, useContext } from "react";
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../authContext";
@@ -34,14 +34,11 @@ export const BasketProvider = ({ children }) => {
 			}
 
 			try {
-				const basketItemsRef = collection(
-					db,
-					"baskets",
-					currentUser.uid,
-					"basketItems"
-				);
+				const basketItemsRef = collection(db, "baskets");
 
-				unsubscribe = onSnapshot(basketItemsRef, (querySnapshot) => {
+				const q = query(basketItemsRef, where("userId", "==", currentUser.uid));
+
+				unsubscribe = onSnapshot(q, (querySnapshot) => {
 					const items = querySnapshot.docs.map((doc) => ({
 						id: doc.id,
 						...doc.data(),
@@ -71,7 +68,6 @@ export const BasketProvider = ({ children }) => {
 		};
 
 		fetchBasketItems();
-		console.log("Fetched the basket item called in the useEffect");
 
 		return () => {
 			if (unsubscribe) {
@@ -174,7 +170,14 @@ export const BasketProvider = ({ children }) => {
 	//   }
 	// };
 
-	const addItemToBasket = async (restaurantId, dish, selectedPIPs = []) => {
+	const addItemToBasket = async (
+		restaurantId,
+		dish,
+		selectedPIPs = [],
+		server = {},
+		specialInstructions,
+		table = {}
+	) => {
 		try {
 			setBasketError(null); // Clear any previous errors
 
@@ -197,6 +200,9 @@ export const BasketProvider = ({ children }) => {
 				restaurantId,
 				dish,
 				selectedPIPs,
+				table,
+				specialInstructions,
+				server,
 			});
 		} catch (error) {
 			console.error("Error adding to basket:", error);

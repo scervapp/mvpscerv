@@ -4,7 +4,15 @@ const admin = require("firebase-admin");
 const db = admin.firestore();
 // Add Item to Basket
 async function addItemToBasket(data, context) {
-	const { userId, restaurantId, dish, selectedPIPs } = data;
+	const {
+		userId,
+		restaurantId,
+		dish,
+		selectedPIPs,
+		table,
+		specialInstructions,
+		server,
+	} = data;
 
 	try {
 		// 1. Input Validation
@@ -23,10 +31,7 @@ async function addItemToBasket(data, context) {
 		}
 
 		// 2. Get Basket Items Reference
-		const basketItemsRef = db
-			.collection("baskets")
-			.doc(userId)
-			.collection("basketItems");
+		const basketItemsRef = db.collection("baskets");
 
 		// 3. Check for Existing UNSENT Item with the Same PIPs
 		const existingItemsQuery = basketItemsRef
@@ -58,9 +63,12 @@ async function addItemToBasket(data, context) {
 					restaurantId,
 					dish,
 					quantity: 1,
-					specialInstructions: "",
+					specialInstructions: specialInstructions,
 					pip,
 					sentToChefQ: false,
+					table: table,
+					server: server,
+					userId: userId,
 				});
 			});
 			await batch.commit();
@@ -94,11 +102,7 @@ async function removeItemFromBasket(data, context) {
 		}
 
 		// 2. Get the basket item document reference
-		const basketItemRef = db
-			.collection("baskets")
-			.doc(userId)
-			.collection("basketItems")
-			.doc(basketItemId);
+		const basketItemRef = db.collection("baskets").doc(basketItemId);
 
 		// 3. Check if the basket item exists
 		const basketItemSnapshot = await basketItemRef.get();
@@ -149,11 +153,7 @@ async function updateBasketItemQuantity(data, context) {
 		}
 
 		// 2. Get the basket item document reference
-		const basketItemRef = db
-			.collection("baskets")
-			.doc(userId)
-			.collection("basketItems")
-			.doc(basketItemId);
+		const basketItemRef = db.collection("baskets").doc(basketItemId);
 
 		// 3. Check if the basket item exists
 		const basketItemSnapshot = await basketItemRef.get();
@@ -203,8 +203,8 @@ async function clearBasket(data, context) {
 		// 2. Get the basketItems subcollection reference
 		const basketItemsRef = db
 			.collection("baskets")
-			.doc(userId)
-			.collection("basketItems");
+			.where("userId", "==", userId)
+			.where("restaurantId", "==", restaurantId);
 
 		// 3. Query for all basket items for the specified restaurant
 		const q = basketItemsRef.where("restaurantId", "==", restaurantId);
@@ -225,7 +225,7 @@ async function clearBasket(data, context) {
 }
 
 async function sendToChefsQ(data, context) {
-	const { userId, restaurantId, items } = data;
+	const { userId, restaurantId, items, server, table } = data;
 
 	try {
 		if (
@@ -240,16 +240,18 @@ async function sendToChefsQ(data, context) {
 			);
 		}
 
+		const unsentItems = items.filter((item) => !item.sentToChefQ);
+
 		// 2. Update basketItems in Firestore to mark them as sentToChefQ = true
 		const batch = db.batch();
-		items.forEach((item) => {
-			console.log("itemId", item.id);
-			const basketItemRef = db
-				.collection("baskets")
-				.doc(userId)
-				.collection("basketItems")
-				.doc(item.id);
-			batch.update(basketItemRef, { sentToChefQ: true });
+		unsentItems.forEach((item) => {
+			const basketItemRef = db.collection("baskets").doc(item.id);
+			batch.update(basketItemRef, {
+				sentToChefQ: true,
+				server: server,
+				table: table,
+				sentToChefQAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
 		});
 		await batch.commit();
 
