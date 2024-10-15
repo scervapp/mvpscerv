@@ -99,6 +99,15 @@ export const fetchTables = async (restaurantId) => {
 	}
 };
 
+export const clearTable = async (tableId, restaurantId) => {
+	const tableRef = doc(db, `restaurants/${restaurantId}/tables`, tableId);
+	await updateDoc(tableRef, {
+		status: "available",
+		capacity: null,
+		numInParty: null,
+	});
+};
+
 // Fetch employees
 export const fetchEmployees = async (restaurantId) => {
 	try {

@@ -27,18 +27,10 @@ import { useBasket } from "../../context/customer/BasketContext";
 import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { CreditCardInput } from "react-native-credit-card-input";
-import {
-	db,
-	functions,
-	getStripePublishableKeyFromRemoteConfig,
-} from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { httpsCallable } from "firebase/functions";
 
-import {
-	createPaymentMethod,
-	useStripe,
-	StripeProvider,
-} from "@stripe/stripe-react-native";
+import { useStripe, StripeProvider } from "@stripe/stripe-react-native";
 import { Checkbox } from "react-native-paper";
 
 const CheckoutScreen = ({ route, navigation }) => {
@@ -179,8 +171,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 		}
 	}, [stripePublishableKey, currentUserData.uid, restaurant.restaurantName]);
 
-
-
 	useEffect(() => {
 		const fetchFees = async () => {
 			setIsLoading(true);
@@ -225,7 +215,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					totalPrice: overallTotal,
 				});
 
-				//clearBasket(restaurant.id);
+				clearBasket(restaurant.id);
 
 				if (orderId) {
 					navigation.navigate("OrderConfirmation", { orderId });

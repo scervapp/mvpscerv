@@ -2,23 +2,39 @@ import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Card, ListItem } from "react-native-elements";
 
-const TableItem = ({ item, onPress, isSelected, isCheckinFlow }) => {
+const TableItem = ({
+	item,
+	onPress,
+	isSelected,
+	isCheckinFlow,
+	width,
+	height,
+}) => {
 	// Determin background color based on status
 	const tableItemStyle = {
 		...styles.tableItem,
 		backgroundColor: getTableItemStyle(item.status),
+		width: width,
+		height: height,
 	};
 
 	return (
 		<TouchableOpacity
 			disabled={!onPress}
 			onPress={onPress}
-			style={[styles.tableItem, tableItemStyle, isSelected && styles.selected]}
+			style={[
+				styles.tableItem,
+				tableItemStyle,
+				isSelected && styles.selected,
+				styles.shadowEffect,
+			]}
 		>
-			<Text style={styles.tableNumber}>{item.name}</Text>
-			{isCheckinFlow && item.status === "available" && (
-				<Text style={styles.status}>item.status</Text>
-			)}
+			<View style={styles.tableContent}>
+				<Text style={styles.tableNumber}>{item.name}</Text>
+				{isCheckinFlow && item.status === "available" && (
+					<Text style={styles.status}>item.status</Text>
+				)}
+			</View>
 		</TouchableOpacity>
 	);
 };
@@ -30,51 +46,46 @@ const getTableItemStyle = (status) => {
 		case "OCCUPIED":
 			return "#851f18"; // Red style
 		case "checkedOut":
-			return "#adad0a"; // Yellow style
+			return "orange"; // Yellow style
 		default:
 			return {}; // Default styles (optional)
 	}
 };
 const styles = StyleSheet.create({
-	container: {
-		margin: 5,
-	},
 	tableItem: {
 		borderRadius: 10,
-		padding: 10,
-		borderWidth: 1,
-		borderColor: "#ccc",
-		borderRadius: 5,
-		marginBottom: 5,
-		height: 100,
-		width: 100,
-		margin: 5,
+		margin: 10,
+		justifyContent: "center",
+		alignItems: "center",
 	},
-	availableTable: {
-		backgroundColor: "#d1f2eb",
-	},
-	occupiedTable: {
-		backgroundColor: "#851f18",
-	},
-	checkedOutTable: {
-		backgroundColor: "#fff3cd",
+	tableContent: {
+		alignItems: "center",
 	},
 	tableNumber: {
-		fontSize: 14, // Adjust as needed
+		fontSize: 18, // Increased font size for better visibility
 		fontWeight: "bold",
-		textAlign: "center",
-		color: "white",
+		color: "#fff", // White text for better contrast
+		marginBottom: 5,
+	},
+	capacity: {
+		fontSize: 14,
+		color: "#fff", // White text for contrast
+		marginTop: 5,
 	},
 	selected: {
-		backgroundColor: "lightblue",
+		backgroundColor: "#007bff", // Highlight color when selected
 	},
 	status: {
-		color: "#999",
-		fontSize: 12,
+		fontSize: 14,
+		color: "#ddd", // Lighter text for subtlety
+		marginTop: 5,
 	},
-	tableContainer: {
-		flex: 1,
-		width: "90%",
+	shadowEffect: {
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.3,
+		shadowRadius: 5,
+		elevation: 5, // Android shadow support
 	},
 });
 

@@ -12,6 +12,7 @@ import BackOfficeScreen from "../screens/restaurant/BackOfficeScreen";
 import EmployeeScreen from "../screens/restaurant/EmployeeScreen";
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -27,6 +28,12 @@ const BackOfficeStackNavigator = () => {
 			<Stack.Screen
 				name="EmployeeScreen"
 				component={EmployeeScreen}
+				options={{ headerShown: false }}
+			/>
+
+			<Stack.Screen
+				name="SalesReportScreen"
+				component={SalesReportScreen}
 				options={{ headerShown: false }}
 			/>
 		</Stack.Navigator>

@@ -185,3 +185,55 @@ exports.handleCheckInResponse = functions.https.onCall(
 		}
 	}
 );
+
+exports.clearTable = functions.firestore
+	.document("restaurants/{restaurantId}/tables/{tableId}")
+	.onUpdate(async (change, context) => {
+		const newData = change.after.data(); // The updated document data
+		const previousData = change.before.data(); // The data before the update
+
+		// Check if the table status has been updated to 'AVAILABLE'
+		if (previousData.status !== "available" && newData.status === "available") {
+			const { restaurantId, customerId, tableId } = newData;
+
+			try {
+				// Query the check-in collection to find the check-in associated with this customer and table
+				const checkInsRef = db.collection("checkIns");
+				const checkInSnapshot = await checkInsRef
+					.where("restaurantId", "==", restaurantId)
+					.where("customerId", "==", customerId)
+					.where("table.id", "==", tableId)
+					.get();
+
+				if (!checkInSnapshot.empty) {
+					const checkInDoc = checkInSnapshot.docs[0]; // Assuming one check-in per customer/table
+
+					// Delete the check-in document
+					await checkInDoc.ref.delete();
+
+					// Query and delete associated notifications
+					const notificationsRef = db.collection("notifications");
+					const notificationSnapshot = await notificationsRef
+						.where("checkInId", "==", checkInDoc.id)
+						.get();
+
+					if (!notificationSnapshot.empty) {
+						const notificationDoc = notificationSnapshot.docs[0]; // Assuming one notification per check-in
+						await notificationDoc.ref.delete();
+					}
+
+					console.log(
+						`Successfully deleted check-in and notification for table ${tableId}.`
+					);
+				} else {
+					console.log(
+						`No check-in found for customer ${customerId} and table ${tableId}.`
+					);
+				}
+			} catch (error) {
+				console.error("Error deleting check-in or notification:", error);
+			}
+		}
+
+		return null;
+	});
