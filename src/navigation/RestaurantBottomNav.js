@@ -87,7 +87,7 @@ const RestaurantBottomNavigation = () => {
 				component={ChefsQScreen}
 			/>
 
-			<Tab.Screen
+			{/* <Tab.Screen
 				options={{ headerShown: false }}
 				name="RestaurantDashboard"
 				component={RestaurantDashboard}
@@ -96,7 +96,7 @@ const RestaurantBottomNavigation = () => {
 				options={{ headerShown: false }}
 				name="RestaurantProfile"
 				component={RestaurantProfile}
-			/>
+			/> */}
 			<Tab.Screen
 				options={{ headerShown: false }}
 				name="RestaurantMenu"

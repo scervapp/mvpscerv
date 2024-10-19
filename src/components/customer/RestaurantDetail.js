@@ -27,6 +27,7 @@ import {
 	where,
 	updateDoc,
 	doc,
+	getDoc,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -62,6 +63,13 @@ const RestaurantDetail = ({ route, navigation }) => {
 		checkInObj,
 	} = useCheckInStatus(restaurant.id, currentUserData.uid);
 
+	useEffect(() => {
+		// Access the latest check-in data
+		// Do something with the updated check-in data,
+		// such as updating a local state variable or triggering other actions
+		// ...
+	}, [checkInStatus, tableNumber, checkInObj]);
+
 	// 4. Effect to fetch menu items for the restaurant
 	useEffect(() => {
 		const loadMenu = async () => {
@@ -80,6 +88,20 @@ const RestaurantDetail = ({ route, navigation }) => {
 
 	// 5. Function to handle check-in request
 	const handleCheckin = async (values) => {
+		const userRef = doc(db, "customers", currentUserData.uid);
+		const userSnap = await getDoc(userRef);
+
+		if (userSnap.exists()) {
+			const activeCheckIn = userSnap.data().activeCheckIn;
+
+			// If there's an active check-in and it's for a different restaurant
+			if (activeCheckIn && activeCheckIn.restaurantId !== restaurant.id) {
+				alert(
+					"You are already checked into another restaurant. Please check out before checking into a new one."
+				);
+				return;
+			}
+		}
 		const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
 
 		try {
@@ -144,7 +166,55 @@ const RestaurantDetail = ({ route, navigation }) => {
 			restaurant,
 		});
 	};
+	const renderCheckInButton = () => {
+		if (isLoading) {
+			return <ActivityIndicator size="small" color="white" />;
+		}
 
+		switch (checkInStatus) {
+			case "REQUESTED":
+				return (
+					<View style={styles.checkInRequestContainer}>
+						<ActivityIndicator
+							size="small"
+							color={colors.primary}
+							style={styles.loadingIndicator}
+						/>
+						<Text style={styles.awaitingApprovalText}>
+							Waiting to be seated
+						</Text>
+						<TouchableOpacity
+							onPress={handlingCancelCheckIn}
+							style={styles.cancelButton}
+						>
+							<Text style={styles.cancelCheckInButtonText}>
+								Cancel Check-In
+							</Text>
+						</TouchableOpacity>
+					</View>
+				);
+			case "ACCEPTED":
+				return (
+					<View style={[styles.checkInButton, styles.checkInButtonCheckedIn]}>
+						<Text style={styles.checkInButtonText}>
+							Checked In at {checkInObj.table?.name}
+						</Text>
+						<Text style={styles.checkInButtonText}>
+							Your Server is {checkInObj.server?.firstName}
+						</Text>
+					</View>
+				);
+			default: // This handles 'notCheckedIn', 'declined', or null
+				return (
+					<TouchableOpacity
+						style={styles.checkInButton}
+						onPress={() => openModal()}
+					>
+						<Text style={styles.checkInButtonText}>Check In</Text>
+					</TouchableOpacity>
+				);
+		}
+	};
 	// Floating basket button
 	const FloatingBasketButton = () => {
 		return (
@@ -169,6 +239,7 @@ const RestaurantDetail = ({ route, navigation }) => {
 			<ScrollView showsVerticalScrollIndicator={false}>
 				{/* Restaurant Image */}
 				<Image source={{ uri: restaurant.imageUri }} style={styles.image} />
+
 				{/* Restaurant Information */}
 				<View style={styles.infoContainer}>
 					<Text style={styles.name}>{restaurant.restaurantName}</Text>
@@ -177,63 +248,23 @@ const RestaurantDetail = ({ route, navigation }) => {
 						{restaurant.zipcode}
 					</Text>
 					<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
+
+					{/* Check-in Button */}
+					{renderCheckInButton()}
 				</View>
-				{/* Check-in Button (Conditional Rendering) */}
-				{isLoading ? (
-					<ActivityIndicator size="small" color="white" />
-				) : checkInObj?.status === "notCheckedIn" ||
-				  checkInObj?.status === "declined" ||
-				  !checkInObj?.status ? (
-					<TouchableOpacity
-						style={styles.checkInButton}
-						onPress={() => openModal()}
-					>
-						<Text style={styles.checkInButtonText}>Check In</Text>
-					</TouchableOpacity>
-				) : checkInObj?.status === "REQUESTED" ? (
-					<View style={styles.checkInRequestContainer}>
-						{/* New container for better layout */}
-						<ActivityIndicator
-							size="small"
-							color={colors.primary}
-							style={styles.loadingIndicator}
-						/>
-						<Text style={styles.awaitingApprovalText}>
-							Waiting to be seated
-						</Text>
-						<TouchableOpacity
-							onPress={handlingCancelCheckIn}
-							style={styles.cancelButton}
-						>
-							<Text style={styles.cancelCheckInButtonText}>
-								Cancel Check-In
-							</Text>
-						</TouchableOpacity>
-					</View>
-				) : checkInObj?.status === "ACCEPTED" ? (
-					<View style={[styles.checkInButton, styles.checkInButtonCheckedIn]}>
-						<Text style={styles.checkInButtonText}>
-							Checked In at {checkInObj.table?.name}
-						</Text>
-						<Text style={styles.checkInButtonText}>
-							Your Server is {checkInObj.server?.firstName}
-						</Text>
-					</View>
-				) : null}
 
 				{/* Check-In Modal */}
 				{isModalVisible && (
 					<Modal
 						transparent={true}
-						style={styles.modalContainer}
 						onRequestClose={closeModal}
 						visible={isModalVisible}
 						animationType="fade"
 					>
 						<Formik
-							initialValues={{ partySize: "" }} // Initialize with empty string
+							initialValues={{ partySize: "" }}
 							validationSchema={validationSchema}
-							onSubmit={handleCheckin} // Pass handleCheckin directly to onSubmit
+							onSubmit={handleCheckin}
 						>
 							{({
 								handleChange,
@@ -253,28 +284,36 @@ const RestaurantDetail = ({ route, navigation }) => {
 										onBlur={handleBlur("partySize")}
 										value={values.partySize}
 										keyboardType="numeric"
-										placeholder="2" // Update placeholder to reflect minimum
+										placeholder="2"
 									/>
-									{/* Display error message if there's a validation error */}
 									{errors.partySize && touched.partySize && (
 										<Text style={styles.errorText}>{errors.partySize}</Text>
 									)}
 									<View style={styles.buttonRow}>
-										<Button title="Cancel" onPress={closeModal} />
-										<Button title="Confirm" onPress={handleSubmit} />
+										<TouchableOpacity
+											onPress={closeModal}
+											style={styles.modalButton}
+										>
+											<Text style={styles.modalButtonText}>Cancel</Text>
+										</TouchableOpacity>
+										<TouchableOpacity
+											onPress={handleSubmit}
+											style={styles.modalButton}
+										>
+											<Text style={styles.modalButtonText}>Confirm</Text>
+										</TouchableOpacity>
 									</View>
 								</View>
 							)}
 						</Formik>
 					</Modal>
 				)}
+
 				{/* Menu Section */}
-				<Text style={styles.name}>Menu</Text>
-				<MenuItemsList menuItems={menuItems} isLoading={isLoading} />
-				{/* Place Order Button (Conditional Rendering) */}
-				{checkInStatus === "accepted" && restaurantBasket.items.length > 0 && (
-					<Button title="Place Order" onPress={handlePlaceOrder} />
-				)}
+				<View style={styles.menuSection}>
+					<Text style={styles.menuHeader}>Menu</Text>
+					<MenuItemsList menuItems={menuItems} isLoading={isLoading} />
+				</View>
 			</ScrollView>
 
 			{/* Floating Basket Button */}
@@ -284,30 +323,35 @@ const RestaurantDetail = ({ route, navigation }) => {
 };
 
 const styles = StyleSheet.create({
-	// Restaurant Details container
 	container: {
 		flex: 1,
-		paddingHorizontal: 5,
-		paddingTop: 20,
+		backgroundColor: "#f8f8f8",
 	},
 	image: {
 		width: "100%",
 		height: 200,
-		borderRadius: 10,
-		marginBottom: 20,
+		borderTopLeftRadius: 20,
+		borderTopRightRadius: 20,
 	},
-	infoContainer: { marginBottom: 20 },
+	infoContainer: {
+		padding: 20,
+	},
 	name: {
-		fontSize: 24,
+		fontSize: 28,
 		fontWeight: "bold",
 		marginBottom: 5,
 	},
-	address: { marginBottom: 5 },
-	cuisine: { color: "#666666" },
-
-	// Check-in button styles
+	address: {
+		fontSize: 16,
+		color: "#666",
+		marginBottom: 10,
+	},
+	cuisine: {
+		fontSize: 16,
+		color: "#007bff",
+	},
 	checkInButton: {
-		backgroundColor: "#FF6C44",
+		backgroundColor: "#007bff",
 		padding: 15,
 		borderRadius: 10,
 		alignItems: "center",
@@ -315,7 +359,14 @@ const styles = StyleSheet.create({
 		marginBottom: 20,
 	},
 	checkInButtonCheckedIn: {
-		backgroundColor: "green",
+		backgroundColor: "#28a745",
+		padding: 15,
+		borderRadius: 10,
+		alignItems: "center",
+		marginTop: 20,
+		marginBottom: 20,
+		flexDirection: "row", // To align icon and text
+		alignItems: "center", // To align icon and text
 	},
 	checkInButtonText: {
 		color: "white",
@@ -328,39 +379,25 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 		marginBottom: 5,
 	},
-	checkInButtonRequest: {
-		backgroundColor: colors.warning, // Use a warning color (e.g., yellow)
-		padding: 15,
-		borderRadius: 10,
-		alignItems: "center",
-		marginTop: 20,
-		marginBottom: 20,
-	},
 	checkInRequestContainer: {
-		alignItems: "center", // Center content horizontally
+		alignItems: "center",
 		marginTop: 20,
 		marginBottom: 20,
 	},
 	loadingIndicator: {
-		marginBottom: 10, // Add some spacing below the indicator
+		marginBottom: 10,
 	},
 	awaitingApprovalText: {
 		fontSize: 16,
 		marginBottom: 10,
-		color: colors.text, // Or any suitable color
+		color: "#333",
 	},
 	cancelButton: {
-		backgroundColor: colors.warning, // Use a warning color (e.g., yellow or orange)
+		backgroundColor: "#ffc107", // Yellow cancel button
 		padding: 10,
 		borderRadius: 5,
 		alignItems: "center",
 	},
-	cancelCheckInButtonText: {
-		color: "white",
-		fontWeight: "bold",
-	},
-
-	// Modal styles
 	modalContainer: {
 		flex: 1,
 		justifyContent: "center",
@@ -375,12 +412,13 @@ const styles = StyleSheet.create({
 		borderRadius: 10,
 		width: "80%",
 		alignItems: "center",
-		maxHeight: "80%", // Prevent modal content from overflowing
+		maxHeight: "80%",
 	},
 	buttonRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		width: "100%",
+		marginTop: 20,
 	},
 	input: {
 		borderWidth: 1,
@@ -397,10 +435,8 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginBottom: 10,
 	},
-
-	// Floating Action Button (FAB) styles
 	fabContainer: {
-		backgroundColor: "red",
+		backgroundColor: "#dc3545", // Red basket button
 		borderRadius: 50,
 		padding: 16,
 		position: "absolute",
@@ -411,7 +447,6 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "center",
 	},
-
 	badge: {
 		position: "absolute",
 		top: -8,
@@ -424,13 +459,32 @@ const styles = StyleSheet.create({
 		color: "white",
 		fontSize: 12,
 	},
-
-	// Error message style
 	errorText: {
 		color: "red",
 		fontWeight: "bold",
 		fontSize: 14,
 		marginBottom: 10,
+	},
+	menuSection: {
+		padding: 20,
+	},
+	menuHeader: {
+		fontSize: 24,
+		fontWeight: "bold",
+		marginBottom: 10,
+	},
+	modalButton: {
+		backgroundColor: colors.primary, // Or any color you prefer
+		padding: 10,
+		borderRadius: 8,
+		alignItems: "center",
+		flex: 1, // Allow buttons to take equal width
+		marginHorizontal: 5, // Add some space between the buttons
+	},
+	modalButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 

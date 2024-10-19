@@ -162,51 +162,59 @@ const ChefsQScreen = () => {
 			{isLoading ? (
 				<ActivityIndicator />
 			) : (
-				<FlatList
-					data={Object.entries(ordersByTable)}
-					keyExtractor={([tableId]) => tableId}
-					renderItem={({ item: [tableId, tableData] }) => (
-						<View key={tableId} style={styles.tableSection}>
-							{/* Table Number with Highlighted Style */}
-							<TouchableOpacity
-								style={[
-									styles.tableHeaderContainer,
-									!tableData.allItemsCompleted &&
-										styles.tableHeaderContainerActive,
-								]}
-								onPress={() => handleToggleTableSection(tableId)}
-							>
-								<View>
-									<Text style={styles.tableHeaderText}>
-										{tableData.tableNumber}
-									</Text>
-								</View>
-								{newItemsCount[tableId] > 0 && (
-									<View style={styles.newItemIndicator}>
-										<Text style={styles.newItemCount}>
-											{newItemsCount[tableId]}
-										</Text>
-									</View>
-								)}
-							</TouchableOpacity>
+				<>
+					{Object.keys(ordersByTable).length === 0 ? (
+						<View style={styles.emptyQueueContainer}>
+							<Text style={styles.emptyQueueText}>No items in the queue.</Text>
+						</View>
+					) : (
+						<FlatList
+							data={Object.entries(ordersByTable)}
+							keyExtractor={([tableId]) => tableId}
+							renderItem={({ item: [tableId, tableData] }) => (
+								<View key={tableId} style={styles.tableSection}>
+									{/* Table Number with Highlighted Style */}
+									<TouchableOpacity
+										style={[
+											styles.tableHeaderContainer,
+											!tableData.allItemsCompleted &&
+												styles.tableHeaderContainerActive,
+										]}
+										onPress={() => handleToggleTableSection(tableId)}
+									>
+										<View>
+											<Text style={styles.tableHeaderText}>
+												{tableData.tableNumber}
+											</Text>
+										</View>
+										{newItemsCount[tableId] > 0 && (
+											<View style={styles.newItemIndicator}>
+												<Text style={styles.newItemCount}>
+													{newItemsCount[tableId]}
+												</Text>
+											</View>
+										)}
+									</TouchableOpacity>
 
-							{/* Conditionally render order items */}
-							{expandTables[tableId] && (
-								<FlatList
-									data={tableData.items}
-									keyExtractor={(item) => item.id}
-									renderItem={({ item }) => (
-										<OrderItem
-											item={item}
-											onMarkComplete={handleMarkItemComplete}
-											onMarkInProgress={handleMarkItemInProgress}
+									{/* Conditionally render order items */}
+									{expandTables[tableId] && (
+										<FlatList
+											data={tableData.items}
+											keyExtractor={(item) => item.id}
+											renderItem={({ item }) => (
+												<OrderItem
+													item={item}
+													onMarkComplete={handleMarkItemComplete}
+													onMarkInProgress={handleMarkItemInProgress}
+												/>
+											)}
 										/>
 									)}
-								/>
+								</View>
 							)}
-						</View>
+						/>
 					)}
-				/>
+				</>
 			)}
 		</View>
 	);
@@ -226,6 +234,15 @@ const styles = StyleSheet.create({
 		marginBottom: 20,
 		color: colors.primary,
 	},
+	emptyQueueContainer: {
+		flex: 1,
+		justifyContent: "center", // Center vertically
+		alignItems: "center", // Center horizontally
+	},
+	emptyQueueText: {
+		fontSize: 18,
+		color: colors.gray, // Change color as needed
+	},
 	tableSection: {
 		marginBottom: 20,
 		borderWidth: 1,
@@ -233,33 +250,23 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		padding: 10,
 	},
-	tableHeader: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-	},
-	tableSectionActive: {
-		// Style for active tables with unresolved items
-		borderColor: colors.primary, // Or any suitable color to highlight active tables
-		borderWidth: 4,
-	},
 	tableHeaderContainer: {
-		backgroundColor: colors.lightGray, // Or any suitable background color
+		backgroundColor: colors.lightGray,
 		padding: 10,
 		borderRadius: 5,
 		marginBottom: 10,
-		alignItems: "center", // Center the text horizontally
+		alignItems: "center",
 	},
 	tableHeaderContainerActive: {
-		backgroundColor: colors.primary, // Or a color that stands out more
+		backgroundColor: colors.primary,
 	},
 	tableHeaderText: {
 		fontSize: 18,
 		fontWeight: "bold",
-		color: "white", // Or any suitable contrasting color
+		color: "white",
 	},
 	newItemIndicator: {
-		backgroundColor: "red", // Or any suitable color
+		backgroundColor: "red",
 		borderRadius: 50,
 		width: 30,
 		height: 30,

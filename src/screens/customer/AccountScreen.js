@@ -1,29 +1,76 @@
 import { useNavigation } from "@react-navigation/native";
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useContext } from "react";
+import {
+	View,
+	Text,
+	StyleSheet,
+	TouchableOpacity,
+	Pressable,
+} from "react-native";
+import { AuthContext } from "../../context/authContext";
+import { Ionicons } from "@expo/vector-icons";
 
 const AccountScreen = () => {
+	const { logout } = useContext(AuthContext);
 	const navigation = useNavigation();
+
+	const handleSignOut = async () => {
+		try {
+			await logout({ global: true });
+			navigation.navigate("Welcome");
+		} catch (error) {
+			console.log("error signing out: ", error);
+		}
+	};
 
 	// Render the account settings screen
 	return (
 		<View style={styles.container}>
-			<Text>Account Settings</Text>
-			<View style={styles.section}>
-				<Text style={styles.sectionTitle}>Profile</Text>
-			</View>
+			<Text style={styles.header}>My Account</Text>
+
 			<TouchableOpacity
 				onPress={() => navigation.navigate("PipsScreenInner")}
-				style={styles.section}
+				style={styles.listItem}
 			>
-				<Text style={styles.sectionTitle}>PIPS</Text>
+				<Ionicons
+					name="people-outline"
+					size={24}
+					color="gray"
+					style={styles.icon}
+				/>
+				<Text style={styles.listItemText}>PIPS</Text>
+				<Ionicons
+					name="chevron-forward-outline"
+					size={24}
+					color="gray"
+					style={styles.chevronIcon}
+				/>
 			</TouchableOpacity>
+
 			<TouchableOpacity
 				onPress={() => navigation.navigate("OrderHistoryScreenInner")}
-				style={styles.section}
+				style={styles.listItem}
 			>
-				<Text style={styles.sectionTitle}>Order History</Text>
+				<Ionicons
+					name="time-outline"
+					size={24}
+					color="gray"
+					style={styles.icon}
+				/>
+				<Text style={styles.listItemText}>Order History</Text>
+				<Ionicons
+					name="chevron-forward-outline"
+					size={24}
+					color="gray"
+					style={styles.chevronIcon}
+				/>
 			</TouchableOpacity>
+
+			{/* Add other list items as needed */}
+
+			<Pressable onPress={handleSignOut} style={styles.logoutButton}>
+				<Text style={styles.logoutButtonText}>Logout</Text>
+			</Pressable>
 		</View>
 	);
 };
@@ -35,30 +82,43 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		padding: 20,
+		backgroundColor: "#f8f8f8", // Example background color
 	},
 	header: {
 		fontSize: 24,
 		fontWeight: "bold",
-		marginBottom: 15,
-	},
-	section: {
 		marginBottom: 20,
-	},
-	sectionTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-	},
-	list: {
-		// Add styles to arrange the list items
+		color: "#333",
 	},
 	listItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "#fff",
 		padding: 15,
-		borderBottomWidth: 1,
-		borderBottomColor: "#ccc",
+		marginBottom: 10,
+		borderRadius: 8,
+	},
+	icon: {
+		marginRight: 10,
+	},
+	chevronIcon: {
+		marginLeft: "auto",
 	},
 	listItemText: {
 		fontSize: 16,
+		flex: 1,
+	},
+	logoutButton: {
+		backgroundColor: "#dc3545", // Example logout button color
+		padding: 15,
+		borderRadius: 8,
+		marginTop: 30,
+		alignItems: "center",
+	},
+	logoutButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 

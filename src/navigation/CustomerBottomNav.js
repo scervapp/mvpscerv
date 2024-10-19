@@ -1,13 +1,12 @@
 import React from "react";
+
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 
 // Import your screen components and stack navigator functions
-import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
-import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
-import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
+
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
 import CustomerProfile from "../screens/customer/CustomerProfile";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
@@ -18,6 +17,7 @@ import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
+import { Platform, TouchableOpacity, View } from "react-native";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -80,7 +80,9 @@ const RestaurantDetailStack = ({ navigation }) => (
 const AccountScreenStack = () => (
 	<Stack.Navigator>
 		<Stack.Screen
-			options={{ headerShown: false }}
+			options={{
+				headerShown: false,
+			}}
 			name="AccountScreenInner"
 			component={AccountScreen}
 		/>
@@ -102,7 +104,16 @@ const AccountScreenStack = () => (
 	</Stack.Navigator>
 );
 
-const PipsScreenStack = () => <Stack.Navigator></Stack.Navigator>;
+const ActiveOrdersStack = () => (
+	<Stack.Navigator>
+		<Stack.Screen
+			name="ActiveOrdersList"
+			component={CheckoutScreen} // Use CheckoutScreen here
+			options={{ title: "Active Orders" }}
+		/>
+		{/* You might not need other screens here if CheckoutScreen handles everything */}
+	</Stack.Navigator>
+);
 
 const CustomerBottomNavigation = () => {
 	const navigation = useNavigation();
@@ -117,27 +128,59 @@ const CustomerBottomNavigation = () => {
 						iconName = focused ? "home" : "home-outline";
 					} else if (route.name === "AccountScreen") {
 						iconName = focused ? "person" : "person-outline";
-					} else if (route.name === "CustomerMenu") {
-						iconName = focused ? "menu" : "menu-outline";
 					}
 
-					return <Ionicons name={iconName} size={size} color={color} />;
+					return (
+						<View
+							style={{
+								flex: 1,
+								alignItems: "center",
+								justifyContent: "center",
+								backgroundColor: focused ? "#007788" : "#555", // Turquoise or gray background
+								paddingVertical: 10,
+								width: "100%",
+							}}
+						>
+							<Ionicons
+								name={iconName}
+								size={size}
+								color={focused ? "white" : "white"}
+							/>
+						</View>
+					);
 				},
-				tabBarActiveTintColor: "tomato",
+				tabBarActiveTintColor: "#007bff", // Example active color
 				tabBarInactiveTintColor: "gray",
 				tabBarShowLabel: false,
-				tabBarStyle: [{ display: "flex" }, null],
+				tabBarStyle: {
+					backgroundColor: "#fff", // White background for the overall tab bar
+					borderTopWidth: 0,
+					elevation: Platform.OS === "android" ? 4 : 0,
+					height: 60,
+					paddingBottom: Platform.OS === "ios" ? 10 : 0,
+					justifyContent: "space-between",
+					paddingHorizontal: 0, // Remove any horizontal padding on the tab bar itself
+					marginHorizontal: -10, // Negative margin to overlap the icons slightly
+				},
 			})}
 		>
 			{/* Use the separate functions for each Tab.Screen */}
-			<Tab.Screen name="CustomerDashboard" component={CustomerDashboardStack} />
-			<Tab.Screen name="CustomerProfile" component={CustomerProfileStack} />
+			<Tab.Screen
+				name="CustomerDashboard"
+				options={{ headerShown: false }}
+				component={CustomerDashboardStack}
+			/>
 			<Tab.Screen
 				options={{ headerShown: false }}
 				name="RestaurantDetails"
 				component={RestaurantDetailStack}
 			/>
-			<Tab.Screen name="AccountScreen" component={AccountScreenStack} />
+			{/* //<Tab.Screen name="ActiveOrders" component={ActiveOrdersStack} /> */}
+			<Tab.Screen
+				options={{ headerShown: false }}
+				name="AccountScreen"
+				component={AccountScreenStack}
+			/>
 		</Tab.Navigator>
 	);
 };

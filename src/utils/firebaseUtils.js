@@ -15,6 +15,7 @@ import {
 	where,
 	getDocs,
 	updateDoc,
+	onSnapshot,
 } from "firebase/firestore";
 import { doc } from "firebase/firestore";
 
@@ -79,21 +80,29 @@ export const generateTables = async (restaurantId) => {
 };
 
 // Fetches the tables for the restaurant
-export const fetchTables = async (restaurantId) => {
+export const fetchTables = async (restaurantId, onTablesFetched) => {
 	try {
 		const tablesRef = collection(db, "restaurants", restaurantId, "tables");
 		const queryTable = query(
 			tablesRef,
 			where("restaurantId", "==", restaurantId)
 		);
-		const querySnapshot = await getDocs(queryTable);
+		const unsubscribe = onSnapshot(queryTable, (querySnapshot) => {
+			const fetchedTables = querySnapshot.docs.map((doc) => ({
+				id: doc.id,
+				...doc.data(),
+			}));
 
-		const fetchedTables = querySnapshot.docs.map((doc) => ({
-			id: doc.id,
-			...doc.data(),
-		}));
+			// Sort tables by number (assuming table names contain numbers)
+			const sortedTables = fetchedTables.sort((a, b) => {
+				const numA = parseInt(a.name.match(/\d+/)[0], 10); // Extract numeric value from name
+				const numB = parseInt(b.name.match(/\d+/)[0], 10); // Extract numeric value from name
+				return numA - numB; // Compare numeric values
+			});
+			onTablesFetched(sortedTables);
+		});
 
-		return fetchedTables;
+		return unsubscribe;
 	} catch (error) {
 		console.log("Error fetching tables", error);
 	}
@@ -150,7 +159,7 @@ export const updateTableStatus = async (tableId) => {
 	try {
 		const tableRef = doc(db, "tables", tableId);
 		await updateDoc(tableRef, {
-			status: "occupied",
+			status: "OCCUPIED",
 		});
 	} catch (error) {
 		console.log("Error updating table", error);

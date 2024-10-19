@@ -6,25 +6,52 @@ import {
 	TouchableOpacity,
 	Image,
 	StyleSheet,
+	ActivityIndicator,
 } from "react-native";
 
 import { useNavigation } from "@react-navigation/native";
 import { fetchRestaurants } from "../../utils/customerUtils";
 import RestaurantCard from "./RestaurantCard";
 
-const RestaurantList = () => {
+const RestaurantList = ({ searchText }) => {
 	const [restaurants, setRestaurants] = useState([]);
 	const [loading, setLoading] = useState(false);
+	const [filteredRestaurants, setFilteredRestaurants] = useState([]);
 
 	const navigation = useNavigation();
 
 	useEffect(() => {
-		setLoading(true);
-		fetchRestaurants()
-			.then((data) => setRestaurants(data))
-			.catch((error) => console.log("Error fatching restaurants", error))
-			.finally(() => setLoading(false));
+		const fetchRestaurantsData = async () => {
+			try {
+				const data = await fetchRestaurants();
+				setRestaurants(data);
+				setFilteredRestaurants(data);
+			} catch (error) {
+				console.log("Error fetching restaurants", error);
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		fetchRestaurantsData();
 	}, []);
+
+	useEffect(() => {
+		const filtered = restaurants.filter((restaurant) => {
+			const lowerCaseSearch = searchText.toLowerCase();
+			return (
+				(restaurant.restaurantName &&
+					restaurant.restaurantName.toLowerCase().includes(lowerCaseSearch)) ||
+				(restaurant.cuisineType &&
+					restaurant.cuisineType.toLowerCase().includes(lowerCaseSearch)) ||
+				(restaurant.city &&
+					restaurant.city.toLowerCase().includes(lowerCaseSearch)) ||
+				(restaurant.zipcode &&
+					restaurant.zipcode.toLowerCase().includes(lowerCaseSearch))
+			);
+		});
+		setFilteredRestaurants(filtered);
+	}, [searchText, restaurants]);
 
 	const renderItem = ({ item }) => (
 		<RestaurantCard
@@ -39,11 +66,18 @@ const RestaurantList = () => {
 			params: { restaurant },
 		});
 	};
+	if (loading) {
+		return (
+			<View style={styles.loadingContainer}>
+				<ActivityIndicator size="large" />
+			</View>
+		);
+	}
 
 	return (
 		<View style={styles.container}>
 			<FlatList
-				data={restaurants}
+				data={filteredRestaurants}
 				renderItem={renderItem}
 				keyExtractor={(item) => item.id}
 				contentContainerStyle={styles.listContentContainer}

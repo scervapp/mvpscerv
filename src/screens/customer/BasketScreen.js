@@ -107,8 +107,6 @@ const BasketScreen = ({ route, navigation }) => {
 		overallUnconfirmedTotal,
 	} = calculateTotals();
 
-	
-
 	const handleSendToChefsQ = async () => {
 		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
 			try {

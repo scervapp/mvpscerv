@@ -2,16 +2,13 @@ import React, { useState, useEffect } from "react";
 import {
 	collection,
 	getDocs,
-	GeoPoint,
 	query,
 	where,
-	serverTimestamp,
-	addDoc,
 	onSnapshot,
-	deleteDoc,
 	doc,
-	updateDoc,
 	setDoc,
+	getDoc,
+	updateDoc,
 } from "firebase/firestore";
 import app, { db, functions } from "../config/firebase";
 import { Alert } from "react-native";
@@ -77,49 +74,45 @@ const useCheckInStatus = (restaurantId, customerId) => {
 	const [checkInObj, setCheckInObj] = useState(null);
 
 	useEffect(() => {
-		const fetchCheckInStatus = async () => {
-			try {
-				setIsLoading(true);
+		setIsLoading(true);
 
-				// Query Firestore for check-ins that match the restaurant and user
-				const q = query(
-					collection(db, "checkIns"),
-					where("restaurantId", "==", restaurantId),
-					where("customerId", "==", customerId)
-				);
+		// Firestore query for check-ins matching restaurant and customer
+		const q = query(
+			collection(db, "checkIns"),
+			where("restaurantId", "==", restaurantId),
+			where("customerId", "==", customerId)
+		);
 
-				const unsubscribe = onSnapshot(q, (snapshot) => {
-					if (!snapshot.empty) {
-						// If a matching check-in is found (regardless of its status)
-						const checkInData = snapshot.docs[0].data();
-						setCheckInStatus(checkInData.status);
+		// Set up real-time listener
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot) => {
+				if (!snapshot.empty) {
+					const checkInData = snapshot.docs[0].data();
+					setCheckInStatus(checkInData.status);
 
-						// Only set tableNumber if the status is "accepted"
-						if (checkInData.status === "ACCEPTED") {
-							setTableNumber(checkInData.tableNumber);
-						} else {
-							setTableNumber(null); // Reset tableNumber if not accepted
-						}
-						if (checkInData) {
-							setCheckInObj(checkInData);
-						}
-					} else {
-						setCheckInStatus("notCheckedIn");
-						setTableNumber(null); // Reset tableNumber if no check-in found
-					}
-				});
-
-				return () => unsubscribe();
-			} catch (error) {
-				console.error("Error fetching checkin status:", error);
-				// Handle the error here (e.g., set an error state or display a message)
-			} finally {
+					// Set table number if check-in is accepted, otherwise reset
+					setTableNumber(
+						checkInData.status === "ACCEPTED" ? checkInData.tableNumber : null
+					);
+					setCheckInObj(checkInData);
+				} else {
+					// If no check-in found
+					setCheckInStatus("notCheckedIn");
+					setTableNumber(null);
+				}
+				setIsLoading(false);
+			},
+			(error) => {
+				console.error("Error fetching check-in status:", error);
 				setIsLoading(false);
 			}
-		};
+		);
 
-		fetchCheckInStatus();
+		// Cleanup listener on unmount
+		return () => unsubscribe();
 	}, [restaurantId, customerId]);
+
 	return { checkInStatus, isLoading, tableNumber, checkInObj };
 };
 
@@ -129,10 +122,20 @@ const checkIn = async (restaurantId, customerId, partySize, customerName) => {
 		await setDoc(checkInRef, {
 			restaurantId,
 			customerId,
+
 			numberOfPeople: parseInt(partySize, 10),
 			customerName,
 			status: "pending", // Or any other initial status you prefer
 			timestamp: new Date(),
+		});
+
+		const userRef = doc(db, "customers", customerId);
+
+		await updateDoc(userRef, {
+			activeCheckIn: {
+				restaurantId,
+				status: "REQUESTED",
+			},
 		});
 
 		return { success: true, checkInId: checkInRef.id };

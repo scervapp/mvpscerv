@@ -27,16 +27,14 @@ const TableManagementScreen = () => {
 
 	// Fech tables in db
 	useEffect(() => {
-		const fetchData = async () => {
-			const allTables = await fetchTables(currentUserData.uid);
-			const sortedTables = allTables.sort((a, b) => {
-				const numA = parseInt(a.name.match(/\d+/)[0], 10); // Extract numeric value from name
-				const numB = parseInt(b.name.match(/\d+/)[0], 10); // Extract numeric value from name
-				return numA - numB; // Compare numeric values
-			});
+		const unsubscribe = fetchTables(currentUserData.uid, (sortedTables) => {
 			setTables(sortedTables);
+		});
+		return () => {
+			if (unsubscribe) {
+				unsubscribe();
+			}
 		};
-		fetchData();
 	}, []);
 
 	const handleTableGeneration = () => {
@@ -95,23 +93,24 @@ const TableManagementScreen = () => {
 						try {
 							// Clear table and update status, in the database
 							await clearTable(selectedTable.id, currentUserData.uid);
-							const allTables = await fetchTables(currentUserData.uid);
-							setTables(allTables);
+							setIsLoading(false);
 						} catch (error) {
 							console.log("Error clearing table", error);
+							setIsLoading(false);
 						}
 					}
 				}
 			);
 		} catch (error) {
 			console.error("Error Clearing Table", error);
+			setIsLoading(false);
 		}
 	};
 
 	return (
 		<View style={styles.container}>
 			<Text style={styles.title}>Table Management</Text>
-			{tables.length === 0 && (
+			{tables && tables.length === 0 && (
 				<View style={styles.emptyContainer}>
 					<Text style={styles.emptyText}>No tables found</Text>
 					<Button onPress={handleTableGeneration} title="Generate Tables" />

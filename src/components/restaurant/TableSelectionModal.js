@@ -32,19 +32,18 @@ const TableSelectionModal = ({
 	const [table, setTable] = useState(null);
 
 	const [server, setServer] = useState(null);
+	// Fetch and subscribe to tables in real-time
 	useEffect(() => {
-		// Function to fetch tables from firestore
-		const fetchMyTables = async () => {
-			const allTables = await fetchTables(currentRestaurantId);
-			const availableTables = allTables.filter(
-				(table) => table.status === "available"
-			);
-			setTables(availableTables);
-		};
-
-		// Only fetch tables if the modal is visible
 		if (isVisible) {
-			fetchMyTables();
+			const unsubscribe = fetchTables(currentRestaurantId, (allTables) => {
+				const availableTables = allTables.filter(
+					(table) => table.status === "available"
+				);
+				setTables(availableTables); // Update available tables in state
+			});
+
+			// Unsubscribe from the snapshot listener when the modal closes
+			return () => unsubscribe;
 		}
 	}, [isVisible, currentRestaurantId]);
 

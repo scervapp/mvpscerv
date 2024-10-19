@@ -57,18 +57,18 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 		if (!restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid data provided"
+				"Invalid restaurant ID provided"
 			);
 		}
 
-		// 2. Query for the check-in document to cancel (using admin SDK)
+		// 2. Query for the check-in document to cancel
 		const checkInsRef = db.collection("checkIns");
 		const q = checkInsRef
 			.where("restaurantId", "==", restaurantId)
 			.where("customerId", "==", userId)
 			.where("status", "in", ["PENDING", "REQUESTED"]);
 
-		const querySnapshot = await q.get(); // Use q.get() to execute the query
+		const querySnapshot = await q.get();
 
 		if (!querySnapshot.empty) {
 			const checkInDoc = querySnapshot.docs[0];
@@ -76,7 +76,17 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 			// 3. Delete the check-in document
 			await checkInDoc.ref.delete();
 
-			// 4. Delete the associated notification document (using admin SDK)
+			// 4. Update the user's active check-in status
+			const userRef = db.collection("customers").doc(userId);
+			const userSnap = await userRef.get();
+
+			if (userSnap.exists) {
+				await userRef.update({
+					activeCheckIn: admin.firestore.FieldValue.delete(), // Remove active check-in
+				});
+			}
+
+			// 5. Delete the associated notification document (if exists)
 			const notificationsRef = db.collection("notifications");
 			const notificationQuery = notificationsRef.where(
 				"checkInId",
@@ -90,8 +100,7 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 				await notificationDoc.ref.delete();
 			}
 
-			// 5. Optionally, perform any additional actions (e.g., update table availability, send notifications)
-			// ...
+			// Optionally: Add any other actions (update table, send notifications, etc.)
 
 			return { success: true };
 		} else {

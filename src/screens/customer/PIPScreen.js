@@ -1,6 +1,13 @@
 import React, { useContext, useEffect, useState } from "react";
-import { Button, StyleSheet, TouchableOpacity } from "react-native";
-import { View, Text } from "react-native";
+
+import {
+	View,
+	Text,
+	FlatList,
+	TextInput,
+	StyleSheet,
+	TouchableOpacity,
+} from "react-native";
 import { AuthContext } from "../../context/authContext";
 import {
 	addDoc,
@@ -9,8 +16,8 @@ import {
 	orderBy,
 	query,
 } from "firebase/firestore";
-import { TextInput } from "react-native";
 import { db } from "../../config/firebase";
+import { Ionicons } from "@expo/vector-icons";
 
 // Creating a pips screen that allows customers to create pips using firestore
 // and the pips go into the customers collection / uid/ pips
@@ -55,27 +62,40 @@ const PIPSListScreen = () => {
 	}, []);
 
 	// Fucntion to render an individual PIP
-	const renderPip = (pip) => {
-		return (
-			<View key={pip.id}>
-				<Text>{pip.name}</Text>
-			</View>
-		);
-	};
+	const renderPip = (
+		{ item } // Improved rendering with FlatList
+	) => (
+		<TouchableOpacity style={styles.pipItem}>
+			<Ionicons name="person-circle-outline" size={24} color="gray" />
+			<Text style={styles.pipName}>{item.name}</Text>
+		</TouchableOpacity>
+	);
 
 	return (
 		<View style={styles.container}>
-			<Text style={styles.text}>Manage your PIPS</Text>
-			<TextInput
-				style={styles.input}
-				placeholder="Enter Name"
-				value={newPipName}
-				onChangeText={setNewPipName}
+			<Text style={styles.header}>Manage your PIPS</Text>
+
+			<View style={styles.inputContainer}>
+				<TextInput
+					style={styles.input}
+					placeholder="Enter Name"
+					value={newPipName}
+					onChangeText={setNewPipName}
+				/>
+				<TouchableOpacity style={styles.addButton} onPress={createNewPip}>
+					<Text style={styles.addButtonText}>Add PIP</Text>
+				</TouchableOpacity>
+			</View>
+
+			<FlatList
+				data={pips}
+				renderItem={renderPip}
+				keyExtractor={(item) => item.id}
+				ListEmptyComponent={
+					<Text style={styles.emptyText}>No PIPS yet. Add some!</Text>
+				}
+				contentContainerStyle={styles.pipsList}
 			/>
-			<TouchableOpacity style={styles.button} onPress={createNewPip}>
-				<Text>Add PIP</Text>
-			</TouchableOpacity>
-			<View style={styles.pipsList}>{pips.map(renderPip)}</View>
 		</View>
 	);
 };
@@ -84,24 +104,61 @@ const PIPSListScreen = () => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
+		padding: 20,
+		backgroundColor: "#f8f8f8", // Example background color
 	},
-	text: {
-		fontSize: 20,
+	header: {
+		fontSize: 24,
 		fontWeight: "bold",
+		marginBottom: 20,
+		color: "#333", // Example text color
+	},
+	inputContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 20,
 	},
 	input: {
-		width: "80%",
+		flex: 1,
 		height: 40,
-		borderColor: "gray",
+		borderColor: "#ddd",
 		borderWidth: 1,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		marginRight: 10,
+		backgroundColor: "#fff",
+	},
+	addButton: {
+		backgroundColor: "#007bff", // Example button color
+		borderRadius: 8,
+		padding: 10,
+	},
+	addButtonText: {
+		color: "#fff",
+		fontWeight: "bold",
 	},
 	pipsList: {
-		marginTop: 20,
+		flexGrow: 1, // Allow the list to take up available space
+		paddingTop: 10,
 	},
-	button: {
-		marginTop: 20,
+	pipItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		padding: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: "#eee",
+		backgroundColor: "#fff",
+		borderRadius: 8,
+		marginBottom: 10,
+	},
+	pipName: {
+		marginLeft: 10,
+		fontSize: 18,
+	},
+	emptyText: {
+		textAlign: "center",
+		color: "#999",
+		fontSize: 16,
 	},
 });
 

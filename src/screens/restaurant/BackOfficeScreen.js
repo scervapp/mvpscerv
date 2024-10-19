@@ -7,17 +7,20 @@ import {
 	TouchableOpacity,
 	Linking,
 	Alert,
+	Image,
+	Button,
 } from "react-native";
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 
 import { collection, doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
+import colors from "../../utils/styles/appStyles";
 
 const BackOfficeScreen = ({ navigation }) => {
-	const { currentUserData } = useContext(AuthContext);
+	const { currentUserData, logout } = useContext(AuthContext);
 	const [restaurantData, setRestaurantData] = useState(null);
-	const [isLoading, setIsLoading] = useState(true);
+	const [isLoading, setIsLoading] = useState(false);
 
 	// Define an array of screen names and their display labels
 	const screens = [
@@ -74,23 +77,6 @@ const BackOfficeScreen = ({ navigation }) => {
 		}
 	};
 
-	const showOnboardingInstructions = (requirements) => {
-		// You can customize this function to display the onboarding requirements to the user
-		Alert.alert(
-			"Onboarding Required",
-			"Please complete the onboarding process to access your account.",
-			[
-				{
-					text: "OK",
-					onPress: () =>
-						Linking.openURL(
-							"https://stripe.com/docs/connect/connect-onboarding"
-						),
-				},
-			]
-		);
-	};
-
 	const handleConnectAccount = async () => {
 		// Redirect to Stripe onboarding URL
 		const createLoginLink = httpsCallable(functions, "createLoginLink");
@@ -101,7 +87,7 @@ const BackOfficeScreen = ({ navigation }) => {
 	};
 
 	// Conditionally add the Connect Account Screen if no stripe account is found
-	if (!isLoading || !currentUserData?.stripeAccountId) {
+	if (!currentUserData?.stripeAccountId) {
 		screens.push({
 			name: "CreateStripeAccount",
 			label: "Setup Account",
@@ -123,26 +109,35 @@ const BackOfficeScreen = ({ navigation }) => {
 		<View style={styles.container}>
 			<Text style={styles.heading}>Back Office</Text>
 
-			<FlatList
-				data={screens}
-				keyExtractor={(item) => item.name}
-				renderItem={({ item }) => (
-					<TouchableOpacity
-						onPress={() => {
-							if (item.name === "CreateStripeAccount") {
-								handleCreateConnectedAccount();
-							} else if (item.name === "ConnectAccount") {
-								handleCheckOnboardingStatus();
-							} else {
-								handleScreenPress(item.name);
-							}
-						}}
-						style={styles.screenItem}
-					>
-						<Text>{item.label}</Text>
-					</TouchableOpacity>
-				)}
-			/>
+			{isLoading ? (
+				<Text style={styles.loadingText}>Loading...</Text>
+			) : (
+				<FlatList
+					data={screens}
+					keyExtractor={(item) => item.name}
+					numColumns={2} // Display items in two columns
+					renderItem={({ item }) => (
+						<TouchableOpacity
+							onPress={() => {
+								if (item.name === "ConnectAccount") {
+									handleCheckOnboardingStatus();
+								} else if (item.name === "CreateStripeAccount") {
+									handleCreateConnectedAccount();
+								} else {
+									handleScreenPress(item.name);
+								}
+							}}
+							style={styles.card}
+						>
+							<Image source={item.icon} style={styles.icon} />
+							<Text style={styles.cardLabel}>{item.label}</Text>
+						</TouchableOpacity>
+					)}
+				/>
+			)}
+			<View style={styles.logoutButtonContainer}>
+				<Button title="Logout" onPress={logout} color="red" />
+			</View>
 		</View>
 	);
 };
@@ -151,16 +146,46 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		padding: 16,
+		backgroundColor: colors.background,
 	},
 	heading: {
-		fontSize: 20,
+		fontSize: 24,
 		fontWeight: "bold",
+		marginBottom: 20,
+		color: colors.primary,
+	},
+	loadingText: {
+		textAlign: "center",
+		marginTop: 20,
+	},
+	card: {
+		flex: 1,
+		margin: 10,
+		backgroundColor: colors.lightGray,
+		borderRadius: 10,
+		padding: 20,
+		alignItems: "center",
+		justifyContent: "center",
+		elevation: 3, // For Android shadow
+		shadowColor: "#000", // For iOS shadow
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.2,
+		shadowRadius: 1,
+	},
+	icon: {
+		width: 50,
+		height: 50,
 		marginBottom: 10,
 	},
-	screenItem: {
-		padding: 10,
-		borderBottomWidth: 1,
-		borderBottomColor: "#ccc",
+	cardLabel: {
+		fontSize: 16,
+		fontWeight: "bold",
+		textAlign: "center",
+	},
+	logoutButtonContainer: {
+		alignSelf: "center", // Align the button horizontally in the center
+		marginBottom: 20, // Add space at the bottom
+		width: "100%", // Makes the button take up the full width
 	},
 });
 
