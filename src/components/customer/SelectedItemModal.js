@@ -107,14 +107,14 @@ const SelectedItemModal = ({
 
 					{/* Buttons */}
 					<View style={styles.buttonContainer}>
+						<TouchableOpacity onPress={onClose} style={styles.cancelButton}>
+							<Text style={styles.cancelButtonText}>Cancel</Text>
+						</TouchableOpacity>
 						<TouchableOpacity
 							onPress={confirmAddToBasket}
 							style={styles.confirmButton}
 						>
 							<Text style={styles.confirmButtonText}>Add to Basket</Text>
-						</TouchableOpacity>
-						<TouchableOpacity onPress={onClose} style={styles.cancelButton}>
-							<Text style={styles.cancelButtonText}>Cancel</Text>
 						</TouchableOpacity>
 					</View>
 				</View>
@@ -223,6 +223,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		alignItems: "center",
 		flex: 1,
+		marginRight: 10,
 	},
 	cancelButtonText: {
 		color: "#333",

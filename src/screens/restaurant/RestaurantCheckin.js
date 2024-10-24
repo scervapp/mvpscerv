@@ -76,11 +76,11 @@ const RestaurantCheckin = () => {
 	const renderStatusIcon = (status) => {
 		switch (status) {
 			case "REQUESTED":
-				return <Text>Pending</Text>;
+				return "Pending";
 			case "COMPLETED":
-				return <Text>Completed</Text>;
+				return "Completed";
 			default:
-				return <Text>Unknown</Text>;
+				return "Unknown";
 		}
 	};
 
@@ -158,61 +158,59 @@ const RestaurantCheckin = () => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		padding: 15,
-		backgroundColor: colors.background,
+		backgroundColor: colors.background, // Use your background color
+		paddingHorizontal: 20, // Adjust padding as needed
+		paddingTop: 30, // Add top padding for better spacing
 	},
 	titleContainer: {
-		alignSelf: "center",
+		alignItems: "center", // Center the title horizontally
+	},
+	title: {
+		fontSize: 24, // Increased font size
+		fontWeight: "bold",
+		color: colors.primary, // Use your primary color
 	},
 	listContainer: {
 		backgroundColor: "#fff",
 		padding: 15,
-		borderRadius: 8,
-		marginTop: 15,
-		marginBottom: 20,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.2,
-		shadowRadius: 4,
-		elevation: 3,
+		borderRadius: 10, // Slightly larger border radius
+		marginTop: 20, // Increased margin
 		flex: 1,
-	},
-	title: {
-		paddingTop: 20,
-		fontSize: 20, // Increased font size
-		fontWeight: "bold",
-		marginBottom: 10,
-		textAlign: "center", // Center the title
 	},
 	checkInItem: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		padding: 10,
-		borderWidth: 1,
-		borderColor: "#ddd",
-		borderRadius: 8,
+		padding: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray,
+
 		marginBottom: 10,
+		backgroundColor: "white", // Add a white background
+		borderRadius: 8, // Add rounded corners
+		shadowColor: "#000", // Add a subtle shadow (iOS)
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.1,
+		shadowRadius: 2,
+		elevation: 2, // Add a subtle shadow (Android)
 	},
 	checkInDetailsLeft: {
 		flex: 1,
 		marginRight: 10,
 	},
-	checkInDetailsRight: {
-		alignItems: "center",
-	},
 	checkInTime: {
 		fontSize: 14,
 		color: colors.textLight,
+		marginBottom: 5, // Add space between time and name
 	},
 	customerName: {
-		fontSize: 16,
+		fontSize: 18, // Slightly larger font size
 		fontWeight: "bold",
 	},
 	checkInStatus: {
-		fontSize: 14,
-		fontWeight: "500",
-		color: colors.secondary, // Or a suitable color to highlight the status
+		fontSize: 16, // Slightly larger font size
+		fontWeight: "bold",
+		color: colors.secondary,
 	},
 	noCheckinsContainer: {
 		flex: 1,
@@ -221,10 +219,9 @@ const styles = StyleSheet.create({
 	},
 	noCheckinsText: {
 		fontSize: 16,
-		color: "#999",
-		fontWeight: "500",
+		color: colors.textLight, // Use a color from your colors object
+		textAlign: "center", // Center the text
 	},
-
 	// Modal styles (you'll likely need to adjust these based on your modal implementation)
 	modalContainer: {
 		flex: 1,

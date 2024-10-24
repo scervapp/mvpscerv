@@ -1,6 +1,13 @@
 import React, { useContext, useEffect } from "react";
 import { useState } from "react";
-import { Button, FlatList, StyleSheet, Text, Dimensions } from "react-native";
+import {
+	Button,
+	FlatList,
+	StyleSheet,
+	Text,
+	Dimensions,
+	TouchableOpacity,
+} from "react-native";
 import { View } from "react-native";
 import TableItem from "../../components/restaurant/TableItem";
 import { AuthContext } from "../../context/authContext";
@@ -12,6 +19,7 @@ import {
 import { collection, query, getDocs, where } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { useActionSheet } from "@expo/react-native-action-sheet";
+import colors from "../../utils/styles/appStyles";
 
 const TableManagementScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
@@ -31,7 +39,7 @@ const TableManagementScreen = () => {
 			setTables(sortedTables);
 		});
 		return () => {
-			if (unsubscribe) {
+			if (typeof unsubscribe === "function") {
 				unsubscribe();
 			}
 		};
@@ -110,12 +118,18 @@ const TableManagementScreen = () => {
 	return (
 		<View style={styles.container}>
 			<Text style={styles.title}>Table Management</Text>
+
+			{/* Generate Tables Button (only show if no tables exist) */}
 			{tables && tables.length === 0 && (
-				<View style={styles.emptyContainer}>
-					<Text style={styles.emptyText}>No tables found</Text>
-					<Button onPress={handleTableGeneration} title="Generate Tables" />
-				</View>
+				<TouchableOpacity
+					style={styles.generateButton}
+					onPress={handleTableGeneration}
+				>
+					<Text style={styles.generateButtonText}>Generate Tables</Text>
+				</TouchableOpacity>
 			)}
+
+			{/* Table List */}
 			<FlatList
 				showsVerticalScrollIndicator={false}
 				data={tables}
@@ -140,28 +154,32 @@ const TableManagementScreen = () => {
 
 const styles = StyleSheet.create({
 	container: {
-		backgroundColor: "#f9f9f9",
-		padding: 10,
-		alignItems: "center",
 		flex: 1,
+		backgroundColor: colors.background, // Use your background color
+		padding: 20,
 	},
 	title: {
-		fontSize: 24,
-		fontWeight: "700",
+		fontSize: 28, // Increased font size
+		fontWeight: "bold",
 		marginBottom: 20,
-		color: "#333",
+		color: colors.primary, // Use your primary color
+		textAlign: "center", // Center the title
 	},
-	emptyContainer: {
-		alignItems: "center",
+	generateButton: {
+		// Styles for the "Generate Tables" button
+		backgroundColor: colors.primary,
+		padding: 15,
+		borderRadius: 8,
 		marginTop: 20,
 	},
-	emptyText: {
-		fontSize: 18,
-		color: "#888",
-		marginBottom: 10,
+	generateButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 	tableList: {
 		justifyContent: "space-between",
+		marginTop: 20, // Add margin to separate from the button
 	},
 });
 

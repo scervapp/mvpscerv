@@ -35,6 +35,7 @@ import { useBasket } from "../../context/customer/BasketContext";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import colors from "../../utils/styles/appStyles";
+import { Ionicons } from "@expo/vector-icons";
 
 const RestaurantDetail = ({ route, navigation }) => {
 	// 1: Extract the restaurant data from the route parameters and retrieve context values
@@ -171,7 +172,7 @@ const RestaurantDetail = ({ route, navigation }) => {
 			return <ActivityIndicator size="small" color="white" />;
 		}
 
-		switch (checkInStatus) {
+		switch (checkInObj && checkInStatus) {
 			case "REQUESTED":
 				return (
 					<View style={styles.checkInRequestContainer}>
@@ -195,11 +196,13 @@ const RestaurantDetail = ({ route, navigation }) => {
 				);
 			case "ACCEPTED":
 				return (
-					<View style={[styles.checkInButton, styles.checkInButtonCheckedIn]}>
-						<Text style={styles.checkInButtonText}>
+					<View style={styles.checkInButtonCheckedIn}>
+						<Ionicons name="checkmark-circle" size={50} color="#28a745" />
+						{/* Success icon */}
+						<Text style={styles.checkInButtonTextCheckedIn}>
 							Checked In at {checkInObj.table?.name}
 						</Text>
-						<Text style={styles.checkInButtonText}>
+						<Text style={styles.checkInButtonTextCheckedIn}>
 							Your Server is {checkInObj.server?.firstName}
 						</Text>
 					</View>
@@ -358,21 +361,26 @@ const styles = StyleSheet.create({
 		marginTop: 20,
 		marginBottom: 20,
 	},
-	checkInButtonCheckedIn: {
-		backgroundColor: "#28a745",
-		padding: 15,
-		borderRadius: 10,
-		alignItems: "center",
-		marginTop: 20,
-		marginBottom: 20,
-		flexDirection: "row", // To align icon and text
-		alignItems: "center", // To align icon and text
-	},
 	checkInButtonText: {
+		// Style for "Check In" button text
 		color: "white",
 		fontWeight: "bold",
 		fontSize: 16,
 	},
+
+	checkInButtonCheckedIn: {
+		padding: 20,
+		borderRadius: 10,
+		alignItems: "center",
+	},
+	checkInButtonTextCheckedIn: {
+		// Style for checked-in text
+		color: "#28a745",
+		fontWeight: "bold",
+		fontSize: 18,
+		marginTop: 10,
+	},
+
 	cancelCheckInButtonText: {
 		color: "white",
 		fontWeight: "bold",

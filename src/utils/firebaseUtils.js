@@ -101,7 +101,6 @@ export const fetchTables = async (restaurantId, onTablesFetched) => {
 			});
 			onTablesFetched(sortedTables);
 		});
-
 		return unsubscribe;
 	} catch (error) {
 		console.log("Error fetching tables", error);

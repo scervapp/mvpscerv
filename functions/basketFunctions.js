@@ -251,6 +251,7 @@ async function sendToChefsQ(data, context) {
 				server: server,
 				table: table,
 				sentToChefQAt: admin.firestore.FieldValue.serverTimestamp(),
+				itemStatus: "pending",
 			});
 		});
 		await batch.commit();

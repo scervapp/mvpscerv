@@ -38,7 +38,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				};
 			}
 
-			// Safely check totalPrice and avoid Nan
+			// Safely check totalPrice and avoid NaN
 			const orderTotalPrice = orderData.totalPrice || 0;
 
 			// Add the totalPrice to the day's totalSales
@@ -46,16 +46,23 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 
 			// Count the items sold for that day
 			orderData.items.forEach((item) => {
-				const itemName = item.name;
+				const itemName = item.dish.name; // Access the name from the dish map
+				const itemQuantity = item.quantity || 1; // Default to 1 if quantity is not specified
+				const itemPrice = parseFloat(item.dish.price) || 0; // Ensure itemPrice is a number
 
-				const itemPrice = item.price || 0;
+				// Log item data for debugging
+				console.log("Item before processing:", item);
+
 				if (reportsByDay[orderDate].itemCounts[itemName]) {
-					reportsByDay[orderDate].itemCounts[itemName].count += 1;
-					reportsByDay[orderDate].itemCounts[itemName].revenue += itemPrice;
+					// If the item already exists, increment the count and revenue
+					reportsByDay[orderDate].itemCounts[itemName].count += itemQuantity;
+					reportsByDay[orderDate].itemCounts[itemName].revenue +=
+						itemPrice * itemQuantity; // Correct multiplication
 				} else {
+					// Otherwise, initialize it
 					reportsByDay[orderDate].itemCounts[itemName] = {
-						count: 1,
-						revenue: itemPrice,
+						count: itemQuantity,
+						revenue: itemPrice * itemQuantity, // Correctly set initial revenue
 					};
 				}
 			});
@@ -67,12 +74,12 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				date,
 				totalSales: report.totalSales,
 				topSellingItems: Object.entries(report.itemCounts)
-					.sort((a, b) => b[1].count - a[1].count)
-					.slice(0, 5)
+					.sort((a, b) => b[1].count - a[1].count) // Sort by quantity sold
+					.slice(0, 5) // Get the top 5 selling items
 					.map(([name, info]) => ({
 						name,
 						count: info.count,
-						totalRevenue: info.revenue,
+						totalRevenue: info.revenue.toFixed(2), // Format totalRevenue correctly
 					})),
 			}))
 			.sort((a, b) => new Date(b.date) - new Date(a.date));

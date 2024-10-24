@@ -2,35 +2,26 @@ import React, { useEffect, useState, useContext } from "react";
 import {
 	View,
 	Text,
-	FlatList,
 	StyleSheet,
-	ActivityIndicator,
-	Dimensions,
 	ScrollView,
+	Dimensions,
+	ActivityIndicator,
 } from "react-native";
-
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
-import { db, functions } from "../../config/firebase";
-import { AuthContext } from "../../context/authContext";
+import { httpsCallable } from "firebase/functions";
 import {
 	VictoryChart,
 	VictoryBar,
 	VictoryTheme,
 	VictoryAxis,
 } from "victory-native";
-import { Button } from "react-native-elements";
+import { db, functions } from "../../config/firebase";
+import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
-import { httpsCallable } from "firebase/functions";
 
 const SalesReportScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
-	const [reportData, setReportData] = useState(null);
-	const [isLoading, setIsLoading] = useState(true);
 	const [salesData, setSalesData] = useState(null);
-	const [selectedReportType, setSelectedReportType] = useState("daily");
-
-	// Get window width for responsive chart
-	const windowWidth = Dimensions.get("window").width;
+	const [isLoading, setIsLoading] = useState(true);
 
 	const fetchDailySalesReport = async () => {
 		setIsLoading(true);
@@ -40,49 +31,142 @@ const SalesReportScreen = () => {
 				restaurantId: currentUserData.uid,
 			});
 
-			const salesData = response.data;
-			// Loop through the array to format totalSales for each report
-			const formattedSalesData = salesData.map((report) => {
+			// Log the raw sales data
+			console.log("Raw Sales Data: ", response.data);
+
+			const formattedSalesData = response.data.map((report) => {
+				// Log topSellingItems for each report
+				console.log(
+					"Top Selling Items for Date:",
+					report.date,
+					report.topSellingItems
+				);
+
 				return {
 					...report,
 					totalSales: report.totalSales ? report.totalSales.toFixed(2) : "0.00",
-					// You can also format the items if needed
-					topSellingItems: report.topSellingItems.map((item) => ({
-						...item,
-						totalRevenue: item.totalRevenue
-							? item.totalRevenue.toFixed(2)
-							: "0.00",
-					})),
+					topSellingItems: report.topSellingItems
+						? report.topSellingItems.map((item) => {
+								// Log the entire item to see its structure
+								console.log("Item before formatting:", item);
+
+								// Ensure totalRevenue is a number before calling toFixed
+								const totalRevenue = parseFloat(item.totalRevenue);
+								console.log("Parsed totalRevenue:", totalRevenue); // Log the parsed totalRevenue
+
+								return {
+									...item,
+									name: item.name || "Unknown Item",
+									totalRevenue: !isNaN(totalRevenue)
+										? totalRevenue.toFixed(2)
+										: "0.00", // Call toFixed on a valid number
+									displayName: `${item.name} x ${item.count}`,
+								};
+						  })
+						: [], // Handle undefined topSellingItems by returning an empty array
 				};
 			});
 
+			// Log the formatted sales data
 			console.log("Formatted Sales Data: ", formattedSalesData);
-			setSalesData(formattedSalesData);
-			setIsLoading(false);
 
-			setIsLoading(false);
+			setSalesData(formattedSalesData);
 		} catch (error) {
-			console.error("Error fetching daily sales report:", error);
-			setIsLoading(false);
+			console.error("Error fetching sales report:", error);
 		} finally {
 			setIsLoading(false);
 		}
 	};
-	// Function to format sales data (fetchDailySalesReport here)
+
 	useEffect(() => {
 		fetchDailySalesReport();
 	}, []);
 
+	const windowWidth = Dimensions.get("window").width;
+
+	if (isLoading) {
+		return (
+			<ActivityIndicator
+				size="large"
+				color={colors.primary}
+				style={styles.loader}
+			/>
+		);
+	}
+
 	return (
 		<ScrollView style={styles.container}>
 			<Text style={styles.header}>Daily Sales Report</Text>
+
 			{salesData &&
 				salesData.map((dayReport, index) => (
-					<View key={index} style={styles.dateContainer}>
+					<View key={index} style={styles.reportContainer}>
 						<Text style={styles.dateText}>{dayReport.date}</Text>
-						<View style={styles.salesRow}>
-							<Text style={styles.salesLabel}>Total Sales:</Text>
+
+						{/* Total Sales */}
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>Total Sales</Text>
 							<Text style={styles.salesValue}>${dayReport.totalSales}</Text>
+						</View>
+
+						{/* Top Selling Items */}
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>Top-Selling Items</Text>
+							{dayReport &&
+								dayReport.topSellingItems.map((item, itemIndex) => (
+									<View key={itemIndex} style={styles.itemRow}>
+										<Text style={styles.itemName}>{item.displayName}</Text>
+										<Text style={styles.itemRevenue}>${item.totalRevenue}</Text>
+									</View>
+								))}
+						</View>
+
+						{/* Sales by Category */}
+						{/* <View style={styles.section}>
+							<Text style={styles.sectionTitle}>Sales by Category</Text>
+							<VictoryChart
+								theme={VictoryTheme.material}
+								domainPadding={{ x: 50 }}
+								width={windowWidth * 0.9}
+							>
+								<VictoryAxis />
+								<VictoryBar
+									data={dayReport.salesByCategory}
+									x="category"
+									y="totalRevenue"
+									style={{ data: { fill: colors.primary } }}
+								/>
+							</VictoryChart>
+						</View> */}
+
+						{/* Server Performance */}
+						{/* <View style={styles.section}>
+							<Text style={styles.sectionTitle}>Server Performance</Text>
+							{dayReport.serverPerformance.map((server, serverIndex) => (
+								<View key={serverIndex} style={styles.itemRow}>
+									<Text style={styles.serverName}>
+										{server.firstName} {server.lastName}
+									</Text>
+									<Text style={styles.serverSales}>${server.totalSales}</Text>
+								</View>
+							))}
+						</View> */}
+
+						{/* Payment Status */}
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>Payment Status</Text>
+							<View style={styles.itemRow}>
+								<Text style={styles.paymentStatusLabel}>Paid Orders:</Text>
+								<Text style={styles.paymentStatusValue}>
+									{dayReport.paidOrders}
+								</Text>
+							</View>
+							<View style={styles.itemRow}>
+								<Text style={styles.paymentStatusLabel}>Unpaid Orders:</Text>
+								<Text style={styles.paymentStatusValue}>
+									{dayReport.unpaidOrders}
+								</Text>
+							</View>
 						</View>
 					</View>
 				))}
@@ -96,17 +180,22 @@ const styles = StyleSheet.create({
 		backgroundColor: "#f9f9f9",
 		padding: 20,
 	},
+	loader: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+	},
 	header: {
 		fontSize: 24,
 		fontWeight: "bold",
-		marginBottom: 20,
 		color: "#333",
 		textAlign: "center",
+		marginBottom: 20,
 	},
-	dateContainer: {
+	reportContainer: {
 		backgroundColor: "#fff",
 		padding: 15,
-		marginBottom: 10,
+		marginBottom: 20,
 		borderRadius: 10,
 		shadowColor: "#000",
 		shadowOpacity: 0.1,
@@ -117,21 +206,54 @@ const styles = StyleSheet.create({
 		fontSize: 18,
 		fontWeight: "600",
 		color: "#555",
+		marginBottom: 10,
 	},
-	salesRow: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		marginTop: 10,
+	section: {
+		marginBottom: 20,
 	},
-	salesLabel: {
+	sectionTitle: {
 		fontSize: 16,
-		fontWeight: "500",
-		color: "#777",
+		fontWeight: "bold",
+		color: "#333",
+		marginBottom: 10,
 	},
 	salesValue: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.primary,
+	},
+	itemRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		marginBottom: 10,
+	},
+	itemName: {
+		fontSize: 16,
+		color: "#777",
+	},
+	itemRevenue: {
+		fontSize: 16,
+		fontWeight: "500",
+		color: "#333",
+	},
+	serverName: {
+		fontSize: 16,
+		color: "#555",
+	},
+	serverSales: {
+		fontSize: 16,
+		fontWeight: "500",
+		color: "#333",
+	},
+	paymentStatusLabel: {
+		fontSize: 16,
+		color: "#555",
+	},
+	paymentStatusValue: {
 		fontSize: 16,
 		fontWeight: "500",
 		color: "#333",
 	},
 });
+
 export default SalesReportScreen;

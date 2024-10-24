@@ -1,19 +1,27 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, Button, TouchableOpacity } from "react-native";
+import {
+	View,
+	Text,
+	StyleSheet,
+	Button,
+	TouchableOpacity,
+	Modal,
+} from "react-native";
 import moment from "moment";
 import { Picker } from "@react-native-picker/picker";
 import { AntDesign } from "@expo/vector-icons";
 import { useActionSheet } from "@expo/react-native-action-sheet";
 
 const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
+	const [modalVisible, setModalVisible] = useState(false);
 	const [itemStatus, setItemStatus] = useState(item.itemStatus || "pending");
 	const { showActionSheetWithOptions } = useActionSheet();
 
 	const formattedTime = moment(item.sentToChefQAt.toDate()).fromNow();
 
-	const handleStatusChange = (index) => {
-		const newStatus = ["pending", "preparing", "completed"][index];
+	const handleStatusChange = (newStatus) => {
 		setItemStatus(newStatus);
+		setModalVisible(false);
 
 		// Call the appropriate callback function based on the selected status
 		if (newStatus === "completed") {
@@ -70,11 +78,28 @@ const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
 			</View>
 
 			<View style={styles.itemStatusContainer}>
-				<TouchableOpacity onPress={handleOpenActionSheet}>
+				<TouchableOpacity onPress={() => setModalVisible(true)}>
 					{/* Button to open the picker */}
 					<AntDesign name="caretdown" size={16} color="gray" />
 				</TouchableOpacity>
 			</View>
+			<Modal visible={modalVisible} animationType="fade" transparent={true}>
+				<View style={styles.modalContainer}>
+					<View style={styles.modalContent}>
+						<Text style={styles.modalTitle}>Change Status</Text>
+						<Picker
+							selectedValue={itemStatus}
+							onValueChange={handleStatusChange}
+							style={styles.statusPicker}
+						>
+							<Picker.Item label="Pending" value="pending" />
+							<Picker.Item label="In Progress" value="preparing" />
+							<Picker.Item label="Completed" value="completed" />
+						</Picker>
+						<Button title="Cancel" onPress={() => setModalVisible(false)} />
+					</View>
+				</View>
+			</Modal>
 
 			{/* Display the time the order was sent */}
 			<Text style={styles.timeSent}>{formattedTime}</Text>
@@ -133,6 +158,26 @@ const styles = StyleSheet.create({
 	hiddenPicker: {
 		position: "absolute", // Position it absolutely
 		top: -1000, // Move it off-screen to hide it
+	},
+	modalContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.5)",
+	},
+	modalContent: {
+		backgroundColor: "white",
+		padding: 20,
+		borderRadius: 10,
+	},
+	modalTitle: {
+		fontSize: 18,
+		fontWeight: "bold",
+		marginBottom: 10,
+	},
+	statusPicker: {
+		width: 200, // Adjust width as needed
+		marginBottom: 20,
 	},
 });
 
