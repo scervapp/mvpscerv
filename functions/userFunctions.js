@@ -14,7 +14,7 @@ exports.createStripeCustomer = functions
 	})
 	.https.onCall(async (data, context) => {
 		const stripeSecretKey = STRIPE_SECRET_KEY.value();
-		const { userId, email } = data;
+		const { userId, email, connectedAccountId } = data;
 
 		try {
 			// 1. Input validation
@@ -36,6 +36,8 @@ exports.createStripeCustomer = functions
 			const customer = await stripe(stripeSecretKey).customers.create({
 				email,
 			});
+
+			console.log("Customer created successfully", customer.id);
 			// 4. Store the Stripe customer ID in firestore
 			await db.collection("customers").doc(userId).set(
 				{

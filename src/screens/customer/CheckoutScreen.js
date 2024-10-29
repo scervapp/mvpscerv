@@ -57,6 +57,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe(null);
+
 	useEffect(() => {
 		const fetchStripePublishableKey = async () => {
 			try {
@@ -135,12 +136,14 @@ const CheckoutScreen = ({ route, navigation }) => {
 					const {
 						data: { clientSecret },
 					} = await createPaymentIntentFunction({
-						amount: Math.round(overallTotal * 100),
+						amount: Math.round(restaurantTotal * 100),
 						customerId: stripeCustomerId,
 						gratuity: gratuity,
 						tax: tax,
-						fee: fee,
+						fee: Math.round(fee * 100),
+						subtotal: subtotal,
 						table: checkInObj.table.name,
+						connectedAccountId: restaurant.stripeAccountId,
 					});
 
 					const { error: initSheetError } = await initPaymentSheet({
@@ -170,7 +173,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 			initializePaymentSheet();
 		}
 	}, [stripePublishableKey, currentUserData.uid, restaurant.restaurantName]);
-
 	useEffect(() => {
 		const fetchFees = async () => {
 			setIsLoading(true);
@@ -212,10 +214,15 @@ const CheckoutScreen = ({ route, navigation }) => {
 					restaurantId: restaurant.id,
 					table: checkInObj.table,
 					items: restaurantBasketItems,
-					totalPrice: overallTotal,
+					totalPrice: restaurantTotal,
+					fee: fee,
+					server: checkInObj.server,
+					gratuity: gratuity,
+					subtotal: subtotal,
+					tax: tax,
 				});
 
-				clearBasket(restaurant.id);
+				//clearBasket(restaurant.id);
 
 				if (orderId) {
 					navigation.navigate("OrderConfirmation", { orderId });
@@ -255,20 +262,22 @@ const CheckoutScreen = ({ route, navigation }) => {
 			0
 		);
 		const tax = subtotal * restaurant.taxRate; // Example 8% tax
-		const fee = subtotal * fees;
 		const gratuityAmount = (subtotal * parseFloat(gratuityPercentage)) / 100;
+		const fee = (subtotal + gratuityAmount + tax) * fees;
 		const overallTotal = subtotal + tax + fee + gratuityAmount;
-
+		const restaurantTotal = subtotal + tax + gratuityAmount;
 		return {
 			subtotal,
 			tax,
 			fee,
 			gratuity: gratuityAmount,
 			overallTotal,
+			restaurantTotal,
 		};
 	};
 
-	const { subtotal, tax, fee, gratuity, overallTotal } = calculateTotals();
+	const { subtotal, tax, fee, gratuity, overallTotal, restaurantTotal } =
+		calculateTotals();
 
 	return (
 		<StripeProvider publishableKey={stripePublishableKey}>
@@ -351,27 +360,14 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 						{/* Overall Order Summary with Taxes & Fees and Gratuity */}
 						<View style={styles.orderSummary}>
-							<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
-							<TouchableOpacity
-								onPress={() => setIsShowFeesBreakdown(!isShowFeesBreakdown)}
-							>
-								<Text style={styles.feesText}>
-									Taxes & Fees: ${(tax + fee).toFixed(2)}
-									{isShowFeesBreakdown && (
-										<View style={styles.feeBreakdownContainer}>
-											<Text style={styles.feeBreakdown}>
-												- Tax: ${tax.toFixed(2)}
-											</Text>
-											<Text style={styles.feeBreakdown}>
-												- Scerv Fee: ${fee.toFixed(2)}
-											</Text>
-										</View>
-									)}
-								</Text>
-							</TouchableOpacity>
+							<Text style={styles.totalPrice}>
+								Total: ${overallTotal.toFixed(2)}
+							</Text>
 							<View style={styles.gratuityContainer}>
 								{/* Gratuity selection */}
-								<Text>Gratuity:</Text>
+								<Text>
+									Gratuity: {gratuityPercentage}% = ${gratuity}
+								</Text>
 								<Picker
 									selectedValue={gratuityPercentage}
 									onValueChange={(itemValue) =>
@@ -386,9 +382,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 									{/* Add more options or custom input as needed */}
 								</Picker>
 							</View>
-							<Text style={styles.totalPrice}>
-								Total: ${overallTotal.toFixed(2)}
-							</Text>
+							<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
+
+							<Text style={styles.feesText}>Taxes: ${tax.toFixed(2)}</Text>
+							<Text style={styles.feesText}>Fee: ${fee.toFixed(2)}</Text>
 						</View>
 
 						{/* Payment Information Input */}
@@ -535,11 +532,11 @@ const styles = StyleSheet.create({
 		paddingVertical: 10,
 	},
 	feesText: {
-		marginBottom: 5,
+		marginBottom: 0,
 	},
 	feeBreakdownContainer: {
 		marginLeft: 10, // Indent the breakdown slightly
-		marginTop: 5, // Add some spacing above the breakdown
+		marginTop: 0, // Add some spacing above the breakdown
 	},
 	feeBreakdown: {
 		fontSize: 12,
@@ -549,7 +546,8 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
-		marginBottom: 10,
+		marginBottom: -18,
+		marginTop: -18,
 	},
 	gratuityPicker: {
 		width: 70,

@@ -35,6 +35,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				reportsByDay[orderDate] = {
 					totalSales: 0,
 					itemCounts: {},
+					serverTips: {},
 				};
 			}
 
@@ -50,9 +51,6 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				const itemQuantity = item.quantity || 1; // Default to 1 if quantity is not specified
 				const itemPrice = parseFloat(item.dish.price) || 0; // Ensure itemPrice is a number
 
-				// Log item data for debugging
-				console.log("Item before processing:", item);
-
 				if (reportsByDay[orderDate].itemCounts[itemName]) {
 					// If the item already exists, increment the count and revenue
 					reportsByDay[orderDate].itemCounts[itemName].count += itemQuantity;
@@ -66,6 +64,17 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 					};
 				}
 			});
+
+			// Calculate and aggregate gratuity by server
+
+			// Track gratuity per server
+			if (orderData.server && orderData.gratuity) {
+				const serverName = `${orderData.server.firstName} ${orderData.server.lastName}`;
+				if (!reportsByDay[orderDate].serverTips[serverName]) {
+					reportsByDay[orderDate].serverTips[serverName] = 0;
+				}
+				reportsByDay[orderDate].serverTips[serverName] += orderData.gratuity;
+			}
 		});
 
 		// Convert reportsByDay into an array sorted by date (newest to oldest)
@@ -73,6 +82,10 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 			.map(([date, report]) => ({
 				date,
 				totalSales: report.totalSales,
+				serverTips: Object.entries(report.serverTips).map(([name, tip]) => ({
+					serverName: name,
+					gratuityTotal: tip.toFixed(2),
+				})),
 				topSellingItems: Object.entries(report.itemCounts)
 					.sort((a, b) => b[1].count - a[1].count) // Sort by quantity sold
 					.slice(0, 5) // Get the top 5 selling items
@@ -81,6 +94,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 						count: info.count,
 						totalRevenue: info.revenue.toFixed(2), // Format totalRevenue correctly
 					})),
+				serverTips: report.serverTips,
 			}))
 			.sort((a, b) => new Date(b.date) - new Date(a.date));
 

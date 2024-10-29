@@ -72,7 +72,18 @@ async function generateOrderId(restaurantId, customerId) {
 }
 
 exports.createOrder = functions.https.onCall(async (data, context) => {
-	const { userId, restaurantId, table, items, totalPrice } = data;
+	const {
+		userId,
+		restaurantId,
+		table,
+		items,
+		totalPrice,
+		server,
+		gratuity,
+		subtotal,
+		tax,
+		fee,
+	} = data;
 	try {
 		// Input validation
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
@@ -106,6 +117,11 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 			orderStatus: "pending",
 			paymentStatus: "paid",
 			totalPrice,
+			server,
+			gratuity,
+			subtotal,
+			tax,
+			fee,
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			restaurantId,
 		});

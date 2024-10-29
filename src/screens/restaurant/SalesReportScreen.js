@@ -31,28 +31,16 @@ const SalesReportScreen = () => {
 				restaurantId: currentUserData.uid,
 			});
 
-			// Log the raw sales data
-			console.log("Raw Sales Data: ", response.data);
-
 			const formattedSalesData = response.data.map((report) => {
 				// Log topSellingItems for each report
-				console.log(
-					"Top Selling Items for Date:",
-					report.date,
-					report.topSellingItems
-				);
 
 				return {
 					...report,
 					totalSales: report.totalSales ? report.totalSales.toFixed(2) : "0.00",
 					topSellingItems: report.topSellingItems
 						? report.topSellingItems.map((item) => {
-								// Log the entire item to see its structure
-								console.log("Item before formatting:", item);
-
 								// Ensure totalRevenue is a number before calling toFixed
 								const totalRevenue = parseFloat(item.totalRevenue);
-								console.log("Parsed totalRevenue:", totalRevenue); // Log the parsed totalRevenue
 
 								return {
 									...item,
@@ -64,11 +52,14 @@ const SalesReportScreen = () => {
 								};
 						  })
 						: [], // Handle undefined topSellingItems by returning an empty array
+					serverTips: Array.isArray(report.serverTips)
+						? report.serverTips.map((tip) => ({
+								serverName: tip.serverName || "Unknown Server",
+								tipAmount: tip.tipAmount ? tip.tipAmount.toFixed(2) : "0.00",
+						  }))
+						: [],
 				};
 			});
-
-			// Log the formatted sales data
-			console.log("Formatted Sales Data: ", formattedSalesData);
 
 			setSalesData(formattedSalesData);
 		} catch (error) {
@@ -119,6 +110,17 @@ const SalesReportScreen = () => {
 										<Text style={styles.itemRevenue}>${item.totalRevenue}</Text>
 									</View>
 								))}
+							<Text style={{ fontSize: 16, marginTop: 8 }}>Server Tips:</Text>
+						</View>
+						{/* Server Tips */}
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>Server Tips</Text>
+							{dayReport.serverTips.map((server, serverIndex) => (
+								<View key={serverIndex} style={styles.itemRow}>
+									<Text style={styles.serverName}>{server.name}</Text>
+									<Text style={styles.serverTips}>${server.tips}</Text>
+								</View>
+							))}
 						</View>
 
 						{/* Sales by Category */}

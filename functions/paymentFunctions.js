@@ -27,6 +27,7 @@ exports.createPaymentIntent = functions
 			restaurantNumber,
 			customerId,
 			table,
+			connectedAccountId,
 		} = data;
 
 		try {
@@ -39,15 +40,22 @@ exports.createPaymentIntent = functions
 
 			const paymentIntent = await stripe(stripeSecretKey).paymentIntents.create(
 				{
-					amount: amount,
+					amount: amount + fee,
 					currency: "usd",
 					customer: customerId,
 					setup_future_usage: "off_session",
+					application_fee_amount: fee,
+					transfer_data: {
+						destination: connectedAccountId,
+					},
+
 					metadata: {
 						tax: tax,
 						gratuity: gratuity,
 						table: table,
 						fee,
+						subtotal: subtotal,
+						purpose: "restaurant payment",
 					},
 				}
 			);
@@ -126,6 +134,8 @@ exports.createEphemeralKey = functions
 				{ apiVersion: apiVersion }
 			);
 
+			console.log("EphermeralKey Successfuly created");
+
 			// 4. Return the ephemeral key
 			return { ephemeralKey: ephemeralKey.secret };
 		} catch (error) {
@@ -133,4 +143,3 @@ exports.createEphemeralKey = functions
 			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
-
