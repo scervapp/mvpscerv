@@ -13,6 +13,7 @@ import EmployeeScreen from "../screens/restaurant/EmployeeScreen";
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
+import { Platform } from "react-native";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -35,6 +36,11 @@ const BackOfficeStackNavigator = () => {
 				name="SalesReportScreen"
 				component={SalesReportScreen}
 				options={{ headerShown: false }}
+			/>
+			<Tab.Screen
+				options={{ headerShown: true }}
+				name="RestaurantProfile"
+				component={RestaurantProfile}
 			/>
 		</Stack.Navigator>
 	);
@@ -68,7 +74,16 @@ const RestaurantBottomNavigation = () => {
 				tabBarActiveTintColor: "tomato",
 				tabBarInactiveTintColor: "gray",
 				tabBarShowLabel: false,
-				tabBarStyle: [{ display: "flex" }, null],
+				tabBarStyle: {
+					backgroundColor: "#fff", // White background for the overall tab bar
+					borderTopWidth: 0,
+					elevation: Platform.OS === "android" ? 4 : 0,
+					height: 60,
+					paddingBottom: Platform.OS === "ios" ? 10 : 0,
+					justifyContent: "space-between",
+					paddingHorizontal: 0, // Remove any horizontal padding on the tab bar itself
+					marginHorizontal: -10, // Negative margin to overlap the icons slightly
+				},
 			})}
 		>
 			<Tab.Screen
@@ -87,16 +102,12 @@ const RestaurantBottomNavigation = () => {
 				component={ChefsQScreen}
 			/>
 
-			{/* <Tab.Screen
+			<Tab.Screen
 				options={{ headerShown: false }}
 				name="RestaurantDashboard"
 				component={RestaurantDashboard}
 			/>
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="RestaurantProfile"
-				component={RestaurantProfile}
-			/> */}
+
 			<Tab.Screen
 				options={{ headerShown: false }}
 				name="RestaurantMenu"

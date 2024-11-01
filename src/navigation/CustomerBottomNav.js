@@ -11,7 +11,7 @@ import CustomerDashboard from "../screens/customer/CustomerDashboard";
 import CustomerProfile from "../screens/customer/CustomerProfile";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
 import BasketScreen from "../screens/customer/BasketScreen";
-import BackButton from "../utils/BackButton";
+
 import AccountScreen from "../screens/customer/AccountScreen";
 import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
@@ -22,13 +22,58 @@ import { Platform, TouchableOpacity, View } from "react-native";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+const defaultHeaderOptions = {
+	headerStyle: {
+		backgroundColor: "#007788", // Customize with your theme color
+	},
+	headerTintColor: "#fff", // White text color for contrast
+	headerTitleStyle: {
+		fontWeight: "bold",
+		fontSize: 18,
+	},
+	headerBackTitleVisible: false, // Hide default back title
+};
+
+const BackButton = () => {
+	const navigation = useNavigation();
+	return (
+		<Ionicons
+			name="arrow-back"
+			size={24}
+			color="#fff"
+			onPress={() => navigation.goBack()}
+			style={{ marginLeft: 10 }}
+		/>
+	);
+};
 // Define separate functions for each screen's content (if not already defined)
 const CustomerDashboardStack = () => (
-	<Stack.Navigator>
+	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		<Stack.Screen
 			options={{ headerShown: false }}
 			name="CustomerDashboardInner"
 			component={CustomerDashboard}
+		/>
+		<Stack.Screen
+			name="RestaurantDetail"
+			component={RestaurantDetail}
+			options={{ headerTitle: "Restaurant Details" }}
+		/>
+		{/* Additional nested screens in RestaurantDetail flow */}
+		<Stack.Screen
+			name="BasketScreen"
+			component={BasketScreen}
+			options={{ headerTitle: "Basket" }}
+		/>
+		<Stack.Screen
+			name="CheckoutScreen"
+			component={CheckoutScreen}
+			options={{ headerTitle: "Checkout" }}
+		/>
+		<Stack.Screen
+			name="OrderConfirmation"
+			component={OrderConfirmationScreen}
+			options={{ headerTitle: "Order Confirmation" }}
 		/>
 	</Stack.Navigator>
 );
@@ -36,7 +81,7 @@ const CustomerDashboardStack = () => (
 const CustomerProfileStack = () => (
 	<Stack.Navigator>
 		<Stack.Screen
-			options={{ headerShown: false }}
+			options={{ headerTitle: "Profile" }}
 			name="CustomerProfileInner"
 			component={CustomerProfile}
 		/>
@@ -44,16 +89,19 @@ const CustomerProfileStack = () => (
 );
 
 const RestaurantDetailStack = ({ navigation }) => (
-	<Stack.Navigator>
+	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		{/* <Stack.Screen
       options={{ headerShown: false }}
       name="RestaurantList" // Or whatever your restaurant list screen is called
       component={RestaurantDetail} // Assuming this is your restaurant list screen
     /> */}
 		<Stack.Screen
-			name="RestaurantDetail" // Give it a unique name
+			name="RestaurantDetails" // Give it a unique name
 			component={RestaurantDetail}
-			options={{ headerShown: false }}
+			options={{
+				headerTitle: "Restaurant Detail",
+				headerLeft: () => <BackButton />,
+			}}
 		/>
 
 		<Stack.Screen
@@ -61,45 +109,52 @@ const RestaurantDetailStack = ({ navigation }) => (
 			component={BasketScreen}
 			options={{
 				headerTitle: "Basket",
-				headerLeft: () => <BackButton onPress={() => navigation.goBack()} />,
-				headerShown: false,
+				headerLeft: () => <BackButton />,
 			}}
 		/>
 		<Stack.Screen
 			name="CheckoutScreen"
 			component={CheckoutScreen}
-			options={{ headerTitle: "Checkout", headerShown: false }}
+			options={{ headerTitle: "Checkout", headerLeft: () => <BackButton /> }}
 		/>
 		<Stack.Screen
 			name="OrderConfirmation"
 			component={OrderConfirmationScreen}
+			options={{
+				headerTitle: "Order Confirmation",
+				headerLeft: () => <BackButton />,
+			}}
 		/>
 	</Stack.Navigator>
 );
 
 const AccountScreenStack = () => (
-	<Stack.Navigator>
+	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		<Stack.Screen
-			options={{
-				headerShown: false,
-			}}
 			name="AccountScreenInner"
 			component={AccountScreen}
+			options={{ headerTitle: "Account", headerLeft: () => <BackButton /> }}
 		/>
 		<Stack.Screen
-			options={{ headerShown: false }}
 			name="PipsScreenInner"
 			component={PIPSListScreen}
+			options={{ headerTitle: "PIP List", headerLeft: () => <BackButton /> }}
 		/>
 		<Stack.Screen
-			options={{ headerShown: false }}
 			name="OrderHistoryScreenInner"
 			component={OrderHistoryScreen}
+			options={{
+				headerTitle: "Order History",
+				headerLeft: () => <BackButton />,
+			}}
 		/>
 		<Stack.Screen
 			name="OrderConfirmation"
-			options={{ headerShown: false }}
 			component={OrderConfirmationScreen}
+			options={{
+				headerTitle: "Order Confirmation",
+				headerLeft: () => <BackButton />,
+			}}
 		/>
 	</Stack.Navigator>
 );
@@ -115,74 +170,51 @@ const ActiveOrdersStack = () => (
 	</Stack.Navigator>
 );
 
-const CustomerBottomNavigation = () => {
-	const navigation = useNavigation();
+const CustomerBottomNavigation = () => (
+	<Tab.Navigator
+		screenOptions={({ route }) => ({
+			tabBarIcon: ({ focused, color, size }) => {
+				let iconName;
+				if (route.name === "CustomerDashboard")
+					iconName = focused ? "home" : "home-outline";
+				else if (route.name === "AccountScreen")
+					iconName = focused ? "person" : "person-outline";
 
-	return (
-		<Tab.Navigator
-			screenOptions={({ route }) => ({
-				tabBarIcon: ({ focused, color, size }) => {
-					let iconName;
-
-					if (route.name === "CustomerDashboard") {
-						iconName = focused ? "home" : "home-outline";
-					} else if (route.name === "AccountScreen") {
-						iconName = focused ? "person" : "person-outline";
-					}
-
-					return (
-						<View
-							style={{
-								flex: 1,
-								alignItems: "center",
-								justifyContent: "center",
-								backgroundColor: focused ? "#007788" : "#555", // Turquoise or gray background
-								paddingVertical: 10,
-								width: "100%",
-							}}
-						>
-							<Ionicons
-								name={iconName}
-								size={size}
-								color={focused ? "white" : "white"}
-							/>
-						</View>
-					);
-				},
-				tabBarActiveTintColor: "#007bff", // Example active color
-				tabBarInactiveTintColor: "gray",
-				tabBarShowLabel: false,
-				tabBarStyle: {
-					backgroundColor: "#fff", // White background for the overall tab bar
-					borderTopWidth: 0,
-					elevation: Platform.OS === "android" ? 4 : 0,
-					height: 60,
-					paddingBottom: Platform.OS === "ios" ? 10 : 0,
-					justifyContent: "space-between",
-					paddingHorizontal: 0, // Remove any horizontal padding on the tab bar itself
-					marginHorizontal: -10, // Negative margin to overlap the icons slightly
-				},
-			})}
-		>
-			{/* Use the separate functions for each Tab.Screen */}
-			<Tab.Screen
-				name="CustomerDashboard"
-				options={{ headerShown: false }}
-				component={CustomerDashboardStack}
-			/>
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="RestaurantDetails"
-				component={RestaurantDetailStack}
-			/>
-			{/* //<Tab.Screen name="ActiveOrders" component={ActiveOrdersStack} /> */}
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="AccountScreen"
-				component={AccountScreenStack}
-			/>
-		</Tab.Navigator>
-	);
-};
+				return (
+					<View
+						style={{
+							alignItems: "center",
+							justifyContent: "center",
+							backgroundColor: focused ? "#007788" : "#555",
+							paddingVertical: 10,
+							width: "100%",
+						}}
+					>
+						<Ionicons name={iconName} size={size} color="white" />
+					</View>
+				);
+			},
+			tabBarShowLabel: false,
+			tabBarStyle: {
+				backgroundColor: "#fff",
+				borderTopWidth: 0,
+				elevation: Platform.OS === "android" ? 4 : 0,
+				height: 60,
+				paddingBottom: Platform.OS === "ios" ? 10 : 0,
+			},
+		})}
+	>
+		<Tab.Screen
+			name="CustomerDashboard"
+			component={CustomerDashboardStack}
+			options={{ headerShown: false }}
+		/>
+		<Tab.Screen
+			name="AccountScreen"
+			component={AccountScreenStack}
+			options={{ headerShown: false }}
+		/>
+	</Tab.Navigator>
+);
 
 export default CustomerBottomNavigation;

@@ -8,6 +8,7 @@ import {
 	TouchableOpacity,
 	Button,
 	Alert,
+	Linking,
 } from "react-native";
 import {
 	doc,
@@ -57,6 +58,22 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe(null);
+
+	useEffect(() => {
+		const handleUrl = (event) => {
+			const { url } = event;
+			if (url && url.startsWith("yourapp://stripe-redirect")) {
+				// Handle the redirect in your app
+			}
+		};
+
+		const linkingListener = Linking.addListener("url", handleUrl);
+
+		// Cleanup function to unsubscribe from the event
+		return () => {
+			linkingListener.remove();
+		};
+	}, []);
 
 	useEffect(() => {
 		const fetchStripePublishableKey = async () => {
@@ -152,6 +169,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 						allowsDelayedPaymentMethods: true,
 						customerEphemeralKeySecret: ephemeralKey,
 						customerId: stripeCustomerId,
+						returnURL: "https://scerv.com/payment-redirect",
 					});
 
 					if (!initSheetError) {
@@ -222,7 +240,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					tax: tax,
 				});
 
-				//clearBasket(restaurant.id);
+				clearBasket(restaurant.id);
 
 				if (orderId) {
 					navigation.navigate("OrderConfirmation", { orderId });

@@ -61,10 +61,7 @@ const RestaurantList = ({ searchText }) => {
 	);
 
 	const handleRestaurantPress = (restaurant) => {
-		navigation.navigate("RestaurantDetails", {
-			screen: "RestaurantDetail",
-			params: { restaurant },
-		});
+		navigation.navigate("RestaurantDetail", { restaurant });
 	};
 	if (loading) {
 		return (

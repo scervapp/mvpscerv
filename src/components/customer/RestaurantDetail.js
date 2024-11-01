@@ -264,51 +264,56 @@ const RestaurantDetail = ({ route, navigation }) => {
 						visible={isModalVisible}
 						animationType="fade"
 					>
-						<Formik
-							initialValues={{ partySize: "" }}
-							validationSchema={validationSchema}
-							onSubmit={handleCheckin}
-						>
-							{({
-								handleChange,
-								handleBlur,
-								handleSubmit,
-								values,
-								errors,
-								touched,
-							}) => (
-								<View style={styles.modalContent}>
-									<Text style={styles.questionText}>
-										How many in your party?
-									</Text>
-									<TextInput
-										style={styles.input}
-										onChangeText={handleChange("partySize")}
-										onBlur={handleBlur("partySize")}
-										value={values.partySize}
-										keyboardType="numeric"
-										placeholder="2"
-									/>
-									{errors.partySize && touched.partySize && (
-										<Text style={styles.errorText}>{errors.partySize}</Text>
+						<View style={styles.modalContainer}>
+							<View style={[styles.modalContent, { marginTop: 100 }]}>
+								{/* Adjust marginTop to move the modal down */}
+								<Formik
+									initialValues={{ partySize: "" }}
+									validationSchema={validationSchema}
+									onSubmit={handleCheckin}
+								>
+									{({
+										handleChange,
+										handleBlur,
+										handleSubmit,
+										values,
+										errors,
+										touched,
+									}) => (
+										<>
+											<Text style={styles.questionText}>
+												How many in your party?
+											</Text>
+											<TextInput
+												style={styles.input}
+												onChangeText={handleChange("partySize")}
+												onBlur={handleBlur("partySize")}
+												value={values.partySize}
+												keyboardType="numeric"
+												placeholder="2"
+											/>
+											{errors.partySize && touched.partySize && (
+												<Text style={styles.errorText}>{errors.partySize}</Text>
+											)}
+											<View style={styles.buttonRow}>
+												<TouchableOpacity
+													onPress={closeModal}
+													style={styles.modalButton}
+												>
+													<Text style={styles.modalButtonText}>Cancel</Text>
+												</TouchableOpacity>
+												<TouchableOpacity
+													onPress={handleSubmit}
+													style={styles.modalButton}
+												>
+													<Text style={styles.modalButtonText}>Confirm</Text>
+												</TouchableOpacity>
+											</View>
+										</>
 									)}
-									<View style={styles.buttonRow}>
-										<TouchableOpacity
-											onPress={closeModal}
-											style={styles.modalButton}
-										>
-											<Text style={styles.modalButtonText}>Cancel</Text>
-										</TouchableOpacity>
-										<TouchableOpacity
-											onPress={handleSubmit}
-											style={styles.modalButton}
-										>
-											<Text style={styles.modalButtonText}>Confirm</Text>
-										</TouchableOpacity>
-									</View>
-								</View>
-							)}
-						</Formik>
+								</Formik>
+							</View>
+						</View>
 					</Modal>
 				)}
 
