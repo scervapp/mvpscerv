@@ -9,6 +9,7 @@ import {
 	Modal,
 	Alert,
 	SectionList,
+	TextInput,
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
 import { Button, Snackbar } from "react-native-paper";
@@ -17,6 +18,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import SelectedItemModal from "./SelectedItemModal";
 import colors from "../../utils/styles/appStyles";
+import { Tooltip } from "react-native-elements";
 
 const MenuItemsList = ({ menuItems, isLoading }) => {
 	const { currentUserData } = useContext(AuthContext);
@@ -27,6 +29,12 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 	const [pips, setPips] = useState([]);
 	const [snackbarVisible, setSnackbarVisible] = useState(false);
 	const [specialInstructions, setSpecialInstructions] = useState("");
+	const [showGuestTooltip, setShowGuestTooltip] = useState(false);
+	const [showSpecialInstructionsModal, setShowSpecialInstructionsModal] =
+		useState(false);
+	const [selectedPip, setSelectedPip] = useState(null);
+
+	const isGuest = currentUserData.role === "guest";
 
 	const showSnackbar = () => {
 		setSnackbarVisible(true);
@@ -34,6 +42,14 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 			setSnackbarVisible(false);
 		}, 2000);
 	};
+
+	useEffect(() => {
+		// Hide the tooltip automatically after 3 seconds
+		if (showGuestTooltip) {
+			const timer = setTimeout(() => setShowGuestTooltip(false), 3000);
+			return () => clearTimeout(timer);
+		}
+	}, [showGuestTooltip]);
 
 	useEffect(() => {
 		const fetchPips = async () => {
@@ -66,9 +82,26 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 			} else {
 				// If not selected, add it along with the name
 				const selectedPip = pips.find((pip) => pip.id === pipId);
+				setSelectedPip(selectedPip);
+				setShowSpecialInstructionsModal(true); // Open the modal for special instructions
 				return [...prevSelectedPIPs, { id: pipId, name: selectedPip.name }];
 			}
 		});
+	};
+
+	const handleAddSpecialInstructions = () => {
+		// 1. Find the selected PIP in the selectedPIPs array
+		const pipIndex = selectedPIPs.findIndex((p) => p.id === selectedPip.id);
+
+		if (pipIndex !== -1) {
+			// 2. Update the specialInstructions for the selected PIP
+			const updatedPIPs = [...selectedPIPs];
+			updatedPIPs[pipIndex] = { ...updatedPIPs[pipIndex], specialInstructions };
+			setSelectedPIPs(updatedPIPs);
+		}
+
+		setShowSpecialInstructionsModal(false);
+		setSpecialInstructions("");
 	};
 
 	const closeModal = () => {
@@ -140,25 +173,32 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 		return sortedMenu.filter((category) => category.data.length > 0);
 	};
 
-	const renderMenuItem = ({ item }) => (
-		<TouchableOpacity
-			style={styles.menuItemContainer}
-			onPress={() => handleAddToBasket(item)}
-		>
-			<View style={styles.menuItemContent}>
-				{/* Added a container for the content */}
-				<Image source={{ uri: item.imageUri }} style={styles.menuItemImage} />
-				<View style={styles.menuItemTextContainer}>
-					{/* Added a container for the text */}
-					<Text style={styles.menuItemName}>{item.name}</Text>
-					{item.description && (
-						<Text style={styles.menuItemDescription}>{item.description}</Text>
-					)}
-					<Text style={styles.menuItemPrice}>${item.price}</Text>
+	const renderMenuItem = ({ item, index }) => {
+		return (
+			<TouchableOpacity
+				onPress={() => {
+					if (isGuest) {
+						setShowGuestTooltip(true); // Show the guest tooltip
+					} else {
+						handleAddToBasket(item); // Add item to basket
+					}
+				}}
+				style={styles.menuItem}
+				key={`item.id - ${index}`}
+			>
+				<View style={styles.imageContainer}>
+					<Image source={{ uri: item.imageUri }} style={styles.image} />
 				</View>
-			</View>
-		</TouchableOpacity>
-	);
+				<View style={styles.contentContainer}>
+					<Text style={styles.name}>
+						{item.name} ${item.price}
+					</Text>
+					<Text>{item.category}</Text>
+					<Text style={styles.description}>{item.description}</Text>
+				</View>
+			</TouchableOpacity>
+		);
+	};
 
 	return (
 		<View style={styles.container}>
@@ -178,29 +218,9 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 							<Text style={styles.menuCategoryHeader}>
 								{categoryData.category}
 							</Text>
-							{categoryData.data.map((item) => (
-								<TouchableOpacity
-									key={item.id}
-									style={styles.menuItemContainer}
-									onPress={() => handleAddToBasket(item)}
-								>
-									<View style={styles.menuItemContent}>
-										<Image
-											source={{ uri: item.imageUri }}
-											style={styles.menuItemImage}
-										/>
-										<View style={styles.menuItemTextContainer}>
-											<Text style={styles.menuItemName}>{item.name}</Text>
-											{item.description && (
-												<Text style={styles.menuItemDescription}>
-													{item.description}
-												</Text>
-											)}
-											<Text style={styles.menuItemPrice}>${item.price}</Text>
-										</View>
-									</View>
-								</TouchableOpacity>
-							))}
+							{categoryData.data.map((item, index) =>
+								renderMenuItem({ item, index })
+							)}
 						</View>
 					)
 				)
@@ -214,8 +234,45 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 					selectedPIPs={selectedPIPs}
 					onClose={closeModal}
 					confirmAddToBasket={confirmAddToBasket}
+					specialInstructions={specialInstructions}
+					setSpecialInstructions={setSpecialInstructions}
 				/>
 			)}
+			{/* Special Instructions Modal */}
+			<Modal
+				visible={showSpecialInstructionsModal}
+				animationType="slide"
+				transparent={true}
+			>
+				<View style={styles.modalContainer}>
+					<View style={styles.specialInstructionsModalContent}>
+						<Text style={styles.modalTitle}>
+							Special Instructions for {selectedPip?.name}
+						</Text>
+						<TextInput
+							style={styles.specialInstructionsInput}
+							placeholder="Enter special instructions"
+							value={specialInstructions} // Bind the value to the state
+							onChangeText={setSpecialInstructions} // Update the state on change
+							multiline
+						/>
+						<View style={styles.modalButtonContainer}>
+							<TouchableOpacity
+								onPress={() => setShowSpecialInstructionsModal(false)}
+								style={styles.cancelButton}
+							>
+								<Text style={styles.cancelButtonText}>Cancel</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								onPress={handleAddSpecialInstructions}
+								style={styles.addButton}
+							>
+								<Text style={styles.addButtonText}>Add</Text>
+							</TouchableOpacity>
+						</View>
+					</View>
+				</View>
+			</Modal>
 
 			<Snackbar
 				visible={snackbarVisible}
@@ -223,6 +280,21 @@ const MenuItemsList = ({ menuItems, isLoading }) => {
 			>
 				<Text>Added to basket</Text>
 			</Snackbar>
+
+			<Modal
+				transparent
+				visible={showGuestTooltip}
+				onRequestClose={() => setShowGuestTooltip(false)}
+				animationType="fade"
+			>
+				<View style={styles.tooltipOverlay}>
+					<View style={styles.tooltipContainer}>
+						<Text style={styles.tooltipText}>
+							You need to be logged in to add items to your basket.
+						</Text>
+					</View>
+				</View>
+			</Modal>
 		</View>
 	);
 };
@@ -336,6 +408,60 @@ const styles = StyleSheet.create({
 	menuItemTextContainer: {
 		// Added styles for the text container
 		flex: 1,
+	},
+	tooltipOverlay: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.5)", // Semi-transparent background
+	},
+	tooltipContainer: {
+		padding: 15,
+		backgroundColor: "#fff", // White background for the tooltip
+		borderRadius: 8,
+		maxWidth: 300, // Optional: sets a max width for the tooltip box
+		alignItems: "center", // Centers text within tooltip
+		shadowColor: "#000", // Shadow settings to add depth
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5, // Adds shadow on Android
+	},
+	tooltipText: {
+		fontSize: 16,
+		color: "#333", // Dark text color for readability
+		textAlign: "center",
+	},
+	modalContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.5)",
+	},
+	specialInstructionsModalContent: {
+		backgroundColor: "white",
+		padding: 20,
+		borderRadius: 10,
+		width: "80%",
+		maxHeight: "80%",
+	},
+	modalTitle: {
+		fontSize: 18,
+		fontWeight: "bold",
+		marginBottom: 10,
+		textAlign: "center", // Center the title
+	},
+	specialInstructionsInput: {
+		borderWidth: 1,
+		borderColor: "#ced4da",
+		borderRadius: 8,
+		padding: 10,
+		minHeight: 80,
+		marginBottom: 20,
+	},
+	modalButtonContainer: {
+		flexDirection: "row",
+		justifyContent: "space-around",
 	},
 });
 

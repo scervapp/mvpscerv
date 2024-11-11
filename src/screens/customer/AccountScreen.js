@@ -6,12 +6,13 @@ import {
 	StyleSheet,
 	TouchableOpacity,
 	Pressable,
+	Alert,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 
 const AccountScreen = () => {
-	const { logout } = useContext(AuthContext);
+	const { logout, deleteUserFunction } = useContext(AuthContext);
 	const navigation = useNavigation();
 
 	const handleSignOut = async () => {
@@ -21,6 +22,33 @@ const AccountScreen = () => {
 		} catch (error) {
 			console.log("error signing out: ", error);
 		}
+	};
+
+	const handleDeleteAccount = async () => {
+		Alert.alert(
+			"Delete Account",
+			"Are you sure you want to delete your account? This action cannot be undone.",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Delete",
+					style: "destructive",
+					onPress: async () => {
+						try {
+							// 1. Delete the user's account from Firebase Authentication
+							await deleteUserFunction();
+							navigation.navigate("Welcome");
+						} catch (error) {
+							console.error("Error deleting account:", error);
+							Alert.alert(
+								"Error",
+								"Failed to delete account. Please try again."
+							);
+						}
+					},
+				},
+			]
+		);
 	};
 
 	// Render the account settings screen
@@ -67,6 +95,16 @@ const AccountScreen = () => {
 			</TouchableOpacity>
 
 			{/* Add other list items as needed */}
+			<TouchableOpacity onPress={handleDeleteAccount} style={styles.listItem}>
+				{/* Add the "Delete Account" button */}
+				<Ionicons
+					name="trash-outline"
+					size={24}
+					color="red"
+					style={styles.icon}
+				/>
+				<Text style={styles.listItemText}>Delete Account</Text>
+			</TouchableOpacity>
 
 			<Pressable onPress={handleSignOut} style={styles.logoutButton}>
 				<Text style={styles.logoutButtonText}>Logout</Text>

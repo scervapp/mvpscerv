@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useContext } from "react";
 
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -18,6 +18,7 @@ import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
 import { Platform, TouchableOpacity, View } from "react-native";
+import { AuthContext } from "../context/authContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -46,6 +47,7 @@ const BackButton = () => {
 		/>
 	);
 };
+
 // Define separate functions for each screen's content (if not already defined)
 const CustomerDashboardStack = () => (
 	<Stack.Navigator screenOptions={defaultHeaderOptions}>
@@ -170,51 +172,71 @@ const ActiveOrdersStack = () => (
 	</Stack.Navigator>
 );
 
-const CustomerBottomNavigation = () => (
-	<Tab.Navigator
-		screenOptions={({ route }) => ({
-			tabBarIcon: ({ focused, color, size }) => {
-				let iconName;
-				if (route.name === "CustomerDashboard")
-					iconName = focused ? "home" : "home-outline";
-				else if (route.name === "AccountScreen")
-					iconName = focused ? "person" : "person-outline";
+const CustomerBottomNavigation = () => {
+	const { currentUserData } = useContext(AuthContext);
+	const navigation = useNavigation();
 
-				return (
-					<View
-						style={{
-							alignItems: "center",
-							justifyContent: "center",
-							backgroundColor: focused ? "#007788" : "#555",
-							paddingVertical: 10,
-							width: "100%",
-						}}
-					>
-						<Ionicons name={iconName} size={size} color="white" />
-					</View>
-				);
-			},
-			tabBarShowLabel: false,
-			tabBarStyle: {
-				backgroundColor: "#fff",
-				borderTopWidth: 0,
-				elevation: Platform.OS === "android" ? 4 : 0,
-				height: 60,
-				paddingBottom: Platform.OS === "ios" ? 10 : 0,
-			},
-		})}
-	>
-		<Tab.Screen
-			name="CustomerDashboard"
-			component={CustomerDashboardStack}
-			options={{ headerShown: false }}
-		/>
-		<Tab.Screen
-			name="AccountScreen"
-			component={AccountScreenStack}
-			options={{ headerShown: false }}
-		/>
-	</Tab.Navigator>
-);
+	const handleAccountScreenPress = () => {
+		if (currentUserData.role === "guest") {
+			navigation.navigate("Welcome"); // Navigate to WelcomeScreen for guest users
+		} else {
+			// Navigate to the actual AccountScreen for authenticated users
+			navigation.navigate("AccountScreen");
+		}
+	};
+
+	return (
+		<Tab.Navigator
+			screenOptions={({ route }) => ({
+				tabBarIcon: ({ focused, color, size }) => {
+					let iconName;
+					if (route.name === "CustomerDashboard")
+						iconName = focused ? "home" : "home-outline";
+					else if (route.name === "AccountScreen")
+						iconName = focused ? "person" : "person-outline";
+
+					return (
+						<View
+							style={{
+								alignItems: "center",
+								justifyContent: "center",
+								backgroundColor: focused ? "#007788" : "#555",
+								paddingVertical: 10,
+								width: "100%",
+							}}
+						>
+							<Ionicons name={iconName} size={size} color="white" />
+						</View>
+					);
+				},
+				tabBarShowLabel: false,
+				tabBarStyle: {
+					backgroundColor: "#fff",
+					borderTopWidth: 0,
+					elevation: Platform.OS === "android" ? 4 : 0,
+					height: 60,
+					paddingBottom: Platform.OS === "ios" ? 10 : 0,
+				},
+			})}
+		>
+			<Tab.Screen
+				name="CustomerDashboard"
+				component={CustomerDashboardStack}
+				options={{ headerShown: false }}
+			/>
+			<Tab.Screen
+				name="AccountScreen"
+				component={AccountScreenStack}
+				listeners={{
+					tabPress: (e) => {
+						e.preventDefault();
+						handleAccountScreenPress();
+					},
+				}}
+				options={{ headerShown: false }}
+			/>
+		</Tab.Navigator>
+	);
+};
 
 export default CustomerBottomNavigation;

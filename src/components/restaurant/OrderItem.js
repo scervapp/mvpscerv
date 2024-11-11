@@ -6,15 +6,24 @@ import {
 	Button,
 	TouchableOpacity,
 	Modal,
+	TextInput,
 } from "react-native";
 import moment from "moment";
 import { Picker } from "@react-native-picker/picker";
 import { AntDesign } from "@expo/vector-icons";
 import { useActionSheet } from "@expo/react-native-action-sheet";
+import colors from "../../utils/styles/appStyles";
 
-const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
+const OrderItem = ({
+	item,
+	onMarkComplete,
+	onMarkInProgress,
+	onApplyDiscount,
+}) => {
 	const [modalVisible, setModalVisible] = useState(false);
 	const [itemStatus, setItemStatus] = useState(item.itemStatus || "pending");
+	const [discountAmount, setDiscountAmount] = useState("");
+
 	const { showActionSheetWithOptions } = useActionSheet();
 
 	const formattedTime = moment(item.sentToChefQAt.toDate()).fromNow();
@@ -28,6 +37,13 @@ const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
 			onMarkComplete(item.id);
 		} else if (newStatus === "preparing") {
 			onMarkInProgress(item.id);
+		}
+	};
+
+	const handleApplyDiscount = () => {
+		if (discountAmount) {
+			onApplyDiscount(item.id, parseFloat(discountAmount)); // Pass itemId and discount amount
+			setDiscountAmount("");
 		}
 	};
 
@@ -66,7 +82,6 @@ const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
 				>
 					{item.dish.name} x {item.quantity}
 				</Text>
-				{/* Display PIP name */}
 				<Text style={styles.pipName}>{item.pip.name}</Text>
 
 				{/* Special Instructions (if any) */}
@@ -75,6 +90,21 @@ const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
 						{item.specialInstructions}
 					</Text>
 				)}
+
+				{/* Display price with discount (if applicable) */}
+				<Text style={styles.itemPrice}>
+					{item.discount ? (
+						<>
+							<Text style={styles.originalPrice}>${item.dish.price}</Text>
+							<Text style={styles.discountedPrice}>
+								{" "}
+								${item.discountedPrice}
+							</Text>
+						</>
+					) : (
+						`$${item.dish.price}`
+					)}
+				</Text>
 			</View>
 
 			<View style={styles.itemStatusContainer}>
@@ -96,6 +126,21 @@ const OrderItem = ({ item, onMarkComplete, onMarkInProgress }) => {
 							<Picker.Item label="In Progress" value="preparing" />
 							<Picker.Item label="Completed" value="completed" />
 						</Picker>
+						<View style={styles.discountInputContainer}>
+							<TextInput
+								style={styles.discountInput}
+								placeholder="Enter discount amount"
+								value={discountAmount}
+								onChangeText={setDiscountAmount}
+								keyboardType="numeric"
+							/>
+							<TouchableOpacity
+								onPress={handleApplyDiscount}
+								style={styles.applyDiscountButton}
+							>
+								<Text style={styles.applyDiscountButtonText}>Apply</Text>
+							</TouchableOpacity>
+						</View>
 						<Button title="Cancel" onPress={() => setModalVisible(false)} />
 					</View>
 				</View>
@@ -178,6 +223,42 @@ const styles = StyleSheet.create({
 	statusPicker: {
 		width: 200, // Adjust width as needed
 		marginBottom: 20,
+	},
+	originalPrice: {
+		textDecorationLine: "line-through",
+		color: "gray",
+		marginRight: 5,
+	},
+	discountedPrice: {
+		color: "red",
+		fontWeight: "bold",
+	},
+	discountInputContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 10,
+		borderWidth: 1,
+		borderColor: "#ced4da", // Light gray border
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		marginVertical: 10,
+	},
+	discountInput: {
+		flex: 1,
+		height: 40,
+		fontSize: 16,
+	},
+	applyDiscountButton: {
+		backgroundColor: colors.primary,
+		paddingHorizontal: 15,
+		paddingVertical: 8,
+		borderRadius: 8,
+		marginLeft: 10,
+	},
+	applyDiscountButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 

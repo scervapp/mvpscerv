@@ -14,12 +14,19 @@ import EmployeeScreen from "../screens/restaurant/EmployeeScreen";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
 import { Platform } from "react-native";
+import DailySalesDetailsScreen from "../screens/restaurant/DailySalesDetailsScreen";
+import BackOfficeAccess from "../screens/restaurant/BackOfficeAccessScreen";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const BackOfficeStackNavigator = () => {
 	return (
 		<Stack.Navigator>
+			<Stack.Screen
+				name="BackOfficeAccess"
+				component={BackOfficeAccess}
+				options={{ headerShown: false }}
+			/>
 			<Stack.Screen
 				name="BackOffice"
 				component={BackOfficeScreen}
@@ -41,6 +48,11 @@ const BackOfficeStackNavigator = () => {
 				options={{ headerShown: true }}
 				name="RestaurantProfile"
 				component={RestaurantProfile}
+			/>
+			<Tab.Screen
+				options={{ headerShown: true }}
+				name="DailySalesDetails"
+				component={DailySalesDetailsScreen}
 			/>
 		</Stack.Navigator>
 	);

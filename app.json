@@ -2,7 +2,7 @@
   "expo": {
     "name": "scerv",
     "slug": "scerv",
-    "version": "0.0.1",
+    "version": "0.0.12",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -16,14 +16,14 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.scerv.app"
+      "bundleIdentifier": "com.scerv.dine"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.scerv.app"
+      "package": "com.scerv.dine"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -57,12 +57,15 @@ const RestaurantDetail = ({ route, navigation }) => {
 	const [menuItems, setMenuItems] = useState([]);
 
 	// 3. Effect to fetch initial check-in status
-	const {
-		checkInStatus,
-		tableNumber,
-		isLoading: isLoadingCheckIn,
-		checkInObj,
-	} = useCheckInStatus(restaurant.id, currentUserData.uid);
+	let checkInStatus, tableNumber, isLoadingCheckIn, checkInObj;
+
+	if (currentUserData.role === "customer") {
+		const checkInData = useCheckInStatus(restaurant.id, currentUserData.uid);
+		checkInStatus = checkInData.checkInStatus;
+		tableNumber = checkInData.tableNumber;
+		isLoadingCheckIn = checkInData.isLoading;
+		checkInObj = checkInData.checkInObj;
+	}
 
 	useEffect(() => {
 		// Access the latest check-in data
@@ -89,6 +92,7 @@ const RestaurantDetail = ({ route, navigation }) => {
 
 	// 5. Function to handle check-in request
 	const handleCheckin = async (values) => {
+		setIsLoading(true);
 		const userRef = doc(db, "customers", currentUserData.uid);
 		const userSnap = await getDoc(userRef);
 
@@ -167,63 +171,70 @@ const RestaurantDetail = ({ route, navigation }) => {
 			restaurant,
 		});
 	};
+
 	const renderCheckInButton = () => {
 		if (isLoading) {
 			return <ActivityIndicator size="small" color="white" />;
 		}
 
-		switch (checkInObj && checkInStatus) {
-			case "REQUESTED":
-				return (
-					<View style={styles.checkInRequestContainer}>
-						<ActivityIndicator
-							size="small"
-							color={colors.primary}
-							style={styles.loadingIndicator}
-						/>
-						<Text style={styles.awaitingApprovalText}>
-							Waiting to be seated
-						</Text>
-						<TouchableOpacity
-							onPress={handlingCancelCheckIn}
-							style={styles.cancelButton}
-						>
-							<Text style={styles.cancelCheckInButtonText}>
-								Cancel Check-In
+		// Continue with rendering the check-in button based on the check-in status
+		if (checkInStatus) {
+			switch (checkInObj && checkInStatus) {
+				case "REQUESTED":
+					return (
+						<View style={styles.checkInRequestContainer}>
+							<ActivityIndicator
+								size="small"
+								color={colors.primary}
+								style={styles.loadingIndicator}
+							/>
+							<Text style={styles.awaitingApprovalText}>
+								Waiting to be seated
 							</Text>
+							<TouchableOpacity
+								onPress={handlingCancelCheckIn}
+								style={styles.cancelButton}
+							>
+								<Text style={styles.cancelCheckInButtonText}>
+									Cancel Check-In
+								</Text>
+							</TouchableOpacity>
+						</View>
+					);
+				case "ACCEPTED":
+					return (
+						<View style={styles.checkInButtonCheckedIn}>
+							<Ionicons name="checkmark-circle" size={50} color="#28a745" />
+							<Text style={styles.checkInButtonTextCheckedIn}>
+								Checked In at {checkInObj.table?.name}
+							</Text>
+							<Text style={styles.checkInButtonTextCheckedIn}>
+								Your Server is {checkInObj.server?.firstName}
+							</Text>
+						</View>
+					);
+				default:
+					return (
+						<TouchableOpacity
+							style={styles.checkInButton}
+							onPress={() => openModal()}
+							disabled={isLoading}
+						>
+							<Text style={styles.checkInButtonText}>Check In</Text>
 						</TouchableOpacity>
-					</View>
-				);
-			case "ACCEPTED":
-				return (
-					<View style={styles.checkInButtonCheckedIn}>
-						<Ionicons name="checkmark-circle" size={50} color="#28a745" />
-						{/* Success icon */}
-						<Text style={styles.checkInButtonTextCheckedIn}>
-							Checked In at {checkInObj.table?.name}
-						</Text>
-						<Text style={styles.checkInButtonTextCheckedIn}>
-							Your Server is {checkInObj.server?.firstName}
-						</Text>
-					</View>
-				);
-			default: // This handles 'notCheckedIn', 'declined', or null
-				return (
-					<TouchableOpacity
-						style={styles.checkInButton}
-						onPress={() => openModal()}
-					>
-						<Text style={styles.checkInButtonText}>Check In</Text>
-					</TouchableOpacity>
-				);
+					);
+			}
 		}
 	};
 	// Floating basket button
 	const FloatingBasketButton = () => {
+		const isGuest = currentUserData.role === "guest"; // Check if the user is a guest
+
 		return (
 			<TouchableOpacity
-				style={styles.fabContainer}
+				style={[styles.fabContainer, isGuest && styles.disabledButton]} // Apply disabled style if guest
 				onPress={() => navigateToBasketScreen()}
+				disabled={isGuest} // Disable the button for guest users
 			>
 				<View style={styles.fabContent}>
 					<MaterialCommunityIcons name="basket" size={32} color="white" />
@@ -252,8 +263,27 @@ const RestaurantDetail = ({ route, navigation }) => {
 					</Text>
 					<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
 
-					{/* Check-in Button */}
-					{renderCheckInButton()}
+					{currentUserData.role === "customer" ? (
+						renderCheckInButton()
+					) : (
+						<View style={styles.guestContainer}>
+							<TouchableOpacity
+								onPress={() => navigation.navigate("Welcome")}
+								style={styles.guestButton}
+							>
+								<Text style={styles.guestButtonText}>
+									Log in or sign up to check in
+								</Text>
+							</TouchableOpacity>
+
+							<TouchableOpacity
+								style={styles.disabledCheckInButton}
+								disabled={true}
+							>
+								<Text style={styles.checkInButtonText}>Check In</Text>
+							</TouchableOpacity>
+						</View>
+					)}
 				</View>
 
 				{/* Check-In Modal */}
@@ -302,11 +332,17 @@ const RestaurantDetail = ({ route, navigation }) => {
 												>
 													<Text style={styles.modalButtonText}>Cancel</Text>
 												</TouchableOpacity>
+
 												<TouchableOpacity
 													onPress={handleSubmit}
 													style={styles.modalButton}
+													disabled={isLoading}
 												>
-													<Text style={styles.modalButtonText}>Confirm</Text>
+													{isLoading ? (
+														<ActivityIndicator size="small" color="white" />
+													) : (
+														<Text style={styles.modalButtonText}>Confirm</Text>
+													)}
 												</TouchableOpacity>
 											</View>
 										</>
@@ -498,6 +534,33 @@ const styles = StyleSheet.create({
 		color: "white",
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+	guestContainer: {
+		alignItems: "center",
+		marginTop: 20,
+		marginBottom: 20,
+	},
+	guestButton: {
+		backgroundColor: colors.primary, // Or any suitable color
+		padding: 15,
+		borderRadius: 8,
+		alignItems: "center",
+		width: "80%",
+		marginBottom: 10, // Add margin below the button
+		// Add a shadow for the button (adjust values as needed)
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.2,
+		shadowRadius: 3,
+		elevation: 3, // For Android shadow
+	},
+	guestButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	disabledButton: {
+		backgroundColor: "#D3D3D3", // Use a disabled button color from your colors object
 	},
 });
 

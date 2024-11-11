@@ -10,6 +10,7 @@ import {
 	Dimensions,
 	Modal,
 	Button,
+	TextInput,
 } from "react-native";
 import {
 	collectionGroup,
@@ -43,10 +44,36 @@ const ChefsQScreen = () => {
 	const [modalVisible, setModalVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
 	const [clearTableModalVisible, setCleartableModalvisible] = useState(false);
+	const [discountModalVisible, setDiscountModalVisible] = useState(false);
+	const [discountItem, setDiscountItem] = useState(null);
+	const [discountAmount, setDiscountAmount] = useState("");
 
 	const handleTablePress = (tableId, tableData) => {
 		setSelectedTable(tableData);
 		setModalVisible(true);
+	};
+
+	const handleApplyDiscount = async (itemId, discount) => {
+		// itemId and discount are passed as arguments
+		try {
+			const basketItemRef = doc(db, "baskets", itemId);
+			const basketItemSnapshot = await getDoc(basketItemRef);
+
+			if (basketItemSnapshot.exists()) {
+				const itemData = basketItemSnapshot.data();
+
+				await updateDoc(basketItemRef, {
+					discount,
+					discountedPrice: (itemData.dish.price - discount).toFixed(2),
+				});
+
+				// ... (Optional: Update the UI to reflect the discount) ...
+			} else {
+				console.error("Basket item not found:", itemId);
+			}
+		} catch (error) {
+			console.error("Error applying discount:", error);
+		}
 	};
 
 	// Play notification sound
@@ -260,6 +287,7 @@ const ChefsQScreen = () => {
 															item={item}
 															onMarkComplete={handleMarkItemComplete}
 															onMarkInProgress={handleMarkItemInProgress}
+															onApplyDiscount={handleApplyDiscount}
 														/>
 													)}
 												/>
@@ -276,6 +304,40 @@ const ChefsQScreen = () => {
 					)}
 				</>
 			)}
+			{/* Modal for applying discount */}
+			<Modal
+				visible={discountModalVisible}
+				animationType="slide"
+				transparent={true}
+			>
+				<View style={styles.modalContainer}>
+					<View style={styles.modalContent}>
+						<Text style={styles.modalTitle}>Apply Discount</Text>
+						{discountItem && (
+							<>
+								<Text style={styles.modalItemText}>
+									{discountItem.dish.name}
+								</Text>
+								<TextInput
+									style={styles.discountInput}
+									placeholder="Enter discount amount"
+									value={discountAmount}
+									onChangeText={setDiscountAmount}
+									keyboardType="numeric"
+								/>
+								<Button title="Apply Discount" onPress={handleApplyDiscount} />
+								<Button
+									title="Cancel"
+									onPress={() => {
+										setDiscountModalVisible(false);
+										setDiscountAmount("");
+									}}
+								/>
+							</>
+						)}
+					</View>
+				</View>
+			</Modal>
 		</View>
 	);
 };

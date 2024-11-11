@@ -40,7 +40,7 @@ exports.createPaymentIntent = functions
 
 			const paymentIntent = await stripe(stripeSecretKey).paymentIntents.create(
 				{
-					amount: amount + fee,
+					amount: amount,
 					currency: "usd",
 					customer: customerId,
 					setup_future_usage: "off_session",

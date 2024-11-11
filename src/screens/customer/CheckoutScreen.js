@@ -153,14 +153,16 @@ const CheckoutScreen = ({ route, navigation }) => {
 					const {
 						data: { clientSecret },
 					} = await createPaymentIntentFunction({
-						amount: Math.round(restaurantTotal * 100),
+						amount: Math.round(overallTotal), // Already in cents
 						customerId: stripeCustomerId,
-						gratuity: gratuity,
-						tax: tax,
-						fee: Math.round(fee * 100),
-						subtotal: subtotal,
+						gratuity: gratuity, // Already in cents
+						tax: tax, // Already in cents
+						fee: fee, // Already in cents
+						subtotal: subtotal, // Already in cents
 						table: checkInObj.table.name,
 						connectedAccountId: restaurant.stripeAccountId,
+						discount: totalDiscount,
+						originalSubtotal: originalSubtotal,
 					});
 
 					const { error: initSheetError } = await initPaymentSheet({
@@ -232,7 +234,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					restaurantId: restaurant.id,
 					table: checkInObj.table,
 					items: restaurantBasketItems,
-					totalPrice: restaurantTotal,
+					totalPrice: overallTotal,
 					fee: fee,
 					server: checkInObj.server,
 					gratuity: gratuity,
@@ -273,17 +275,101 @@ const CheckoutScreen = ({ route, navigation }) => {
 		setIsLoading(false);
 	}, [baskets, restaurant.id]);
 
-	// Calculate subtotal, tax, fee, gratuity, and overall total (using filteredBasketData)
+	// Function to calculate totals and summary
 	const calculateTotals = () => {
-		const subtotal = restaurantBasketItems.reduce(
-			(total, item) => total + item.dish.price * item.quantity,
+		let subtotal = 0;
+		let originalSubtotal = 0;
+		for (const item of restaurantBasketItems) {
+			// Calculate original subtotal (without discounts)
+			originalSubtotal += Math.round(item.dish.price * 100) * item.quantity;
+
+			// Convert price to cents and multiply by quantity
+			const price = item.discount
+				? parseFloat(item.discountedPrice)
+				: item.dish.price;
+			subtotal += Math.round(price * 100) * item.quantity;
+		}
+
+		// // Calculate tax, gratuity, and fees in cents
+		// const tax = Math.round(subtotal * restaurant.taxRate);
+		const gratuityAmount = Math.round(
+			subtotal * (parseFloat(gratuityPercentage) / 100)
+		);
+
+		// Calculate totals for each PIP, including tax and discounts
+		const pipTotals = filteredBasketData.map((personData) => {
+			const pipSubtotal = personData.items.reduce((total, item) => {
+				const price = item.discount
+					? parseFloat(item.discountedPrice) * 100
+					: Math.round(item.dish.price * 100);
+
+				return total + price * item.quantity;
+			}, 0);
+
+			// Calculate tax for this specific PIP's subtotal in cents (after applying discounts)
+			const pipTax = Math.round(pipSubtotal * restaurant.taxRate);
+
+			// Include gratuity in the PIP total
+			const pipGratuity = Math.round(
+				gratuityAmount / filteredBasketData.length
+			);
+			const pipTotalWithGratuity = pipSubtotal + pipTax + pipGratuity;
+
+			// Calculate fee for this specific PIP's total in cents (after applying discounts and gratuity)
+			const pipFee = Math.round(pipTotalWithGratuity * fees); // Make sure 'fees' is a valid number
+			const pipTotal = pipTotalWithGratuity + pipFee;
+
+			return {
+				...personData,
+				subtotal: pipSubtotal,
+				tax: pipTax,
+				total: pipTotal,
+			};
+		});
+
+		// Calculate overallTotal using pipTotals (with discounts)
+		const overallTotal = pipTotals.reduce(
+			(sum, pipData) => sum + pipData.total,
 			0
 		);
-		const tax = subtotal * restaurant.taxRate; // Example 8% tax
-		const gratuityAmount = (subtotal * parseFloat(gratuityPercentage)) / 100;
-		const fee = (subtotal + gratuityAmount + tax) * fees;
-		const overallTotal = subtotal + tax + fee + gratuityAmount;
-		const restaurantTotal = subtotal + tax + gratuityAmount;
+
+		const restaurantTotal = overallTotal;
+
+		// Calculate total tax from pipTotals
+		const tax = Math.round(
+			pipTotals.reduce((sum, pipData) => sum + pipData.tax, 0)
+		);
+
+		// Calculate total fee from pipTotals
+		const fee = Math.round(
+			pipTotals.reduce(
+				(sum, pipData) =>
+					sum +
+					(pipData.total -
+						pipData.subtotal -
+						pipData.tax -
+						gratuityAmount / pipTotals.length),
+				0
+			)
+		);
+
+		// Calculate total discount from pipTotals
+		const totalDiscount = pipTotals.reduce(
+			(sum, pipData) =>
+				sum +
+				pipData.items.reduce(
+					(acc, item) =>
+						acc +
+						(item.discount
+							? Math.round(item.dish.price * 100) -
+							  Math.round(parseFloat(item.discountedPrice) * 100)
+							: 0),
+					0
+				),
+			0
+		);
+
+		// Return values in cents (integers)
 		return {
 			subtotal,
 			tax,
@@ -291,11 +377,23 @@ const CheckoutScreen = ({ route, navigation }) => {
 			gratuity: gratuityAmount,
 			overallTotal,
 			restaurantTotal,
+			pipTotals,
+			totalDiscount,
+			originalSubtotal,
 		};
 	};
 
-	const { subtotal, tax, fee, gratuity, overallTotal, restaurantTotal } =
-		calculateTotals();
+	const {
+		subtotal,
+		tax,
+		fee,
+		gratuity,
+		overallTotal,
+		restaurantTotal,
+		pipTotals,
+		totalDiscount,
+		originalSubtotal,
+	} = calculateTotals();
 
 	return (
 		<StripeProvider publishableKey={stripePublishableKey}>
@@ -314,77 +412,92 @@ const CheckoutScreen = ({ route, navigation }) => {
 						{/* Basket Items Grouped by PIP */}
 						{filteredBasketData.map((personData) => {
 							const isExpanded = expandedPIPs[personData.personId] || false;
+							const pipData = pipTotals.find(
+								(pip) => pip.personId === personData.personId
+							);
 
 							// Calculate totals for PIP
-							const pipTotal = personData.items.reduce(
-								(total, item) => total + item.dish.price * item.quantity,
-								0
-							);
 
 							return (
 								<View key={personData.personId} style={styles.personSection}>
-									{/* PIP Name and Total (always visible) */}
 									<TouchableOpacity
 										onPress={() => toggleExpandPIP(personData.personId)}
 										style={styles.personHeader}
 									>
 										<Text style={styles.personName}>{personData.pipName}</Text>
-										<View style={styles.pipTotalsContainer}>
-											<Text style={styles.pipTotalText}>
-												Total: ${pipTotal.toFixed(2)}
-												{/* Display only the total for this PIP */}
-											</Text>
-										</View>
+										<Text style={styles.pipTotal}>
+											{`Total: $${(pipData.total / 100).toFixed(
+												2
+											)} (incl. tax)`}
+										</Text>
 									</TouchableOpacity>
 
-									{/* Items for this PIP (conditionally rendered) */}
-									{isExpanded &&
-										personData.items.map((basketItem) => (
-											<View key={basketItem.id} style={styles.basketItem}>
-												<View style={styles.itemInfoContainer}>
-													<Text
-														style={[
-															styles.dishName,
-															basketItem.sentToChefQ && styles.sentItem,
-														]}
+									{isExpanded && (
+										<View>
+											{personData.items.map((item, index) => (
+												<View>
+													{/* Display price with discount (if applicable) */}
+													<View
+														key={`item.dish.id - ${index}`}
+														style={styles.itemInfoContainer}
 													>
-														{basketItem.dish.name} x {basketItem.quantity}
-													</Text>
-
-													<Text
-														style={[
-															styles.itemPrice,
-															basketItem.sentToChefQ && styles.sentItem,
-														]}
-													>
-														$
-														{(
-															basketItem.dish.price * basketItem.quantity
-														).toFixed(2)}
-													</Text>
+														<Text style={styles.dishName}>
+															{item.dish.name} x {item.quantity}
+														</Text>
+														<Text style={styles.itemPrice}>
+															{item.discount ? (
+																<>
+																	<Text style={styles.originalPrice}>
+																		${item.dish.price}
+																	</Text>
+																	<Text style={styles.discountedPrice}>
+																		${item.discountedPrice}
+																	</Text>
+																</>
+															) : (
+																`$${item.dish.price}`
+															)}
+														</Text>
+													</View>
 												</View>
+											))}
 
-												{/* Special Instructions (if any) */}
-												{basketItem.specialInstructions && (
-													<Text style={styles.specialInstructions}>
-														{basketItem.specialInstructions}
-													</Text>
-												)}
-											</View>
-										))}
+											<Text style={styles.pipSubtotal}>
+												{`Subtotal: $${pipData.subtotal.toFixed(2) / 100}`}
+											</Text>
+											<Text style={styles.pipTax}>
+												{`Tax: $${pipData.tax.toFixed(2) / 100}`}
+											</Text>
+										</View>
+									)}
 								</View>
 							);
 						})}
 
 						{/* Overall Order Summary with Taxes & Fees and Gratuity */}
 						<View style={styles.orderSummary}>
-							<Text style={styles.totalPrice}>
-								Total: ${overallTotal.toFixed(2)}
-							</Text>
+							<View style={styles.subtotalContainer}>
+								{/* Add a container for the subtotal and discount */}
+								<Text style={styles.pipTotalText}>Subtotal:</Text>
+								{totalDiscount > 0 ? ( // Conditionally render original and discounted subtotals
+									<>
+										<Text style={styles.originalPrice}>
+											${(originalSubtotal / 100).toFixed(2)}
+										</Text>
+										<Text style={styles.discountedPrice}>
+											${(subtotal / 100).toFixed(2)}
+										</Text>
+									</>
+								) : (
+									<Text>${(subtotal / 100).toFixed(2)}</Text>
+								)}
+							</View>
+
 							<View style={styles.gratuityContainer}>
 								{/* Gratuity selection */}
 								<Text>
-									Gratuity: {gratuityPercentage}% = ${gratuity}
+									Gratuity: {gratuityPercentage}% = $
+									{(gratuity / 100).toFixed(2)}
 								</Text>
 								<Picker
 									selectedValue={gratuityPercentage}
@@ -400,10 +513,14 @@ const CheckoutScreen = ({ route, navigation }) => {
 									{/* Add more options or custom input as needed */}
 								</Picker>
 							</View>
-							<Text>Subtotal: ${subtotal.toFixed(2)}</Text>
 
-							<Text style={styles.feesText}>Taxes: ${tax.toFixed(2)}</Text>
-							<Text style={styles.feesText}>Fee: ${fee.toFixed(2)}</Text>
+							<Text style={styles.feesText}>
+								Taxes: ${tax.toFixed(2) / 100}
+							</Text>
+							<Text style={styles.feesText}>Fee: ${fee.toFixed(2) / 100}</Text>
+							<Text style={styles.totalPrice}>
+								Total: ${(overallTotal / 100).toFixed(2)}
+							</Text>
 						</View>
 
 						{/* Payment Information Input */}
@@ -573,6 +690,32 @@ const styles = StyleSheet.create({
 	addNewCardButton: {
 		backgroundColor: colors.secondary,
 		marginBottom: 10,
+	},
+
+	originalPrice: {
+		textDecorationLine: "line-through",
+		color: "gray",
+		marginRight: 5,
+	},
+	discountedPrice: {
+		color: "red", // Or any color you prefer for discounts
+		fontWeight: "bold",
+	},
+	subtotalContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "flex-start", // Distribute space between elements
+	},
+	originalPrice: {
+		fontSize: 16,
+		textDecorationLine: "line-through",
+		color: colors.textLight, // Use a light gray color
+		marginRight: 5,
+	},
+	discountedPrice: {
+		fontSize: 16,
+		color: colors.primary, // Use your primary color
+		fontWeight: "bold",
 	},
 });
 

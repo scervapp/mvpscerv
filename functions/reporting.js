@@ -30,12 +30,13 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				.toISOString()
 				.split("T")[0]; // Get the date portion (YYYY-MM-DD)
 
-			// Initialize the report for that day if not exists
+			// Initialize the report for that day if it doesn't exist
 			if (!reportsByDay[orderDate]) {
 				reportsByDay[orderDate] = {
 					totalSales: 0,
 					itemCounts: {},
 					serverTips: {},
+					totalTax: 0,
 				};
 			}
 
@@ -44,6 +45,10 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 
 			// Add the totalPrice to the day's totalSales
 			reportsByDay[orderDate].totalSales += orderTotalPrice;
+
+			// Add the order's tax to the day's totalTax
+			const orderTax = orderData.tax || 0; // Get the tax from the order, default to 0 if not present
+			reportsByDay[orderDate].totalTax += orderTax;
 
 			// Count the items sold for that day
 			orderData.items.forEach((item) => {
@@ -65,8 +70,6 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 				}
 			});
 
-			// Calculate and aggregate gratuity by server
-
 			// Track gratuity per server
 			if (orderData.server && orderData.gratuity) {
 				const serverName = `${orderData.server.firstName} ${orderData.server.lastName}`;
@@ -81,20 +84,21 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 		const sortedReports = Object.entries(reportsByDay)
 			.map(([date, report]) => ({
 				date,
-				totalSales: report.totalSales,
-				serverTips: Object.entries(report.serverTips).map(([name, tip]) => ({
-					serverName: name,
-					gratuityTotal: tip.toFixed(2),
-				})),
+				totalSales: report.totalSales.toFixed(2),
+				totalTax: report.totalTax.toFixed(2),
+				serverTips: Object.entries(report.serverTips).map(
+					([name, gratuity]) => ({
+						serverName: name,
+						gratuityTotal: gratuity.toFixed(2),
+					})
+				),
 				topSellingItems: Object.entries(report.itemCounts)
 					.sort((a, b) => b[1].count - a[1].count) // Sort by quantity sold
-					.slice(0, 5) // Get the top 5 selling items
 					.map(([name, info]) => ({
 						name,
 						count: info.count,
 						totalRevenue: info.revenue.toFixed(2), // Format totalRevenue correctly
 					})),
-				serverTips: report.serverTips,
 			}))
 			.sort((a, b) => new Date(b.date) - new Date(a.date));
 

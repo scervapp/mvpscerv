@@ -7,6 +7,8 @@ import {
 	signOut,
 	onAuthStateChanged,
 	sendPasswordResetEmail,
+	deleteUser,
+	signInAnonymously,
 } from "firebase/auth";
 import {
 	getFirestore,
@@ -14,6 +16,7 @@ import {
 	setDoc,
 	doc,
 	getDoc,
+	deleteDoc,
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -32,23 +35,28 @@ const AuthProvider = ({ children }) => {
 	const db = getFirestore(app);
 
 	// Useeffect hook to listen to auth state changes
+
 	useEffect(() => {
 		const unsubscribe = onAuthStateChanged(auth, async (user) => {
 			setIsLoading(true);
 
-			// update the currentUserData if the user is authenticated
-
-			// Update currentUserData if the user is authenticated
 			if (user) {
 				try {
-					setCurrentUser(user);
-					const customerDoc = await getDoc(doc(db, "customers", user.uid));
-					const restaurantDo = await getDoc(doc(db, "restaurants", user.uid));
 					let userData;
-					if (customerDoc.exists()) {
-						userData = { ...customerDoc.data(), uid: user.uid };
-					} else if (restaurantDo.exists()) {
-						userData = { ...restaurantDo.data(), uid: user.uid };
+					if (user) {
+						setCurrentUser(user);
+						const customerDoc = await getDoc(doc(db, "customers", user.uid));
+						const restaurantDoc = await getDoc(
+							doc(db, "restaurants", user.uid)
+						);
+
+						if (customerDoc.exists()) {
+							userData = { ...customerDoc.data(), uid: user.uid };
+							setCurrentUserData(userData);
+						} else if (restaurantDoc.exists()) {
+							userData = { ...restaurantDoc.data(), uid: user.uid };
+							setCurrentUserData(userData);
+						}
 					}
 
 					setCurrentUserData(userData);
@@ -61,6 +69,7 @@ const AuthProvider = ({ children }) => {
 			}
 			setIsLoading(false);
 		});
+
 		return unsubscribe;
 	}, []);
 
@@ -160,6 +169,23 @@ const AuthProvider = ({ children }) => {
 		}
 	};
 
+	const continueAsGuest = (navigation) => {
+		signInAnonymously(auth)
+			.then(async (userCredential) => {
+				const user = userCredential.user;
+				setCurrentUser(user);
+				setCurrentUserData({ role: "guest" });
+
+				// Create a guest user document inn the firestore
+				const guestUserRef = doc(db, "guestUsers", user.uid);
+				await setDoc(guestUserRef, { role: "guest" });
+				navigation.navigate("CustomerHome");
+			})
+			.catch((error) => {
+				console.error("Error signing is anonymously: ", error);
+			});
+	};
+
 	const sendPasswordResetEmail = async (email) => {
 		try {
 			setIsLoading(true);
@@ -210,6 +236,17 @@ const AuthProvider = ({ children }) => {
 		}
 	};
 
+	const deleteUserFunction = async () => {
+		try {
+			deleteUser(auth.currentUser);
+			// 2. Delete the user from the db
+			const userDocRef = doc(db, "customers", auth.currentUser.uid);
+			await deleteDoc(userDocRef);
+		} catch (error) {
+			console.error("Error deleting user:", error);
+			throw new Error("Failed to delete user.");
+		}
+	};
 	return (
 		<AuthContext.Provider
 			value={{
@@ -221,6 +258,8 @@ const AuthProvider = ({ children }) => {
 				currentUserData,
 				loginError,
 				sendPasswordResetEmail,
+				deleteUserFunction,
+				continueAsGuest,
 			}}
 		>
 			{children}

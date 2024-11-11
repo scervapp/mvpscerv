@@ -73,7 +73,8 @@ const BasketScreen = ({ route, navigation }) => {
 			(total, item) => total + item.dish.price * item.quantity,
 			0
 		);
-		const tax = subtotal * 0.08; // Example 8% tax (adjust as needed)
+
+		const tax = Math.round(subtotal * restaurant.taxRate * 100) / 100;
 		const overallTotal = subtotal + tax;
 
 		let overallConfirmedTotal = 0;
@@ -90,11 +91,11 @@ const BasketScreen = ({ route, navigation }) => {
 		});
 
 		return {
-			subtotal,
-			tax,
-			overallTotal,
-			overallConfirmedTotal,
-			overallUnconfirmedTotal,
+			subtotal: parseFloat(subtotal.toFixed(2)),
+			tax: parseFloat(tax.toFixed(2)),
+			overallTotal: parseFloat(overallTotal.toFixed(2)),
+			overallConfirmedTotal: parseFloat(overallConfirmedTotal.toFixed(2)),
+			overallUnconfirmedTotal: parseFloat(overallUnconfirmedTotal.toFixed(2)),
 		};
 	};
 

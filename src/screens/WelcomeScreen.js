@@ -6,7 +6,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "react-native";
 
 const WelcomeScreen = ({ navigation }) => {
-	const { currentUser, isLoading, currentUserData } = useContext(AuthContext);
+	const { continueAsGuest, currentUser } = useContext(AuthContext);
+
+	const handleContinueAsGuest = async () => {
+		try {
+			await continueAsGuest(navigation);
+		} catch (error) {
+			console.error("Error continuing as guest", error);
+		}
+	};
 
 	return (
 		<View style={styles.container}>
@@ -30,6 +38,13 @@ const WelcomeScreen = ({ navigation }) => {
 					<Text style={styles.loginLink}>Log In</Text>
 				</TouchableOpacity>
 			</View>
+			<TouchableOpacity
+				onPress={() => handleContinueAsGuest()}
+				style={styles.guestButton}
+			>
+				{/* Call the function */}
+				<Text style={styles.guestButtonText}>Continue as Guest</Text>
+			</TouchableOpacity>
 			{/* Restaurants Section */}
 			<TouchableOpacity
 				style={styles.restaurantPromptContainer}
@@ -96,6 +111,19 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: colors.primary,
 		textDecorationLine: "underline",
+	},
+	guestButton: {
+		backgroundColor: colors.secondary, // Or any suitable color that contrasts with the background
+		padding: 15,
+		borderRadius: 8,
+		marginTop: 20,
+		alignItems: "center",
+		width: "60%", // Adjust width as needed
+	},
+	guestButtonText: {
+		color: "black",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 
