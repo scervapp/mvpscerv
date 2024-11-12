@@ -7,17 +7,21 @@ import {
 	TextInput,
 	StyleSheet,
 	TouchableOpacity,
+	Alert,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import {
 	addDoc,
 	collection,
+	deleteDoc,
+	doc,
 	onSnapshot,
 	orderBy,
 	query,
 } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import colors from "../../utils/styles/appStyles";
 
 // Creating a pips screen that allows customers to create pips using firestore
 // and the pips go into the customers collection / uid/ pips
@@ -43,6 +47,28 @@ const PIPSListScreen = () => {
 		}
 	};
 
+	const handleDeletePip = async (pipId) => {
+		Alert.alert("Confirm Delete", "Are you sure you want to delete this PIP?", [
+			{ text: "Cancel", style: "cancel" },
+			{
+				text: "Delete",
+				style: "destructive",
+				onPress: async () => {
+					try {
+						await deleteDoc(
+							doc(db, "customers", currentUserData.uid, "pips", pipId)
+						);
+						// Update the pips state (you can refetch or filter the array)
+						setPIPS(pips.filter((pip) => pip.id !== pipId));
+					} catch (error) {
+						console.error("Error deleting PIP:", error);
+						Alert.alert("Error", "Failed to delete PIP.");
+					}
+				},
+			},
+		]);
+	};
+
 	const fetchPIPS = async () => {
 		const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
 		const q = query(pipsRef, orderBy("name"));
@@ -62,13 +88,15 @@ const PIPSListScreen = () => {
 	}, []);
 
 	// Fucntion to render an individual PIP
-	const renderPip = (
-		{ item } // Improved rendering with FlatList
-	) => (
-		<TouchableOpacity style={styles.pipItem}>
+	const renderPip = ({ item }) => (
+		<View style={styles.pipItem}>
 			<Ionicons name="person-circle-outline" size={24} color="gray" />
 			<Text style={styles.pipName}>{item.name}</Text>
-		</TouchableOpacity>
+			<TouchableOpacity onPress={() => handleDeletePip(item.id)}>
+				<Ionicons name="trash-outline" size={24} color={"red"} />
+				{/* Use a trash icon */}
+			</TouchableOpacity>
+		</View>
 	);
 
 	return (
@@ -150,6 +178,17 @@ const styles = StyleSheet.create({
 		backgroundColor: "#fff",
 		borderRadius: 8,
 		marginBottom: 10,
+		justifyContent: "space-between", // Add this to space between elements
+	},
+	deleteButton: {
+		// Style for the delete button
+		backgroundColor: "red", // Use your error color (e.g., red)
+		padding: 8,
+		borderRadius: 5,
+	},
+	deleteButtonText: {
+		color: "white",
+		fontSize: 14,
 	},
 	pipName: {
 		marginLeft: 10,

@@ -67,7 +67,7 @@ export const pickImage = async () => {
 // This is only for demo purposes
 export const generateTables = async (restaurantId) => {
 	const tablesRef = collection(db, "restaurants", restaurantId, "tables");
-	for (let i = 1; i <= 10; i++) {
+	for (let i = 1; i <= 50; i++) {
 		const tableData = {
 			name: `Table ${i}`,
 			status: "available",
@@ -76,7 +76,6 @@ export const generateTables = async (restaurantId) => {
 		};
 		await addDoc(tablesRef, tableData);
 	}
-	console.log("Tables generated successfully");
 };
 
 // Fetches the tables for the restaurant

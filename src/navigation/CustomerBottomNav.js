@@ -19,16 +19,18 @@ import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
 import { Platform, TouchableOpacity, View } from "react-native";
 import { AuthContext } from "../context/authContext";
+import colors from "../utils/styles/appStyles";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const defaultHeaderOptions = {
 	headerStyle: {
-		backgroundColor: "#007788", // Customize with your theme color
+		backgroundColor: colors.background, // Customize with your theme color
 	},
 	headerTintColor: "#fff", // White text color for contrast
 	headerTitleStyle: {
+		color: "black",
 		fontWeight: "bold",
 		fontSize: 18,
 	},
@@ -41,7 +43,7 @@ const BackButton = () => {
 		<Ionicons
 			name="arrow-back"
 			size={24}
-			color="#fff"
+			color="black"
 			onPress={() => navigation.goBack()}
 			style={{ marginLeft: 10 }}
 		/>
@@ -59,18 +61,21 @@ const CustomerDashboardStack = () => (
 		<Stack.Screen
 			name="RestaurantDetail"
 			component={RestaurantDetail}
-			options={{ headerTitle: "Restaurant Details" }}
+			options={{
+				headerTitle: "Restaurant Details",
+				headerLeft: () => <BackButton />,
+			}}
 		/>
 		{/* Additional nested screens in RestaurantDetail flow */}
 		<Stack.Screen
 			name="BasketScreen"
 			component={BasketScreen}
-			options={{ headerTitle: "Basket" }}
+			options={{ headerTitle: "Basket", headerLeft: () => <BackButton /> }}
 		/>
 		<Stack.Screen
 			name="CheckoutScreen"
 			component={CheckoutScreen}
-			options={{ headerTitle: "Checkout" }}
+			options={{ headerTitle: "Checkout", headerLeft: () => <BackButton /> }}
 		/>
 		<Stack.Screen
 			name="OrderConfirmation"
@@ -211,7 +216,7 @@ const CustomerBottomNavigation = () => {
 				},
 				tabBarShowLabel: false,
 				tabBarStyle: {
-					backgroundColor: "#fff",
+					backgroundColor: colors.background,
 					borderTopWidth: 0,
 					elevation: Platform.OS === "android" ? 4 : 0,
 					height: 60,

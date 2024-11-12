@@ -31,7 +31,7 @@ const TableManagementScreen = () => {
 	const [screenWidth, setScreenWidth] = useState(
 		Dimensions.get("window").width
 	);
-	const horizontalMargin = 40;
+	const horizontalMargin = 0;
 
 	// Fech tables in db
 	useEffect(() => {
@@ -57,7 +57,7 @@ const TableManagementScreen = () => {
 	useEffect(() => {
 		const calculateColumns = () => {
 			// Adjust based on item width, padding etc
-			const itemWidth = 120;
+			const itemWidth = 100;
 
 			const columns = Math.floor(screenWidth / (itemWidth + horizontalMargin));
 			setNumColumns(columns > 0 ? columns : 1);
@@ -155,22 +155,23 @@ const TableManagementScreen = () => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: colors.background, // Use your background color
+		backgroundColor: colors.background,
 		padding: 20,
+		alignContent: "center",
 	},
 	title: {
-		fontSize: 28, // Increased font size
+		fontSize: 28,
 		fontWeight: "bold",
 		marginBottom: 20,
-		color: colors.primary, // Use your primary color
-		textAlign: "center", // Center the title
+		color: colors.primary,
+		textAlign: "center",
 	},
 	generateButton: {
-		// Styles for the "Generate Tables" button
 		backgroundColor: colors.primary,
 		padding: 15,
 		borderRadius: 8,
 		marginTop: 20,
+		alignItems: "center", // Center the text
 	},
 	generateButtonText: {
 		color: "white",
@@ -178,8 +179,8 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 	},
 	tableList: {
-		justifyContent: "space-between",
-		marginTop: 20, // Add margin to separate from the button
+		flex: 1, // Allow the list to take up available space
+		marginTop: 20,
 	},
 });
 

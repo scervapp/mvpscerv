@@ -388,11 +388,10 @@ const styles = StyleSheet.create({
 	address: {
 		fontSize: 16,
 		color: "#666",
-		marginBottom: 10,
 	},
 	cuisine: {
 		fontSize: 16,
-		color: "#007bff",
+		color: "#666",
 	},
 	checkInButton: {
 		backgroundColor: "#007bff",
@@ -400,7 +399,6 @@ const styles = StyleSheet.create({
 		borderRadius: 10,
 		alignItems: "center",
 		marginTop: 20,
-		marginBottom: 20,
 	},
 	checkInButtonText: {
 		// Style for "Check In" button text
@@ -431,7 +429,6 @@ const styles = StyleSheet.create({
 	checkInRequestContainer: {
 		alignItems: "center",
 		marginTop: 20,
-		marginBottom: 20,
 	},
 	loadingIndicator: {
 		marginBottom: 10,

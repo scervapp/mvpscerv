@@ -13,9 +13,11 @@ import EmployeeScreen from "../screens/restaurant/EmployeeScreen";
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import DailySalesDetailsScreen from "../screens/restaurant/DailySalesDetailsScreen";
 import BackOfficeAccess from "../screens/restaurant/BackOfficeAccessScreen";
+import colors from "../utils/styles/appStyles";
+import { StyleSheet } from "react-native";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -36,23 +38,28 @@ const BackOfficeStackNavigator = () => {
 			<Stack.Screen
 				name="EmployeeScreen"
 				component={EmployeeScreen}
-				options={{ headerShown: false }}
+				options={{ headerShown: true, headerTitle: "Employee Managment" }}
 			/>
 
 			<Stack.Screen
 				name="SalesReportScreen"
 				component={SalesReportScreen}
-				options={{ headerShown: false }}
+				options={{ headerShown: true, headerTitle: "Daily Sales Summary" }}
 			/>
 			<Tab.Screen
-				options={{ headerShown: true }}
+				options={{ headerShown: true, headerTitle: "Restaurant Profile" }}
 				name="RestaurantProfile"
 				component={RestaurantProfile}
 			/>
 			<Tab.Screen
-				options={{ headerShown: true }}
+				options={{ headerShown: true, headerTitle: "Daily Sales Details" }}
 				name="DailySalesDetails"
 				component={DailySalesDetailsScreen}
+			/>
+			<Tab.Screen
+				options={{ headerShown: true, headerTitle: "Menu Management" }}
+				name="RestaurantMenu"
+				component={MenuManagementScreen}
 			/>
 		</Stack.Navigator>
 	);
@@ -65,36 +72,42 @@ const RestaurantBottomNavigation = () => {
 				tabBarIcon: ({ focused, color, size }) => {
 					let iconName;
 
-					if (route.name === "RestaurantDashboard") {
-						iconName = focused ? "home" : "home-outline";
-					} else if (route.name === "RestaurantProfile") {
-						iconName = focused ? "person" : "person-outline";
-					} else if (route.name === "ChefsQ") {
-						iconName = focused ? "cog" : "cog-outline";
-					} else if (route.name === "RestaurantCheckin") {
-						iconName = focused
-							? "checkmark-circle"
-							: "checkmark-circle-outline";
+					if (route.name === "RestaurantCheckin") {
+						iconName = focused ? "people" : "people-outline"; // People icon for check-in requests
 					} else if (route.name === "Tables") {
-						iconName = focused ? "restaurant-outline" : "restaurant-outline";
+						iconName = focused ? "grid" : "grid-outline"; // Table icon for table management
+					} else if (route.name === "ChefsQ") {
+						iconName = focused ? "restaurant" : "restaurant-outline"; // Chef's hat icon for ChefsQ
 					} else if (route.name === "BackOfficeNavigator") {
 						iconName = focused ? "briefcase" : "briefcase-outline";
 					}
 
-					return <Ionicons name={iconName} size={size} color={color} />;
+					return (
+						<View
+							style={[
+								styles.iconContainer, // Apply the container style
+								focused && styles.activeIconContainer, // Apply active style if focused
+							]}
+						>
+							<Ionicons
+								name={iconName}
+								size={size * 1.5}
+								color={focused ? "white" : colors.primary}
+							/>
+							{/* Increased size */}
+						</View>
+					);
 				},
-				tabBarActiveTintColor: "tomato",
+				tabBarActiveTintColor: colors.primary,
 				tabBarInactiveTintColor: "gray",
+
 				tabBarShowLabel: false,
 				tabBarStyle: {
-					backgroundColor: "#fff", // White background for the overall tab bar
+					backgroundColor: "#fff",
 					borderTopWidth: 0,
 					elevation: Platform.OS === "android" ? 4 : 0,
 					height: 60,
 					paddingBottom: Platform.OS === "ios" ? 10 : 0,
-					justifyContent: "space-between",
-					paddingHorizontal: 0, // Remove any horizontal padding on the tab bar itself
-					marginHorizontal: -10, // Negative margin to overlap the icons slightly
 				},
 			})}
 		>
@@ -115,18 +128,6 @@ const RestaurantBottomNavigation = () => {
 			/>
 
 			<Tab.Screen
-				options={{ headerShown: false }}
-				name="RestaurantDashboard"
-				component={RestaurantDashboard}
-			/>
-
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="RestaurantMenu"
-				component={MenuManagementScreen}
-			/>
-
-			<Tab.Screen
 				name="BackOfficeNavigator"
 				component={BackOfficeStackNavigator}
 				options={{ headerShown: false }}
@@ -134,5 +135,18 @@ const RestaurantBottomNavigation = () => {
 		</Tab.Navigator>
 	);
 };
+
+const styles = StyleSheet.create({
+	// ... your other styles ...
+
+	iconContainer: {
+		backgroundColor: "white", // White background for inactive state
+		padding: 8, // Add padding around the icon
+		borderRadius: 50, // Make it circular
+	},
+	activeIconContainer: {
+		backgroundColor: colors.primary, // Primary color background for active state
+	},
+});
 
 export default RestaurantBottomNavigation;

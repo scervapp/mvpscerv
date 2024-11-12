@@ -158,41 +158,37 @@ const RestaurantCheckin = () => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: colors.background, // Use your background color
-		paddingHorizontal: 20, // Adjust padding as needed
-		paddingTop: 30, // Add top padding for better spacing
+		backgroundColor: colors.background,
+		paddingHorizontal: 20,
+		paddingTop: 30,
 	},
 	titleContainer: {
-		alignItems: "center", // Center the title horizontally
+		alignItems: "center",
 	},
 	title: {
-		fontSize: 24, // Increased font size
+		fontSize: 24,
 		fontWeight: "bold",
-		color: colors.primary, // Use your primary color
+		color: colors.primary,
 	},
 	listContainer: {
 		backgroundColor: "#fff",
 		padding: 15,
-		borderRadius: 10, // Slightly larger border radius
-		marginTop: 20, // Increased margin
+		borderRadius: 10,
+		marginTop: 20,
 		flex: 1,
 	},
 	checkInItem: {
 		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
+		alignItems: "center", // Align items vertically
 		padding: 15,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
-
 		marginBottom: 10,
-		backgroundColor: "white", // Add a white background
-		borderRadius: 8, // Add rounded corners
-		shadowColor: "#000", // Add a subtle shadow (iOS)
+		backgroundColor: colors.background,
+		borderRadius: 8,
+		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 1 },
 		shadowOpacity: 0.1,
 		shadowRadius: 2,
-		elevation: 2, // Add a subtle shadow (Android)
+		elevation: 2,
 	},
 	checkInDetailsLeft: {
 		flex: 1,
@@ -201,14 +197,14 @@ const styles = StyleSheet.create({
 	checkInTime: {
 		fontSize: 14,
 		color: colors.textLight,
-		marginBottom: 5, // Add space between time and name
+		marginBottom: 5,
 	},
 	customerName: {
-		fontSize: 18, // Slightly larger font size
+		fontSize: 18,
 		fontWeight: "bold",
 	},
 	checkInStatus: {
-		fontSize: 16, // Slightly larger font size
+		fontSize: 16,
 		fontWeight: "bold",
 		color: colors.secondary,
 	},
@@ -219,27 +215,8 @@ const styles = StyleSheet.create({
 	},
 	noCheckinsText: {
 		fontSize: 16,
-		color: colors.textLight, // Use a color from your colors object
-		textAlign: "center", // Center the text
-	},
-	// Modal styles (you'll likely need to adjust these based on your modal implementation)
-	modalContainer: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.5)",
-	},
-	modalContent: {
-		backgroundColor: "white",
-		padding: 20,
-		borderRadius: 10,
-		width: "80%",
-		alignItems: "center",
-	},
-	modalTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
+		color: colors.textLight,
+		textAlign: "center",
 	},
 });
 

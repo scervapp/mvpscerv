@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import moment from "moment";
 import { Picker } from "@react-native-picker/picker";
-import { AntDesign } from "@expo/vector-icons";
+import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import colors from "../../utils/styles/appStyles";
 
@@ -23,16 +23,13 @@ const OrderItem = ({
 	const [modalVisible, setModalVisible] = useState(false);
 	const [itemStatus, setItemStatus] = useState(item.itemStatus || "pending");
 	const [discountAmount, setDiscountAmount] = useState("");
-
 	const { showActionSheetWithOptions } = useActionSheet();
-
 	const formattedTime = moment(item.sentToChefQAt.toDate()).fromNow();
 
 	const handleStatusChange = (newStatus) => {
 		setItemStatus(newStatus);
 		setModalVisible(false);
 
-		// Call the appropriate callback function based on the selected status
 		if (newStatus === "completed") {
 			onMarkComplete(item.id);
 		} else if (newStatus === "preparing") {
@@ -42,13 +39,12 @@ const OrderItem = ({
 
 	const handleApplyDiscount = () => {
 		if (discountAmount) {
-			onApplyDiscount(item.id, parseFloat(discountAmount)); // Pass itemId and discount amount
+			onApplyDiscount(item.id, parseFloat(discountAmount));
 			setDiscountAmount("");
 		}
 	};
 
 	const handleOpenActionSheet = () => {
-		// Configure the action sheet options
 		const options = ["Pending", "In Progress", "Completed", "Cancel"];
 		const cancelButtonIndex = 3;
 
@@ -59,13 +55,12 @@ const OrderItem = ({
 			},
 			(buttonIndex) => {
 				if (buttonIndex !== cancelButtonIndex) {
-					handleStatusChange(buttonIndex);
+					handleStatusChange(options[buttonIndex].toLowerCase());
 				}
 			}
 		);
 	};
 
-	// Receive the 'item' prop
 	return (
 		<View
 			style={[
@@ -84,20 +79,17 @@ const OrderItem = ({
 				</Text>
 				<Text style={styles.pipName}>{item.pip.name}</Text>
 
-				{/* Special Instructions (if any) */}
-				{item.specialInstructions && (
+				{item.pip.specialInstructions && (
 					<Text style={styles.specialInstructions}>
-						{item.specialInstructions}
+						{item.pip.specialInstructions}
 					</Text>
 				)}
 
-				{/* Display price with discount (if applicable) */}
 				<Text style={styles.itemPrice}>
 					{item.discount ? (
 						<>
 							<Text style={styles.originalPrice}>${item.dish.price}</Text>
 							<Text style={styles.discountedPrice}>
-								{" "}
 								${item.discountedPrice}
 							</Text>
 						</>
@@ -107,12 +99,14 @@ const OrderItem = ({
 				</Text>
 			</View>
 
-			<View style={styles.itemStatusContainer}>
+			{itemStatus === "completed" ? (
+				<MaterialIcons name="check-circle" size={24} color="green" /> // Check icon for completed items
+			) : (
 				<TouchableOpacity onPress={() => setModalVisible(true)}>
-					{/* Button to open the picker */}
 					<AntDesign name="caretdown" size={16} color="gray" />
 				</TouchableOpacity>
-			</View>
+			)}
+
 			<Modal visible={modalVisible} animationType="fade" transparent={true}>
 				<View style={styles.modalContainer}>
 					<View style={styles.modalContent}>
@@ -146,7 +140,6 @@ const OrderItem = ({
 				</View>
 			</Modal>
 
-			{/* Display the time the order was sent */}
 			<Text style={styles.timeSent}>{formattedTime}</Text>
 		</View>
 	);
@@ -154,17 +147,18 @@ const OrderItem = ({
 
 const styles = StyleSheet.create({
 	orderItemContainer: {
-		flexDirection: "row", // Arrange item details, status, and time in a row
-		justifyContent: "space-between", // Space them out evenly
-		alignItems: "center", // Align items vertically
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
 		marginBottom: 10,
 		padding: 10,
 		borderWidth: 1,
 		borderColor: "#ccc",
 		borderRadius: 5,
+		backgroundColor: "#fff",
 	},
 	itemInfo: {
-		flex: 1, // Allow item info to take up available space
+		flex: 1,
 		marginRight: 10,
 	},
 	dishName: {
@@ -177,52 +171,23 @@ const styles = StyleSheet.create({
 	},
 	specialInstructions: {
 		fontSize: 12,
-		color: "gray",
+		color: "red",
 		marginTop: 2,
 	},
 	itemStatusContainer: {
 		marginLeft: 10,
 	},
-	statusPicker: {
-		width: 120,
+	completedOrderItem: {
+		backgroundColor: "#e0f7e9", // Light green background for completed items
+		borderColor: "#4caf50", // Green border
+	},
+	completedDishName: {
+		textDecorationLine: "line-through",
+		color: "gray", // Faded color for completed items
 	},
 	timeSent: {
 		fontSize: 12,
 		color: "gray",
-	},
-	completedOrderItem: {
-		// Style for completed items
-		opacity: 0.6, // Slightly reduce opacity
-	},
-	completedDishName: {
-		textDecorationLine: "line-through",
-	},
-	statusPicker: {
-		width: 120,
-	},
-	hiddenPicker: {
-		position: "absolute", // Position it absolutely
-		top: -1000, // Move it off-screen to hide it
-	},
-	modalContainer: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.5)",
-	},
-	modalContent: {
-		backgroundColor: "white",
-		padding: 20,
-		borderRadius: 10,
-	},
-	modalTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-	},
-	statusPicker: {
-		width: 200, // Adjust width as needed
-		marginBottom: 20,
 	},
 	originalPrice: {
 		textDecorationLine: "line-through",
@@ -238,7 +203,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		marginTop: 10,
 		borderWidth: 1,
-		borderColor: "#ced4da", // Light gray border
+		borderColor: "#ced4da",
 		borderRadius: 8,
 		paddingHorizontal: 10,
 		marginVertical: 10,

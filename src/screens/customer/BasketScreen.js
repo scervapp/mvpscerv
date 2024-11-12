@@ -322,13 +322,18 @@ const BasketScreen = ({ route, navigation }) => {
 												</View>
 
 												{/* Special Instructions (if any) */}
-												{basketItem.specialInstructions && (
-													<Text style={styles.specialInstructions}>
-														{basketItem.specialInstructions}
-													</Text>
-												)}
+
 												<View>
 													<Text> {basketItem.itemStatus}</Text>
+												</View>
+												<View>
+													{basketItem.pip.specialInstructions && (
+														<View>
+															<Text style={styles.specialInstructions}>
+																{basketItem.pip.specialInstructions}
+															</Text>
+														</View>
+													)}
 												</View>
 											</View>
 										))}
@@ -466,8 +471,8 @@ const styles = StyleSheet.create({
 	},
 
 	basketItem: {
-		flexDirection: "row",
-		alignItems: "center",
+		flexDirection: "column",
+		alignItems: "flex-start",
 		marginBottom: 5, // Reduced margin for tighter spacing
 		paddingHorizontal: 10,
 	},
@@ -518,8 +523,7 @@ const styles = StyleSheet.create({
 	},
 	specialInstructions: {
 		fontSize: 14,
-		color: colors.textLight,
-		marginTop: 5,
+		color: "red",
 	},
 
 	orderSummary: {

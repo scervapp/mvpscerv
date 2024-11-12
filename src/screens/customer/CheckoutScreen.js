@@ -515,9 +515,11 @@ const CheckoutScreen = ({ route, navigation }) => {
 							</View>
 
 							<Text style={styles.feesText}>
-								Taxes: ${tax.toFixed(2) / 100}
+								Taxes: ${(tax / 100).toFixed(2)}
 							</Text>
-							<Text style={styles.feesText}>Fee: ${fee.toFixed(2) / 100}</Text>
+							<Text style={styles.feesText}>
+								Fee: ${(fee / 100).toFixed(2)}
+							</Text>
 							<Text style={styles.totalPrice}>
 								Total: ${(overallTotal / 100).toFixed(2)}
 							</Text>
@@ -558,7 +560,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 						</View>
 					</ScrollView>
 				) : (
-					<Text>Basket is empty</Text>
+					<Text>No orders here!</Text>
 				)}
 			</View>
 		</StripeProvider>

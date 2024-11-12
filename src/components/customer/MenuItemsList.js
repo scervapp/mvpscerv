@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 	},
 	menuCategoryHeader: {
-		backgroundColor: "#f0f0f0", // Light gray background for the header
+		backgroundColor: "white", // Light gray background for the header
 		padding: 10,
 		fontSize: 18,
 		fontWeight: "bold",
@@ -462,6 +462,10 @@ const styles = StyleSheet.create({
 	modalButtonContainer: {
 		flexDirection: "row",
 		justifyContent: "space-around",
+	},
+	menuCategoryContainer: {
+		backgroundColor: "white",
+		marginBottom: 10,
 	},
 });
 

@@ -30,6 +30,8 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 	const [filteredBasketData, setFilteredBasketData] = useState([]);
 	const [expandedPIPs, setExpandedPIPs] = useState({});
 
+	console.log(order);
+
 	useEffect(() => {
 		const fetchOrderDetails = async () => {
 			try {
@@ -120,7 +122,7 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 							Total: ${order.totalPrice.toFixed(2)}
 						</Text> */}
 						<Text style={styles.totalPrice}>
-							Total: ${order.totalPrice.toFixed(2)}
+							Total: ${(order.totalPrice / 100).toFixed(2)}
 						</Text>
 					</View>
 

@@ -228,8 +228,10 @@ const ChefsQScreen = () => {
 						<View style={styles.emptyQueueContainer}>
 							<Text style={styles.emptyQueueText}>No items in the queue.</Text>
 							<Text style={styles.tipsText}>
-								When orders arrive, they'll appear here grouped by table. Tap on
-								a table to view its orders and mark them as complete.
+								When orders arrive, they'll appear here grouped by table.
+							</Text>
+							<Text>
+								Tap on a table to view its orders and mark them as complete.
 							</Text>
 						</View>
 					) : (
@@ -433,6 +435,11 @@ const styles = StyleSheet.create({
 		fontSize: 20,
 		fontWeight: "bold",
 		marginBottom: 15,
+	},
+	tipsText: {
+		justifyContent: "center",
+		alignItems: "center",
+		textAlign: "center",
 	},
 });
 
