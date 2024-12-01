@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
 	},
 	picker: {
 		width: "100%",
-		height: 45, // Adjust height as needed
+		height: 70, // Adjust height as needed
 	},
 	buttonContainer: {
 		flexDirection: "row",

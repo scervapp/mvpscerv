@@ -21,7 +21,9 @@ import CustomerBottomNavigation from "./CustomerBottomNav";
 import PasswordResetScreen from "../screens/auth/PasswordResetScreen";
 import colors from "../utils/styles/appStyles";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
+import { enableScreens } from "react-native-screens";
 
+enableScreens();
 const Stack = createNativeStackNavigator();
 const navigationRef = React.createRef();
 
@@ -30,11 +32,9 @@ const AppNavigator = () => {
 	const [isLoading, setIsLoading] = useState(true);
 
 	return (
-		<SafeAreaView
-			style={{ flex: 1, padding: 10, backgroundColor: colors.background }}
-		>
+		<SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
 			<NavigationContainer ref={navigationRef}>
-				<Stack.Navigator initialRouteName={WelcomeScreen}>
+				<Stack.Navigator initialRouteName="Welcome">
 					{currentUserData ? (
 						<>
 							{currentUserData.role === "restaurant" && (

@@ -91,7 +91,7 @@ const RestaurantBottomNavigation = () => {
 						>
 							<Ionicons
 								name={iconName}
-								size={size * 1.5}
+								size={size}
 								color={focused ? "white" : colors.primary}
 							/>
 							{/* Increased size */}
@@ -141,8 +141,13 @@ const styles = StyleSheet.create({
 
 	iconContainer: {
 		backgroundColor: "white", // White background for inactive state
-		padding: 8, // Add padding around the icon
-		borderRadius: 50, // Make it circular
+		//padding: 8, // Add padding around the icon
+		borderRadius: 5, // Make it circular
+		width: "50",
+		height: "50",
+		alignItems: "center",
+		justifyContent: "center",
+		alignContent: "center",
 	},
 	activeIconContainer: {
 		backgroundColor: colors.primary, // Primary color background for active state

@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
 		marginBottom: 5,
 	},
 	customerName: {
-		fontSize: 18,
+		fontSize: 28,
 		fontWeight: "bold",
 	},
 	checkInStatus: {

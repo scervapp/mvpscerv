@@ -113,8 +113,6 @@ const AccountScreen = () => {
 	);
 };
 
-useNavigation;
-
 // Add styles
 const styles = StyleSheet.create({
 	container: {

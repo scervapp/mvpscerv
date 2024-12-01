@@ -8,6 +8,7 @@ import {
 	Label,
 	ActivityIndicator,
 	TouchableOpacity,
+	ScrollView,
 } from "react-native";
 import colors from "../../utils/styles/appStyles";
 import { AuthContext } from "../../context/authContext";
@@ -42,78 +43,81 @@ const CustomerSignup = ({ navigation }) => {
 	return (
 		<View style={styles.container}>
 			<Text style={styles.title}>Create Your Account</Text>
-
-			<View style={styles.form}>
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Email</Text>
-					<TextInput
-						style={styles.input}
-						value={email}
-						onChangeText={setEmail}
-						placeholder="youremail@example.com"
-						keyboardType="email-address"
-						autoCapitalize="none"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>First Name</Text>
-					<TextInput
-						style={styles.input}
-						value={firstName}
-						onChangeText={setFirstName}
-						placeholder="John"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Last Name</Text>
-					<TextInput
-						style={styles.input}
-						value={lastName}
-						onChangeText={setLastName}
-						placeholder="Johnson"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Phone Number</Text>
-					<TextInput
-						style={styles.input}
-						value={phoneNumber}
-						onChangeText={setPhoneNumber}
-						placeholder="Enter your phone number"
-						keyboardType="phone-pad"
-						maxLength={10}
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Password</Text>
-					<TextInput
-						style={styles.input}
-						value={password}
-						onChangeText={setPassword}
-						placeholder="Enter your password"
-						secureTextEntry
-					/>
-				</View>
-
-				{isLoading && <ActivityIndicator size="large" color={colors.primary} />}
-				{signupError && (
-					<View style={styles.errorArea}>
-						<Text style={styles.errorText}>{signupError}</Text>
+			<ScrollView showsVerticalScrollIndicator={false}>
+				<View style={styles.form}>
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>Email</Text>
+						<TextInput
+							style={styles.input}
+							value={email}
+							onChangeText={setEmail}
+							placeholder="youremail@example.com"
+							keyboardType="email-address"
+							autoCapitalize="none"
+						/>
 					</View>
-				)}
 
-				<TouchableOpacity
-					style={styles.signupButton}
-					onPress={handleSignupSubmit}
-					disabled={isLoading}
-				>
-					<Text style={styles.signupButtonText}>Sign Up</Text>
-				</TouchableOpacity>
-			</View>
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>First Name</Text>
+						<TextInput
+							style={styles.input}
+							value={firstName}
+							onChangeText={setFirstName}
+							placeholder="John"
+						/>
+					</View>
+
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>Last Name</Text>
+						<TextInput
+							style={styles.input}
+							value={lastName}
+							onChangeText={setLastName}
+							placeholder="Johnson"
+						/>
+					</View>
+
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>Phone Number</Text>
+						<TextInput
+							style={styles.input}
+							value={phoneNumber}
+							onChangeText={setPhoneNumber}
+							placeholder="Enter your phone number"
+							keyboardType="phone-pad"
+							maxLength={10}
+						/>
+					</View>
+
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>Password</Text>
+						<TextInput
+							style={styles.input}
+							value={password}
+							onChangeText={setPassword}
+							placeholder="Enter your password"
+							secureTextEntry
+						/>
+					</View>
+
+					{isLoading && (
+						<ActivityIndicator size="large" color={colors.primary} />
+					)}
+					{signupError && (
+						<View style={styles.errorArea}>
+							<Text style={styles.errorText}>{signupError}</Text>
+						</View>
+					)}
+
+					<TouchableOpacity
+						style={styles.signupButton}
+						onPress={handleSignupSubmit}
+						disabled={isLoading}
+					>
+						<Text style={styles.signupButtonText}>Sign Up</Text>
+					</TouchableOpacity>
+				</View>
+			</ScrollView>
 		</View>
 	);
 };

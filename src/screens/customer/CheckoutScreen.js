@@ -407,7 +407,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 						<Text style={styles.heading}>Order Summary</Text>
 
 						{/* Restaurant Name */}
-						<Text style={styles.restaurantName}>{restaurant.name}</Text>
+						<Text style={styles.restaurantName}>
+							{restaurant.restaurantName}
+						</Text>
 
 						{/* Basket Items Grouped by PIP */}
 						{filteredBasketData.map((personData) => {
@@ -438,7 +440,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 												<View>
 													{/* Display price with discount (if applicable) */}
 													<View
-														key={`item.dish.id - ${index}`}
+														key={`${item.dish.id} - ${index}`}
 														style={styles.itemInfoContainer}
 													>
 														<Text style={styles.dishName}>
@@ -594,6 +596,7 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 		alignItems: "center",
 		marginBottom: 4,
+		marginRight: 10,
 	},
 	personName: {
 		fontSize: 18,

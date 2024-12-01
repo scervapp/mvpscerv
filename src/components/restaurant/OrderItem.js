@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
 	View,
 	Text,
@@ -13,6 +13,7 @@ import { Picker } from "@react-native-picker/picker";
 import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import colors from "../../utils/styles/appStyles";
+import { Ionicons } from "@expo/vector-icons"; // Import Ionicons
 
 const OrderItem = ({
 	item,
@@ -62,64 +63,85 @@ const OrderItem = ({
 	};
 
 	return (
-		<View
-			style={[
-				styles.orderItemContainer,
-				itemStatus === "completed" && styles.completedOrderItem,
-			]}
-		>
-			<View style={styles.itemInfo}>
-				<Text
-					style={[
-						styles.dishName,
-						itemStatus === "completed" && styles.completedDishName,
-					]}
-				>
-					{item.dish.name} x {item.quantity}
-				</Text>
-				<Text style={styles.pipName}>{item.pip.name}</Text>
-
-				{item.pip.specialInstructions && (
-					<Text style={styles.specialInstructions}>
-						{item.pip.specialInstructions}
+		<View>
+			<TouchableOpacity
+				style={styles.orderItemContainer}
+				onPress={() => setModalVisible(true)}
+			>
+				{/* Table Number */}
+				<View style={styles.tableNumberContainer}>
+					<Text style={styles.tableNumber}>
+						{item.table.name.replace("Table ", "")}
 					</Text>
-				)}
+				</View>
 
-				<Text style={styles.itemPrice}>
-					{item.discount ? (
-						<>
-							<Text style={styles.originalPrice}>${item.dish.price}</Text>
-							<Text style={styles.discountedPrice}>
-								${item.discountedPrice}
-							</Text>
-						</>
-					) : (
-						`$${item.dish.price}`
+				{/* Item Details */}
+				<View style={styles.itemDetailsContainer}>
+					<Text style={styles.dishName}>
+						{item.dish.name} x {item.quantity}
+					</Text>
+
+					{/* Special Instructions (if any) */}
+					{item.pip.specialInstructions && (
+						<Text style={styles.specialInstructions}>
+							{item.pip.specialInstructions}
+						</Text>
 					)}
-				</Text>
-			</View>
 
-			{itemStatus === "completed" ? (
-				<MaterialIcons name="check-circle" size={24} color="green" /> // Check icon for completed items
-			) : (
-				<TouchableOpacity onPress={() => setModalVisible(true)}>
-					<AntDesign name="caretdown" size={16} color="gray" />
-				</TouchableOpacity>
-			)}
+					{/* Display price with discount (if applicable) */}
+					<Text style={styles.itemPrice}>
+						{item.discount ? (
+							<>
+								<Text style={styles.originalPrice}>${item.dish.price}</Text>
+								<Text style={styles.discountedPrice}>
+									${item.discountedPrice}
+								</Text>
+							</>
+						) : (
+							`$${item.dish.price}`
+						)}
+					</Text>
 
-			<Modal visible={modalVisible} animationType="fade" transparent={true}>
+					{/* Order Time */}
+					<Text style={styles.orderTime}>{formattedTime}</Text>
+				</View>
+
+				{/* Status Icon */}
+				<View style={styles.statusIconContainer}>
+					{item.itemStatus === "pending" && (
+						<Ionicons name="time-outline" size={24} color="gray" />
+					)}
+					{item.itemStatus === "preparing" && (
+						<Ionicons name="flame" size={24} color="orange" />
+					)}
+					{item.itemStatus === "completed" && (
+						<Ionicons name="checkmark-circle" size={24} color="green" />
+					)}
+				</View>
+			</TouchableOpacity>
+
+			{/* Status and Discount Modal */}
+			<Modal visible={modalVisible} animationType="slide" transparent={true}>
 				<View style={styles.modalContainer}>
 					<View style={styles.modalContent}>
-						<Text style={styles.modalTitle}>Change Status</Text>
+						<Text style={styles.modalTitle}>{item.dish.name}</Text>
+						{item.pip.specialInstructions && (
+							<Text style={styles.specialInstructions}>
+								{item.pip.specialInstructions}
+							</Text>
+						)}
+						{/* Status Picker */}
 						<Picker
 							selectedValue={itemStatus}
 							onValueChange={handleStatusChange}
 							style={styles.statusPicker}
 						>
 							<Picker.Item label="Pending" value="pending" />
-							<Picker.Item label="In Progress" value="preparing" />
+							<Picker.Item label="Preparing" value="preparing" />
 							<Picker.Item label="Completed" value="completed" />
 						</Picker>
+
+						{/* Discount Input */}
 						<View style={styles.discountInputContainer}>
 							<TextInput
 								style={styles.discountInput}
@@ -135,12 +157,12 @@ const OrderItem = ({
 								<Text style={styles.applyDiscountButtonText}>Apply</Text>
 							</TouchableOpacity>
 						</View>
-						<Button title="Cancel" onPress={() => setModalVisible(false)} />
+
+						{/* Close Modal Button */}
+						<Button title="Close" onPress={() => setModalVisible(false)} />
 					</View>
 				</View>
 			</Modal>
-
-			<Text style={styles.timeSent}>{formattedTime}</Text>
 		</View>
 	);
 };
@@ -148,16 +170,23 @@ const OrderItem = ({
 const styles = StyleSheet.create({
 	orderItemContainer: {
 		flexDirection: "row",
-		justifyContent: "space-between",
 		alignItems: "center",
-		marginBottom: 10,
 		padding: 10,
-		borderWidth: 1,
-		borderColor: "#ccc",
-		borderRadius: 5,
-		backgroundColor: "#fff",
+		borderBottomWidth: 1,
+		borderBottomColor: "#ccc",
 	},
-	itemInfo: {
+	tableNumberContainer: {
+		backgroundColor: colors.primary,
+		padding: 8,
+		borderRadius: 5,
+		marginRight: 10,
+	},
+	tableNumber: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: "white",
+	},
+	itemDetailsContainer: {
 		flex: 1,
 		marginRight: 10,
 	},
@@ -165,38 +194,58 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "bold",
 	},
-	pipName: {
-		fontSize: 14,
-		color: "gray",
-	},
 	specialInstructions: {
-		fontSize: 12,
+		fontSize: 14,
 		color: "red",
-		marginTop: 2,
+		marginTop: 5,
 	},
-	itemStatusContainer: {
-		marginLeft: 10,
-	},
-	completedOrderItem: {
-		backgroundColor: "#e0f7e9", // Light green background for completed items
-		borderColor: "#4caf50", // Green border
-	},
-	completedDishName: {
-		textDecorationLine: "line-through",
-		color: "gray", // Faded color for completed items
-	},
-	timeSent: {
-		fontSize: 12,
-		color: "gray",
+	itemPrice: {
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 	originalPrice: {
 		textDecorationLine: "line-through",
-		color: "gray",
+		color: colors.textLight, // Use a lighter color for the original price
 		marginRight: 5,
 	},
 	discountedPrice: {
-		color: "red",
+		color: colors.primary, // Use your primary color for the discounted price
 		fontWeight: "bold",
+	},
+	orderTime: {
+		fontSize: 12,
+		color: "gray",
+	},
+	statusIconContainer: {
+		// Added container for the status icon
+		marginLeft: 10,
+	},
+	modalContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.5)",
+	},
+	modalContent: {
+		backgroundColor: "white",
+		padding: 20,
+		borderRadius: 10,
+		width: "80%",
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+
+		marginBottom: 15,
+		textAlign: "center",
+	},
+	statusPicker: {
+		width: 200,
+		marginBottom: 20,
+		borderWidth: 1,
+		borderColor: colors.lightGray, // Add a border to the picker
+		borderRadius: 8, // Add rounded corners to the picker
+		padding: 10,
 	},
 	discountInputContainer: {
 		flexDirection: "row",
@@ -206,7 +255,6 @@ const styles = StyleSheet.create({
 		borderColor: "#ced4da",
 		borderRadius: 8,
 		paddingHorizontal: 10,
-		marginVertical: 10,
 	},
 	discountInput: {
 		flex: 1,
@@ -224,6 +272,17 @@ const styles = StyleSheet.create({
 		color: "white",
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+	cancelButton: {
+		// Style for the "Cancel" button
+		backgroundColor: "#ccc",
+		padding: 12,
+		borderRadius: 8,
+		marginTop: 20, // Add margin top
+		alignItems: "center",
+	},
+	completedOrderItem: {
+		opacity: 0.6, // Slightly reduce opacity for completed items
 	},
 });
 

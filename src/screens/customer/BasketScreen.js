@@ -112,16 +112,17 @@ const BasketScreen = ({ route, navigation }) => {
 		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
 			try {
 				setIsLoading(true);
-
-				// Extract the items from filteredBasketData, keeping only the necessary properties
-				const orderItems = filteredBasketData.flatMap((personData) =>
-					personData.items.map((basketItem) => ({
-						dish: basketItem.dish,
-						quantity: basketItem.quantity,
-						specialInstructions: basketItem.specialInstructions,
-						pips: [basketItem.pip], // Include the PIP object for this item
-						id: basketItem.id,
-					}))
+				// Filter for items taht have not been sent to ChefsQ yet
+				const unsentItems = filteredBasketData.flatMap((personData) =>
+					personData.items
+						.filter((basketItem) => !basketItem.sentToChefQ)
+						.map((basketItem) => ({
+							dish: basketItem.dish,
+							quantity: basketItem.quantity,
+							specialInstructions: basketItem.specialInstructions,
+							pips: [basketItem.pip],
+							id: basketItem.id,
+						}))
 				);
 
 				// Call the sendToChefsQ Cloud Function
@@ -129,7 +130,7 @@ const BasketScreen = ({ route, navigation }) => {
 				const result = await sendToChefsQFunction({
 					userId: currentUserData.uid,
 					restaurantId: restaurant.id,
-					items: orderItems,
+					items: unsentItems,
 					server: checkInObj.server,
 					table: checkInObj.table,
 				});

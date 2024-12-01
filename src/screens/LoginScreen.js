@@ -37,74 +37,78 @@ const Login = ({ navigation }) => {
 			behavior={Platform.OS === "ios" ? "padding" : "height"}
 			style={styles.container}
 		>
-			<Formik
-				initialValues={{ email: "", password: "" }}
-				validationSchema={validationSchema}
-				onSubmit={handleSimpleLogin}
-			>
-				{({
-					handleChange,
-					handleBlur,
-					handleSubmit,
-					values,
-					errors,
-					touched,
-				}) => (
-					<View style={styles.innerContainer}>
-						<View style={styles.header}>
-							<Text style={styles.headerText}>Login to Scerv</Text>
-						</View>
-						<View style={styles.form}>
-							<View style={styles.inputGroup}>
-								<Text style={styles.label}>Email</Text>
-								<TextInput
-									style={styles.input}
-									value={values.email}
-									onChangeText={handleChange("email")}
-									onBlur={handleBlur("email")}
-									autoCapitalize="none"
-								/>
+			<ScrollView contentContainerStyle={styles.scrollViewContent}>
+				<Formik
+					initialValues={{ email: "", password: "" }}
+					validationSchema={validationSchema}
+					onSubmit={handleSimpleLogin}
+				>
+					{({
+						handleChange,
+						handleBlur,
+						handleSubmit,
+						values,
+						errors,
+						touched,
+					}) => (
+						<View style={styles.innerContainer}>
+							<View style={styles.header}>
+								<Text style={styles.headerText}>Login to Scerv</Text>
 							</View>
-							{errors.email && touched.email && (
-								<Text style={styles.errorText}>{errors.email}</Text>
-							)}
-							<View style={styles.inputGroup}>
-								<Text style={styles.label}>Password</Text>
+							<View style={styles.form}>
+								<View style={styles.inputGroup}>
+									<Text style={styles.label}>Email</Text>
+									<TextInput
+										style={styles.input}
+										value={values.email}
+										onChangeText={handleChange("email")}
+										onBlur={handleBlur("email")}
+										autoCapitalize="none"
+									/>
+								</View>
+								{errors.email && touched.email && (
+									<Text style={styles.errorText}>{errors.email}</Text>
+								)}
+								<View style={styles.inputGroup}>
+									<Text style={styles.label}>Password</Text>
 
-								<TextInput
-									style={styles.input}
-									value={values.password}
-									onChangeText={handleChange("password")}
-									secureTextEntry={true}
-									onBlur={handleBlur("password")}
-									textContentType={"password"}
-								/>
+									<TextInput
+										style={styles.input}
+										value={values.password}
+										onChangeText={handleChange("password")}
+										secureTextEntry={true}
+										onBlur={handleBlur("password")}
+										textContentType={"password"}
+									/>
+								</View>
+								{errors.password && touched.password && (
+									<Text style={styles.errorText}>{errors.password}</Text>
+								)}
+								{isLoading && <ActivityIndicator size="large" />}
+								{(errors.general || loginError) && (
+									<Text style={styles.errorText}>
+										{errors.general || loginError}
+									</Text>
+								)}
+								<TouchableOpacity
+									style={styles.loginButton}
+									onPress={handleSubmit}
+									disabled={isLoading}
+								>
+									<Text style={styles.loginButtonText}>Login</Text>
+								</TouchableOpacity>
+								<TouchableOpacity
+									onPress={() => navigation.navigate("PasswordReset")}
+								>
+									<Text style={styles.forgotPasswordLink}>
+										Forgot Password?
+									</Text>
+								</TouchableOpacity>
 							</View>
-							{errors.password && touched.password && (
-								<Text style={styles.errorText}>{errors.password}</Text>
-							)}
-							{isLoading && <ActivityIndicator size="large" />}
-							{(errors.general || loginError) && (
-								<Text style={styles.errorText}>
-									{errors.general || loginError}
-								</Text>
-							)}
-							<TouchableOpacity
-								style={styles.loginButton}
-								onPress={handleSubmit}
-								disabled={isLoading}
-							>
-								<Text style={styles.loginButtonText}>Login</Text>
-							</TouchableOpacity>
-							<TouchableOpacity
-								onPress={() => navigation.navigate("PasswordReset")}
-							>
-								<Text style={styles.forgotPasswordLink}>Forgot Password?</Text>
-							</TouchableOpacity>
 						</View>
-					</View>
-				)}
-			</Formik>
+					)}
+				</Formik>
+			</ScrollView>
 		</KeyboardAvoidingView>
 	);
 };
@@ -115,6 +119,9 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.background,
 		padding: 30,
 		justifyContent: "center",
+	},
+	scrollViewContent: {
+		flexGrow: 1, // Allow scrolling if content overflows
 	},
 	innerContainer: {
 		width: "100%",

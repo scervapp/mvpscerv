@@ -31,7 +31,7 @@ const TableManagementScreen = () => {
 	const [screenWidth, setScreenWidth] = useState(
 		Dimensions.get("window").width
 	);
-	const horizontalMargin = 0;
+	const horizontalMargin = 30;
 
 	// Fech tables in db
 	useEffect(() => {

@@ -2,10 +2,11 @@
   "expo": {
     "name": "scerv",
     "slug": "scerv",
-    "version": "0.0.12",
+    "version": "0.0.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -16,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.scerv.dine"
+      "bundleIdentifier": "com.scerv.app"
     },
     "android": {
       "adaptiveIcon": {

@@ -30,8 +30,6 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 	const [filteredBasketData, setFilteredBasketData] = useState([]);
 	const [expandedPIPs, setExpandedPIPs] = useState({});
 
-	console.log(order);
-
 	useEffect(() => {
 		const fetchOrderDetails = async () => {
 			try {
@@ -83,6 +81,7 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 
 					{/* Order Details */}
 					{filteredBasketData.map((personData) => {
+						console.log("person data", personData);
 						const isExpanded = expandedPIPs[personData.personId] || false;
 
 						return (
@@ -159,6 +158,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.lightGray, // Or a suitable light background color
 		borderRadius: 8,
 		padding: 10,
+		marginRight: 10,
 	},
 	personHeader: {
 		flexDirection: "row",

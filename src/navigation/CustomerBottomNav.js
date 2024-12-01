@@ -3,6 +3,8 @@ import React, { useContext } from "react";
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { enableScreens } from "react-native-screens";
+
 import { Ionicons } from "@expo/vector-icons";
 
 // Import your screen components and stack navigator functions
@@ -28,7 +30,7 @@ const defaultHeaderOptions = {
 	headerStyle: {
 		backgroundColor: colors.background, // Customize with your theme color
 	},
-	headerTintColor: "#fff", // White text color for contrast
+	headerTintColor: "black", // White text color for contrast
 	headerTitleStyle: {
 		color: "black",
 		fontWeight: "bold",
@@ -37,16 +39,21 @@ const defaultHeaderOptions = {
 	headerBackTitleVisible: false, // Hide default back title
 };
 
-const BackButton = () => {
-	const navigation = useNavigation();
+const BackButton = ({ navigation }) => {
 	return (
-		<Ionicons
-			name="arrow-back"
-			size={24}
-			color="black"
-			onPress={() => navigation.goBack()}
-			style={{ marginLeft: 10 }}
-		/>
+		<TouchableOpacity
+			onPress={() => {
+				console.log("BackButtonPress");
+				navigation.goBack();
+			}}
+		>
+			<Ionicons
+				name="arrow-back"
+				size={24}
+				color="black"
+				style={{ marginLeft: 10 }}
+			/>
+		</TouchableOpacity>
 	);
 };
 
@@ -61,16 +68,17 @@ const CustomerDashboardStack = () => (
 		<Stack.Screen
 			name="RestaurantDetail"
 			component={RestaurantDetail}
-			options={{
+			options={() => ({
 				headerTitle: "Restaurant Details",
-				headerLeft: () => <BackButton />,
-			}}
+			})}
 		/>
 		{/* Additional nested screens in RestaurantDetail flow */}
 		<Stack.Screen
 			name="BasketScreen"
 			component={BasketScreen}
-			options={{ headerTitle: "Basket", headerLeft: () => <BackButton /> }}
+			options={() => ({
+				headerTitle: "Basket",
+			})}
 		/>
 		<Stack.Screen
 			name="CheckoutScreen"
@@ -80,7 +88,6 @@ const CustomerDashboardStack = () => (
 		<Stack.Screen
 			name="OrderConfirmation"
 			component={OrderConfirmationScreen}
-			options={{ headerTitle: "Order Confirmation" }}
 		/>
 	</Stack.Navigator>
 );
@@ -95,52 +102,25 @@ const CustomerProfileStack = () => (
 	</Stack.Navigator>
 );
 
-const RestaurantDetailStack = ({ navigation }) => (
-	<Stack.Navigator screenOptions={defaultHeaderOptions}>
-		{/* <Stack.Screen
-      options={{ headerShown: false }}
-      name="RestaurantList" // Or whatever your restaurant list screen is called
-      component={RestaurantDetail} // Assuming this is your restaurant list screen
-    /> */}
-		<Stack.Screen
-			name="RestaurantDetails" // Give it a unique name
-			component={RestaurantDetail}
-			options={{
-				headerTitle: "Restaurant Detail",
-				headerLeft: () => <BackButton />,
-			}}
-		/>
-
-		<Stack.Screen
-			name="BasketScreen"
-			component={BasketScreen}
-			options={{
-				headerTitle: "Basket",
-				headerLeft: () => <BackButton />,
-			}}
-		/>
-		<Stack.Screen
-			name="CheckoutScreen"
-			component={CheckoutScreen}
-			options={{ headerTitle: "Checkout", headerLeft: () => <BackButton /> }}
-		/>
-		<Stack.Screen
-			name="OrderConfirmation"
-			component={OrderConfirmationScreen}
-			options={{
-				headerTitle: "Order Confirmation",
-				headerLeft: () => <BackButton />,
-			}}
-		/>
-	</Stack.Navigator>
-);
-
 const AccountScreenStack = () => (
 	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		<Stack.Screen
 			name="AccountScreenInner"
 			component={AccountScreen}
-			options={{ headerTitle: "Account", headerLeft: () => <BackButton /> }}
+			options={({ navigation }) => ({
+				headerTitle: () => (
+					<TouchableOpacity
+						onPress={() => navigation.navigate("CustomerDashboard")}
+					>
+						<Ionicons
+							name="arrow-back"
+							size={24}
+							color="black"
+							style={{ marginLeft: 10 }}
+						/>
+					</TouchableOpacity>
+				),
+			})}
 		/>
 		<Stack.Screen
 			name="PipsScreenInner"
@@ -179,9 +159,8 @@ const ActiveOrdersStack = () => (
 
 const CustomerBottomNavigation = () => {
 	const { currentUserData } = useContext(AuthContext);
-	const navigation = useNavigation();
 
-	const handleAccountScreenPress = () => {
+	const handleAccountScreenPress = (navigation) => {
 		if (currentUserData.role === "guest") {
 			navigation.navigate("Welcome"); // Navigate to WelcomeScreen for guest users
 		} else {
@@ -200,24 +179,17 @@ const CustomerBottomNavigation = () => {
 					else if (route.name === "AccountScreen")
 						iconName = focused ? "person" : "person-outline";
 
-					return (
-						<View
-							style={{
-								alignItems: "center",
-								justifyContent: "center",
-								backgroundColor: focused ? "#007788" : "#555",
-								paddingVertical: 10,
-								width: "100%",
-							}}
-						>
-							<Ionicons name={iconName} size={size} color="white" />
-						</View>
-					);
+					const iconSize = 34;
+
+					return <Ionicons name={iconName} size={iconSize} color="black" />;
 				},
 				tabBarShowLabel: false,
 				tabBarStyle: {
 					backgroundColor: colors.background,
+					borderWidth: 2,
+					borderColor: "black",
 					borderTopWidth: 0,
+					paddingTop: 10,
 					elevation: Platform.OS === "android" ? 4 : 0,
 					height: 60,
 					paddingBottom: Platform.OS === "ios" ? 10 : 0,
@@ -232,12 +204,12 @@ const CustomerBottomNavigation = () => {
 			<Tab.Screen
 				name="AccountScreen"
 				component={AccountScreenStack}
-				listeners={{
+				listeners={({ navigation }) => ({
 					tabPress: (e) => {
-						e.preventDefault();
-						handleAccountScreenPress();
+						e.preventDefault(); // Prevent default navigation
+						handleAccountScreenPress(navigation);
 					},
-				}}
+				})}
 				options={{ headerShown: false }}
 			/>
 		</Tab.Navigator>
