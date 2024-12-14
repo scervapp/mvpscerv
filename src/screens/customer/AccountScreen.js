@@ -1,5 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
-import React, { useContext } from "react";
+import React, { useContext, useState } from "react";
 import {
 	View,
 	Text,
@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 const AccountScreen = () => {
 	const { logout, deleteUserFunction } = useContext(AuthContext);
+	const [showDelete, setShowDelete] = useState(false);
 	const navigation = useNavigation();
 
 	const handleSignOut = async () => {
@@ -22,6 +23,10 @@ const AccountScreen = () => {
 		} catch (error) {
 			console.log("error signing out: ", error);
 		}
+	};
+
+	const handleShowDelete = () => {
+		setShowDelete(!showDelete);
 	};
 
 	const handleDeleteAccount = async () => {
@@ -95,20 +100,29 @@ const AccountScreen = () => {
 			</TouchableOpacity>
 
 			{/* Add other list items as needed */}
-			<TouchableOpacity onPress={handleDeleteAccount} style={styles.listItem}>
-				{/* Add the "Delete Account" button */}
-				<Ionicons
-					name="trash-outline"
-					size={24}
-					color="red"
-					style={styles.icon}
-				/>
-				<Text style={styles.listItemText}>Delete Account</Text>
-			</TouchableOpacity>
+
+			{showDelete && (
+				<TouchableOpacity onPress={handleDeleteAccount} style={styles.listItem}>
+					{/* Add the "Delete Account" button */}
+					<Ionicons
+						name="trash-outline"
+						size={24}
+						color="red"
+						style={styles.icon}
+					/>
+					<Text style={styles.listItemText}>Delete Account</Text>
+				</TouchableOpacity>
+			)}
 
 			<Pressable onPress={handleSignOut} style={styles.logoutButton}>
 				<Text style={styles.logoutButtonText}>Logout</Text>
 			</Pressable>
+			<TouchableOpacity
+				onPress={() => handleShowDelete()}
+				style={styles.moreOptions}
+			>
+				<Text>More Options</Text>
+			</TouchableOpacity>
 		</View>
 	);
 };
@@ -155,6 +169,10 @@ const styles = StyleSheet.create({
 		color: "white",
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+
+	moreOptions: {
+		paddingTop: 40,
 	},
 });
 

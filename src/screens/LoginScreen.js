@@ -9,6 +9,7 @@ import {
 	TouchableOpacity,
 	Platform,
 	KeyboardAvoidingView,
+	ScrollView,
 } from "react-native";
 import colors from "../utils/styles/appStyles";
 import { AuthContext } from "../context/authContext";
@@ -149,7 +150,7 @@ const styles = StyleSheet.create({
 	},
 	input: {
 		borderWidth: 1,
-		borderColor: colors.lightGray,
+		borderColor: "gray",
 		borderRadius: 12, // Increased border radius
 		padding: 14, // Increased padding
 		backgroundColor: colors.inputBackground,

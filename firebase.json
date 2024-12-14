@@ -31,11 +31,17 @@
     "singleProjectMode": true
   },
   "hosting": {
-    "public": "web-app/scervWeb/build",
+    "public": "build",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ]
   }
 }

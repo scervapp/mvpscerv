@@ -1,6 +1,6 @@
 {
   "name": "scervmvp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
@@ -15,7 +15,7 @@
     "@react-navigation/bottom-tabs": "^7.0.0",
     "@react-navigation/native": "^7.0.0",
     "@stripe/stripe-react-native": "0.38.6",
-    "eas-cli": "^12.6.2",
+    "eas-cli": "^13.4.2",
     "expo": "^52.0.7",
     "expo-av": "~15.0.1",
     "expo-constants": "~17.0.3",

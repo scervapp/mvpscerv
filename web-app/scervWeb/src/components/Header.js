@@ -1,11 +1,12 @@
 import React from "react";
+import logo from "../scerv_logo.png";
 
 const Header = () => {
 	return (
 		<header className="header">
 			<div className="container">
 				{/* Use a container for layout */}
-				<img src="../../scerv_logo.png" alt="Scerv Logo" className="logo" />
+				<img src={logo} alt="Scerv Logo" className="logo" />
 				{/* Replace with your logo path */}
 				<nav>
 					{/* Navigation links */}

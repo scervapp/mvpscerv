@@ -2,7 +2,7 @@
   "expo": {
     "name": "scerv",
     "slug": "scerv",
-    "version": "0.0.14",
+    "version": "0.0.15",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,8 +20,9 @@
       "bundleIdentifier": "com.scerv.app"
     },
     "android": {
+      "versionCode": 4,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.scerv.dine"
