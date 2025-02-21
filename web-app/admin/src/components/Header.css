@@ -1,0 +1,78 @@
+/* web-app/admin/src/components/Header.css */
+.header {
+  background-color: #333; /* Dark background */
+  color: white;
+  padding: 10px 0; /* Add some vertical padding */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); /* Add a subtle shadow */
+  position: sticky; /* Make the header sticky */
+  top: 0;          /* Stick to the top */
+  z-index: 100;    /* Ensure it's above other content */
+}
+
+.header-container {
+  max-width: 1200px; /* Limit the width on larger screens */
+  margin: 0 auto;     /* Center the content */
+  display: flex;       /* Use flexbox for layout */
+  justify-content: space-between; /* Space between logo and nav */
+  align-items: center;   /* Vertically center items */
+  padding: 0 20px;     /* Add horizontal padding */
+}
+
+.logo {
+  font-size: 1.5em;
+  font-weight: bold;
+  color: white;
+  text-decoration: none; /* Remove underline from link */
+}
+
+.nav-list {
+  list-style: none; /* Remove bullet points */
+  padding: 0;
+  margin: 0;
+  display: flex; /* Horizontal layout for nav items */
+}
+
+.nav-list li {
+  margin-left: 20px; /* Space out the links */
+}
+
+.nav-list a {
+  color: white;
+  text-decoration: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease; /* Smooth transition for hover */
+}
+
+.nav-list a:hover {
+  background-color: #555; /* Darker background on hover */
+}
+
+.nav-list a.active {
+  background-color: #007bff; /* Highlight the active link */
+  color: white;
+}
+.logo-image {
+  height: 30px; /* Adjust as needed based on your logo's aspect ratio */
+  width: auto;  /* Maintain aspect ratio */
+  vertical-align: middle; /* Align the logo vertically with the text */
+  /* Add any other styling you need for the logo, like margin */
+}
+/* Basic Responsiveness (for smaller screens) */
+@media (max-width: 768px) {
+  .header-container {
+      flex-direction: column; /* Stack logo and nav vertically */
+      align-items: stretch;   /* Stretch items to full width */
+  }
+
+  .nav-list {
+      flex-direction: column; /* Stack nav items vertically */
+      text-align: center;
+      width: 100%;
+  }
+
+  .nav-list li {
+      margin-left: 0; /* Remove left margin */
+      margin-bottom: 5px;
+  }
+}

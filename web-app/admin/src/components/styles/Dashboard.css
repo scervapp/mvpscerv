@@ -1,0 +1,70 @@
+/* web-app/admin/src/components/Dashboard.css */
+.dashboard-container {
+    font-family: sans-serif;
+    padding: 20px;
+    max-width: 800px; /* Or whatever width you prefer */
+    margin: 0 auto;
+}
+
+.dashboard-container h1 {
+    margin-bottom: 10px;
+}
+
+.dashboard-section {
+    margin-bottom: 20px;
+    border: 1px solid #ddd;
+    padding: 15px;
+    border-radius: 4px;
+}
+
+.dashboard-section h2 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+}
+
+.dashboard-button {
+    background-color: #007bff; /* Blue */
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 10px;
+    text-decoration: none; /* Remove underline from links */
+    display: inline-block; /* For consistent spacing */
+}
+.dashboard-button:hover{
+    background-color: #0056b3;
+}
+
+.dashboard-stats {
+    display: flex;
+    justify-content: space-between; /* Distribute stats evenly */
+}
+
+.dashboard-stat {
+    flex: 1; /* Each stat takes equal width */
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.dashboard-stat h3 {
+    margin-top: 0;
+    margin-bottom: 5px; /* Reduce bottom margin */
+}
+
+/* Style for the large count */
+.stat-count {
+    font-size: 36px; /* Make the count very large */
+    font-weight: bold;
+    color: #007bff; /* Use a prominent color */
+    margin: 0; /* Remove any default margins */
+}
+
+.error {
+    color: red;
+}
