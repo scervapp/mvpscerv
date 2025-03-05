@@ -1,85 +1,62 @@
 import React from "react";
 
-import logo from "../src/scerv_logo.png";
-import googlebadge from "../src/google-play-badge-logo.svg";
-import appstorebadge from "../src/app-store-badge.svg";
-
+import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
+import { ThemeProvider } from "styled-components";
 import "./App.css";
 import Header from "./components/Header";
+import theme from "./styles/theme";
+import Hero from "./components/Hero";
+import FeaturesRestaurants from "./components/FeaturesRestaurants.";
+import GlobalStyle from "./styles/globalStyles";
+import Footer from "./components/Footer";
+import CallToAction from "./components/CallToAction";
+import Testimonials from "./components/Testimonials";
+import FeaturesCustomers from "./components/FeaturesCustomers";
+import RequestDemo from "./components/RequestDemo";
+import TermsOfService from "./components/TermsOfService";
+import PrivacyPolicy from "./components/PrivacyPolicy";
+import ContactUs from "./components/ContactUs";
+import Pricing from "./components/Pricing";
 
 const App = () => {
 	return (
-		<div
-			style={{
-				fontFamily: "Poppins, sans-serif",
-				margin: 0,
-				backgroundColor: "#f8f8f8",
-				display: "flex",
-				flexDirection: "column", // Add flexDirection: 'column'
-				justifyContent: "center",
-				alignItems: "center",
-				minHeight: "100vh",
-				textAlign: "center",
-			}}
-		>
-			{" "}
-			{/* Inline styles added here */}
-			<img
-				src={logo}
-				alt="Scerv Logo"
-				style={{
-					width: 115,
+		<ThemeProvider theme={theme}>
+			<Router>
+				<GlobalStyle />
+				<div
+					style={{
+						display: "flex",
+						flexDirection: "column",
+						minHeight: "100vh",
+					}}
+				>
+					<Header />
+					<main style={{ flexGrow: 1 }}>
+						<div>
+							<Routes>
+								<Route
+									path="/"
+									element={
+										<>
+											<Hero />
+											<FeaturesRestaurants />
 
-					marginBottom: 20,
-				}}
-			/>
-			<h1
-				style={{
-					fontSize: 36,
-					fontWeight: 700,
-					color: "#333",
-					marginBottom: 10,
-				}}
-			>
-				Scerv
-			</h1>
-			<p
-				style={{
-					fontSize: 20,
-					color: "#666",
-					marginBottom: 30,
-				}}
-			>
-				The Future of Dining
-			</p>
-			<p
-				style={{
-					fontSize: 24,
-					color: "#007bff",
-					marginBottom: 20,
-				}}
-			>
-				Coming Soon!
-			</p>
-			<div
-				style={{
-					display: "flex",
-					justifyContent: "center",
-					gap: 20,
-				}}
-			>
-				<img
-					src={appstorebadge}
-					alt="Download on the App Store"
-					style={{ width: 80 }}
-				/>
-				<img
-					src={googlebadge}
-					alt="Get it on Google Play"
-					style={{ width: 150 }}
-				/>
-			</div>
-		</div>
+											<CallToAction />
+										</>
+									}
+								/>
+								<Route path="/request-demo" element={<RequestDemo />} />
+								<Route path="/terms-of-service" element={<TermsOfService />} />
+								<Route path="/privacy-policy" element={<PrivacyPolicy />} />
+								<Route path="/contact" element={<ContactUs />} />
+								<Route path="/pricing" element={<Pricing />} />
+							</Routes>
+						</div>
+					</main>
+					<Footer />
+				</div>
+			</Router>
+		</ThemeProvider>
 	);
 };
 
