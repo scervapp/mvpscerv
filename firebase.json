@@ -30,8 +30,11 @@
     },
     "singleProjectMode": true
   },
-  "hosting": {
-    "public": "build",
+  "hosting": [
+    {
+      "target": "admin-scerv-com",
+
+    "public": "web-app/admin/build",
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -43,5 +46,17 @@
         "destination": "/index.html"
       }
     ]
+  },
+  {
+    "target": "scervmvp",
+    "public": "web-app/scervWeb/build",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
   }
+]
 }

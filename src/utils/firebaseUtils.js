@@ -130,6 +130,8 @@ export const fetchEmployees = async (restaurantId) => {
 			...doc.data(),
 		}));
 
+		console.log("Fetched Employees", fetchedEmployees);
+
 		return fetchedEmployees;
 	} catch (error) {
 		console.error("Error fetching employees:", error);

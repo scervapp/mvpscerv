@@ -1,5 +1,22 @@
 {
   "projects": {
     "default": "scervmvp"
-  }
+  },
+  "targets": {
+    "scervmvp": {
+      "hosting": {
+        "admin-scerv-com": [
+          "admin-scerv-com"
+        ],
+        "scerv-com": [
+          "scerv-com"
+        ],
+        "scervmvp": [
+          "scervmvp"
+        ]
+      }
+    }
+  },
+  "etags": {},
+  "dataconnectEmulatorConfig": {}
 }

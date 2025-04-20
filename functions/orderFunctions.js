@@ -106,6 +106,23 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 				"Invalid data provided"
 			);
 		}
+
+		let platformFeeShouldBeWaived = false;
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const restaurantSnapshot = await restaurantRef.get();
+		if (!restaurantSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found");
+		} else {
+			const restaurantData = restaurantSnapshot.data();
+
+			if (restaurantData.waivePlatformFee) {
+				platformFeeShouldBeWaived = true;
+				console.log(
+					`Platform fee waived for restaurant ${restaurantId} based on settings.`
+				);
+			}
+		}
+
 		// 2. Generate OrderId
 		const orderId = await generateOrderId(restaurantId, userId);
 		//3. Create the order document
@@ -124,6 +141,7 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 			fee,
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			restaurantId,
+			platformFeeWaived: platformFeeShouldBeWaived,
 		});
 
 		const tableRef = await db
@@ -140,5 +158,125 @@ exports.createOrder = functions.https.onCall(async (data, context) => {
 	} catch (error) {
 		console.error("Error creating order: ", error);
 		throw new functions.https.HttpsError("Internal Error", error.message);
+	}
+});
+
+// Renamed and Modified Function
+exports.createPendingOrder = functions.https.onCall(async (data, context) => {
+	const {
+		userId,
+		restaurantId,
+		table,
+		items,
+		// No totalPrice, tax from client needed here
+		server,
+		gratuity, // Pre-calculated gratuity (cents)
+		subtotal, // Pre-calculated subtotal after discounts (cents)
+		fee, // Pre-calculated potential platform fee (cents)
+		originalSubtotal, // Optional: store pre-discount total
+		totalDiscount, // Optional: store total discount
+	} = data;
+
+	try {
+		// Input validation
+		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User not authenticated"
+			);
+		}
+		if (
+			!restaurantId ||
+			!items ||
+			!Array.isArray(items) ||
+			items.length === 0
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Invalid data provided (restaurantId, items)"
+			);
+		}
+		if (
+			typeof subtotal !== "number" ||
+			typeof gratuity !== "number" ||
+			typeof fee !== "number"
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Subtotal, gratuity, and fee must be numbers."
+			);
+		}
+
+		// Determine waiver status (same as before)
+		let platformFeeShouldBeWaived = false;
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const restaurantSnapshot = await restaurantRef.get();
+		if (!restaurantSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found");
+		} else {
+			const restaurantData = restaurantSnapshot.data();
+			if (restaurantData.waivePlatformFee === true) {
+				// Use your actual field name
+				platformFeeShouldBeWaived = true;
+			}
+		}
+
+		// Generate OrderId
+		const generatedOrderId = await generateOrderId(restaurantId, userId);
+
+		// Create the *pending* order document
+		const orderData = {
+			orderId: generatedOrderId, // Your human-readable ID
+			customerId: userId,
+			restaurantId,
+			table,
+			items,
+			server,
+			gratuity, // Store pre-calculated gratuity
+			subtotal, // Store pre-calculated subtotal
+			fee, // Store potential platform fee
+			platformFeeWaived: platformFeeShouldBeWaived,
+			// --- Set initial status ---
+			orderStatus: "pending_payment",
+			paymentStatus: "pending",
+			// --- Initialize financial fields to be updated by webhook ---
+			totalPrice: 0, // Final total charged by Stripe
+			taxActual: 0, // Actual tax calculated by Stripe
+			stripeFeeActual: 0, // Actual Stripe processing fee
+			platformFeeActual: 0, // Actual platform fee collected
+			// --- Store optional calculation inputs if needed ---
+			// originalSubtotal: originalSubtotal || 0,
+			// totalDiscount: totalDiscount || 0,
+			// --- Timestamp ---
+			timestamp: admin.firestore.FieldValue.serverTimestamp(),
+			// Add other initial fields as needed
+		};
+
+		console.log(
+			`Creating pending order document for orderId: ${generatedOrderId}`
+		);
+		const orderDocRef = await db.collection("orders").add(orderData); // Use add() to get auto-ID
+		console.log(
+			`Pending order document created with Firestore ID: ${orderDocRef.id}`
+		);
+
+		// --- DO NOT UPDATE TABLE STATUS HERE ---
+
+		// Return the IDs needed by the client
+		return {
+			success: true,
+			orderId: generatedOrderId, // Your generated ID (e.g., 5-...)
+			firestoreDocId: orderDocRef.id, // The unique Firestore document ID
+		};
+	} catch (error) {
+		console.error("Error creating pending order: ", error);
+		if (error.code && error.httpErrorCode) {
+			throw error;
+		} // Re-throw HttpsErrors
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to create pending order.",
+			error.message
+		);
 	}
 });

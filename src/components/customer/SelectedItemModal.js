@@ -31,80 +31,84 @@ const SelectedItemModal = ({
 		<Modal visible={visible} animationType="fade" onRequestClose={onClose}>
 			<View style={styles.modalContainer}>
 				<View style={styles.modalContent}>
-					{/* Item Details */}
-					<View style={styles.itemDetailsContainer}>
-						<Text style={styles.itemName}>{selectedItem?.name}</Text>
-						{selectedItem?.description && (
-							<Text style={styles.itemDescription}>
-								{selectedItem?.description}
-							</Text>
-						)}
-						<Text style={styles.itemPrice}>${selectedItem?.price}</Text>
-					</View>
-
-					<Divider style={styles.divider} />
-
-					{/* PIP Selection */}
-					<View style={styles.pipSelectionContainer}>
-						<View style={styles.sectionHeader}>
-							<Text style={styles.sectionTitle}>Choose who gets this:</Text>
-							{/* Help Icon */}
-							<TouchableOpacity
-								onPress={() => setHelpTextVisible(!helpTextVisible)}
-							>
-								<Ionicons name="help-circle-outline" size={20} color="gray" />
-							</TouchableOpacity>
+					<ScrollView
+						showsVerticalScrollIndicator={false}
+						contentContainerStyle={styles.scrollContainer}
+					>
+						{/* Item Details */}
+						<View style={styles.itemDetailsContainer}>
+							<Text style={styles.itemName}>{selectedItem?.name}</Text>
+							{selectedItem?.description && (
+								<Text style={styles.itemDescription}>
+									{selectedItem?.description}
+								</Text>
+							)}
+							<Text style={styles.itemPrice}>${selectedItem?.price}</Text>
 						</View>
 
-						{/* Help Text (conditionally rendered) */}
-						{helpTextVisible && (
-							<Text style={styles.helpText}>
-								Not sure what PIPs are? They let you assign items to people in
-								your party! Tap "Manage PIPS" to add or edit them.
-							</Text>
-						)}
+						<Divider style={styles.divider} />
 
-						{/* Add a button to navigate to the PIPS screen */}
-						<TouchableOpacity
-							onPress={() => {
-								onClose();
-								navigation.navigate("AccountScreen", {
-									screen: "PipScreenInner",
-								}); // Then navigate to the PIPS screen
-							}}
-							style={styles.addPipButton}
-						>
-							<Text style={styles.addPipButtonText}>Manage PIPS</Text>
-						</TouchableOpacity>
-
-						{pips.length > 0 ? (
-							pips.map((pip) => (
+						{/* PIP Selection */}
+						<View style={styles.pipSelectionContainer}>
+							<View style={styles.sectionHeader}>
+								<Text style={styles.sectionTitle}>Choose who gets this:</Text>
+								{/* Help Icon */}
 								<TouchableOpacity
-									key={pip.id}
-									style={styles.pipCheckbox}
-									onPress={() => handlePIPSelection(pip.id)}
+									onPress={() => setHelpTextVisible(!helpTextVisible)}
 								>
-									<Checkbox
-										status={
-											selectedPIPs.some(
-												(selectedPip) => selectedPip.id === pip.id
-											)
-												? "checked"
-												: "unchecked"
-										}
-										onPress={() => handlePIPSelection(pip.id)}
-										color={colors.primary}
-									/>
-									<Text style={styles.pipName}>{pip.name}</Text>
+									<Ionicons name="help-circle-outline" size={20} color="gray" />
 								</TouchableOpacity>
-							))
-						) : (
-							<Text style={styles.noPipsText}>No PIPS found.</Text>
-						)}
-					</View>
+							</View>
 
-					<Divider style={styles.divider} />
+							{/* Help Text (conditionally rendered) */}
+							{helpTextVisible && (
+								<Text style={styles.helpText}>
+									Not sure what PIPs are? They let you assign items to people in
+									your party! Tap "Manage PIPS" to add or edit them.
+								</Text>
+							)}
 
+							{/* Add a button to navigate to the PIPS screen */}
+							<TouchableOpacity
+								onPress={() => {
+									onClose();
+									navigation.navigate("AccountScreen", {
+										screen: "PipScreenInner",
+									}); // Then navigate to the PIPS screen
+								}}
+								style={styles.addPipButton}
+							>
+								<Text style={styles.addPipButtonText}>Manage PIPS</Text>
+							</TouchableOpacity>
+
+							{pips.length > 0 ? (
+								pips.map((pip) => (
+									<TouchableOpacity
+										key={pip.id}
+										style={styles.pipCheckbox}
+										onPress={() => handlePIPSelection(pip.id)}
+									>
+										<Checkbox
+											status={
+												selectedPIPs.some(
+													(selectedPip) => selectedPip.id === pip.id
+												)
+													? "checked"
+													: "unchecked"
+											}
+											onPress={() => handlePIPSelection(pip.id)}
+											color={colors.primary}
+										/>
+										<Text style={styles.pipName}>{pip.name}</Text>
+									</TouchableOpacity>
+								))
+							) : (
+								<Text style={styles.noPipsText}>No PIPS found.</Text>
+							)}
+						</View>
+
+						<Divider style={styles.divider} />
+					</ScrollView>
 					{/* Buttons */}
 					<View style={styles.buttonContainer}>
 						<TouchableOpacity onPress={onClose} style={styles.cancelButton}>
@@ -124,6 +128,9 @@ const SelectedItemModal = ({
 };
 
 const styles = StyleSheet.create({
+	scrollContainer: {
+		paddingBottom: 20, // Prevent content from getting too close to the bottom
+	},
 	modalContainer: {
 		flex: 1,
 		justifyContent: "center",

@@ -85,7 +85,7 @@ const BackOfficeAccess = ({ navigation }) => {
 								"restaurants",
 								currentUserData.uid
 							);
-							await updateDoc(restaurantDocRef, { backofficePin: null }); // Clear the PIN in Firestore
+							await updateDoc(restaurantDocRef, { backOfficePin: null }); // Clear the PIN in Firestore
 							setIsSettingPin(true); // Show the PIN setting UI
 						} catch (error) {
 							console.error("Error resetting PIN:", error);

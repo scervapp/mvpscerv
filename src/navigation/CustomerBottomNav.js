@@ -135,14 +135,6 @@ const AccountScreenStack = () => (
 				headerLeft: () => <BackButton />,
 			}}
 		/>
-		<Stack.Screen
-			name="OrderConfirmation"
-			component={OrderConfirmationScreen}
-			options={{
-				headerTitle: "Order Confirmation",
-				headerLeft: () => <BackButton />,
-			}}
-		/>
 	</Stack.Navigator>
 );
 

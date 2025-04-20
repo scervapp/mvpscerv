@@ -96,6 +96,7 @@ const BasketScreen = ({ route, navigation }) => {
 			overallTotal: parseFloat(overallTotal.toFixed(2)),
 			overallConfirmedTotal: parseFloat(overallConfirmedTotal.toFixed(2)),
 			overallUnconfirmedTotal: parseFloat(overallUnconfirmedTotal.toFixed(2)),
+			totalWithTax: parseFloat((overallConfirmedTotal + tax).toFixed(2)),
 		};
 	};
 
@@ -106,6 +107,7 @@ const BasketScreen = ({ route, navigation }) => {
 		overallTotal,
 		overallConfirmedTotal,
 		overallUnconfirmedTotal,
+		totalWithTax,
 	} = calculateTotals();
 
 	const handleSendToChefsQ = async () => {
@@ -372,7 +374,7 @@ const BasketScreen = ({ route, navigation }) => {
 							)}
 							{overallConfirmedTotal > 0 && <Text>Tax: ${tax.toFixed(2)}</Text>}
 							<Text style={styles.totalPrice}>
-								Total: ${overallTotal.toFixed(2)}
+								Total: ${totalWithTax.toFixed(2)}
 							</Text>
 						</View>
 

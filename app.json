@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "scerv",
+    "name": "Scerv",
     "slug": "scerv",
     "version": "0.0.15",
     "orientation": "portrait",
@@ -12,6 +12,8 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "scheme": "scerv",
+ 
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -25,7 +27,7 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.scerv.dine"
+      "package": "com.scerv.eat"
     },
     "web": {
       "favicon": "./assets/favicon.png"

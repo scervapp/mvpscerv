@@ -31,6 +31,20 @@ const AppNavigator = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const [isLoading, setIsLoading] = useState(true);
 
+	useEffect(() => {
+		if (currentUserData !== undefined) {
+			setIsLoading(false);
+		}
+	}, [currentUserData]);
+
+	if (isLoading) {
+		return (
+			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
+
 	return (
 		<SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
 			<NavigationContainer ref={navigationRef}>

@@ -11,6 +11,7 @@ const BasketContext = createContext({
 	removeItemFromBasket: (restaurantId, basketItemId) => {},
 	clearBasket: (restaurantId) => {},
 	basketError: null,
+	loading: false,
 });
 
 export const BasketProvider = ({ children }) => {
@@ -20,54 +21,65 @@ export const BasketProvider = ({ children }) => {
 	const [checkedInStatus, setCheckedInStatus] = useState(false);
 	const [basketItems, setBasketItems] = useState([]);
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
-	const [isLoading, setIsLoading] = useState(false);
+	const [isLoading, setIsLoading] = useState(true);
 
 	// Fetch the basket for the logged in user when the component mounts
 	// Fetch basket data when the component mounts or current user changes
 	useEffect(() => {
 		let unsubscribe;
+		if (currentUser && currentUser.uid) {
+			setIsLoading(true);
+			setBasketError(null);
 
-		const fetchBasketItems = async () => {
-			if (!currentUser) {
-				setIsLoading(false);
-				return;
-			}
-
-			try {
-				const basketItemsRef = collection(db, "baskets");
-
-				const q = query(basketItemsRef, where("userId", "==", currentUser.uid));
-
-				unsubscribe = onSnapshot(q, (querySnapshot) => {
-					const items = querySnapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-
-					// Organize items into baskets by restaurantId
-					const newBaskets = {};
-					items.forEach((item) => {
-						const restaurantId = item.restaurantId;
-						if (!newBaskets[restaurantId]) {
-							newBaskets[restaurantId] = { items: [] };
-						}
-						newBaskets[restaurantId].items.push(item);
-					});
-
-					setBaskets(newBaskets);
+			const fetchBasketItems = async () => {
+				if (!currentUser) {
 					setIsLoading(false);
-				});
-			} catch (error) {
-				console.error("Error fetching basket items:", error);
-				setBasketError(error.message);
-				Alert.alert(
-					"Error",
-					"Failed to fetch your basket. Please try again later."
-				);
-			}
-		};
+					return;
+				}
 
-		fetchBasketItems();
+				try {
+					const basketItemsRef = collection(db, "baskets");
+
+					const q = query(
+						basketItemsRef,
+						where("userId", "==", currentUser.uid)
+					);
+
+					unsubscribe = onSnapshot(q, (querySnapshot) => {
+						const items = querySnapshot.docs.map((doc) => ({
+							id: doc.id,
+							...doc.data(),
+						}));
+
+						// Organize items into baskets by restaurantId
+						const newBaskets = {};
+						items.forEach((item) => {
+							const restaurantId = item.restaurantId;
+							if (!newBaskets[restaurantId]) {
+								newBaskets[restaurantId] = { items: [] };
+							}
+							newBaskets[restaurantId].items.push(item);
+						});
+
+						setBaskets(newBaskets);
+						setIsLoading(false);
+					});
+				} catch (error) {
+					console.error("Error fetching basket items:", error);
+					setBasketError(error.message);
+					Alert.alert(
+						"Error",
+						"Failed to fetch your basket. Please try again later."
+					);
+				}
+			};
+
+			fetchBasketItems();
+		} else {
+			// If current user or current user.uid is null/undefined, clear baskets
+			setBaskets({});
+			setIsLoading(false);
+		}
 
 		return () => {
 			if (unsubscribe) {

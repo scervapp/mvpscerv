@@ -1,136 +1,176 @@
-import React, { useContext, useEffect, useState } from "react";
-import {
-	View,
-	Text,
-	StyleSheet,
-	ActivityIndicator,
-	ScrollView,
-	Button,
-	TouchableOpacity,
-} from "react-native";
+import { useRoute } from "@react-navigation/native";
+import React, { useState, useEffect, useContext } from "react";
+import { db } from "../../config/firebase";
 import {
 	collection,
 	doc,
-	getDoc,
 	getDocs,
+	limit,
+	onSnapshot,
 	query,
 	where,
 } from "firebase/firestore";
-import { db } from "../../config/firebase";
-import { AuthContext } from "../../context/authContext";
-import { transformBasketData } from "../../utils/customerUtils";
 import colors from "../../utils/styles/appStyles";
+import {
+	Text,
+	View,
+	ActivityIndicator,
+	StyleSheet,
+	Button,
+} from "react-native";
+import formatCurrency from "../../utils/currencyFormatter";
 
 const OrderConfirmationScreen = ({ route, navigation }) => {
-	const { orderId } = route.params;
-	const { currentUserData } = useContext(AuthContext);
-	const [order, setOrder] = useState(null);
-	const [isLoading, setIsLoading] = useState(true);
+	const sessionId = route.params?.sessionId; // Get session ID from navigation
+	const initialStatus = route.params?.status || "unknown";
+	const orderId = route.params?.orderId;
+	const orderDocId = route.params?.orderDocId;
+
+	// --- ADD LOGGING HERE ---
+	console.log("--- OrderConfirmationScreen ---");
+	console.log("Received route.params:", JSON.stringify(route.params, null, 2)); // Log the whole params object
+	console.log("Extracted sessionId:", sessionId); // Log the extracted value
+	console.log("Initial status:", initialStatus);
+
+	const [orderDetails, setOrderDetails] = useState(null);
+	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
-	const [filteredBasketData, setFilteredBasketData] = useState([]);
-	const [expandedPIPs, setExpandedPIPs] = useState({});
+	const [currentStatus, setCurrentStatus] = useState(initialStatus);
 
 	useEffect(() => {
-		const fetchOrderDetails = async () => {
-			try {
-				const orderRef = collection(db, "orders");
-				const q = query(orderRef, where("orderId", "==", orderId));
-				const orderSnapshot = await getDocs(q);
+		// Check if we have the necessary orderId
+		if (!orderDocId) {
+			console.error(
+				"OrderConfirmationScreen: No orderId found in route params."
+			);
+			setError("Order details are missing. Cannot confirm status.");
+			setLoading(false);
+			return; // Stop if no ID
+		}
 
-				if (!orderSnapshot.empty) {
-					const orderDoc = orderSnapshot.docs[0];
-					setOrder(orderDoc.data());
+		console.log(
+			`OrderConfirmationScreen: Listening directly to order document ID: ${orderId}`
+		);
+		setLoading(true); // Start loading when listener is set up
+		setError(null); // Clear previous errors
 
-					// Transform basket data (if needed)
-					const transformedData = transformBasketData(orderDoc.data().items);
-					setFilteredBasketData(transformedData);
+		// --- Listen DIRECTLY to the order document using its ID ---
+		const orderRef = doc(db, "orders", orderDocId); // Reference the specific document
+
+		const unsubscribe = onSnapshot(
+			orderRef,
+			(docSnap) => {
+				if (docSnap.exists()) {
+					const orderData = { id: docSnap.id, ...docSnap.data() };
+					console.log("Order data received/updated via snapshot:", orderData);
+					setOrderDetails(orderData); // Update state with the latest order data
+					setLoading(false); // Stop loading once we have data
 				} else {
-					console.error("Order notr found:", orderId);
-					setError("Order not found");
+					// Document doesn't exist - this shouldn't happen if createPendingOrder worked
+					console.error(`Order document with ID ${orderId} not found.`);
+					setError("Could not find order details.");
+					setLoading(false);
 				}
-			} catch (error) {
-				console.error("Error fetching order details:", error);
-				setError(
-					error.message || "An error occurred while fetching the order details."
-				);
-			} finally {
-				setIsLoading(false);
+			},
+			(err) => {
+				// Handle listener errors
+				console.error(`Error listening to order ${orderId} snapshot:`, err);
+				setError("Error fetching real-time order status.");
+				setLoading(false);
 			}
+		);
+		// --- End Firestore Listener ---
+
+		// Cleanup function to stop listening when the component unmounts
+		return () => {
+			console.log(
+				`OrderConfirmationScreen: Unsubscribing from order listener for ${orderId}`
+			);
+			unsubscribe();
 		};
+	}, [orderId]); // Dependency array: Re-run ONLY if orderId changes
 
-		fetchOrderDetails();
-	}, [orderId]);
+	// --- Render based on Status ---
+	const displayStatus = orderDetails?.paymentStatus || initialStatus;
 
-	const toggleExpandPIP = (personId) => {
-		setExpandedPIPs((prevExpandedPIPs) => ({
-			...prevExpandedPIPs,
-			[personId]: !prevExpandedPIPs[personId],
-		}));
-	};
+	if (loading) {
+		return (
+			<View style={styles.container}>
+				<ActivityIndicator size="large" color={colors.primary} />
+				<Text style={styles.statusText}>Loading order details...</Text>
+			</View>
+		);
+	}
 
+	if (displayStatus === "paid") {
+		return (
+			<View style={styles.container}>
+				{/* Check mark icon */}
+				<Text style={styles.successTitle}>Payment Successful!</Text>
+				<Text style={styles.detailText}>Thank you for your order.</Text>
+				{/* Use orderId from the state/prop now */}
+				<Text style={styles.detailText}>
+					Order ID: {orderDetails?.orderId || "N/A"}
+				</Text>
+				<Text style={styles.detailText}>
+					Total Paid: {formatCurrency(orderDetails?.totalPrice)}
+				</Text>
+				{/* Add button to navigate home or view full order */}
+				<Button
+					title="Back to Home"
+					onPress={() => navigation.navigate("CustomerHome")}
+				/>
+			</View>
+		);
+	}
+
+	// --- >>> NEW: Failed Status Rendering <<< ---
+	if (displayStatus === "failed") {
+		return (
+			<View style={styles.container}>
+				<MaterialCommunityIcons
+					name="alert-circle-outline"
+					size={60}
+					color={colors.danger || "red"}
+				/>
+				<Text style={styles.errorTitle}>Payment Failed</Text>
+				<Text style={styles.errorText}>
+					{orderDetails?.paymentFailureReason ||
+						"Unfortunately, your payment could not be processed."}
+				</Text>
+				{/* Optionally show decline code: {orderDetails?.paymentFailureCode} */}
+				<View style={styles.buttonContainer}>
+					{/* Navigate back to Checkout allowing user to try again */}
+					<Button title="Try Again" onPress={() => navigation.goBack()} />
+					<Button
+						title="Go Home"
+						onPress={() => navigation.navigate("CustomerHome")}
+					/>
+				</View>
+			</View>
+		);
+	}
+	// --- >>> END FAILED CASE <<< ---
+
+	if (currentStatus === "error") {
+		return (
+			<View style={styles.container}>
+				<Text style={styles.errorTitle}>Error</Text>
+				<Text style={styles.errorText}>
+					{error || "Could not retrieve order status."}
+				</Text>
+				<Button title="Go Back" onPress={() => navigation.goBack()} />
+			</View>
+		);
+	}
+
+	// Fallback / Still processing if listener is active but status isn't 'paid' or 'failed' yet
 	return (
 		<View style={styles.container}>
-			{isLoading ? (
-				<ActivityIndicator size="large" />
-			) : error ? (
-				<Text style={styles.errorText}>{error}</Text>
-			) : order ? (
-				<ScrollView>
-					<Text style={styles.heading}>Order Confirmation</Text>
-					<Text style={styles.orderId}>Order ID: {order.orderId}</Text>
-
-					{/* Order Details */}
-					{filteredBasketData.map((personData) => {
-						console.log("person data", personData);
-						const isExpanded = expandedPIPs[personData.personId] || false;
-
-						return (
-							<View key={personData.personId} style={styles.personSection}>
-								<TouchableOpacity
-									onPress={() => toggleExpandPIP(personData.personId)}
-									style={styles.personHeader}
-								>
-									<Text style={styles.personName}>{personData.pipName}</Text>
-									<Text style={styles.pipTotalPrice}>
-										${personData.totalPrice.toFixed(2)}
-									</Text>
-								</TouchableOpacity>
-
-								{isExpanded &&
-									personData.items.map((item) => (
-										<View key={item.id} style={styles.orderItem}>
-											<Text>
-												{item.dish.name} x {item.quantity}
-											</Text>
-											<Text>
-												${(item.dish.price * item.quantity).toFixed(2)}
-											</Text>
-											{/* ... you can add more details like special instructions later */}
-										</View>
-									))}
-							</View>
-						);
-					})}
-
-					<View style={styles.orderSummary}>
-						{/* <Text>Subtotal: ${order.subtotal.toFixed(2)}</Text>
-						<Text>Tax: ${order.tax.toFixed(2)}</Text>
-						<Text>Fee: ${order.fee.toFixed(2)}</Text>
-						<Text>Gratuity: ${order.gratuity.toFixed(2)}</Text>
-						<Text style={styles.totalPrice}>
-							Total: ${order.totalPrice.toFixed(2)}
-						</Text> */}
-						<Text style={styles.totalPrice}>
-							Total: ${(order.totalPrice / 100).toFixed(2)}
-						</Text>
-					</View>
-
-					<Button
-						title="Done"
-						onPress={() => navigation.navigate("CustomerDashboard")}
-					/>
-				</ScrollView>
-			) : null}
+			<ActivityIndicator size="large" color={colors.primary} />
+			<Text style={styles.statusText}>Verifying payment, please wait...</Text>
+			{/* Optionally display sessionId for debugging */}
+			{/* <Text style={styles.statusText}>Session: {sessionId}</Text> */}
 		</View>
 	);
 };
@@ -138,79 +178,38 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		padding: 16,
-		backgroundColor: colors.background, // Use your app's background color
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
+		backgroundColor: colors.background || "#f8f9fa",
 	},
-	heading: {
+	statusText: {
+		marginTop: 15,
+		fontSize: 16,
+		color: colors.text || "#495057",
+	},
+	successTitle: {
 		fontSize: 24,
 		fontWeight: "bold",
-		marginBottom: 10,
-		color: colors.primary, // Or any color that fits your design
-		textAlign: "center",
+		color: colors.success || "green",
+		marginBottom: 15,
 	},
-	orderId: {
+	errorTitle: {
+		fontSize: 24,
+		fontWeight: "bold",
+		color: colors.danger || "red",
+		marginBottom: 15,
+	},
+	detailText: {
 		fontSize: 16,
-		marginBottom: 20,
-		textAlign: "center",
-	},
-	personSection: {
-		marginBottom: 20,
-		backgroundColor: colors.lightGray, // Or a suitable light background color
-		borderRadius: 8,
-		padding: 10,
-		marginRight: 10,
-	},
-	personHeader: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
-		marginBottom: 10,
-	},
-	personName: {
-		fontSize: 18,
-		fontWeight: "bold",
-	},
-	pipTotalPrice: {
-		fontWeight: "bold",
-	},
-	orderItem: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
-		marginBottom: 5,
-		paddingHorizontal: 10,
-	},
-	dishName: {
-		fontSize: 16,
-	},
-	quantity: {
-		marginHorizontal: 5,
-	},
-	itemPrice: {
-		fontWeight: "bold",
-	},
-	specialInstructions: {
-		fontSize: 14,
-		color: "gray",
-		marginTop: 5,
-	},
-	orderSummary: {
-		marginTop: 20,
-		borderTopWidth: 1,
-		borderTopColor: colors.lightGray,
-		paddingTop: 10,
-	},
-	totalLabel: {
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	totalPrice: {
-		fontSize: 18,
-		fontWeight: "bold",
+		marginBottom: 8,
+		color: colors.textDark || "#343a40",
 	},
 	errorText: {
-		color: "red",
-		marginBottom: 10,
+		fontSize: 16,
+		color: colors.danger || "red",
+		textAlign: "center",
+		marginBottom: 15,
 	},
 });
 
