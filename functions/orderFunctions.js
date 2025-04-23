@@ -175,6 +175,7 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 		fee, // Pre-calculated potential platform fee (cents)
 		originalSubtotal, // Optional: store pre-discount total
 		totalDiscount, // Optional: store total discount
+		restaurantName,
 	} = data;
 
 	try {
@@ -229,6 +230,7 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 			orderId: generatedOrderId, // Your human-readable ID
 			customerId: userId,
 			restaurantId,
+			restaurantName,
 			table,
 			items,
 			server,

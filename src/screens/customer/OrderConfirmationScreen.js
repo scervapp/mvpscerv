@@ -1,4 +1,8 @@
-import { useRoute } from "@react-navigation/native";
+import {
+	useRoute,
+	useNavigation,
+	CommonActions,
+} from "@react-navigation/native";
 import React, { useState, useEffect, useContext } from "react";
 import { db } from "../../config/firebase";
 import {
@@ -17,25 +21,72 @@ import {
 	ActivityIndicator,
 	StyleSheet,
 	Button,
+	TouchableOpacity,
 } from "react-native";
 import formatCurrency from "../../utils/currencyFormatter";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // Or Ionicons
 
-const OrderConfirmationScreen = ({ route, navigation }) => {
-	const sessionId = route.params?.sessionId; // Get session ID from navigation
+const OrderConfirmationScreen = () => {
+	const route = useRoute();
+	const navigation = useNavigation();
+
+	const orderDocId = route.params?.orderDocId; // Get session ID from navigation
 	const initialStatus = route.params?.status || "unknown";
 	const orderId = route.params?.orderId;
-	const orderDocId = route.params?.orderDocId;
 
 	// --- ADD LOGGING HERE ---
 	console.log("--- OrderConfirmationScreen ---");
 	console.log("Received route.params:", JSON.stringify(route.params, null, 2)); // Log the whole params object
-	console.log("Extracted sessionId:", sessionId); // Log the extracted value
+	console.log("Extracted orderDocId:", orderDocId); // Log the extracted value
 	console.log("Initial status:", initialStatus);
 
 	const [orderDetails, setOrderDetails] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
 	const [currentStatus, setCurrentStatus] = useState(initialStatus);
+
+	// --- NEW: Handler to navigate home and reset stack ---
+	const handleCloseAndReset = () => {
+		console.log(
+			"OrderConfirmationScreen: Closing and resetting to CustomerHome"
+		);
+		navigation.dispatch(
+			CommonActions.reset({
+				index: 0,
+				routes: [
+					// Reset the entire navigation state to show CustomerHome (tabs)
+					// Adjust 'CustomerHome' if your root logged-in screen has a different name
+					{ name: "CustomerHome" },
+				],
+			})
+		);
+	};
+	// --- END NEW HANDLER ---
+
+	// --- Configure Header Button ---
+	useEffect(() => {
+		navigation.setOptions({
+			headerTitle:
+				orderDetails?.paymentStatus === "paid"
+					? "Order Confirmed"
+					: "Order Processing", // Dynamic title
+			headerLeft: () => null, // Keep back button hidden
+			// --- ADD 'X' BUTTON ---
+			headerRight: () => (
+				<TouchableOpacity
+					onPress={handleCloseAndReset}
+					style={{ marginRight: 15 }}
+				>
+					<MaterialCommunityIcons
+						name="close"
+						size={28}
+						color={colors.textDark || "black"}
+					/>
+				</TouchableOpacity>
+			),
+			// --- END 'X' BUTTON ---
+		});
+	}, [navigation, orderDetails?.paymentStatus]); // Update header when status changes
 
 	useEffect(() => {
 		// Check if we have the necessary orderId
@@ -116,10 +167,13 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 					Total Paid: {formatCurrency(orderDetails?.totalPrice)}
 				</Text>
 				{/* Add button to navigate home or view full order */}
-				<Button
-					title="Back to Home"
-					onPress={() => navigation.navigate("CustomerHome")}
-				/>
+				<View style={styles.doneButtonContainer}>
+					<Button
+						title="Done"
+						onPress={handleCloseAndReset}
+						color={colors.primary}
+					/>
+				</View>
 			</View>
 		);
 	}
@@ -132,19 +186,19 @@ const OrderConfirmationScreen = ({ route, navigation }) => {
 					name="alert-circle-outline"
 					size={60}
 					color={colors.danger || "red"}
+					style={styles.iconSpacing}
 				/>
 				<Text style={styles.errorTitle}>Payment Failed</Text>
 				<Text style={styles.errorText}>
 					{orderDetails?.paymentFailureReason ||
-						"Unfortunately, your payment could not be processed."}
+						"Payment could not be processed."}
 				</Text>
-				{/* Optionally show decline code: {orderDetails?.paymentFailureCode} */}
-				<View style={styles.buttonContainer}>
-					{/* Navigate back to Checkout allowing user to try again */}
-					<Button title="Try Again" onPress={() => navigation.goBack()} />
+				{/* Use headerRight 'X' button to dismiss, or keep specific buttons */}
+				<View style={styles.doneButtonContainer}>
 					<Button
-						title="Go Home"
-						onPress={() => navigation.navigate("CustomerHome")}
+						title="Close"
+						onPress={handleCloseAndReset}
+						color={colors.primary}
 					/>
 				</View>
 			</View>
@@ -187,30 +241,36 @@ const styles = StyleSheet.create({
 		marginTop: 15,
 		fontSize: 16,
 		color: colors.text || "#495057",
+		textAlign: "center",
 	},
+	iconSpacing: { marginBottom: 15 },
 	successTitle: {
 		fontSize: 24,
 		fontWeight: "bold",
 		color: colors.success || "green",
-		marginBottom: 15,
+		marginBottom: 10,
+		marginTop: 10,
 	},
 	errorTitle: {
 		fontSize: 24,
 		fontWeight: "bold",
 		color: colors.danger || "red",
-		marginBottom: 15,
+		marginBottom: 10,
+		marginTop: 10,
 	},
 	detailText: {
 		fontSize: 16,
 		marginBottom: 8,
 		color: colors.textDark || "#343a40",
+		textAlign: "center",
 	},
 	errorText: {
 		fontSize: 16,
 		color: colors.danger || "red",
 		textAlign: "center",
-		marginBottom: 15,
+		marginBottom: 20,
 	},
+	doneButtonContainer: { marginTop: 40, width: "60%" }, // Container for Done/Close button
 });
 
 export default OrderConfirmationScreen;

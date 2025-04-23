@@ -27,6 +27,7 @@ import { useStripe, StripeProvider } from "@stripe/stripe-react-native"; // <<< 
 import colors from "../../utils/styles/appStyles";
 
 import formatCurrency from "../../utils/currencyFormatter";
+import { CommonActions } from "@react-navigation/native";
 
 const CheckoutScreen = ({ route, navigation }) => {
 	const { restaurant, baskets } = route.params;
@@ -293,6 +294,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					fee: platformFee, // Use platformFee from useMemo
 					originalSubtotal: originalSubtotal, // Use value from useMemo
 					totalDiscount: totalDiscount, // Use value from useMemo
+					restaurantName: restaurant.restaurantName,
 				};
 
 				const { data: orderResult } = await createPendingOrderFunction(
@@ -467,28 +469,69 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const { error } = await presentPaymentSheet();
 
 		if (error) {
-			console.error("Payment failed via Payment Sheet:", error);
-			Alert.alert(`Payment Error: ${error.code}`, error.message);
-			setPaymentError(`Payment failed: ${error.message}`);
+			console.log("Payment Sheet presented error/cancellation:", error); // Log the full error for debugging
+
+			if (error.code === "Canceled") {
+				// User manually closed the Payment Sheet
+				console.log("Payment Sheet was canceled by the user.");
+				// No error message needed, just stop the paying indicator
+				setPaymentError(null); // Ensure no failure message is shown for simple cancel
+			} else {
+				// An actual payment error occurred (e.g., card declined)
+				console.error(
+					"Payment failed via Payment Sheet:",
+					error.code,
+					error.message
+				);
+				// Set an error message to display non-intrusively within your UI
+				setPaymentError(
+					`Payment failed: ${
+						error.localizedMessage || error.message || "Please try again."
+					}`
+				);
+				// --- Alert.alert is REMOVED ---
+			}
+			setIsPaying(false); // Payment attempt finished (failed or canceled)
+			// ** IMPORTANT: We DO NOT navigate away here. User stays on CheckoutScreen. **
+
 			// Clear pending order refs if payment fails? Maybe not, allow retry?
 		} else {
 			console.log(
 				"Payment Sheet completed successfully! Waiting for webhook confirmation."
 			);
-			Alert.alert("Payment Processing", "Your payment is processing.");
 
 			// Navigate to confirmation screen, passing the FIRESTORE DOC ID
 			const docIdToConfirm = pendingFirestoreDocIdRef.current;
 			if (!docIdToConfirm) {
 				console.error("Payment Success but Firestore Doc ID missing!");
-				// Handle error - maybe navigate home?
-				navigation.replace("CustomerHome");
+				setPaymentError(
+					"Order confirmation pending, but reference missing.  Contact support"
+				);
+				setIsPaying(false);
 				return;
 			}
-			navigation.navigate("OrderConfirmation", {
-				orderDocId: docIdToConfirm,
-				status: "processing",
-			});
+			// Reset error before navigating
+			setPaymentError(null);
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0, // Make the first route in the array the active one
+					routes: [
+						// Define the new state for THIS STACK
+						{
+							name: "OrderConfirmation", // The screen to display
+							params: {
+								// Pass necessary parameters
+								orderDocId: docIdToConfirm,
+								status: "processing", // Still indicate initial status
+								// sessionId: sessionId // Optional if needed
+							},
+						},
+						// By ONLY including OrderConfirmation, there's nothing to go back to
+						// within this specific stack navigator (e.g., CustomerDashboardStack)
+					],
+				})
+			);
+
 			pendingFirestoreDocIdRef.current = null; // Clear after navigating
 			pendingOrderIdRef.current = null;
 			// Clear basket potentially here or wait for webhook

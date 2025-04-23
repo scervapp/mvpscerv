@@ -22,6 +22,7 @@ import OrderHistoryScreen from "../screens/customer/OrderHistory";
 import { Platform, TouchableOpacity, View } from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
+import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -39,12 +40,17 @@ const defaultHeaderOptions = {
 	headerBackTitleVisible: false, // Hide default back title
 };
 
-const BackButton = ({ navigation }) => {
+const BackButton = () => {
+	const navigation = useNavigation();
 	return (
 		<TouchableOpacity
 			onPress={() => {
-				console.log("BackButtonPress");
-				navigation.goBack();
+				console.log("BackButtonPress (using hook)");
+				if (navigation.canGoBack()) {
+					navigation.goBack();
+				} else {
+					console.log("Cannot go back from this screen.");
+				}
 			}}
 		>
 			<Ionicons
@@ -83,21 +89,17 @@ const CustomerDashboardStack = () => (
 		<Stack.Screen
 			name="CheckoutScreen"
 			component={CheckoutScreen}
-			options={{ headerTitle: "Checkout", headerLeft: () => <BackButton /> }}
+			options={() => ({
+				headerTitle: "Checkout",
+			})}
 		/>
 		<Stack.Screen
 			name="OrderConfirmation"
 			component={OrderConfirmationScreen}
-		/>
-	</Stack.Navigator>
-);
-
-const CustomerProfileStack = () => (
-	<Stack.Navigator>
-		<Stack.Screen
-			options={{ headerTitle: "Profile" }}
-			name="CustomerProfileInner"
-			component={CustomerProfile}
+			option={{
+				headerTitle: "Order Confirmation",
+				headerLeft: () => null,
+			}}
 		/>
 	</Stack.Navigator>
 );
@@ -107,32 +109,54 @@ const AccountScreenStack = () => (
 		<Stack.Screen
 			name="AccountScreenInner"
 			component={AccountScreen}
-			options={({ navigation }) => ({
-				headerTitle: () => (
-					<TouchableOpacity
-						onPress={() => navigation.navigate("CustomerDashboard")}
-					>
-						<Ionicons
-							name="arrow-back"
-							size={24}
-							color="black"
-							style={{ marginLeft: 10 }}
-						/>
-					</TouchableOpacity>
-				),
-			})}
+			options={{
+				headerTitle: "Account",
+				headerLeft: () => null,
+			}}
 		/>
 		<Stack.Screen
 			name="PipsScreenInner"
 			component={PIPSListScreen}
-			options={{ headerTitle: "PIP List", headerLeft: () => <BackButton /> }}
+			options={{
+				headerTitle: "PIP's List",
+				headerLeft: () => {
+					<Ionicons
+						name="arrow-back"
+						size={24}
+						color="black"
+						style={{ marginLeft: 10 }}
+					/>;
+				},
+			}}
 		/>
 		<Stack.Screen
 			name="OrderHistoryScreenInner"
 			component={OrderHistoryScreen}
 			options={{
 				headerTitle: "Order History",
-				headerLeft: () => <BackButton />,
+				headerLeft: () => {
+					<Ionicons
+						name="arrow-back"
+						size={24}
+						color="black"
+						style={{ marginLeft: 10 }}
+					/>;
+				},
+			}}
+		/>
+		<Stack.Screen
+			name="OrderHistoryDetail" // New screen name for details
+			component={OrderHistoryDetailScreen}
+			options={{
+				headerTitle: "Order Details", // Set a title
+				headerLeft: () => {
+					<Ionicons
+						name="arrow-back"
+						size={24}
+						color="black"
+						style={{ marginLeft: 10 }}
+					/>;
+				},
 			}}
 		/>
 	</Stack.Navigator>

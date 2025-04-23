@@ -1,14 +1,15 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState, useMemo } from "react";
 import {
 	View,
 	Text,
 	StyleSheet,
 	TouchableOpacity,
-	FlatList,
+	FlatList, // Use FlatList for main scroll
 	ScrollView,
 	Alert,
 	ActivityIndicator,
-	Button,
+	SafeAreaView,
+	RefreshControl, // Add SafeAreaView, RefreshControl
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
 import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
@@ -27,598 +28,821 @@ import {
 } from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
 import { httpsCallable } from "firebase/functions";
-import { functions } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { jsx } from "react/jsx-runtime";
+import formatCurrency from "../../utils/currencyFormatter";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Use consistent icon set if possible
+import { Divider } from "react-native-elements";
+import { doc, getDoc } from "firebase/firestore";
 
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { restaurant } = route.params;
-	const { baskets, basketError, handleQuantityChange, clearBasket } =
-		useBasket(); // Access baskets from the context
-	const [filteredBasketData, setFilteredBasketData] = useState([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [showDeleteSnackbar, setShowDeleteSnackbar] = useState(false);
+	const { baskets, basketError, handleQuantityChange, updateItemStatus } =
+		useBasket(); // Ensure updateItemStatus exists in context
+	const [filteredBasketData, setFilteredBasketData] = useState([]); // For PIP display
+	const [isProcessing, setIsProcessing] = useState(false); // Combined loading state
+	const [showSnackbar, setShowSnackbar] = useState(false);
+	const [snackbarMessage, setSnackbarMessage] = useState("");
 	const { checkInStatus, checkInObj } = useCheckInStatus(
-		restaurant.uid,
-		currentUserData.uid
+		restaurant?.uid,
+		currentUserData?.uid
 	);
-	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
-	const [orderId, setOrderId] = useState("");
-	// Retrieve the basket for the current restaurant // Get the basket for the current restaurant
-	const restaurantBasket = baskets[restaurant.id] || { items: [] };
+	const [fees, setFees] = useState(0.05); // Default platform fee %
 
+	// Get basket for the current restaurant
+	const restaurantBasketItems = useMemo(() => {
+		return baskets[restaurant?.id]?.items || [];
+	}, [baskets, restaurant?.id]);
+
+	// Fetch fee config
 	useEffect(() => {
-		// Get basket items for the current restaurant
-		const restaurantBasketItems = baskets[restaurant.id]?.items || [];
+		const fetchFeeConfig = async () => {
+			try {
+				const feesDocRef = doc(db, "appConfig", "general"); // Adjust if path differs
+				const docSnap = await getDoc(feesDocRef);
+				if (docSnap.exists()) {
+					const fetchedFees = parseFloat(docSnap.data().fees);
+					if (!isNaN(fetchedFees)) setFees(fetchedFees);
+				}
+			} catch (error) {
+				console.error("Error fetching fee config:", error);
+			}
+		};
+		fetchFeeConfig();
+	}, []);
 
+	// --- Data Transformation and Totals Calculation ---
+	const {
+		subtotal, // After discounts
+		taxEstimate, // Client-side estimate
+		platformFeeEstimate, // Client-side estimate
+		grandTotalEstimate, // Client-side estimate
+		totalDiscount,
+		originalSubtotal,
+		pipDataForDisplay, // Transformed data for rendering PIPs
+	} = useMemo(() => {
+		console.log("Running totals useMemo...");
+		console.log("  Input Fees:", fees, typeof fees);
+		console.log(
+			"  Input Tax Rate:",
+			restaurant?.taxRate,
+			typeof restaurant?.taxRate
+		);
+		console.log("  Input Basket Items Count:", restaurantBasketItems?.length);
+
+		if (
+			!restaurantBasketItems ||
+			typeof fees !== "number" /* ... other guards */
+		) {
+			console.log("  Skipping calculation due to missing inputs.");
+			return {
+				/* default zeroed object */
+			};
+		}
+		let calcSubtotal = 0;
+		let calcOriginalSubtotal = 0;
+		let calcTotalDiscount = 0;
+
+		// Calculate overall totals first
+		restaurantBasketItems.forEach((item) => {
+			const originalPrice = Math.round((Number(item?.dish?.price) || 0) * 100);
+			const quantity = Number(item?.quantity) || 1;
+			calcOriginalSubtotal += originalPrice * quantity;
+			const price = item?.discount
+				? parseFloat(item.discountedPrice) * 100
+				: originalPrice;
+			calcSubtotal += Math.round(price || 0) * quantity;
+		});
+		calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
+
+		// Estimate tax and fee based on current subtotal
+		// NOTE: Tax estimate uses restaurant.taxRate, final tax calculated by Stripe Tax later
+		const calcTaxEstimate = Math.round(
+			calcSubtotal * (restaurant?.taxRate || 0)
+		);
+		const calcPlatformFeeEstimate = Math.round(calcSubtotal * fees); // Fee on pre-tax subtotal
+
+		const calcGrandTotalEstimate =
+			calcSubtotal + calcTaxEstimate + calcPlatformFeeEstimate; // Estimate BEFORE gratuity
+
+		// Transform data for PIP display
 		const transformedData = transformBasketData(restaurantBasketItems);
-		const filteredData = transformedData.filter(
-			(personData) => personData.items && personData.items.length > 0
-		);
-		// Add itemId to each basketItem in filteredData
-		const filteredDataWithIds = filteredData.map((personData) => ({
-			...personData,
-			items: personData.items.map((basketItem) => ({
-				...basketItem,
-				itemId: basketItem.id, // Add the itemId here
-			})),
-		}));
-
-		setFilteredBasketData(filteredData);
-	}, [baskets, restaurant.id]);
-
-	// Function to calculate totals and summary
-	const calculateTotals = () => {
-		const subtotal = restaurantBasket.items.reduce(
-			(total, item) => total + item.dish.price * item.quantity,
-			0
-		);
-
-		const tax = Math.round(subtotal * restaurant.taxRate * 100) / 100;
-		const overallTotal = subtotal + tax;
-
-		let overallConfirmedTotal = 0;
-		let overallUnconfirmedTotal = 0;
-
-		filteredBasketData.forEach((personData) => {
-			const confirmedSubtotal = personData.items.reduce(
-				(total, item) =>
-					item.sentToChefQ ? total + item.dish.price * item.quantity : total,
-				0
-			);
-			overallConfirmedTotal += confirmedSubtotal;
-			overallUnconfirmedTotal += personData.totalPrice;
+		const filteredData = transformedData.filter((p) => p?.items?.length > 0);
+		const calcPipDataForDisplay = filteredData.map((personData) => {
+			let pipSubtotal = 0;
+			personData.items.forEach((item) => {
+				const originalPrice = Math.round(
+					(Number(item?.dish?.price) || 0) * 100
+				);
+				const quantity = Number(item?.quantity) || 1;
+				const price = item?.discount
+					? parseFloat(item.discountedPrice) * 100
+					: originalPrice;
+				pipSubtotal += Math.round(price || 0) * quantity;
+			});
+			return { ...personData, subtotal: pipSubtotal }; // Add calculated subtotal per PIP
 		});
 
 		return {
-			subtotal: parseFloat(subtotal.toFixed(2)),
-			tax: parseFloat(tax.toFixed(2)),
-			overallTotal: parseFloat(overallTotal.toFixed(2)),
-			overallConfirmedTotal: parseFloat(overallConfirmedTotal.toFixed(2)),
-			overallUnconfirmedTotal: parseFloat(overallUnconfirmedTotal.toFixed(2)),
-			totalWithTax: parseFloat((overallConfirmedTotal + tax).toFixed(2)),
+			subtotal: calcSubtotal,
+			taxEstimate: calcTaxEstimate,
+			platformFeeEstimate: calcPlatformFeeEstimate,
+			grandTotalEstimate: calcGrandTotalEstimate,
+			totalDiscount: calcTotalDiscount,
+			originalSubtotal: calcOriginalSubtotal,
+			pipDataForDisplay: calcPipDataForDisplay,
 		};
-	};
+	}, [restaurantBasketItems, restaurant?.taxRate, fees, transformBasketData]); // Dependencies
 
-	// Call the calculateTotals function and destructure the returned values
-	const {
-		subtotal,
-		tax,
-		overallTotal,
-		overallConfirmedTotal,
-		overallUnconfirmedTotal,
-		totalWithTax,
-	} = calculateTotals();
-
+	// --- Actions ---
 	const handleSendToChefsQ = async () => {
-		if (filteredBasketData.length > 0 && checkInStatus === "ACCEPTED") {
-			try {
-				setIsLoading(true);
-				// Filter for items taht have not been sent to ChefsQ yet
-				const unsentItems = filteredBasketData.flatMap((personData) =>
-					personData.items
-						.filter((basketItem) => !basketItem.sentToChefQ)
-						.map((basketItem) => ({
-							dish: basketItem.dish,
-							quantity: basketItem.quantity,
-							specialInstructions: basketItem.specialInstructions,
-							pips: [basketItem.pip],
-							id: basketItem.id,
-						}))
-				);
-
-				// Call the sendToChefsQ Cloud Function
-				const sendToChefsQFunction = httpsCallable(functions, "sendToChefsQ");
-				const result = await sendToChefsQFunction({
-					userId: currentUserData.uid,
-					restaurantId: restaurant.id,
-					items: unsentItems,
-					server: checkInObj.server,
-					table: checkInObj.table,
-				});
-
-				if (result.data.success) {
-					// No need to clear the basket here, as we are only marking items as sent
-					// You might want to update the UI to reflect that the items have been sent
-					// For example, you could add a 'sentToChefQ' property to your basket items in the state
-					// and conditionally render a checkmark or gray them out in the UI
-				} else {
-					throw new Error(
-						result.data.error || "Failed to send order to chef's queue"
-					);
-				}
-			} catch (error) {
-				// ... (error handling)
-				console.log("Failed to send Order", error);
-			} finally {
-				setIsLoading(false);
-			}
-		} else if (checkInStatus !== "ACCEPTED") {
+		if (checkInStatus !== "ACCEPTED") {
 			Alert.alert("Not Checked In", "Please check in to place an order.");
-		} else {
+			return;
+		}
+		const unsentItems = restaurantBasketItems
+			.filter((item) => !item.sentToChefQ)
+			.map((item) => ({
+				// Map to format needed by cloud function
+				dish: item.dish, // Pass full dish object or just needed IDs/info
+				quantity: item.quantity,
+				specialInstructions: item.specialInstructions,
+				pips: [item.pip], // Assuming structure expects array
+				id: item.id, // The unique ID for this basket item instance
+			}));
+
+		if (unsentItems.length === 0) {
 			Alert.alert(
-				"Empty Basket",
-				"Please add items to your basket before placing an order."
+				"No New Items",
+				"All current basket items have already been sent."
 			);
+			return;
+		}
+
+		setIsProcessing(true);
+		setSnackbarMessage("");
+
+		try {
+			const sendToChefsQFunction = httpsCallable(functions, "sendToChefsQ");
+			const result = await sendToChefsQFunction({
+				userId: currentUserData.uid,
+				restaurantId: restaurant.id, // Use correct restaurant ID field
+				items: unsentItems,
+				server: checkInObj?.server || null,
+				table: checkInObj?.table || null,
+			});
+
+			if (result.data.success) {
+				// Update local state to mark items as sent
+				// This depends on how your useBasket context works
+				// Ideally, context handles updating the 'sentToChefQ' flag
+
+				setSnackbarMessage("Order sent to kitchen!");
+				setShowSnackbar(true);
+			} else {
+				throw new Error(result.data.error || "Failed to send order.");
+			}
+		} catch (error) {
+			console.error("Failed to send Order", error);
+			setSnackbarMessage(`Error: ${error.message || "Could not send order."}`);
+			setShowSnackbar(true);
+		} finally {
+			setIsProcessing(false);
 		}
 	};
 
-	const hasUnsentItems = () => {
-		// Get the basket for the current restaurant
-		const restaurantBasket = baskets[restaurant.id] || { items: [] };
-
-		// Check if any item in the basket has sentToChefQ set to false
-		return restaurantBasket.items.some((item) => !item.sentToChefQ);
+	const confirmRemoveItem = (item) => {
+		Alert.alert(
+			"Confirm Remove",
+			`Remove ${item.dish.name} for ${item.pip.name}?`,
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Remove",
+					onPress: () => handleQuantityChange(restaurant.id, item.id, 0), // Assumes qty 0 removes
+					style: "destructive",
+				},
+			]
+		);
 	};
 
-	// Determine if the button should be disabled and the message to display
-	const isButtonDisabled =
-		checkInStatus !== "ACCEPTED" ||
-		restaurantBasket.items.length === 0 ||
-		!hasUnsentItems() ||
-		isLoading;
+	// Memoize the check for unsent items
+	const hasUnsentItems = useMemo(() => {
+		return restaurantBasketItems.some((item) => !item.sentToChefQ);
+	}, [restaurantBasketItems]);
 
-	const buttonMessage = isButtonDisabled
-		? checkInStatus !== "ACCEPTED"
-			? "Check In to Place your Order"
-			: restaurantBasket.items.length === 0
-			? "Your basket is empty. Please add items."
-			: !hasUnsentItems()
-			? "All items have been sent to the chef's Q."
-			: "Sending Order..."
-		: "Send To Chef's Q";
+	// Memoize the condition for allowing checkout
+	// Checkout allowed ONLY IF checked in AND basket not empty AND NO items are unsent
+	const canCheckout = useMemo(() => {
+		return (
+			checkInStatus === "ACCEPTED" &&
+			restaurantBasketItems.length > 0 &&
+			!hasUnsentItems
+		);
+	}, [checkInStatus, restaurantBasketItems, hasUnsentItems]);
 
-	return (
-		<Provider>
-			<View style={styles.container}>
-				{/* Header with Restaurant Name */}
-				<View style={styles.header}>
-					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
-					{basketError && <Text style={styles.errorText}>{basketError}</Text>}
+	// Memoize the condition for allowing sending items to kitchen
+	const canSendToKitchen = useMemo(() => {
+		return checkInStatus === "ACCEPTED" && hasUnsentItems;
+	}, [checkInStatus, hasUnsentItems]);
+
+	// --- Render Functions ---
+	const renderBasketItem = ({ item: basketItem, personId }) => {
+		// Note: personId might not be needed if item object contains all info
+		const itemTotal =
+			Math.round(
+				(basketItem.discount
+					? parseFloat(basketItem.discountedPrice)
+					: basketItem.dish?.price || 0) * 100
+			) * basketItem.quantity;
+		return (
+			<View
+				key={basketItem.id}
+				style={[
+					styles.basketItemRow,
+					basketItem.sentToChefQ ? styles.sentItemVisual : {},
+				]}
+			>
+				<View style={styles.itemIconContainer}>
+					{basketItem.sentToChefQ ? (
+						<Ionicons
+							name="checkmark-circle"
+							size={22}
+							color={colors.success || "green"}
+						/>
+					) : (
+						<Ionicons
+							name="time-outline"
+							size={22}
+							color={colors.warning || "#E85D04"}
+						/> // Changed to outline version
+					)}
 				</View>
-
-				{/* Loading Indicator or Basket Content */}
-				{/* Loading Indicator or Basket Content */}
-				{isLoading ? (
-					<ActivityIndicator size="large" color={colors.primary} />
-				) : filteredBasketData.length > 0 ? (
-					<ScrollView showsVerticalScrollIndicator={false}>
-						{filteredBasketData.map((personData) => {
-							// Calculate confirmed and unconfirmed totals for this PIP
-							const confirmedSubtotal = personData.items.reduce(
-								(total, item) =>
-									item.sentToChefQ
-										? total + item.dish.price * item.quantity
-										: total, // Only consider sent items
-								0
-							);
-
-							// Calculate unconfirmed subtotal by filtering unsent items
-							const unconfirmedSubtotal = personData.items.reduce(
-								(total, item) =>
-									!item.sentToChefQ
-										? total + item.dish.price * item.quantity
-										: total, // Only consider unsent items
-								0
-							);
-
-							return (
-								<View key={personData.personId} style={styles.personSection}>
-									<Text style={styles.personName}>{personData.pipName}</Text>
-
-									{/* Items for this PIP */}
-									{personData.items
-										.sort((a, b) => b.sentToChefQ - a.sentToChefQ)
-										.map((basketItem, index) => (
-											<View
-												key={`${personData.personId}_${basketItem.dish.id}_${index}`}
-												style={styles.basketItem}
-											>
-												<View style={styles.itemInfoContainer}>
-													<Text
-														style={[
-															styles.dishName,
-															basketItem.sentToChefQ && styles.sentItem,
-														]}
-													>
-														{basketItem.dish.name} x {basketItem.quantity}
-													</Text>
-
-													{/* Quantity Controls */}
-													{!basketItem.sentToChefQ && (
-														<View style={styles.quantityControls}>
-															<TouchableOpacity
-																onPress={() => {
-																	if (basketItem.quantity === 1) {
-																		// Trigger confirmation alert
-																		Alert.alert(
-																			"Confirm Delete",
-																			`Are you sure you want to remove this item from your basket? ${basketItem.dish.name} for ${basketItem.pip.name}`,
-																			[
-																				{
-																					text: "Cancel",
-																					style: "cancel",
-																				},
-																				{
-																					text: "Delete",
-																					onPress: () =>
-																						handleQuantityChange(
-																							basketItem.id,
-																							0
-																						),
-																					style: "destructive",
-																				},
-																			]
-																		);
-																	} else {
-																		handleQuantityChange(
-																			basketItem.id,
-																			basketItem.quantity - 1
-																		);
-																	}
-																}}
-																disabled={
-																	basketItem.quantity <= 0 ||
-																	basketItem.sentToChefQ
-																}
-																style={styles.quantityButton}
-															>
-																<AntDesign
-																	name="minus"
-																	size={20}
-																	color="black"
-																/>
-															</TouchableOpacity>
-															<Text style={styles.quantity}>
-																{basketItem.quantity}
-															</Text>
-															<TouchableOpacity
-																icon="plus"
-																onPress={() =>
-																	handleQuantityChange(
-																		basketItem.id,
-																		basketItem.quantity + 1
-																	)
-																}
-																disabled={basketItem.sentToChefQ}
-															>
-																<AntDesign
-																	name="plus"
-																	size={20}
-																	color="black"
-																/>
-															</TouchableOpacity>
-														</View>
-													)}
-
-													<Text
-														style={[
-															styles.itemPrice,
-															basketItem.sentToChefQ && styles.sentItem,
-														]}
-													>
-														$
-														{(
-															basketItem.dish.price * basketItem.quantity
-														).toFixed(2)}
-													</Text>
-												</View>
-
-												{/* Special Instructions (if any) */}
-
-												<View>
-													<Text> {basketItem.itemStatus}</Text>
-												</View>
-												<View>
-													{basketItem.pip.specialInstructions && (
-														<View>
-															<Text style={styles.specialInstructions}>
-																{basketItem.pip.specialInstructions}
-															</Text>
-														</View>
-													)}
-												</View>
-											</View>
-										))}
-
-									{/* Totals for this PIP */}
-									<View style={styles.pipTotalsContainer}>
-										{unconfirmedSubtotal.toFixed(2) > 0 && (
-											<Text style={styles.pipTotalText}>
-												New Charges: ${unconfirmedSubtotal.toFixed(2)}
-											</Text>
-										)}
-
-										{confirmedSubtotal > 0 && (
-											<Text style={styles.pipTotalText}>
-												Confirmed Total: ${confirmedSubtotal.toFixed(2)}
-											</Text>
-										)}
-									</View>
-								</View>
-							);
-						})}
-
-						{/* Overall Order Summary */}
-						<View style={styles.orderSummary}>
-							{overallUnconfirmedTotal.toFixed(2) > 0 && (
-								<Text>
-									Unconfirmed New Charges: ${overallUnconfirmedTotal.toFixed(2)}
-								</Text>
-							)}
-
-							{overallConfirmedTotal > 0 && (
-								<Text>
-									Confirmed Total: ${overallConfirmedTotal.toFixed(2)}
-								</Text>
-							)}
-							{overallConfirmedTotal > 0 && <Text>Tax: ${tax.toFixed(2)}</Text>}
-							<Text style={styles.totalPrice}>
-								Total: ${totalWithTax.toFixed(2)}
-							</Text>
-						</View>
-
-						{/* Send to Chef's Q Button (Conditional Rendering) */}
-						<View style={styles.buttonContainer}>
-							{isButtonDisabled && (
-								<Text style={styles.messageText}>{buttonMessage}</Text>
-							)}
-							<Button
-								title="Send To Chef's Q"
-								mode="contained"
-								onPress={handleSendToChefsQ}
-								loading={isSendingToChefsQ}
-								disabled={isButtonDisabled}
-								style={
-									isButtonDisabled
-										? styles.sendButtonInactive
-										: styles.sendButtonActive
+				<View style={styles.itemDetails}>
+					<Text
+						style={[
+							styles.dishName,
+							basketItem.sentToChefQ && styles.sentItemText,
+						]}
+					>
+						{basketItem.dish.name}
+					</Text>
+					{basketItem.specialInstructions && (
+						<Text style={styles.specialInstructions}>
+							{basketItem.specialInstructions}
+						</Text>
+					)}
+				</View>
+				<View style={styles.itemControlsAndPrice}>
+					{!basketItem.sentToChefQ ? (
+						<View style={styles.quantityControls}>
+							<IconButton
+								icon="minus-circle-outline"
+								size={22}
+								onPress={() => {
+									const currentQuantity = basketItem.quantity;
+									if (currentQuantity === 1) {
+										Alert.alert(
+											"Confirm Remove",
+											`Remove ${basketItem.dish.name}?`,
+											[
+												{ text: "Cancel", style: "cancel" },
+												{
+													text: "Remove",
+													// --- CORRECTED CALL (2 args) ---
+													onPress: () => handleQuantityChange(basketItem.id, 0),
+													style: "destructive",
+												},
+											]
+										);
+									} else {
+										// --- CORRECTED CALL (2 args) ---
+										handleQuantityChange(basketItem.id, currentQuantity - 1);
+									}
+								}}
+								style={styles.quantityButton}
+							/>
+							<Text style={styles.quantity}>{basketItem.quantity}</Text>
+							<IconButton
+								icon="plus-circle-outline"
+								size={22}
+								onPress={() =>
+									handleQuantityChange(basketItem.id, basketItem.quantity + 1)
 								}
+								style={styles.quantityButton}
 							/>
 						</View>
-					</ScrollView>
-				) : (
-					<View style={styles.emptyBasketContainer}>
-						<Text style={styles.emptyBasketText}>Basket is empty</Text>
-					</View>
-				)}
-			</View>
-
-			{/* Checkout Button (using Portal for positioning) */}
-			<Portal>
-				<View style={styles.checkoutButtonContainer}>
-					{/* New container for FAB and text */}
-					<Text style={styles.checkoutButtonText}>Checkout and Pay</Text>
-					<FAB
-						icon={() => (
-							<FontAwesome5 name="credit-card" size={20} color="white" />
-						)}
-						style={styles.checkoutButton}
-						onPress={() =>
-							navigation.navigate("CheckoutScreen", {
-								baskets,
-								restaurant,
-							})
-						}
-						disabled={
-							!checkInStatus === "ACCEPTED" ||
-							restaurantBasket.items.length === 0
-						}
-					/>
+					) : (
+						<Text style={styles.itemQuantitySent}>x {basketItem.quantity}</Text> // Show quantity if sent
+					)}
+					<Text
+						style={[
+							styles.itemPrice,
+							basketItem.sentToChefQ && styles.sentItemText,
+						]}
+					>
+						{formatCurrency(itemTotal)}
+					</Text>
 				</View>
-			</Portal>
+			</View>
+		);
+	};
+
+	const renderPipSection = ({ item: personData }) => (
+		<View key={personData.personId} style={styles.pipSection}>
+			<Text style={styles.pipName}>{personData.pipName}</Text>
+			<FlatList
+				data={personData.items}
+				renderItem={({ item }) =>
+					renderBasketItem({ item, personId: personData.personId })
+				}
+				keyExtractor={(item) => item.id}
+				scrollEnabled={false} // Disable scroll for inner list
+			/>
+			<View style={styles.pipTotalContainer}>
+				<Text style={styles.pipTotalLabel}>
+					Subtotal for {personData.pipName}:
+				</Text>
+				<Text style={styles.pipTotalAmount}>
+					{formatCurrency(personData.subtotal)}
+				</Text>
+			</View>
+			<Divider style={styles.pipDivider} />
+		</View>
+	);
+
+	// --- Main Render ---
+	return (
+		<Provider>
+			<SafeAreaView style={styles.safeArea}>
+				<View style={styles.container}>
+					{/* Header */}
+					<Text style={styles.mainHeading}>Your Basket</Text>
+					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
+					{basketError && <Text style={styles.errorText}>{basketError}</Text>}
+
+					{/* --- NEW: Status Message Area --- */}
+					{!isProcessing &&
+						restaurantBasketItems.length > 0 && ( // Only show messages if not processing and basket has items
+							<>
+								{checkInStatus !== "ACCEPTED" && (
+									<View style={[styles.statusMessageContainer, styles.infoBox]}>
+										<MaterialCommunityIcons
+											name="information-outline"
+											size={22}
+											color={styles.infoText.color}
+										/>
+										<Text style={[styles.statusTextBase, styles.infoText]}>
+											Please ensure you are checked in at your table to send
+											items to the kitchen or checkout.
+										</Text>
+									</View>
+								)}
+								{checkInStatus === "ACCEPTED" && hasUnsentItems && (
+									<View
+										style={[styles.statusMessageContainer, styles.warningBox]}
+									>
+										<MaterialCommunityIcons
+											name="alert-circle-outline"
+											size={22}
+											color={styles.warningText.color}
+										/>
+										<Text style={[styles.statusTextBase, styles.warningText]}>
+											You have new items! Please press "Send New Items to
+											Kitchen" below before checking out.
+										</Text>
+									</View>
+								)}
+								{checkInStatus === "ACCEPTED" &&
+									!hasUnsentItems &&
+									restaurantBasketItems.length > 0 && (
+										<View
+											style={[styles.statusMessageContainer, styles.successBox]}
+										>
+											<MaterialCommunityIcons
+												name="check-circle-outline"
+												size={22}
+												color={styles.successText.color}
+											/>
+											<Text style={[styles.statusTextBase, styles.successText]}>
+												All items sent to the kitchen! Ready to checkout.
+											</Text>
+										</View>
+									)}
+							</>
+						)}
+					{/* --- END: Status Message Area --- */}
+
+					{/* Loading Indicator or Basket List */}
+					{isProcessing && restaurantBasketItems.length === 0 ? ( // Show loader only if no items AND loading
+						<View style={styles.centered}>
+							<ActivityIndicator size="large" color={colors.primary} />
+						</View>
+					) : restaurantBasketItems.length === 0 ? (
+						<View style={styles.centered}>
+							<Text style={styles.emptyText}>Your basket is empty.</Text>
+						</View>
+					) : (
+						<FlatList
+							data={pipDataForDisplay} // Use the calculated PIP data
+							renderItem={renderPipSection}
+							keyExtractor={(item) => item.personId}
+							style={styles.pipList}
+							ListFooterComponent={
+								// Put Summary and Send Button in Footer
+								<>
+									{/* Order Summary Section */}
+									<View style={styles.summarySection}>
+										<Text style={styles.summaryTitle}>Order Estimate</Text>
+										{totalDiscount > 0 && (
+											<View style={styles.summaryRow}>
+												<Text style={styles.summaryLabel}>
+													Original Subtotal:
+												</Text>
+												<Text style={styles.originalPrice}>
+													{formatCurrency(originalSubtotal)}
+												</Text>
+											</View>
+										)}
+										<View style={styles.summaryRow}>
+											<Text style={styles.summaryLabel}>Subtotal:</Text>
+											<Text style={styles.summaryAmount}>
+												{formatCurrency(subtotal)}
+											</Text>
+										</View>
+										{totalDiscount > 0 && (
+											<View style={styles.summaryRow}>
+												<Text style={styles.summaryLabel}>Discounts:</Text>
+												<Text
+													style={[styles.summaryAmount, styles.discountAmount]}
+												>
+													-{formatCurrency(totalDiscount)}
+												</Text>
+											</View>
+										)}
+										<View style={styles.summaryRow}>
+											<Text style={styles.summaryLabel}>
+												Est. Service Fee ({(fees * 100).toFixed(0)}%):
+											</Text>
+											<Text style={styles.summaryAmount}>
+												{formatCurrency(platformFeeEstimate)}
+											</Text>
+										</View>
+										<View style={styles.summaryRow}>
+											<Text style={styles.summaryLabel}>
+												Est. Tax ({(restaurant?.taxRate * 100).toFixed(2)}%):
+											</Text>
+											<Text style={styles.summaryAmount}>
+												{formatCurrency(taxEstimate)}
+											</Text>
+										</View>
+										<View style={[styles.summaryRow, styles.grandTotalRow]}>
+											<Text style={styles.grandTotalLabel}>
+												Estimated Total (Before Tip):
+											</Text>
+											<Text style={styles.grandTotalAmount}>
+												{formatCurrency(grandTotalEstimate)}
+											</Text>
+										</View>
+										<Text style={styles.disclaimerText}>
+											Final tax & total calculated at checkout. Gratuity added
+											on next screen.
+										</Text>
+									</View>
+									{/* --- Action Area --- */}
+									<View style={styles.actionContainer}>
+										{/* Contextual Message */}
+										{checkInStatus !== "ACCEPTED" &&
+											restaurantBasketItems.length > 0 && (
+												<Text style={styles.warningMessage}>
+													Please ensure you are checked in to send items or
+													checkout.
+												</Text>
+											)}
+										{checkInStatus === "ACCEPTED" && hasUnsentItems && (
+											<Text style={styles.warningMessage}>
+												Send new items to the kitchen before checking out.
+											</Text>
+										)}
+										{checkInStatus === "ACCEPTED" &&
+											!hasUnsentItems &&
+											restaurantBasketItems.length > 0 && (
+												<Text style={styles.successMessage}>
+													All items sent! Ready to checkout.
+												</Text>
+											)}
+
+										{/* Send to Kitchen Button */}
+										<TouchableOpacity
+											style={[
+												styles.sendButtonBase,
+												canSendToKitchen
+													? styles.sendButtonActive
+													: styles.sendButtonInactive,
+											]}
+											onPress={handleSendToChefsQ}
+											// Disable if not checked in, if already sending, or if nothing to send
+											disabled={!canSendToKitchen || isProcessing}
+										>
+											{isProcessing ? (
+												<ActivityIndicator color="#ffffff" size="small" />
+											) : (
+												<Text style={styles.sendButtonText}>
+													Send New Items to Kitchen
+												</Text>
+											)}
+										</TouchableOpacity>
+									</View>
+								</>
+							}
+						/>
+					)}
+				</View>
+
+				{/* Checkout FAB */}
+				<Portal>
+					{/* Show FAB if user is checked in and has items */}
+					{checkInStatus === "ACCEPTED" && restaurantBasketItems.length > 0 && (
+						<FAB
+							style={[styles.fab, !canCheckout && styles.fabDisabled]} // Apply disabled style
+							icon="credit-card-check-outline"
+							label="Checkout"
+							color={canCheckout ? colors.white : "#a0a0a0"} // Dim text color when disabled
+							onPress={() =>
+								navigation.navigate("CheckoutScreen", { restaurant, baskets })
+							}
+							visible={!isProcessing} // Hide if processing anything (like sending to kitchen)
+							disabled={!canCheckout || isProcessing} // Disable based on canCheckout logic
+						/>
+					)}
+				</Portal>
+
+				<Snackbar
+					visible={showSnackbar}
+					onDismiss={() => setShowSnackbar(false)}
+					duration={Snackbar.DURATION_SHORT} // Or DURATION_MEDIUM
+					action={{ label: "OK", onPress: () => setShowSnackbar(false) }}
+				>
+					{snackbarMessage}
+				</Snackbar>
+			</SafeAreaView>
 		</Provider>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
+	safeArea: { flex: 1, backgroundColor: colors.background || "#f8f9fa" },
+	container: { flex: 1 },
+	centered: {
 		flex: 1,
-		padding: 16,
-		backgroundColor: colors.background,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
 	},
-	header: {
-		marginBottom: 20,
+	loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+	mainHeading: {
+		fontSize: 24,
+		fontWeight: "bold",
+		textAlign: "center",
+		marginVertical: 15,
+		color: colors.textDark,
 	},
 	restaurantName: {
-		fontSize: 24,
+		fontSize: 18,
+		fontWeight: "500",
+		textAlign: "center",
+		marginBottom: 15,
+		color: colors.text,
+	},
+	errorText: {
+		color: colors.danger || "red",
+		textAlign: "center",
+		marginVertical: 10,
+	},
+	emptyText: {
+		color: colors.textLight || "#6c757d",
+		fontSize: 16,
+		textAlign: "center",
+		marginTop: 50,
+	},
+	pipList: { paddingHorizontal: 10 },
+	pipSection: {
+		marginBottom: 15,
+		backgroundColor: "#ffffff",
+		borderRadius: 8,
+		padding: 12,
+	},
+	pipName: {
+		fontSize: 17,
 		fontWeight: "bold",
 		marginBottom: 10,
 		color: colors.primary,
 	},
-	errorText: {
-		color: "red",
-		fontSize: 16,
-	},
-	emptyBasketContainer: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
-	},
-	emptyBasketText: {
-		fontSize: 18,
-		textAlign: "center",
-		color: colors.textLight,
-	},
-	personSection: {
-		marginBottom: 10,
-		backgroundColor: colors.lightGray, // Use a light background color for sections
-		borderRadius: 8,
-		padding: 10,
-		backgroundColor: "white",
-	},
-	personName: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 5,
-	},
-
-	basketItem: {
-		flexDirection: "column",
-		alignItems: "flex-start",
-		marginBottom: 5, // Reduced margin for tighter spacing
-		paddingHorizontal: 10,
-	},
-	pipTotalContainer: {
-		// New style for PIP total
-		alignSelf: "flex-end", // Align to the right
-		marginTop: 10,
-	},
-	pipTotalText: {
-		fontWeight: "bold",
-	},
-
-	itemInfoContainer: {
+	pipItemsContainer: { marginBottom: 10 },
+	basketItemRow: {
 		flexDirection: "row",
-		alignItems: "center",
-		flex: 1,
-		marginRight: 10,
 		justifyContent: "space-between",
-	},
-	dishName: {
-		fontSize: 14,
-		fontWeight: "500",
-		paddingRight: 10,
-	},
-
-	itemActionsContainer: {
-		// New style for quantity controls, price, and remove button
-		flexDirection: "row",
 		alignItems: "center",
+		paddingVertical: 8,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray || "#eee",
 	},
+	itemDetails: { flex: 1, marginRight: 10 },
+	dishName: { fontSize: 15, fontWeight: "500", color: colors.textDark },
+	specialInstructions: {
+		fontSize: 12,
+		color: colors.textLight,
+		fontStyle: "italic",
+		marginTop: 3,
+	},
+	itemControlsAndPrice: { flexDirection: "row", alignItems: "center" },
 	quantityControls: {
 		flexDirection: "row",
 		alignItems: "center",
-		marginRight: 10, // Add some spacing to the right
-		borderRadius: 8,
-		backgroundColor: colors.lightGray,
-		paddingVertical: 2,
+		marginRight: 10,
 	},
-
-	quantity: {
-		marginHorizontal: 5,
-	},
-	quantityButton: {
-		paddingHorizontal: 3,
-	},
-	itemPrice: {
-		fontWeight: "bold",
-	},
-	specialInstructions: {
-		fontSize: 14,
-		color: "red",
-	},
-
-	orderSummary: {
-		marginTop: 20,
+	quantityButton: { marginHorizontal: -5 }, // Reduce spacing around icon buttons
+	quantity: { marginHorizontal: 5, fontSize: 16, fontWeight: "500" },
+	itemPrice: { fontWeight: "bold", fontSize: 15 },
+	itemQuantitySent: { fontSize: 15, color: colors.textLight, marginRight: 10 }, // Style for 'x Qty' when sent
+	sentItemVisual: { opacity: 0.6 }, // Fade sent items slightly
+	sentItemText: { textDecorationLine: "line-through", color: colors.textLight },
+	pipTotalContainer: {
+		marginTop: 10,
+		paddingTop: 5,
 		borderTopWidth: 1,
-		borderTopColor: colors.lightGray,
-		paddingTop: 10,
+		borderTopColor: colors.lightGray || "#eee",
+		alignItems: "flex-end",
 	},
-	newItemSummary: {
-		// New style for the new item summary section
+	pipTotalLabel: { fontSize: 14, color: colors.text },
+	pipTotalAmount: { fontSize: 15, fontWeight: "bold" },
+	pipDivider: { marginTop: 5 },
+	summarySection: {
+		margin: 10,
 		marginTop: 20,
-		padding: 10,
-		borderWidth: 1,
-		borderColor: colors.lightGray,
-		borderRadius: 5,
+		padding: 15,
+		backgroundColor: "#fff",
+		borderRadius: 8,
 	},
-	sectionTitle: {
-		fontSize: 16,
-		fontWeight: "bold",
-		marginBottom: 5,
-	},
-	newItemText: {
-		// Style for individual new items
-		marginBottom: 3,
-	},
-	totalPrice: {
+	summaryTitle: {
 		fontSize: 18,
 		fontWeight: "bold",
+		marginBottom: 10,
+		color: colors.primary,
 	},
-	sendButtonActive: {
-		backgroundColor: colors.primary,
-		padding: 15, // Increase padding or remove paddingVertical if it's causing the issue
-		borderRadius: 8,
-		alignItems: "center",
-		marginVertical: 10,
-		marginBottom: 20,
+	summaryRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		paddingVertical: 4,
 	},
-	sendButtonInactive: {
-		backgroundColor: colors.gray,
+	summaryLabel: { fontSize: 15, color: colors.textDark },
+	summaryAmount: { fontSize: 15, fontWeight: "500" },
+	originalPrice: {
+		fontSize: 15,
+		textDecorationLine: "line-through",
+		color: colors.textLight,
+	},
+	discountAmount: {
+		fontSize: 15,
+		color: colors.warning || "#E85D04",
+		fontWeight: "500",
+	},
+	grandTotalRow: {
+		marginTop: 10,
+		paddingTop: 10,
+		borderTopWidth: 1.5,
+		borderTopColor: colors.primary,
+	},
+	grandTotalLabel: { fontSize: 16, fontWeight: "bold", color: colors.primary },
+	grandTotalAmount: { fontSize: 16, fontWeight: "bold", color: colors.primary },
+	disclaimerText: {
+		fontSize: 12,
+		color: colors.textLight,
+		fontStyle: "italic",
+		textAlign: "center",
+		marginTop: 10,
+	},
+	buttonContainer: { paddingHorizontal: 10, marginTop: 10, marginBottom: 80 }, // Add bottom margin to avoid FAB overlap
+	sendButtonBase: {
 		padding: 15,
 		borderRadius: 8,
 		alignItems: "center",
-		marginVertical: 10,
-		marginBottom: 5,
+		marginVertical: 5,
 	},
-	sendButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-
-	checkoutButtonContainer: {
-		flexDirection: "row",
-		alignItems: "center",
-		position: "absolute",
-		bottom: 16,
-		right: 16,
-	},
-	checkoutButton: {
-		backgroundColor: "green",
-	},
-	checkoutButtonText: {
-		marginRight: 10, // Add some spacing between text and FAB
-		fontSize: 16,
-		fontWeight: "bold",
-		color: "green", // Or any suitable color that contrasts with the background
-	},
-	checkoutButtonContent: {
-		flexDirection: "column",
-		alignItems: "center",
-		justifyContent: "center",
-		height: 80,
-	},
-	checkoutButtonLabel: {
-		marginTop: 8,
-		color: "white",
-	},
-
-	buttonContainer: {
-		marginTop: 20,
-		alignItems: "center", // Center the button and message horizontally
-	},
+	sendButtonActive: { backgroundColor: colors.primary },
+	sendButtonInactive: { backgroundColor: colors.mediumGray || "#cccccc" },
+	sendButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 	messageText: {
 		textAlign: "center",
-		marginBottom: 10,
+		marginTop: 5,
 		color: colors.textLight,
-		fontSize: 12, // Make the message text smaller
+		fontSize: 13,
+	},
+	fab: {
+		position: "absolute",
+		margin: 16,
+		right: 0,
+		bottom: 0,
+		backgroundColor: colors.success || "green",
 	},
 
-	sentItem: {
-		textDecorationLine: "line-through",
-		color: "gray", // Or any other suitable color to indicate a disabled state
+	actionContainer: {
+		// Container for messages and send button
+		paddingHorizontal: 10,
+		paddingTop: 15,
+		paddingBottom: 90, // Extra padding at bottom of list FOOTER to ensure FAB doesn't overlap button
+	},
+	warningMessage: {
+		// Style for messages telling user what to do
+		textAlign: "center",
+		marginBottom: 10,
+		color: colors.warning || "#E85D04", // Use a warning color
+		fontSize: 14,
+		fontWeight: "500",
+	},
+	successMessage: {
+		// Style for the "Ready to checkout" message
+		textAlign: "center",
+		marginBottom: 10,
+		color: colors.success || "green",
+		fontSize: 14,
+		fontWeight: "500",
+	},
+	sendButtonBase: {
+		padding: 15,
+		borderRadius: 8,
+		alignItems: "center",
+		marginVertical: 5,
+	},
+	sendButtonActive: { backgroundColor: colors.primary },
+	sendButtonInactive: { backgroundColor: colors.mediumGray || "#cccccc" },
+	sendButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
+	messageText: {
+		textAlign: "center",
+		marginTop: 5,
+		color: colors.textLight,
+		fontSize: 13,
+	}, // Keep for other messages maybe
+	fab: {
+		position: "absolute",
+		margin: 16,
+		right: 0,
+		bottom: 0,
+		backgroundColor: colors.success || "green", // Active color
+	},
+	fabDisabled: {
+		// Style to visually indicate disabled state
+		backgroundColor: colors.mediumGray || "#cccccc",
+		opacity: 0.7,
+	},
+	itemIconContainer: {
+		// Style for the new icon container
+		width: 30, // Fixed width for alignment
+		alignItems: "center",
+		justifyContent: "center",
+
+		marginRight: 8, // Space between icon and item details
+	},
+
+	statusMessageContainer: {
+		// Container for general status messages
+		paddingHorizontal: 15,
+		paddingVertical: 10,
+		marginHorizontal: 10,
+		marginBottom: 15,
+		borderRadius: 8,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	warningBox: {
+		// Specific style for the unsent items warning
+		backgroundColor: colors.warningBackground || "#FFF3CD", // Light warning color
+	},
+	successBox: {
+		// Specific style for the ready message
+		backgroundColor: colors.successBackground || "#D4EDDA", // Light success color
+	},
+	infoBox: {
+		// Style for other info messages
+		backgroundColor: colors.infoBackground || "#D1ECF1", // Light info color
+	},
+	statusTextBase: {
+		// Base text style for all messages
+		fontSize: 14,
+		marginLeft: 10,
+		flex: 1, // Allow text to wrap
+	},
+	warningText: {
+		color: colors.warningText || "#856404", // Darker warning color
+		fontWeight: "500",
+	},
+	successText: {
+		color: colors.successText || "#155724", // Darker success color
+		fontWeight: "500",
+	},
+	infoText: {
+		color: colors.infoText || "#0C5460", // Darker info color
 	},
 });
 
