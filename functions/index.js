@@ -11,6 +11,7 @@ const generateCustomToken = require("./generateCustomTokenFunction");
 const sendInvite = require("./sendInvite");
 const setAdminClaim = require("./SetAdminClaimFunction");
 const dishRatingFunction = require("./dishRatingFunction");
+const partyFunctions = require("./partyFunctions");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -53,3 +54,9 @@ exports.setAdminClaim = setAdminClaim.setAdminClaim;
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;
 exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;
+
+// Party Functions
+exports.createParty = partyFunctions.createParty;
+exports.inviteToParty = partyFunctions.inviteToParty;
+exports.joinParty = partyFunctions.joinParty;
+exports.leaveParty = partyFunctions.leaveParty;
