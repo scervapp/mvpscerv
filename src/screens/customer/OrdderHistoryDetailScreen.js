@@ -6,12 +6,16 @@ import {
 	StyleSheet,
 	ScrollView,
 	ActivityIndicator,
+	Alert,
+	TouchableOpacity,
 } from "react-native";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useRoute } from "@react-navigation/native";
+import { httpsCallable } from "firebase/functions";
+import { AirbnbRating, Rating } from "react-native-ratings";
 
 const OrderHistoryDetailScreen = () => {
 	const route = useRoute();
@@ -21,6 +25,9 @@ const OrderHistoryDetailScreen = () => {
 	const [restaurantName, setRestaurantName] = useState("Restaurant");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
+	const [ratingStates, setRatingStates] = useState({}); // State to manage loading/error per item rating
+
+	const submitDishRatingFunction = httpsCallable(functions, "submitDishRating");
 
 	// Fetch Restaurant Name (once orderDetails with restaurantId is available)
 	useEffect(() => {
@@ -62,7 +69,20 @@ const OrderHistoryDetailScreen = () => {
 			orderRef,
 			(docSnap) => {
 				if (docSnap.exists()) {
-					setOrderDetails({ id: docSnap.id, ...docSnap.data() });
+					const data = docSnap.data();
+
+					// Ensure items array exists and has the ratedByUserFlag (default is false if missing)
+					const itemWithRatingFlag = (data.items || []).map((item) => ({
+						...item,
+						ratedByUser: item.ratedByUser === true, // Convert to boolean
+					}));
+
+					setOrderDetails({
+						id: docSnap.id,
+						...data,
+						items: itemWithRatingFlag,
+					});
+					setRatingStates({});
 				} else {
 					setError("Order not found.");
 					setOrderDetails(null);
@@ -77,6 +97,74 @@ const OrderHistoryDetailScreen = () => {
 		);
 		return () => unsubscribe(); // Cleanup listener
 	}, [orderDocId]);
+
+	// --- NEW: Function to handle rating submission ---
+	const handleRatingSubmit = async (itemIndex, ratingValue) => {
+		if (
+			!orderDetails ||
+			!orderDetails.items ||
+			!orderDetails.items[itemIndex]
+		) {
+			console.error("Cannot submit rating: Order details or item missing.");
+			return;
+		}
+
+		const item = orderDetails.items[itemIndex];
+		const itemRatingKey = `${orderDocId}_${itemIndex}`; // Unique key for this item's rating state
+
+		// Set loading state for this specific item
+		setRatingStates((prev) => ({
+			...prev,
+			[itemRatingKey]: { loading: true, error: null },
+		}));
+
+		try {
+			const dataToSend = {
+				orderDocId: orderDocId,
+				dishId: item.dish.id, // Make sure dish.id exists
+				restaurantId: orderDetails.restaurantId,
+				ratingValue: ratingValue,
+				itemIndexInOrder: itemIndex, // Pass the index
+				// comment: "Optional comment here", // Add if you implement comments
+			};
+
+			console.log("Submitting rating with data:", dataToSend);
+			const result = await submitDishRatingFunction(dataToSend);
+
+			if (result.data.success) {
+				console.log("Rating submitted successfully:", result.data.ratingId);
+				// Optimistic UI Update: Mark item as rated locally
+				setOrderDetails((prevDetails) => {
+					if (!prevDetails) return null;
+					const updatedItems = [...prevDetails.items];
+					if (updatedItems[itemIndex]) {
+						// Check if item still exists
+						updatedItems[itemIndex] = {
+							...updatedItems[itemIndex],
+							ratedByUser: true,
+						};
+					}
+					return { ...prevDetails, items: updatedItems };
+				});
+				// Clear loading/error state for this item
+				setRatingStates((prev) => ({
+					...prev,
+					[itemRatingKey]: { loading: false, error: null },
+				}));
+			} else {
+				throw new Error(result.data.error || "Failed to submit rating.");
+			}
+		} catch (error) {
+			console.error("Error submitting rating:", error);
+			Alert.alert("Rating Error", error.message || "Could not submit rating.");
+			// Set error state for this specific item
+			setRatingStates((prev) => ({
+				...prev,
+				[itemRatingKey]: { loading: false, error: error.message },
+			}));
+		}
+	};
+	// --- END NEW FUNCTION ---
 
 	// --- Helper to render status ---
 	const renderStatus = () => {
@@ -154,33 +242,77 @@ const OrderHistoryDetailScreen = () => {
 			<View style={styles.section}>
 				<Text style={styles.sectionTitle}>Items Ordered</Text>
 				{orderDetails.items && orderDetails.items.length > 0 ? (
-					orderDetails.items.map((item, index) => (
-						<View
-							key={`${item.dish?.id || index}-${index}`}
-							style={styles.itemRow}
-						>
-							<View style={styles.itemDetails}>
-								<Text style={styles.itemName}>
-									{item.quantity}x {item.dish?.name || "Unknown Item"}
-								</Text>
-								{/* Add modifier display if needed */}
-								{item.specialInstructions && (
-									<Text style={styles.itemInstructions}>
-										Notes: {item.specialInstructions}
+					orderDetails.items.map((item, index) => {
+						const itemRatingKey = `${orderDocId}_${index}`; // Unique key for this item's rating}`
+						const ratingState = ratingStates[itemRatingKey] || {
+							loading: false,
+							error: null,
+						};
+
+						return (
+							<View
+								key={`${item.dish?.id || index}-${index}`}
+								style={styles.itemRow}
+							>
+								<View style={styles.itemDetails}>
+									<Text style={styles.itemName}>
+										{item.quantity}x {item.dish?.name || "Unknown Item"}
 									</Text>
+									{/* Add modifier display if needed */}
+									{item.specialInstructions && (
+										<Text style={styles.itemInstructions}>
+											Notes: {item.specialInstructions}
+										</Text>
+									)}
+								</View>
+
+								<Text style={styles.itemPrice}>
+									{formatCurrency(
+										Math.round(
+											(item.discount
+												? parseFloat(item.discountedPrice)
+												: item.dish?.price || 0) * 100
+										) * item.quantity
+									)}
+								</Text>
+
+								{/* --- Rating Section (Now INSIDE the main returned View) --- */}
+								{orderDetails.paymentStatus === "paid" && ( // Only show rating section if order is paid
+									<View style={styles.ratingSection}>
+										{ratingState.loading ? (
+											<ActivityIndicator size="small" color={colors.primary} />
+										) : ratingState.error ? (
+											<Text style={styles.ratingErrorText}>
+												Error: {ratingState.error}
+											</Text>
+										) : item.ratedByUser ? (
+											<View style={styles.alreadyRatedContainer}>
+												<MaterialCommunityIcons
+													name="star-check"
+													size={18}
+													color={colors.success || "green"}
+												/>
+												<Text style={styles.alreadyRatedText}>Rated</Text>
+											</View>
+										) : (
+											// Show AirbnbRating component if not rated and not loading/error
+											<AirbnbRating
+												count={5}
+												defaultRating={0} // Start with 0 stars
+												size={20} // Adjust size as needed
+												showRating={false} // Hide the text rating below stars
+												onFinishRating={(rating) =>
+													handleRatingSubmit(index, rating)
+												}
+												starContainerStyle={styles.ratingStars}
+											/>
+										)}
+									</View>
 								)}
+								{/* --- End Rating Section --- */}
 							</View>
-							<Text style={styles.itemPrice}>
-								{formatCurrency(
-									Math.round(
-										(item.discount
-											? parseFloat(item.discountedPrice)
-											: item.dish?.price || 0) * 100
-									) * item.quantity
-								)}
-							</Text>
-						</View>
-					))
+						);
+					})
 				) : (
 					<Text style={styles.noDataText}>No items found for this order.</Text>
 				)}
@@ -425,6 +557,40 @@ const styles = StyleSheet.create({
 		fontSize: 17,
 		fontWeight: "bold",
 		color: colors.primary || "#0056b3",
+	},
+
+	// --- Rating Styles ---
+	ratingSection: {
+		marginTop: 4, // Space between item details and rating
+		alignItems: "flex-start", // Align stars to the left
+		minHeight: 30, // Ensure space even when loading/rated
+		justifyContent: "center",
+	},
+	ratingStars: {
+		// Style the container of the stars if needed (e.g., padding)
+		// paddingVertical: 5,
+	},
+	alreadyRatedContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingLeft: 5, // Indent slightly
+	},
+	alreadyRatedText: {
+		marginLeft: 5,
+		color: colors.success || "green",
+		fontSize: 14,
+		fontStyle: "italic",
+	},
+	ratingErrorText: {
+		color: colors.danger || "red",
+		fontSize: 13,
+		fontStyle: "italic",
+		paddingLeft: 5,
+	},
+	itemContainer: {
+		paddingVertical: 6,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray || "#f0f0f0",
 	},
 });
 

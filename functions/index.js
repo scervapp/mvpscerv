@@ -10,6 +10,7 @@ const stripeOnboardingFunctions = require("./stripeOnboardingFunctions");
 const generateCustomToken = require("./generateCustomTokenFunction");
 const sendInvite = require("./sendInvite");
 const setAdminClaim = require("./SetAdminClaimFunction");
+const dishRatingFunction = require("./dishRatingFunction");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -49,3 +50,6 @@ exports.generateCustomToken = generateCustomToken.generateCustomToken;
 exports.sendInvite = sendInvite.sendInvite;
 exports.setAdminClaim = setAdminClaim.setAdminClaim;
 
+// Dish ratings
+exports.submitDishRating = dishRatingFunction.submitDishRating;
+exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;

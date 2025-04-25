@@ -13,7 +13,7 @@ import {
 	TouchableOpacity,
 } from "react-native";
 import { httpsCallable } from "firebase/functions";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { functions, db } from "../../config/firebase"; // Your Firebase config
 import { AuthContext } from "../../context/authContext";
 import { Picker } from "@react-native-picker/picker";
@@ -262,7 +262,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 			!stripePublishableKey ||
 			!currentUserData?.uid ||
 			!restaurant?.uid ||
-			amountBeforeTax <= 0
+			amountBeforeTax <= 0 ||
+			!checkInObj
 		) {
 			setIsPaymentSheetReady(false); // Ensure not ready if inputs missing
 			return;
@@ -283,11 +284,28 @@ const CheckoutScreen = ({ route, navigation }) => {
 					"createPendingOrder"
 				);
 
+				// --- MODIFICATION START ---
+				// Map basket items to include category
+				const itemsWithCategory = restaurantBasketItems.map((item) => ({
+					...item, // Keep existing item data
+					dish: {
+						// Ensure the dish object is included correctly
+						...item.dish,
+						category: item.dish?.category || "Uncategorized", // Add category, provide default
+					},
+				}));
+
+				// Get the check-in timestamp (adjust field name 'checkInTime' if needed)
+				const checkInTimestamp =
+					checkInObj?.checkInTime instanceof Timestamp
+						? checkInObj.checkInTime
+						: null; // Or Timestamp.now() as a fallback? Decide your logic.
+
 				const orderInputData = {
 					userId: currentUserData.uid,
 					restaurantId: restaurant.uid,
 					table: checkInObj.table || null, // Get table from checkInObj
-					items: restaurantBasketItems, // Use memoized items
+					items: itemsWithCategory, // Use memoized items
 					server: checkInObj.server || null, // Get server from checkInObj
 					gratuity: gratuity, // Use gratuity from useMemo
 					subtotal: subtotal, // Use subtotal from useMemo
@@ -295,6 +313,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					originalSubtotal: originalSubtotal, // Use value from useMemo
 					totalDiscount: totalDiscount, // Use value from useMemo
 					restaurantName: restaurant.restaurantName,
+					checkInTimestamp: checkInTimestamp,
 				};
 
 				const { data: orderResult } = await createPendingOrderFunction(
