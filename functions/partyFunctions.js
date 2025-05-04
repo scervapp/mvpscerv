@@ -109,21 +109,24 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 	try {
 		// 3. Get Party and Verify Host
 		const partySnap = await partyRef.get();
+
 		if (!partySnap.exists) {
 			throw new functions.https.HttpsError("not-found", "Party not found.");
 		}
 		const partyData = partySnap.data();
 
+		// Allow inviting if pending OR active
+		if (partyData.status !== "pending" && partyData.status !== "active") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Can only invite to pending or active parties."
+			);
+		}
+
 		if (partyData.hostUserId !== hostUserId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
 				"Only the host can invite guests."
-			);
-		}
-		if (partyData.status !== "pending") {
-			throw new functions.https.HttpsError(
-				"failed-precondition",
-				"Can only invite to pending parties."
 			);
 		}
 
@@ -260,7 +263,7 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		const actualPartyId = partyRef.id; // Get the ID consistently
 
 		// 4. Validate Party Status and Membership
-		if (partyData.status !== "pending") {
+		if (partyData.status !== "pending" && partyData.status !== "active") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
 				"Party is no longer accepting guests."
@@ -308,7 +311,7 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		});
 
 		console.log(
-			`User ${guestUserId} successfully joined party ${actualPartyId}`
+			`User ${guestUserId} successfully joined party ${actualPartyId} (Status: ${partyData.status})`
 		);
 		return { success: true, partyId: actualPartyId };
 	} catch (error) {
@@ -404,6 +407,276 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Failed to leave party.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Allows the host of a 'pending' party to cancel it.
+ * Updates the party status to 'cancelled'.
+ */
+exports.cancelParty = functions.https.onCall(async (data, context) => {
+	// 1. Authentication Check
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated to cancel."
+		);
+	}
+	const hostUserId = context.auth.uid;
+
+	// 2. Input Validation
+	const { partyId } = data;
+	if (!partyId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID is required."
+		);
+	}
+
+	const partyRef = db.collection("parties").doc(partyId);
+
+	try {
+		// 3. Get Party Document
+		const partySnap = await partyRef.get();
+		if (!partySnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+		const partyData = partySnap.data();
+
+		// 4. Validate Status and Host
+		if (partyData.status !== "pending") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Cannot cancel a party that is already active or completed."
+			);
+		}
+
+		if (partyData.hostUserId !== hostUserId) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Only the host can cancel the party."
+			);
+		}
+
+		// 5. Update Party Status to 'cancelled'
+		// Alternatively, you could delete the document: await partyRef.delete();
+		await partyRef.update({
+			status: "cancelled",
+			// Optionally clear invite codes if you used them
+			// inviteCode: null,
+			// inviteCodeExpiry: null,
+		});
+
+		console.log(`Host ${hostUserId} successfully cancelled party ${partyId}`);
+		return { success: true };
+	} catch (error) {
+		console.error("Error cancelling party:", error);
+		if (error.code && error.httpErrorCode) {
+			throw error;
+		}
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to cancel party.",
+			error.message
+		);
+	}
+});
+
+// functions/partyFunctions.js (Conceptual Structure)
+
+exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
+	// 1. Auth Check
+	if (!context.auth || !context.auth.uid) {
+		/* ... error ... */
+	}
+	const hostUserId = context.auth.uid;
+
+	// 2. Input Validation
+	const { partyId, checkInDocId } = data;
+	if (!partyId || !checkInDocId) {
+		/* ... error ... */
+	}
+
+	const partyRef = db.collection("parties").doc(partyId);
+	const checkInRef = db.collection("checkIns").doc(checkInDocId);
+
+	try {
+		// --- THIS IS WHERE THE "not-found" LIKELY HAPPENS ---
+		// Use a transaction to ensure atomicity
+		await db.runTransaction(async (transaction) => {
+			// --- Add Logging Here ---
+			console.log(`activatePartyCheckIn: Reading party ${partyId}`);
+			const partySnap = await transaction.get(partyRef);
+			console.log(`activatePartyCheckIn: Reading checkIn ${checkInDocId}`);
+			const checkInSnap = await transaction.get(checkInRef);
+			// --- End Logging ---
+
+			if (!partySnap.exists) {
+				// <<< Could be this
+				console.error(`activatePartyCheckIn: Party ${partyId} not found!`);
+				throw new functions.https.HttpsError(
+					"not-found",
+					`Party document ${partyId} not found.`
+				);
+			}
+			if (!checkInSnap.exists) {
+				// <<< Or this
+				console.error(
+					`activatePartyCheckIn: CheckIn ${checkInDocId} not found!`
+				);
+				throw new functions.https.HttpsError(
+					"not-found",
+					`CheckIn document ${checkInDocId} not found.`
+				);
+			}
+
+			const partyData = partySnap.data();
+
+			// 3. Verify Host and Status
+			if (partyData.hostUserId !== hostUserId) {
+				/* ... permission error ... */
+			}
+			if (partyData.status !== "pending") {
+				/* ... precondition error ... */
+			}
+
+			// 4. Update Documents
+			console.log(`activatePartyCheckIn: Updating party ${partyId} to active`);
+			transaction.update(partyRef, {
+				status: "active",
+				checkInId: checkInDocId, // Link check-in to party
+			});
+			console.log(
+				`activatePartyCheckIn: Updating checkIn ${checkInDocId} with partyId`
+			);
+			transaction.update(checkInRef, {
+				partyId: partyId, // Link party to check-in
+			});
+		});
+		// --- Transaction End ---
+
+		// 5. Batch update basket items (outside transaction)
+		console.log(
+			`activatePartyCheckIn: Querying basket items for party ${partyId}`
+		);
+		const basketQuery = db
+			.collection("baskets")
+			.where("partyId", "==", partyId)
+			.where("sentToChefQ", "==", false); // Or based on userId? Check logic
+		const basketSnapshot = await basketQuery.get();
+		if (!basketSnapshot.empty) {
+			const batch = db.batch();
+			basketSnapshot.docs.forEach((doc) => {
+				console.log(
+					`activatePartyCheckIn: Adding checkInId ${checkInDocId} to basket item ${doc.id}`
+				);
+				batch.update(doc.ref, { checkInId: checkInDocId });
+			});
+			await batch.commit();
+			console.log(
+				`activatePartyCheckIn: Updated ${basketSnapshot.size} basket items.`
+			);
+		} else {
+			console.log(
+				`activatePartyCheckIn: No pending basket items found for party ${partyId}.`
+			);
+		}
+
+		console.log(
+			`Party ${partyId} activated successfully with checkIn ${checkInDocId}.`
+		);
+		return { success: true };
+	} catch (error) {
+		console.error(`Error activating party ${partyId}:`, error);
+		if (error.code && error.httpErrorCode) {
+			throw error;
+		}
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to activate party.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Allows the host to directly add a 'local' (non-user) PIP to a pending or active party.
+ */
+exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
+	// 1. Authentication Check
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+	const hostUserId = context.auth.uid;
+
+	// 2. Input Validation
+	const { partyId, localPipId, localPipName } = data;
+	if (!partyId || !localPipId || !localPipName) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID, Local PIP ID, and Local PIP Name are required."
+		);
+	}
+
+	const partyRef = db.collection("parties").doc(partyId);
+
+	try {
+		// 3. Get Party and Verify Host & Status
+		const partySnap = await partyRef.get();
+
+		if (!partySnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+		const partyData = partySnap.data();
+
+		// Allow adding if pending OR active
+		if (partyData.status !== "pending" && partyData.status !== "active") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Can only add guests to pending or active parties."
+			);
+		}
+
+		if (partyData.hostUserId !== hostUserId) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Only the host can add guests directly."
+			);
+		}
+
+		// 4. Check if Local PIP already added
+		if (partyData.guestUserIds.includes(localPipId)) {
+			console.log(`Local PIP ${localPipId} is already in party ${partyId}.`);
+			return { success: true, message: "Local PIP already in party." };
+		}
+
+		// 5. Add Local PIP to Party (Atomically)
+		await partyRef.update({
+			guestUserIds: admin.firestore.FieldValue.arrayUnion(localPipId),
+			guestNames: admin.firestore.FieldValue.arrayUnion({
+				userId: localPipId, // Use the placeholder ID
+				name: localPipName, // Use the placeholder name
+				isLocal: true, // Add a flag to distinguish in guest list if needed
+			}),
+		});
+
+		console.log(
+			`Local PIP ${localPipId} (${localPipName}) added to party ${partyId}`
+		);
+		return { success: true };
+	} catch (error) {
+		console.error("Error adding local PIP to party:", error);
+		if (error.code && error.httpErrorCode) {
+			throw error;
+		}
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to add local PIP.",
 			error.message
 		);
 	}

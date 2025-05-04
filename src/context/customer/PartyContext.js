@@ -7,11 +7,18 @@ import React, {
 	useCallback,
 } from "react";
 import { Alert } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { doc, onSnapshot } from "firebase/firestore";
+import {
+	doc,
+	onSnapshot,
+	collection,
+	query,
+	where,
+	limit,
+	getDocs,
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../../config/firebase";
-import { AuthContext } from "./authContext"; // Assuming authContext provides currentUserData
+import { AuthContext } from "../authContext";
 
 // --- Create Context ---
 export const PartyContext = createContext({
@@ -24,19 +31,21 @@ export const PartyContext = createContext({
 	joinParty: async (inviteData) => {}, // inviteData can be { partyId } or { inviteCode }
 	leaveParty: async () => {},
 	activatePartyCheckIn: async (checkInDocId) => {},
+	inviteToParty: async () => {},
+	cancelParty: async () => {},
 	clearPartyState: () => {},
+	addLocalPIPToParty: async (partyId, localPIPId, localPIPName) => {},
 });
 
 // --- Create Provider Component ---
 export const PartyProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
-	const navigation = useNavigation();
 
 	const [currentPartyId, setCurrentPartyId] = useState(null);
 	const [partyStatus, setPartyStatus] = useState(null);
 	const [partyDetails, setPartyDetails] = useState(null);
-	const [isLoadingParty, setIsLoadingParty] = useState(false); // Loading for actions like create/join/leave
-	const [isListening, setIsListening] = useState(false); // Loading for listener setup
+	const [isLoadingPartyAction, setIsLoadingPartyAction] = useState(false); // Loading for actions like create/join/leave
+	const [isInitializing, setIsInitializing] = useState(true); // <<< NEW: Loading state for initial check/listener
 	const [partyError, setPartyError] = useState(null);
 
 	// --- Cloud Function References ---
@@ -47,6 +56,12 @@ export const PartyProvider = ({ children }) => {
 		functions,
 		"activatePartyCheckIn"
 	); // Assuming this exists or will be created
+	const cancelPartyFunction = httpsCallable(functions, "cancelParty");
+	const inviteToPartyFunction = httpsCallable(functions, "inviteToParty");
+	const addLocalPIPToPartyFunction = httpsCallable(
+		functions,
+		"addLocalPIPToParty"
+	);
 
 	// --- Clear State ---
 	const clearPartyState = useCallback(() => {
@@ -54,19 +69,104 @@ export const PartyProvider = ({ children }) => {
 		setCurrentPartyId(null);
 		setPartyStatus(null);
 		setPartyDetails(null);
-		setIsLoadingParty(false);
+		setIsLoadingPartyAction(false);
 		setPartyError(null);
 	}, []);
+
+	// --- NEW: Effect to check for existing party on load ---
+	useEffect(() => {
+		let isMounted = true;
+		setIsInitializing(true); // Start initializing
+
+		const checkForExistingParty = async (userId) => {
+			console.log(
+				"PartyContext: Checking for existing party for user:",
+				userId
+			);
+			setPartyError(null);
+			try {
+				const partiesRef = collection(db, "parties");
+
+				// Query 1: Check if user is HOST of a pending/active party
+				const hostQuery = query(
+					partiesRef,
+					where("hostUserId", "==", userId),
+					where("status", "in", ["pending", "active"]),
+					limit(1)
+				);
+
+				// Query 2: Check if user is GUEST in a pending/active party
+				const guestQuery = query(
+					partiesRef,
+					where("guestUserIds", "array-contains", userId),
+					where("status", "in", ["pending", "active"]),
+					limit(1)
+				);
+
+				const [hostSnapshot, guestSnapshot] = await Promise.all([
+					getDocs(hostQuery),
+					getDocs(guestQuery),
+				]);
+
+				let foundParty = null;
+				if (!hostSnapshot.empty) {
+					foundParty = hostSnapshot.docs[0];
+				} else if (!guestSnapshot.empty) {
+					foundParty = guestSnapshot.docs[0];
+				}
+
+				if (isMounted && foundParty) {
+					const partyData = foundParty.data();
+					console.log(
+						`PartyContext: Found existing party ${foundParty.id}, status: ${partyData.status}`
+					);
+					setCurrentPartyId(foundParty.id); // Set the ID, listener will take over
+					setPartyStatus(partyData.status); // Set initial status
+					// partyDetails will be set by the listener effect below
+				} else if (isMounted) {
+					console.log("PartyContext: No active/pending party found for user.");
+					// Ensure state is clear if no party found
+					clearPartyState();
+				}
+			} catch (error) {
+				console.error(
+					"PartyContext: Error checking for existing party:",
+					error
+				);
+				if (isMounted) {
+					setPartyError("Failed to check party status.");
+					clearPartyState();
+				}
+			} finally {
+				if (isMounted) {
+					setIsInitializing(false); // Finished initializing check
+				}
+			}
+		};
+
+		// Only run check if we have a user ID and haven't already found a party ID
+		if (currentUserData?.uid && !currentPartyId) {
+			checkForExistingParty(currentUserData.uid);
+		} else {
+			// If no user or partyId already exists (from previous state), finish initializing
+			setIsInitializing(false);
+		}
+
+		return () => {
+			isMounted = false;
+		};
+	}, [currentUserData?.uid, clearPartyState]); // Rerun if user changes
 
 	// --- Listener for Party Document ---
 	useEffect(() => {
 		let unsubscribe = () => {}; // Initialize unsubscribe function
-
-		if (currentUserData?.uid && currentPartyId) {
+		// Only set up listener if initialization is done AND we have a party ID
+		if (!isInitializing && currentUserData?.uid && currentPartyId) {
 			console.log(
 				`PartyContext: Setting up listener for party ID: ${currentPartyId}`
 			);
-			setIsListening(true); // Indicate listener setup is in progress
+			// setIsListening(true); // isInitializing covers this now
+
 			setPartyError(null);
 			const partyRef = doc(db, "parties", currentPartyId);
 
@@ -96,7 +196,7 @@ export const PartyProvider = ({ children }) => {
 						setPartyError("The party session was not found or has ended.");
 						clearPartyState(); // Clear state if party doc disappears
 					}
-					setIsListening(false); // Listener is active or failed
+					setIsInitializing(false); // Listener is active or failed
 				},
 				(err) => {
 					console.error(
@@ -104,7 +204,7 @@ export const PartyProvider = ({ children }) => {
 						err
 					);
 					setPartyError("Failed to sync party details.");
-					setIsListening(false);
+					setIsInitializing(false);
 					// Optionally clear state on listener error?
 					// clearPartyState();
 				}
@@ -121,13 +221,13 @@ export const PartyProvider = ({ children }) => {
 			console.log("PartyContext: Cleaning up listener.");
 			unsubscribe();
 		};
-	}, [currentPartyId, currentUserData?.uid, clearPartyState]); // Dependencies for the listener
+	}, [isInitializing, currentPartyId, currentUserData?.uid, clearPartyState]); // Dependencies for the listener
 
 	// --- Action: Create Party ---
 	const createParty = async (restaurantId, restaurantName) => {
-		if (!currentUserData?.uid || isLoadingParty) return;
+		if (!currentUserData?.uid || isLoadingPartyAction) return;
 		console.log(`PartyContext: Attempting to create party for ${restaurantId}`);
-		setIsLoadingParty(true);
+		setIsLoadingPartyAction(true);
 		setPartyError(null);
 		try {
 			const result = await createPartyFunction({
@@ -140,11 +240,7 @@ export const PartyProvider = ({ children }) => {
 				setCurrentPartyId(newPartyId); // Trigger listener
 				setPartyStatus("pending"); // Set initial status
 				// Navigate to Lobby (pass necessary info)
-				navigation.navigate("PartyLobby", {
-					partyId: newPartyId,
-					// Pass restaurant details if needed, or let lobby fetch
-					// restaurant: { id: restaurantId, restaurantName: restaurantName },
-				});
+				return newPartyId;
 			} else {
 				throw new Error(result.data.error || "Failed to create party.");
 			}
@@ -153,16 +249,16 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(`Could not create party: ${error.message}`);
 			Alert.alert("Error", `Could not create party: ${error.message}`);
 		} finally {
-			setIsLoadingParty(false);
+			setIsLoadingPartyAction(false);
 		}
 	};
 
 	// --- Action: Join Party ---
 	const joinParty = async (inviteData) => {
 		// inviteData = { partyId: '...' } OR { inviteCode: '...' }
-		if (!currentUserData?.uid || isLoadingParty) return;
+		if (!currentUserData?.uid || isLoadingPartyAction) return;
 		console.log("PartyContext: Attempting to join party with:", inviteData);
-		setIsLoadingParty(true);
+		setIsLoadingPartyAction(true);
 		setPartyError(null);
 		try {
 			const result = await joinPartyFunction(inviteData);
@@ -171,10 +267,7 @@ export const PartyProvider = ({ children }) => {
 				console.log("PartyContext: Joined party successfully:", joinedPartyId);
 				setCurrentPartyId(joinedPartyId); // Trigger listener
 				setPartyStatus("pending"); // Assume pending initially
-				// Navigate to Lobby
-				navigation.navigate("PartyLobby", {
-					partyId: joinedPartyId,
-				});
+				return joinedPartyId;
 			} else {
 				throw new Error(result.data.error || "Failed to join party.");
 			}
@@ -183,16 +276,17 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(`Could not join party: ${error.message}`);
 			Alert.alert("Error", `Could not join party: ${error.message}`);
 		} finally {
-			setIsLoadingParty(false);
+			setIsLoadingPartyAction(false);
 		}
 	};
 
 	// --- Action: Leave Party ---
 	const leaveParty = async () => {
-		if (!currentUserData?.uid || !currentPartyId || isLoadingParty) return;
+		if (!currentUserData?.uid || !currentPartyId || isLoadingPartyAction)
+			return;
 		// Confirmation Alert is handled in the UI component calling this
 		console.log(`PartyContext: Attempting to leave party: ${currentPartyId}`);
-		setIsLoadingParty(true);
+		setIsLoadingPartyAction(true);
 		setPartyError(null);
 		try {
 			const result = await leavePartyFunction({ partyId: currentPartyId });
@@ -208,7 +302,7 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(`Could not leave party: ${error.message}`);
 			Alert.alert("Error", `Could not leave party: ${error.message}`);
 			// Don't clear state on error, user is technically still in
-			setIsLoadingParty(false); // Ensure loading stops on error
+			setIsLoadingPartyAction(false); // Ensure loading stops on error
 		}
 		// No finally here, state cleared on success path
 	};
@@ -219,12 +313,12 @@ export const PartyProvider = ({ children }) => {
 			!currentUserData?.uid ||
 			!currentPartyId ||
 			partyStatus !== "pending" ||
-			isLoadingParty
+			isLoadingPartyAction
 		) {
 			console.log("PartyContext: activatePartyCheckIn prerequisites not met.", {
 				currentPartyId,
 				partyStatus,
-				isLoadingParty,
+				isLoadingPartyAction,
 			});
 			return; // Only host of a pending party can activate
 		}
@@ -239,7 +333,7 @@ export const PartyProvider = ({ children }) => {
 		console.log(
 			`PartyContext: Activating party ${currentPartyId} with checkIn ${checkInDocId}`
 		);
-		setIsLoadingParty(true); // Use general loading or a specific one?
+		setIsLoadingPartyAction(true); // Use general loading or a specific one?
 		setPartyError(null);
 		try {
 			const result = await activatePartyCheckInFunction({
@@ -257,22 +351,160 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(`Could not activate party: ${error.message}`);
 			Alert.alert("Error", `Could not activate party: ${error.message}`);
 		} finally {
-			setIsLoadingParty(false);
+			setIsLoadingPartyAction(false);
 		}
 	};
+
+	// --- NEW Action: Cancel Party (for Host) ---
+	const cancelParty = async () => {
+		if (!currentUserData?.uid || !currentPartyId || isLoadingPartyAction)
+			return;
+		// Add host check? Backend function will verify anyway.
+		// if (partyDetails?.hostUserId !== currentUserData.uid) return;
+
+		// Confirmation Alert is handled in the UI component
+		console.log(`PartyContext: Attempting to cancel party: ${currentPartyId}`);
+		setIsLoadingPartyAction(true);
+		setPartyError(null);
+		try {
+			const result = await cancelPartyFunction({ partyId: currentPartyId });
+			if (result.data.success) {
+				console.log("PartyContext: Cancelled party successfully.");
+				clearPartyState(); // Clear state after cancelling
+			} else {
+				throw new Error(result.data.error || "Failed to cancel party.");
+			}
+		} catch (error) {
+			console.error("PartyContext: Error cancelling party:", error);
+			setPartyError(`Could not cancel party: ${error.message}`);
+			Alert.alert("Error", `Could not cancel party: ${error.message}`);
+			setIsLoadingPartyAction(false); // Reset loading only on error
+		}
+		// No finally needed
+	};
+
+	const addLocalPIPToParty = async (partyId, localPipId, localPipName) => {
+		if (
+			!currentUserData?.uid ||
+			!partyId ||
+			!localPipId ||
+			!localPipName ||
+			isLoadingPartyAction
+		) {
+			console.warn("addLocalPipToParty prerequisites not met");
+			return null; // Indicate failure
+		}
+
+		// Optional: Client-side host check (backend also checks)
+		if (partyDetails?.hostUserId !== currentUserData.uid) {
+			Alert.alert("Error", "Only the host can add guests.");
+			return null;
+		}
+
+		console.log(
+			`PartyContext: Attempting to add local PIP ${localPipId} (${localPipName}) to party ${partyId}`
+		);
+		setIsLoadingPartyAction(true);
+		setPartyError(null);
+
+		try {
+			const result = await addLocalPipToPartyFunction({
+				partyId,
+				localPipId,
+				localPipName,
+			});
+
+			if (result.data.success) {
+				console.log("PartyContext: Local PIP added successfully.");
+				// The party listener will update the UI with the new guest
+				return { success: true };
+			} else {
+				throw new Error(result.data.error || "Failed to add local PIP.");
+			}
+		} catch (error) {
+			console.error("PartyContext: Error adding local PIP:", error);
+			setPartyError(`Add local PIP failed: ${error.message}`);
+			Alert.alert("Error", `Could not add local PIP: ${error.message}`);
+			return null; // Indicate failure
+		} finally {
+			setIsLoadingPartyAction(false);
+		}
+	};
+
+	// --- Action: Invite to Party ---
+	const inviteToParty = async (inviteData) => {
+		// inviteData = { partyId: '...', inviteeUserId: '...' } OR { partyId: '...', generateCode: true }
+		if (!currentUserData?.uid || !inviteData?.partyId || isLoadingPartyAction) {
+			console.warn("inviteToParty prerequisites not met", {
+				uid: currentUserData?.uid,
+				partyId: inviteData?.partyId,
+				isLoading: isLoadingPartyAction,
+			});
+			// Optionally throw an error or return a specific failure object
+			return null; // Indicate failure or inability to proceed
+		}
+
+		// Optional: Client-side check if current user is the host (backend also checks)
+		if (partyDetails?.hostUserId !== currentUserData.uid) {
+			Alert.alert("Error", "Only the host can send invites.");
+			return null;
+		}
+
+		console.log(
+			`PartyContext: Attempting invite for party ${inviteData.partyId}`,
+			inviteData
+		);
+		setIsLoadingPartyAction(true);
+		setPartyError(null);
+
+		try {
+			// Call the cloud function, passing the necessary data
+			const result = await inviteToPartyFunction(inviteData);
+
+			if (result.data.success) {
+				console.log("PartyContext: Invite action successful.");
+				// If a code was generated, the function returns it
+				if (result.data.inviteCode) {
+					console.log("Generated invite code:", result.data.inviteCode);
+					// Return the result so the UI can display the code/expiry
+					return {
+						success: true,
+						inviteCode: result.data.inviteCode,
+						expiresAt: result.data.expiresAt,
+					};
+				}
+				// If inviting a specific user, just return success
+				return { success: true };
+			} else {
+				// Handle specific errors returned from the function
+				throw new Error(result.data.error || "Failed to process invite.");
+			}
+		} catch (error) {
+			console.error("PartyContext: Error inviting to party:", error);
+			setPartyError(`Invite failed: ${error.message}`);
+			Alert.alert("Invite Error", `Could not process invite: ${error.message}`);
+			return null; // Indicate failure
+		} finally {
+			setIsLoadingPartyAction(false);
+		}
+	};
+	// --- End Invite Action ---
 
 	// --- Context Value ---
 	const value = {
 		currentPartyId,
 		partyStatus,
 		partyDetails,
-		isLoadingParty: isLoadingParty || isListening, // Combine loading states
+		isLoadingParty: isLoadingPartyAction || isInitializing, // Combine loading states
 		partyError,
 		createParty,
 		joinParty,
 		leaveParty,
 		activatePartyCheckIn,
 		clearPartyState,
+		inviteToParty,
+		cancelParty,
+		addLocalPIPToParty,
 	};
 
 	return (

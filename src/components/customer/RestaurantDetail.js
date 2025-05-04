@@ -37,12 +37,24 @@ import { Formik } from "formik";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons";
 
-const RestaurantDetail = ({ route, navigation }) => {
+import { PartyContext, useParty } from "../../context/customer/PartyContext";
+import { useNavigation } from "@react-navigation/native";
+
+const RestaurantDetail = ({ route }) => {
 	// 1: Extract the restaurant data from the route parameters and retrieve context values
 	const { restaurant } = route.params;
 
 	const { currentUserData } = useContext(AuthContext);
-	const { baskets, sendToChefsQ, clearBasket } = useBasket();
+	const navigation = useNavigation();
+	const { baskets } = useBasket();
+	const {
+		createParty,
+		isLoadingParty,
+		currentPartyId,
+		partyStatus,
+		partyDetails,
+		activatePartyCheckIn,
+	} = useParty();
 
 	const restaurantBasket =
 		baskets && restaurant?.id ? baskets[restaurant.id] : { items: [] };
@@ -69,10 +81,58 @@ const RestaurantDetail = ({ route, navigation }) => {
 
 	useEffect(() => {
 		// Access the latest check-in data
-		// Do something with the updated check-in data,
-		// such as updating a local state variable or triggering other actions
-		// ...
-	}, [checkInStatus, tableNumber, checkInObj]);
+		// If check-in just got ACCEPTED and user is host of a PENDING party for THIS restaurant
+		if (
+			checkInStatus === "ACCEPTED" && // <<< Trigger on ACCEPTED
+			checkInObj?.id &&
+			partyStatus === "pending" &&
+			currentPartyId &&
+			partyDetails?.restaurantId === restaurant.id && // Ensure it's for THIS restaurant
+			partyDetails?.hostUserId === currentUserData?.uid // Ensure it's the host
+		) {
+			console.log(
+				"RestaurantDetail: Check-in ACCEPTED, attempting to activate party..."
+			);
+			// Call the context function to activate
+			activatePartyCheckIn(checkInObj.id); // Pass the checkIn ID
+		}
+	}, [
+		checkInStatus, // Depend on checkInStatus changing
+		checkInObj?.id,
+		partyStatus,
+		currentPartyId,
+		partyDetails?.restaurantId, // Add dependency
+		partyDetails?.hostUserId,
+		currentUserData?.uid,
+		restaurant.id, // Add dependency
+		activatePartyCheckIn,
+	]);
+
+	// ---Effect to potentially activate party after check-in ---
+	useEffect(() => {
+		// If check-in just got ACCEPTED and user is host of a PENDING party for THIS restaurant
+		if (
+			checkInStatus === "ACCEPTED" &&
+			checkInObj?.id && // Make sure we have the checkIn document ID
+			partyStatus === "pending" && // Check party status from context
+			currentPartyId && // Check if user is in a party
+			partyDetails?.hostUserId === currentUserData?.uid // Ensure its the host activating
+		) {
+			console.log(
+				"RestaurantDetail: Check-in accepted, attempting to activate party..."
+			);
+			// Call the context function to activate
+			activatePartyCheckIn(checkInObj.id);
+		}
+	}, [
+		checkInStatus,
+		checkInObj?.id,
+		partyStatus,
+		currentPartyId,
+		activatePartyCheckIn,
+		currentUserData?.uid,
+		partyDetails?.hostUserId,
+	]); // Dependencies
 
 	// 4. Effect to fetch menu items for the restaurant
 	useEffect(() => {
@@ -119,11 +179,21 @@ const RestaurantDetail = ({ route, navigation }) => {
 				customerName
 			);
 
-			if (success) {
+			if (success && checkInId) {
 				// update check-in status to requested in firestore
 				await updateDoc(doc(db, "checkIns", checkInId), {
 					status: "REQUESTED",
 				});
+
+				// --- Potentially call activatePartyCheckIn HERE if conditions met ---
+				// This might be more reliable than the useEffect approach
+				if (partyStatus === "pending" && currentPartyId) {
+					// Maybe add host check here if partyDetails available in context
+					console.log(
+						"handleCheckin: Check-in requested, attempting to activate party..."
+					);
+					await activatePartyCheckIn(checkInId); // Call context function
+				}
 			} else {
 				Alert.alert("Check-In Failed", "Please try again later.");
 			}
@@ -160,6 +230,123 @@ const RestaurantDetail = ({ route, navigation }) => {
 		}
 	};
 
+	// --- MODIFIED: Function to handle hosting a party using Context ---
+	const handleHostParty = async () => {
+		if (!currentUserData || !restaurant || isLoadingParty) return;
+		// Call the function from the context
+		createParty(restaurant.id, restaurant.restaurantName);
+
+		// --- ADD NAVIGATION LOGIC HERE ---
+		if (newPartyId) {
+			// Navigate only if party creation was successful and returned an ID
+			navigation.navigate("PartyLobby", {
+				partyId: newPartyId,
+				restaurant: restaurant, // Pass restaurant if needed by lobby
+			});
+		}
+	};
+	// --- END MODIFIED FUNCTION ---
+
+	// --- NEW: View Existing Party Handler ---
+	const handleViewParty = () => {
+		if (currentPartyId) {
+			navigation.navigate("PartyLobby", {
+				partyId: currentPartyId,
+				// restaurant: restaurant, // Optional: Pass restaurant if needed by lobby
+			});
+		} else {
+			// Should not happen if button is only shown when currentPartyId exists
+			console.warn("Attempted to view party, but no currentPartyId found.");
+		}
+	};
+	// --- END NEW HANDLER ---
+
+	const handlePersonalCheckinSubmit = async (values) => {
+		// 1. Check if user is in any party
+		if (currentPartyId) {
+			Alert.alert(
+				"Action Blocked",
+				"You are currently in a party session. Please leave or cancel the party before checking in personally."
+			);
+			return; // Stop the process
+		}
+
+		// 2. Check for existing check-in at other restaurants (copied from utility)
+		if (!currentUserData?.uid) {
+			Alert.alert("Error", "User data not available.");
+			return;
+		}
+		setIsLoading(true); // Use local loading state for this action
+		const userRef = doc(db, "customers", currentUserData.uid);
+		try {
+			const userSnap = await getDoc(userRef);
+			if (userSnap.exists() && userSnap.data().activeCheckIn) {
+				const activeCheckInData = userSnap.data().activeCheckIn;
+				if (activeCheckInData.restaurantId !== restaurant.id) {
+					// Fetch name for better message (optional)
+					let otherRestaurantName = "another restaurant";
+					try {
+						const otherRestRef = doc(
+							db,
+							"restaurants",
+							activeCheckInData.restaurantId
+						);
+						const otherRestSnap = await getDoc(otherRestRef);
+						if (otherRestSnap.exists()) {
+							otherRestaurantName =
+								otherRestSnap.data().restaurantName || otherRestaurantName;
+						}
+					} catch (e) {
+						/* ignore name fetch error */
+					}
+					Alert.alert(
+						"Check-in Blocked",
+						`You already have an active check-in request at ${otherRestaurantName}. Please cancel it first.`
+					);
+					setIsLoading(false);
+					return; // Stop
+				}
+			}
+		} catch (error) {
+			console.error("Error checking user's active check-in:", error);
+			Alert.alert("Error", "Could not verify current check-in status.");
+			setIsLoading(false);
+			return;
+		}
+
+		// 3. Proceed with personal check-in using core utility
+		const customerName = `${currentUserData.firstName || ""} ${
+			currentUserData.lastName || ""
+		}`.trim();
+		try {
+			// Call the core checkIn utility directly (NO partyId, NO activatePartyCheckIn)
+			const { success, checkInId } = await checkIn(
+				restaurant.id,
+				currentUserData.uid,
+				values.partySize,
+				customerName
+				// No partyId passed here
+			);
+
+			if (success && checkInId) {
+				// Status is already set to REQUESTED by checkIn utility
+				console.log("Personal check-in requested successfully:", checkInId);
+				// No party activation needed
+			} else {
+				Alert.alert("Check-In Failed", "Could not create check-in request.");
+			}
+		} catch (error) {
+			console.error("Error during personal check-in:", error);
+			Alert.alert(
+				"Error",
+				`An error occurred while checking in: ${error.message}`
+			);
+		} finally {
+			setIsLoading(false);
+			closeModal(); // Close modal regardless of success/failure after attempt
+		}
+	};
+
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
 			.min(1, "Party size must be atleast 1")
@@ -171,6 +358,42 @@ const RestaurantDetail = ({ route, navigation }) => {
 			restaurant,
 		});
 	};
+
+	// --- ADD LOGGING HERE ---
+	console.log("--- RestaurantDetail State Check ---");
+	console.log("isLoading (local):", isLoading);
+	console.log("isLoadingCheckIn (hook):", isLoadingCheckIn);
+	console.log("isLoadingParty (context):", isLoadingParty);
+	console.log("currentPartyId (context):", currentPartyId);
+	console.log("partyStatus (context):", partyStatus);
+	console.log(
+		"partyDetails?.restaurantId (context):",
+		partyDetails?.restaurantId
+	);
+	console.log("restaurant.id (prop):", restaurant.id);
+	console.log("checkInObj (hook):", JSON.stringify(checkInObj)); // Log the whole object
+	console.log("checkInStatus (hook):", checkInStatus);
+
+	// Re-calculate the disable flags here for logging
+	const isPersonallyCheckedIn_debug =
+		checkInObj?.status === "REQUESTED" || checkInObj?.status === "ACCEPTED";
+	const isInActivePartyAtThisRestaurant_debug =
+		partyStatus === "active" && partyDetails?.restaurantId === restaurant.id;
+	const disableCheckIn_debug =
+		isPersonallyCheckedIn_debug || isInActivePartyAtThisRestaurant_debug;
+
+	console.log("isPersonallyCheckedIn_debug:", isPersonallyCheckedIn_debug);
+	console.log(
+		"isInActivePartyAtThisRestaurant_debug:",
+		isInActivePartyAtThisRestaurant_debug
+	);
+	console.log("disableCheckIn_debug:", disableCheckIn_debug);
+	console.log(
+		"Button disabled prop evaluates to:",
+		isLoading || isLoadingCheckIn || disableCheckIn_debug
+	); // Check all conditions used in renderCheckInButton
+	console.log("------------------------------------");
+	// --- END LOGGING ---
 
 	const renderCheckInButton = () => {
 		if (isLoading) {
@@ -214,13 +437,49 @@ const RestaurantDetail = ({ route, navigation }) => {
 						</View>
 					);
 				default:
+					console.log("  Rendering: DEFAULT state (Check In button)");
+
+					// --- Use the REFINED disableCheckIn logic here ---
+					const isPersonallyCheckedIn =
+						checkInObj?.status === "REQUESTED" ||
+						checkInObj?.status === "ACCEPTED";
+					const isInActivePartyAtThisRestaurant =
+						partyStatus === "active" &&
+						partyDetails?.restaurantId === restaurant.id;
+					const disableCheckIn =
+						isPersonallyCheckedIn || isInActivePartyAtThisRestaurant;
+					// --- End refined logic ---
+
+					console.log(
+						"  Final disabled value for default case:",
+						isLoading || disableCheckIn
+					);
+
+					const handlePersonalCheckInPress = () => {
+						if (currentPartyId) {
+							Alert.alert(
+								"Action Blocked",
+								"You are currently in a party session. Please leave or cancel the party before checking in personally."
+							);
+						} else {
+							openModal(); // Only open modal if not in a party
+						}
+					};
+
 					return (
 						<TouchableOpacity
-							style={styles.checkInButton}
-							onPress={() => openModal()}
-							disabled={isLoading}
+							style={[
+								styles.checkInButton,
+								(isLoading || disableCheckIn) && styles.disabledButton,
+							]}
+							onPress={handlePersonalCheckInPress} // <<< Use the new handler with check
+							disabled={isLoading || disableCheckIn}
 						>
-							<Text style={styles.checkInButtonText}>Check In</Text>
+							<Text style={styles.checkInButtonText}>
+								{isInActivePartyAtThisRestaurant
+									? "Checked In Via Party"
+									: "Check In"}
+							</Text>
 						</TouchableOpacity>
 					);
 			}
@@ -248,6 +507,13 @@ const RestaurantDetail = ({ route, navigation }) => {
 		);
 	};
 
+	const isCustomer = currentUserData.role === "customer";
+	// Determine if Host Party button should be shown/enabled
+	const canHostParty =
+		isCustomer && // Must be a customer
+		!checkInObj && // Not currently checked in
+		!currentPartyId; // Not already in another party
+
 	return (
 		<View style={styles.container}>
 			<ScrollView showsVerticalScrollIndicator={false}>
@@ -263,8 +529,44 @@ const RestaurantDetail = ({ route, navigation }) => {
 					</Text>
 					<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
 
-					{currentUserData.role === "customer" ? (
-						renderCheckInButton()
+					{isCustomer ? (
+						<>
+							{renderCheckInButton()}
+							{/* 2. Conditionally Render Host Party Button (NEW LOGIC) */}
+							{canHostParty && (
+								<TouchableOpacity
+									style={[
+										styles.hostPartyButton,
+										// Use isLoadingParty from context for disabling
+										isLoadingParty && styles.disabledButton,
+									]}
+									onPress={handleHostParty}
+									disabled={isLoadingParty} // Disable if context is loading
+								>
+									{isLoadingParty ? ( // Use isLoadingParty from context
+										<ActivityIndicator size="small" color="white" />
+									) : (
+										<Text style={styles.hostPartyButtonText}>
+											Host a Party Here
+										</Text>
+									)}
+								</TouchableOpacity>
+							)}
+
+							{/* 3. Conditionally Render "In a Party" Message (NEW LOGIC) */}
+							{/* --- View Existing Party Link (Show if in a party) --- */}
+							{currentPartyId && (
+								<TouchableOpacity
+									style={styles.viewPartyLink} // Add style for this link
+									onPress={handleViewParty}
+									disabled={isLoadingParty} // Disable if context is loading
+								>
+									<Text style={styles.viewPartyLinkText}>
+										View Your Current Party
+									</Text>
+								</TouchableOpacity>
+							)}
+						</>
 					) : (
 						<View style={styles.guestContainer}>
 							<TouchableOpacity
@@ -558,6 +860,51 @@ const styles = StyleSheet.create({
 	},
 	disabledButton: {
 		backgroundColor: "#D3D3D3", // Use a disabled button color from your colors object
+	},
+
+	infoText: {
+		textAlign: "center",
+		marginTop: 10,
+		color: colors.textLight,
+		fontStyle: "italic",
+	},
+	// Ensure disabledButton style exists
+	disabledButton: {
+		backgroundColor: colors.mediumGray || "#cccccc",
+		opacity: 0.7,
+	},
+	// Ensure hostPartyButton styles exist
+	hostPartyButton: {
+		backgroundColor: colors.secondary || "#6c757d",
+		padding: 15,
+		borderRadius: 10,
+		alignItems: "center",
+		marginTop: 10,
+	},
+	hostPartyButtonText: {
+		color: "white",
+		fontWeight: "bold",
+		fontSize: 16,
+	},
+	// Ensure disabledCheckInButton style exists
+	disabledCheckInButton: {
+		backgroundColor: colors.mediumGray || "#cccccc",
+		padding: 15,
+		borderRadius: 10,
+		alignItems: "center",
+		marginTop: 10,
+		width: "80%", // Example width
+		opacity: 0.7,
+	},
+	// --- Add Styles for the View Party Link ---
+	viewPartyLink: {
+		marginTop: 15, // Space below the host button or check-in status
+		alignItems: "center",
+	},
+	viewPartyLinkText: {
+		color: colors.primary, // Use theme color
+		fontSize: 15,
+		textDecorationLine: "underline",
 	},
 });
 

@@ -554,7 +554,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			pendingFirestoreDocIdRef.current = null; // Clear after navigating
 			pendingOrderIdRef.current = null;
 			// Clear basket potentially here or wait for webhook
-			// clearBasket(restaurant.id);
+			clearBasket(restaurant.id);
 		}
 		setIsPaying(false);
 	};

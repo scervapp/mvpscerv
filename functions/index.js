@@ -12,6 +12,7 @@ const sendInvite = require("./sendInvite");
 const setAdminClaim = require("./SetAdminClaimFunction");
 const dishRatingFunction = require("./dishRatingFunction");
 const partyFunctions = require("./partyFunctions");
+const userSearchFunctions = require("./userSearchFunctions");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -60,3 +61,9 @@ exports.createParty = partyFunctions.createParty;
 exports.inviteToParty = partyFunctions.inviteToParty;
 exports.joinParty = partyFunctions.joinParty;
 exports.leaveParty = partyFunctions.leaveParty;
+exports.cancelParty = partyFunctions.cancelParty;
+exports.activatePartyCheckIn = partyFunctions.activatePartyCheckIn;
+exports.addLocalPIPToParty = partyFunctions.addLocalPipToParty;
+
+// User Search Functions
+exports.searchPIPs = userSearchFunctions.searchPIPs;

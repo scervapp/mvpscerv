@@ -1,4 +1,4 @@
-import React, { useContext } from "react";
+import React, { useContext, useEffect } from "react";
 
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -19,10 +19,22 @@ import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
-import { Platform, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, TouchableOpacity, View } from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
+import PartyLobbyScreen from "../screens/customer/PartyLobbyScreen";
+import {
+	collection,
+	query,
+	where,
+	onSnapshot,
+	doc,
+	updateDoc,
+	Timestamp, // <<< Import Timestamp if needed for filtering
+} from "firebase/firestore"; // <<< Import Firestore functions
+import { db } from "../config/firebase";
+import { useParty } from "../context/customer/PartyContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -77,6 +89,11 @@ const CustomerDashboardStack = () => (
 			options={() => ({
 				headerTitle: "Restaurant Details",
 			})}
+		/>
+		<Stack.Screen
+			name="PartyLobby"
+			component={PartyLobbyScreen}
+			options={{ title: "Party Lobby" }} // Or customize header as needed
 		/>
 		{/* Additional nested screens in RestaurantDetail flow */}
 		<Stack.Screen
@@ -175,6 +192,82 @@ const ActiveOrdersStack = () => (
 
 const CustomerBottomNavigation = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { joinParty, currentPartyId } = useParty();
+	const navigation = useNavigation();
+
+	useEffect(() => {
+		if (!currentUserData?.uid || currentPartyId) {
+			console.log(
+				"Notification Listener: Skipping setup (no user or already in party)."
+			);
+			return;
+		}
+		console.log(
+			`Notification Listener: Setting up for user ${currentUserData.uid}`
+		);
+		const notificationsRef = collection(db, "notifications");
+		const q = query(
+			notificationsRef,
+			where("recipientUserId", "==", currentUserData.uid),
+			where("type", "==", "partyInvite"),
+			where("isRead", "==", false)
+		);
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot) => {
+				snapshot.docChanges().forEach(async (change) => {
+					if (change.type === "added") {
+						const notification = { id: change.doc.id, ...change.doc.data() };
+						console.log("New Party Invite Received:", notification);
+						if (currentPartyId) return; // Check again inside loop
+						Alert.alert(
+							"Party Invitation",
+							`${
+								notification.hostName || "Someone"
+							} invited you to a party at ${
+								notification.restaurantName || "a restaurant"
+							}. Join now?`,
+							[
+								{
+									text: "Decline",
+									onPress: async () => {
+										const notifRef = doc(db, "notifications", notification.id);
+										await updateDoc(notifRef, { isRead: true });
+									},
+									style: "cancel",
+								},
+								{
+									text: "Join Party",
+									onPress: async () => {
+										const notifRef = doc(db, "notifications", notification.id);
+										await updateDoc(notifRef, { isRead: true });
+										const joinedPartyId = await joinParty({
+											partyId: notification.partyId,
+										});
+										if (joinedPartyId) {
+											// Navigate to lobby - ensure PartyLobby is in a stack accessible from here
+											// Might need to navigate to the specific stack first if nested
+											navigation.navigate("CustomerDashboard", {
+												screen: "PartyLobby", // Navigate to the screen within the stack
+												params: { partyId: joinedPartyId },
+											});
+										}
+									},
+								},
+							]
+						);
+					}
+				});
+			},
+			(error) => {
+				console.error("Error listening to notifications:", error);
+			}
+		);
+		return () => {
+			console.log("Notification Listener: Cleaning up.");
+			unsubscribe();
+		};
+	}, [currentUserData?.uid, currentPartyId, joinParty, navigation]);
 
 	const handleAccountScreenPress = (navigation) => {
 		if (currentUserData.role === "guest") {
