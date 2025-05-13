@@ -232,7 +232,6 @@ export const PartyProvider = ({ children }) => {
 		try {
 			const result = await createPartyFunction({
 				restaurantId,
-				restaurantName,
 			});
 			if (result.data.success && result.data.partyId) {
 				const newPartyId = result.data.partyId;

@@ -27,7 +27,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="scerv"/>
-        <data android:scheme="com.scerv.eat"/>
+        <data android:scheme="exp+scerv"/>
       </intent-filter>
     </activity>
   </application>

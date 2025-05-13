@@ -33,22 +33,41 @@ import { jsx } from "react/jsx-runtime";
 import formatCurrency from "../../utils/currencyFormatter";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Use consistent icon set if possible
 import { Divider } from "react-native-elements";
-import { doc, getDoc } from "firebase/firestore";
+import {
+	doc,
+	getDoc,
+	query,
+	collection,
+	where,
+	onSnapshot,
+	orderBy,
+} from "firebase/firestore";
+import { useParty } from "../../context/customer/PartyContext";
 
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { restaurant } = route.params;
 	const { baskets, basketError, handleQuantityChange, updateItemStatus } =
 		useBasket(); // Ensure updateItemStatus exists in context
-	const [filteredBasketData, setFilteredBasketData] = useState([]); // For PIP display
+
+	const { partyDetails, partyStatus } = useParty();
+
+	// Determine mode from navigation params (default to "individual")
+	const mode = route.params?.mode || "individual";
+
+	const [displayItems, setDisplayItems] = useState([]);
+
 	const [isProcessing, setIsProcessing] = useState(false); // Combined loading state
 	const [showSnackbar, setShowSnackbar] = useState(false);
 	const [snackbarMessage, setSnackbarMessage] = useState("");
+	const [isLoading, setIsLoading] = useState(false);
 	const { checkInStatus, checkInObj } = useCheckInStatus(
 		restaurant?.uid,
 		currentUserData?.uid
 	);
 	const [fees, setFees] = useState(0.05); // Default platform fee %
+
+	const checkInId = partyDetails?.checkInId;
 
 	// Get basket for the current restaurant
 	const restaurantBasketItems = useMemo(() => {
@@ -72,6 +91,66 @@ const BasketScreen = ({ route, navigation }) => {
 		fetchFeeConfig();
 	}, []);
 
+	// --- Modified Data Fetching ---
+	useEffect(() => {
+		let unsubscribe = () => {};
+		setIsLoading(true);
+
+		if (mode === "party" && partyStatus === "active" && checkInId) {
+			// --- PARTY MODE ---
+			console.log(
+				`BasketScreen (Party Mode): Fetching items for checkInId: ${checkInId}`
+			);
+			const q = query(
+				collection(db, "baskets"),
+				where("checkInId", "==", checkInId),
+				orderBy("createdAt", "asc")
+			);
+			unsubscribe = onSnapshot(
+				q,
+				(snapshot) => {
+					const items = snapshot.docs.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}));
+					setDisplayItems(items);
+					setIsLoading(false);
+				},
+				(error) => {
+					console.error(
+						"BasketScreen (Party Mode): Error fetching party order:",
+						error
+					);
+					setIsLoading(false);
+					// Handle error
+				}
+			);
+		} else if (mode === "individual" && restaurant?.id) {
+			// --- INDIVIDUAL MODE ---
+			// Use the existing logic from useBasket context (assuming it provides items per restaurant)
+			// Or fetch directly if needed (less ideal if context already does it)
+			console.log(
+				`BasketScreen (Individual Mode): Using items for restaurant: ${restaurant.id}`
+			);
+			const itemsFromContext = baskets[restaurant.id]?.items || [];
+			setDisplayItems(itemsFromContext);
+			setIsLoading(false);
+			// If useBasket doesn't provide items directly, you'd need a query here based on userId/restaurantId
+		} else {
+			// Invalid mode or missing data
+			console.log("BasketScreen: Invalid mode or missing data for fetching.", {
+				mode,
+				partyStatus,
+				checkInId,
+				restaurantId: restaurant?.id,
+			});
+			setDisplayItems([]);
+			setIsLoading(false);
+		}
+
+		return () => unsubscribe(); // Cleanup listener
+	}, [mode, checkInId, partyStatus, restaurant?.id, baskets]); // Dependencies
+
 	// --- Data Transformation and Totals Calculation ---
 	const {
 		subtotal, // After discounts
@@ -82,19 +161,28 @@ const BasketScreen = ({ route, navigation }) => {
 		originalSubtotal,
 		pipDataForDisplay, // Transformed data for rendering PIPs
 	} = useMemo(() => {
-		console.log("Running totals useMemo...");
-		console.log("  Input Fees:", fees, typeof fees);
-		console.log(
-			"  Input Tax Rate:",
-			restaurant?.taxRate,
-			typeof restaurant?.taxRate
-		);
-		console.log("  Input Basket Items Count:", restaurantBasketItems?.length);
+		console.log(`BasketScreen (${mode} Mode): Recalculating totals...`);
 
-		if (
-			!restaurantBasketItems ||
-			typeof fees !== "number" /* ... other guards */
-		) {
+		// --- ADD LOGS HERE TO DEBUG ---
+		console.log(
+			`BasketScreen (${mode} Mode): Input displayItems count:`,
+			displayItems?.length
+		);
+		if (displayItems?.length > 0) {
+			// Log the first item to see its structure
+			console.log(
+				`BasketScreen (${mode} Mode): First displayItem:`,
+				JSON.stringify(displayItems[0], null, 2)
+			);
+		}
+		console.log(
+			`BasketScreen (${mode} Mode): Input restaurant.taxRate:`,
+			restaurant?.taxRate
+		);
+		console.log(`BasketScreen (${mode} Mode): Input fees:`, fees);
+		// --- END DEBUG LOGS ---
+
+		if (!displayItems || typeof fees !== "number" /* ... other guards */) {
 			console.log("  Skipping calculation due to missing inputs.");
 			return {
 				/* default zeroed object */
@@ -105,7 +193,7 @@ const BasketScreen = ({ route, navigation }) => {
 		let calcTotalDiscount = 0;
 
 		// Calculate overall totals first
-		restaurantBasketItems.forEach((item) => {
+		displayItems.forEach((item) => {
 			const originalPrice = Math.round((Number(item?.dish?.price) || 0) * 100);
 			const quantity = Number(item?.quantity) || 1;
 			calcOriginalSubtotal += originalPrice * quantity;
@@ -127,7 +215,7 @@ const BasketScreen = ({ route, navigation }) => {
 			calcSubtotal + calcTaxEstimate + calcPlatformFeeEstimate; // Estimate BEFORE gratuity
 
 		// Transform data for PIP display
-		const transformedData = transformBasketData(restaurantBasketItems);
+		const transformedData = transformBasketData(displayItems);
 		const filteredData = transformedData.filter((p) => p?.items?.length > 0);
 		const calcPipDataForDisplay = filteredData.map((personData) => {
 			let pipSubtotal = 0;
@@ -153,7 +241,7 @@ const BasketScreen = ({ route, navigation }) => {
 			originalSubtotal: calcOriginalSubtotal,
 			pipDataForDisplay: calcPipDataForDisplay,
 		};
-	}, [restaurantBasketItems, restaurant?.taxRate, fees, transformBasketData]); // Dependencies
+	}, [displayItems, restaurant?.taxRate, fees, transformBasketData]); // Dependencies
 
 	// --- Actions ---
 	const handleSendToChefsQ = async () => {
@@ -161,8 +249,12 @@ const BasketScreen = ({ route, navigation }) => {
 			Alert.alert("Not Checked In", "Please check in to place an order.");
 			return;
 		}
-		const unsentItems = restaurantBasketItems
-			.filter((item) => !item.sentToChefQ)
+
+		// Filter based on displayItems AND current user ID if needed
+		const unsentItems = displayItems
+			.filter(
+				(item) => !item.sentToChefQ && item.userId === currentUserData.uid
+			)
 			.map((item) => ({
 				// Map to format needed by cloud function
 				dish: item.dish, // Pass full dish object or just needed IDs/info
@@ -229,18 +321,25 @@ const BasketScreen = ({ route, navigation }) => {
 
 	// Memoize the check for unsent items
 	const hasUnsentItems = useMemo(() => {
-		return restaurantBasketItems.some((item) => !item.sentToChefQ);
-	}, [restaurantBasketItems]);
+		return displayItems.some((item) => !item.sentToChefQ);
+	}, [displayItems]);
 
 	// Memoize the condition for allowing checkout
 	// Checkout allowed ONLY IF checked in AND basket not empty AND NO items are unsent
 	const canCheckout = useMemo(() => {
-		return (
-			checkInStatus === "ACCEPTED" &&
-			restaurantBasketItems.length > 0 &&
-			!hasUnsentItems
-		);
-	}, [checkInStatus, restaurantBasketItems, hasUnsentItems]);
+		if (mode === "party") {
+			// Example: Allow party checkout only if checked in and no unsent items (for anyone)
+			// return checkInStatus === "ACCEPTED" && displayItems.length > 0 && !hasUnsentItems;
+			return false; // Keep disabled for now, or implement party checkout logic
+		} else {
+			// Individual mode logic
+			return (
+				checkInStatus === "ACCEPTED" &&
+				displayItems.length > 0 && // FIX: Check displayItems length
+				!hasUnsentItems
+			);
+		}
+	}, [checkInStatus, displayItems, hasUnsentItems]);
 
 	// Memoize the condition for allowing sending items to kitchen
 	const canSendToKitchen = useMemo(() => {
@@ -249,6 +348,12 @@ const BasketScreen = ({ route, navigation }) => {
 
 	// --- Render Functions ---
 	const renderBasketItem = ({ item: basketItem, personId }) => {
+		const isCurrentUserItem = basketItem.userId === currentUserData.uid;
+
+		// Allow edit only in individual mode OR if it's your item in party mode
+		const allowEdit =
+			mode === "individual" || (mode === "party" && isCurrentUserItem);
+
 		// Note: personId might not be needed if item object contains all info
 		const itemTotal =
 			Math.round(
@@ -295,7 +400,7 @@ const BasketScreen = ({ route, navigation }) => {
 					)}
 				</View>
 				<View style={styles.itemControlsAndPrice}>
-					{!basketItem.sentToChefQ ? (
+					{!basketItem.sentToChefQ && allowEdit ? (
 						<View style={styles.quantityControls}>
 							<IconButton
 								icon="minus-circle-outline"
@@ -378,13 +483,15 @@ const BasketScreen = ({ route, navigation }) => {
 			<SafeAreaView style={styles.safeArea}>
 				<View style={styles.container}>
 					{/* Header */}
-					<Text style={styles.mainHeading}>Your Basket</Text>
+					<Text style={styles.mainHeading}>
+						{mode === "party" ? "Table Order" : "Your Basket"}
+					</Text>
 					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
 					{basketError && <Text style={styles.errorText}>{basketError}</Text>}
 
 					{/* --- NEW: Status Message Area --- */}
 					{!isProcessing &&
-						restaurantBasketItems.length > 0 && ( // Only show messages if not processing and basket has items
+						displayItems.length > 0 && ( // Only show messages if not processing and basket has items
 							<>
 								{checkInStatus !== "ACCEPTED" && (
 									<View style={[styles.statusMessageContainer, styles.infoBox]}>
@@ -416,7 +523,7 @@ const BasketScreen = ({ route, navigation }) => {
 								)}
 								{checkInStatus === "ACCEPTED" &&
 									!hasUnsentItems &&
-									restaurantBasketItems.length > 0 && (
+									displayItems.length > 0 && (
 										<View
 											style={[styles.statusMessageContainer, styles.successBox]}
 										>
@@ -435,7 +542,7 @@ const BasketScreen = ({ route, navigation }) => {
 					{/* --- END: Status Message Area --- */}
 
 					{/* Loading Indicator or Basket List */}
-					{isProcessing && restaurantBasketItems.length === 0 ? ( // Show loader only if no items AND loading
+					{isProcessing && displayItems.length === 0 ? ( // Show loader only if no items AND loading
 						<View style={styles.centered}>
 							<ActivityIndicator size="large" color={colors.primary} />
 						</View>
@@ -563,7 +670,7 @@ const BasketScreen = ({ route, navigation }) => {
 				{/* Checkout FAB */}
 				<Portal>
 					{/* Show FAB if user is checked in and has items */}
-					{checkInStatus === "ACCEPTED" && restaurantBasketItems.length > 0 && (
+					{checkInStatus === "ACCEPTED" && displayItems.length > 0 && (
 						<FAB
 							style={[styles.fab, !canCheckout && styles.fabDisabled]} // Apply disabled style
 							icon="credit-card-check-outline"

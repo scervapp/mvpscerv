@@ -19,18 +19,35 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 	const hostUserId = context.auth.uid;
 
 	// 2. Input Validation
-	const { restaurantId, restaurantName } = data;
-	if (!restaurantId || !restaurantName) {
+	const { restaurantId } = data;
+	if (
+		!restaurantId ||
+		typeof restaurantId !== "string" ||
+		restaurantId.trim() === ""
+	) {
+		console.error(
+			"CreateParty: Invalid input - restaurantId missing or not a valid string.",
+			data
+		);
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID and Name are required."
+			"Restaurant ID is required and must be a non-empty string."
 		);
 	}
 
 	try {
 		// 3. Fetch Host's Name (Denormalization)
 		const hostUserRef = db.collection("customers").doc(hostUserId);
-		const hostUserSnap = await hostUserRef.get();
+		const restaurantDocRef = db.collection("restaurants").doc(restaurantId);
+
+		console.log(
+			`CreateParty: Fetching details for host ${hostUserId} and restaurant ${restaurantId}`
+		);
+
+		const [hostUserSnap, restaurantSnap] = await Promise.all([
+			hostUserRef.get(),
+			restaurantDocRef.get(),
+		]);
 		if (!hostUserSnap.exists) {
 			// Should not happen for authenticated user, but good check
 			throw new functions.https.HttpsError(
@@ -38,17 +55,60 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 				"Host user data not found."
 			);
 		}
+
+		if (!restaurantSnap.exists) {
+			console.error(
+				`CreateParty: Restaurant data not found for ID: ${restaurantId}`
+			);
+			throw new functions.https.HttpsError(
+				"not-found",
+				`Restaurant data not found.`
+			);
+		}
 		// Adjust field names if your customer doc structure is different
+		const hostData = hostUserSnap.data();
 		const hostName =
-			`${hostUserSnap.data().firstName || ""} ${
-				hostUserSnap.data().lastName || ""
-			}`.trim() || "Host";
+			`${hostData.firstName || ""} ${hostData.lastName || ""}`.trim() || "Host";
+
+		const restaurantData = restaurantSnap.data();
+		const restaurantName = restaurantData.restaurantName;
+		const restaurantTaxRate = restaurantData.taxRate; // Ensure this field exists on your restaurant documents
+
+		// Validate fetched restaurant data
+		if (typeof restaurantName !== "string" || restaurantName.trim() === "") {
+			console.error(
+				`CreateParty: Restaurant name missing or invalid for restaurant ${restaurantId}.`
+			);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Restaurant configuration error (name)."
+			);
+		}
+		if (typeof restaurantTaxRate !== "number" || isNaN(restaurantTaxRate)) {
+			console.error(
+				`CreateParty: Restaurant tax rate missing or invalid for restaurant ${restaurantId}. Expected number, got:`,
+				restaurantTaxRate
+			);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Restaurant configuration error (tax rate)."
+			);
+		}
+		console.log(
+			`CreateParty: Host: ${hostName}, Restaurant: ${restaurantName}, Tax Rate: ${restaurantTaxRate}`
+		);
 
 		// 4. Create the Party Document
+		const partyId = db.collection("parties").doc().id; // Pre-generate ID for both docs
 		const partyRef = db.collection("parties").doc(); // Auto-generate ID
-		await partyRef.set({
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId); // Use the same ID
+
+		const now = FieldValue.serverTimestamp();
+
+		const partyDataToSet = {
 			restaurantId: restaurantId,
 			restaurantName: restaurantName,
+			restaurantTaxRate: restaurantTaxRate,
 			hostUserId: hostUserId,
 			hostName: hostName,
 			guestUserIds: [],
@@ -58,12 +118,26 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			checkInId: null,
 			inviteCode: null,
 			inviteCodeExpiry: null,
-		});
+		};
+		const sharedBasketDataToSet = {
+			partyId: partyId, // Store partyId in basket for reference
+			restaurantId: restaurantId,
+			items: [], // Initially empty
+			lastUpdated: now,
+		};
 
 		console.log(
-			`Party created successfully with ID: ${partyRef.id} for restaurant ${restaurantId}`
+			`CreateParty: Preparing batch write for party ${partyId} and its shared basket.`
 		);
-		return { success: true, partyId: partyRef.id };
+		const batch = db.batch();
+		batch.set(partyRef, partyDataToSet);
+		batch.set(sharedBasketRef, sharedBasketDataToSet); // Create empty shared basket
+		await batch.commit();
+
+		console.log(
+			`Party ${partyId} and shared basket created successfully for restaurant ${restaurantId} by host ${hostUserId}`
+		);
+		return { success: true, partyId: partyId };
 	} catch (error) {
 		console.error("Error creating party:", error);
 		if (error.code && error.httpErrorCode) {
@@ -79,7 +153,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 
 // functions/partyFunctions.js (Add to the same file)
 
-const { Timestamp } = require("firebase-admin/firestore"); // Import Timestamp
+const { Timestamp, FieldValue } = require("firebase-admin/firestore"); // Import Timestamp
 
 /**
  * Sends an invite to a party. Can invite a specific user (creates notification)

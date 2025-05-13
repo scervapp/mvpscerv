@@ -361,6 +361,8 @@ const PartyLobbyScreen = () => {
 			.required("Party size is required"),
 	});
 
+	
+
 	const onRefresh = useCallback(() => {
 		// Manual refresh is less critical with the real-time listener,
 		// but can be kept as a fallback or removed.
@@ -411,7 +413,7 @@ const PartyLobbyScreen = () => {
 						JSON.stringify(pip),
 						`isAlreadyGuest: ${isAlreadyGuest}, isDisabled: ${isDisabled}`
 					);
-''
+					("");
 					// --- Decide action based on PIP type ---
 					if (!isDisabled) {
 						if (pip.isUser && pip.userId) {
@@ -605,6 +607,29 @@ const PartyLobbyScreen = () => {
 												</Text>
 											)}
 										</TouchableOpacity>
+										{/* --- View Table Order Button --- */}
+										{currentPartyStatus === "active" &&
+											partyDetails?.checkInId && (
+												<TouchableOpacity
+													style={[styles.actionButton, styles.viewOrderButton]} // Add a new style if needed
+													onPress={() =>
+														navigation.navigate("BasketScreen", {
+															// <<< Navigation happens here
+															mode: "party", // <<< Tells BasketScreen to show party view
+															restaurant: {
+																// Pass necessary restaurant info
+																id: partyDetails.restaurantId,
+																restaurantName: partyDetails.restaurantName,
+																taxRate: partyDetails.restaurantTaxRate, // Ensure tax rate is available
+															},
+														})
+													}
+												>
+													<Text style={styles.actionButtonText}>
+														View Table Order
+													</Text>
+												</TouchableOpacity>
+											)}
 									</>
 								)}
 

@@ -91,7 +91,7 @@ const CustomerDashboardStack = () => (
 			})}
 		/>
 		<Stack.Screen
-			name="PartyLobby"
+			name="PartyLobbyScreen"
 			component={PartyLobbyScreen}
 			options={{ title: "Party Lobby" }} // Or customize header as needed
 		/>

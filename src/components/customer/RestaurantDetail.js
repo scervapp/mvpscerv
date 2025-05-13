@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useContext } from "react";
+// screens/customer/RestaurantDetailScreen.js
+import React, { useContext, useEffect, useState, useMemo } from "react";
 import {
 	View,
 	Text,
@@ -8,216 +9,204 @@ import {
 	ActivityIndicator,
 	Modal,
 	TextInput,
-	Button,
 	ScrollView,
 	Alert,
+	SafeAreaView, // Added SafeAreaView
+	// Removed Button from react-native
 } from "react-native";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { AuthContext } from "../../context/authContext";
+import { PartyContext, useParty } from "../../context/customer/PartyContext"; // Ensure useParty is exported if preferred
+import { useBasket } from "../../context/customer/BasketContext";
+import colors from "../../utils/styles/appStyles";
 import {
-	checkIn,
+	checkIn, // Your utility to create a check-in
 	fetchMenu,
-	handleCancelCheckIn,
+	handleCancelCheckIn, // Your utility to cancel a check-in
 	useCheckInStatus,
 } from "../../utils/customerUtils";
-import MenuItemsList from "./MenuItemsList";
-import { AuthContext } from "../../context/authContext";
-import {
-	collection,
-	onSnapshot,
-	query,
-	where,
-	updateDoc,
-	doc,
-	getDoc,
-} from "firebase/firestore";
+import MenuItemsList from "./MenuItemsList"; // Assuming this is your menu component
 import { db } from "../../config/firebase";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useBasket } from "../../context/customer/BasketContext";
+import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
-import colors from "../../utils/styles/appStyles";
-import { Ionicons } from "@expo/vector-icons";
+import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
 
-import { PartyContext, useParty } from "../../context/customer/PartyContext";
-import { useNavigation } from "@react-navigation/native";
+// Assuming formatCurrency is available or defined
+const formatCurrency = (cents) => {
+	if (typeof cents !== "number" || isNaN(cents)) {
+		return "$0.00";
+	}
+	const value = cents / 100;
+	return `${value < 0 ? "-" : ""}$${Math.abs(value).toFixed(2)}`;
+};
 
-const RestaurantDetail = ({ route }) => {
-	// 1: Extract the restaurant data from the route parameters and retrieve context values
-	const { restaurant } = route.params;
+const RestaurantDetailScreen = () => {
+	const route = useRoute();
+	const navigation = useNavigation();
+	const { restaurant } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
 
 	const { currentUserData } = useContext(AuthContext);
-	const navigation = useNavigation();
-	const { baskets } = useBasket();
+	const { baskets } = useBasket(); // For individual basket count
 	const {
 		createParty,
-		isLoadingParty,
+		isLoadingParty, // Loading state from PartyContext for party creation
 		currentPartyId,
-		partyStatus,
-		partyDetails,
-		activatePartyCheckIn,
-	} = useParty();
+		partyDetails, // Details of the current party from context
+		partyStatus, // Status of the current party from context
+		activatePartyCheckIn, // Function from context
+	} = useParty(); // Using the custom hook
 
-	const restaurantBasket =
-		baskets && restaurant?.id ? baskets[restaurant.id] : { items: [] };
+	// Local loading states for this screen's specific actions
+	const [isModalVisible, setIsModalVisible] = useState(false);
+	const [menuItems, setMenuItems] = useState([]);
+	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
+	const [isProcessingAction, setIsProcessingAction] = useState(false); // For individual check-in/cancel actions
 
-	// Calculate basketCount based on the current restaurant's basket
+	// --- Call useCheckInStatus unconditionally at the top ---
+	const {
+		checkInStatus, // "REQUESTED", "ACCEPTED", "NONE", "ERROR"
+		tableNumber, // Table name if ACCEPTED
+		isLoading: isLoadingCheckInStatus, // Loading state for check-in status hook
+		checkInObj, // Full checkIn document from Firestore
+	} = useCheckInStatus(
+		currentUserData?.role === "customer" && restaurant?.id
+			? restaurant.id
+			: null,
+		currentUserData?.role === "customer" && currentUserData?.uid
+			? currentUserData.uid
+			: null
+	);
+
+	const restaurantBasket = useMemo(() => {
+		return baskets && restaurant?.id ? baskets[restaurant.id] : { items: [] };
+	}, [baskets, restaurant?.id]);
 	const basketCount = restaurantBasket?.items?.length || 0;
 
-	// 2. State variables for UI and data
-	const [isLoading, setIsLoading] = useState(false); // fetch initial status
-	const [isModalVisible, setIsModalVisible] = useState(false);
-	const [partySize, setPartySize] = useState("");
-	const [menuItems, setMenuItems] = useState([]);
-
-	// 3. Effect to fetch initial check-in status
-	let checkInStatus, tableNumber, isLoadingCheckIn, checkInObj;
-
-	if (currentUserData.role === "customer") {
-		const checkInData = useCheckInStatus(restaurant.id, currentUserData.uid);
-		checkInStatus = checkInData.checkInStatus;
-		tableNumber = checkInData.tableNumber;
-		isLoadingCheckIn = checkInData.isLoading;
-		checkInObj = checkInData.checkInObj;
-	}
-
+	// Effect to fetch menu items for the restaurant
 	useEffect(() => {
-		// Access the latest check-in data
-		// If check-in just got ACCEPTED and user is host of a PENDING party for THIS restaurant
+		let isMounted = true;
+		const loadMenu = async () => {
+			if (!restaurant?.id) {
+				if (isMounted) setIsLoadingMenu(false);
+				return;
+			}
+			setIsLoadingMenu(true);
+			try {
+				const fetchedMenu = await fetchMenu(restaurant.id);
+				if (isMounted) setMenuItems(fetchedMenu);
+			} catch (error) {
+				console.log("Error fetching menu:", error);
+				// Handle menu fetch error if needed (e.g., set an error state)
+			} finally {
+				if (isMounted) setIsLoadingMenu(false);
+			}
+		};
+		loadMenu();
+		return () => {
+			isMounted = false;
+		};
+	}, [restaurant?.id]);
+
+	// --- Effect to potentially activate party after host's individual check-in ---
+	useEffect(() => {
+		// Only attempt to activate if all conditions are met
 		if (
-			checkInStatus === "ACCEPTED" && // <<< Trigger on ACCEPTED
-			checkInObj?.id &&
-			partyStatus === "pending" &&
-			currentPartyId &&
-			partyDetails?.restaurantId === restaurant.id && // Ensure it's for THIS restaurant
-			partyDetails?.hostUserId === currentUserData?.uid // Ensure it's the host
+			checkInStatus === "ACCEPTED" && // 1. Host's INDIVIDUAL check-in is now accepted
+			checkInObj?.id && // 2. We have the check-in document ID
+			currentPartyId && // 3. User is currently associated with a party in context
+			partyDetails?.id === currentPartyId && // 4. The details for that party are loaded
+			partyDetails?.status === "pending" && // 5. That party is still pending activation
+			partyDetails?.restaurantId === restaurant?.id && // 6. The party is for the current restaurant
+			partyDetails?.hostUserId === currentUserData?.uid // 7. The current user IS the host of that party
 		) {
 			console.log(
-				"RestaurantDetail: Check-in ACCEPTED, attempting to activate party..."
+				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyId} with checkIn ${checkInObj.id}`
 			);
-			// Call the context function to activate
-			activatePartyCheckIn(checkInObj.id); // Pass the checkIn ID
-		}
-	}, [
-		checkInStatus, // Depend on checkInStatus changing
-		checkInObj?.id,
-		partyStatus,
-		currentPartyId,
-		partyDetails?.restaurantId, // Add dependency
-		partyDetails?.hostUserId,
-		currentUserData?.uid,
-		restaurant.id, // Add dependency
-		activatePartyCheckIn,
-	]);
-
-	// ---Effect to potentially activate party after check-in ---
-	useEffect(() => {
-		// If check-in just got ACCEPTED and user is host of a PENDING party for THIS restaurant
-		if (
-			checkInStatus === "ACCEPTED" &&
-			checkInObj?.id && // Make sure we have the checkIn document ID
-			partyStatus === "pending" && // Check party status from context
-			currentPartyId && // Check if user is in a party
-			partyDetails?.hostUserId === currentUserData?.uid // Ensure its the host activating
-		) {
-			console.log(
-				"RestaurantDetail: Check-in accepted, attempting to activate party..."
-			);
-			// Call the context function to activate
-			activatePartyCheckIn(checkInObj.id);
+			activatePartyCheckIn(checkInObj.id); // Call context function
 		}
 	}, [
 		checkInStatus,
 		checkInObj?.id,
-		partyStatus,
 		currentPartyId,
-		activatePartyCheckIn,
+		partyDetails, // Listen to the whole partyDetails object for changes
+		restaurant?.id,
 		currentUserData?.uid,
-		partyDetails?.hostUserId,
-	]); // Dependencies
-
-	// 4. Effect to fetch menu items for the restaurant
-	useEffect(() => {
-		const loadMenu = async () => {
-			try {
-				const fetchedMenu = await fetchMenu(restaurant.id);
-				setMenuItems(fetchedMenu);
-			} catch (error) {
-				console.log("Error fetching menu:", error);
-			}
-		};
-		loadMenu();
-	}, [restaurant.id]);
+		activatePartyCheckIn,
+	]);
 
 	const openModal = () => setIsModalVisible(true);
 	const closeModal = () => setIsModalVisible(false);
 
-	// 5. Function to handle check-in request
-	const handleCheckin = async (values) => {
-		setIsLoading(true);
-		const userRef = doc(db, "customers", currentUserData.uid);
-		const userSnap = await getDoc(userRef);
-
-		if (userSnap.exists()) {
-			const activeCheckIn = userSnap.data().activeCheckIn;
-
-			// If there's an active check-in and it's for a different restaurant
-			if (activeCheckIn && activeCheckIn.restaurantId !== restaurant.id) {
-				alert(
-					"You are already checked into another restaurant. Please check out before checking into a new one."
-				);
-				return;
-			}
+	// Function to handle individual check-in request
+	const handlePersonalCheckinSubmit = async (values) => {
+		if (
+			isLoadingCheckInStatus ||
+			isProcessingAction ||
+			checkInStatus === "REQUESTED" ||
+			checkInStatus === "ACCEPTED"
+		) {
+			console.log("Check-in already in progress or completed.");
+			return;
 		}
-		const customerName = `${currentUserData.firstName} ${currentUserData.lastName}`;
+		// Prevent individual check-in if user is in an active party at THIS restaurant
+		if (
+			currentPartyId &&
+			partyDetails?.restaurantId === restaurant.id &&
+			(partyDetails?.status === "active" || partyDetails?.status === "pending")
+		) {
+			Alert.alert(
+				"In a Party",
+				"You are already in a party at this restaurant. Manage your party from the Party Lobby."
+			);
+			closeModal();
+			return;
+		}
 
+		setIsProcessingAction(true);
+		const customerName = `${currentUserData.firstName || ""} ${
+			currentUserData.lastName || ""
+		}`.trim();
 		try {
-			setIsLoading(true);
-
 			const { success, checkInId } = await checkIn(
+				// Assuming checkIn utility handles Firestore write
 				restaurant.id,
 				currentUserData.uid,
 				values.partySize,
 				customerName
 			);
-
 			if (success && checkInId) {
-				// update check-in status to requested in firestore
-				await updateDoc(doc(db, "checkIns", checkInId), {
-					status: "REQUESTED",
-				});
-
-				// --- Potentially call activatePartyCheckIn HERE if conditions met ---
-				// This might be more reliable than the useEffect approach
-				if (partyStatus === "pending" && currentPartyId) {
-					// Maybe add host check here if partyDetails available in context
-					console.log(
-						"handleCheckin: Check-in requested, attempting to activate party..."
-					);
-					await activatePartyCheckIn(checkInId); // Call context function
-				}
+				console.log("Personal check-in requested successfully:", checkInId);
+				// useCheckInStatus hook will update checkInStatus via its listener
 			} else {
-				Alert.alert("Check-In Failed", "Please try again later.");
+				Alert.alert(
+					"Check-In Failed",
+					"Could not submit check-in request. Please try again."
+				);
 			}
 		} catch (error) {
-			console.log("Error checking in:", error);
-			Alert.alert("Error", "An error occured while checking in.");
+			console.error("Error during personal check-in:", error);
+			Alert.alert("Error", `An error occurred: ${error.message}`);
 		} finally {
-			setIsLoading(false);
+			setIsProcessingAction(false);
+			closeModal();
 		}
-		closeModal();
 	};
-	const handlingCancelCheckIn = async () => {
+
+	const handleCancelIndividualCheckIn = async () => {
+		if (!checkInObj?.id || isProcessingAction) return;
+		setIsProcessingAction(true);
 		try {
-			setIsLoading(true);
-			// Call the cancelCheckIn function from customerUtils
+			// Pass checkInObj.id to ensure cancelling the correct one
 			const success = await handleCancelCheckIn(
 				restaurant.id,
-				currentUserData.uid
+				currentUserData.uid,
+				checkInObj.id
 			);
-
 			if (success) {
 				Alert.alert("Success", "Your check-in request has been cancelled.");
 			} else {
-				return;
+				Alert.alert("Error", "Could not cancel check-in request.");
 			}
 		} catch (error) {
 			console.error("Error canceling check-in:", error);
@@ -226,301 +215,251 @@ const RestaurantDetail = ({ route }) => {
 				"An error occurred while canceling your check-in request."
 			);
 		} finally {
-			setIsLoading(false);
+			setIsProcessingAction(false);
 		}
 	};
 
-	// --- MODIFIED: Function to handle hosting a party using Context ---
-	const handleHostParty = async () => {
-		if (!currentUserData || !restaurant || isLoadingParty) return;
-		// Call the function from the context
-		createParty(restaurant.id, restaurant.restaurantName);
+	// --- Function to handle starting a party ---
+	const handleStartParty = async () => {
+		if (!currentUserData) {
+			Alert.alert("Login Required", "Please log in to start a party.");
+			return;
+		}
+		if (!restaurant?.id) {
+			Alert.alert("Error", "Restaurant details missing.");
+			return;
+		}
+		if (
+			isLoadingParty ||
+			isLoadingCheckInStatus ||
+			checkInStatus === "REQUESTED" ||
+			checkInStatus === "ACCEPTED" ||
+			currentPartyId
+		) {
+			// Prevent starting party if already checked in, in a party, or action is loading
+			console.log(
+				"Cannot start party due to existing check-in or party status."
+			);
+			return;
+		}
 
-		// --- ADD NAVIGATION LOGIC HERE ---
+		const newPartyId = await createParty(restaurant.id); // Context calls CF
 		if (newPartyId) {
-			// Navigate only if party creation was successful and returned an ID
-			navigation.navigate("PartyLobby", {
-				partyId: newPartyId,
-				restaurant: restaurant, // Pass restaurant if needed by lobby
-			});
+			navigation.navigate("PartyLobbyScreen", { partyId: newPartyId });
 		}
+		// Errors handled by PartyContext
 	};
-	// --- END MODIFIED FUNCTION ---
 
-	// --- NEW: View Existing Party Handler ---
+	// --- View Existing Party Handler ---
 	const handleViewParty = () => {
 		if (currentPartyId) {
-			navigation.navigate("PartyLobby", {
-				partyId: currentPartyId,
-				// restaurant: restaurant, // Optional: Pass restaurant if needed by lobby
-			});
-		} else {
-			// Should not happen if button is only shown when currentPartyId exists
-			console.warn("Attempted to view party, but no currentPartyId found.");
-		}
-	};
-	// --- END NEW HANDLER ---
-
-	const handlePersonalCheckinSubmit = async (values) => {
-		// 1. Check if user is in any party
-		if (currentPartyId) {
-			Alert.alert(
-				"Action Blocked",
-				"You are currently in a party session. Please leave or cancel the party before checking in personally."
-			);
-			return; // Stop the process
-		}
-
-		// 2. Check for existing check-in at other restaurants (copied from utility)
-		if (!currentUserData?.uid) {
-			Alert.alert("Error", "User data not available.");
-			return;
-		}
-		setIsLoading(true); // Use local loading state for this action
-		const userRef = doc(db, "customers", currentUserData.uid);
-		try {
-			const userSnap = await getDoc(userRef);
-			if (userSnap.exists() && userSnap.data().activeCheckIn) {
-				const activeCheckInData = userSnap.data().activeCheckIn;
-				if (activeCheckInData.restaurantId !== restaurant.id) {
-					// Fetch name for better message (optional)
-					let otherRestaurantName = "another restaurant";
-					try {
-						const otherRestRef = doc(
-							db,
-							"restaurants",
-							activeCheckInData.restaurantId
-						);
-						const otherRestSnap = await getDoc(otherRestRef);
-						if (otherRestSnap.exists()) {
-							otherRestaurantName =
-								otherRestSnap.data().restaurantName || otherRestaurantName;
-						}
-					} catch (e) {
-						/* ignore name fetch error */
-					}
-					Alert.alert(
-						"Check-in Blocked",
-						`You already have an active check-in request at ${otherRestaurantName}. Please cancel it first.`
-					);
-					setIsLoading(false);
-					return; // Stop
-				}
-			}
-		} catch (error) {
-			console.error("Error checking user's active check-in:", error);
-			Alert.alert("Error", "Could not verify current check-in status.");
-			setIsLoading(false);
-			return;
-		}
-
-		// 3. Proceed with personal check-in using core utility
-		const customerName = `${currentUserData.firstName || ""} ${
-			currentUserData.lastName || ""
-		}`.trim();
-		try {
-			// Call the core checkIn utility directly (NO partyId, NO activatePartyCheckIn)
-			const { success, checkInId } = await checkIn(
-				restaurant.id,
-				currentUserData.uid,
-				values.partySize,
-				customerName
-				// No partyId passed here
-			);
-
-			if (success && checkInId) {
-				// Status is already set to REQUESTED by checkIn utility
-				console.log("Personal check-in requested successfully:", checkInId);
-				// No party activation needed
-			} else {
-				Alert.alert("Check-In Failed", "Could not create check-in request.");
-			}
-		} catch (error) {
-			console.error("Error during personal check-in:", error);
-			Alert.alert(
-				"Error",
-				`An error occurred while checking in: ${error.message}`
-			);
-		} finally {
-			setIsLoading(false);
-			closeModal(); // Close modal regardless of success/failure after attempt
+			navigation.navigate("PartyLobbyScreen", { partyId: currentPartyId });
 		}
 	};
 
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, "Party size must be atleast 1")
-			.required("Party size is required"),
+			.min(1, "Min 1")
+			.max(20, "Max 20")
+			.required("Required")
+			.typeError("Must be a number"),
 	});
 
-	const navigateToBasketScreen = () => {
-		navigation.navigate("BasketScreen", {
-			restaurant,
-		});
-	};
-
-	// --- ADD LOGGING HERE ---
-	console.log("--- RestaurantDetail State Check ---");
-	console.log("isLoading (local):", isLoading);
-	console.log("isLoadingCheckIn (hook):", isLoadingCheckIn);
-	console.log("isLoadingParty (context):", isLoadingParty);
-	console.log("currentPartyId (context):", currentPartyId);
-	console.log("partyStatus (context):", partyStatus);
+	// --- ADD OR VERIFY THIS LOGGING BLOCK ---
+	console.log("--- RestaurantDetail State Check (Before Action Buttons) ---");
+	console.log("isLoadingParty (from PartyContext):", isLoadingParty);
+	console.log(
+		"isLoadingCheckInStatus (from useCheckInStatus hook):",
+		isLoadingCheckInStatus
+	);
+	console.log("checkInStatus (from useCheckInStatus hook):", checkInStatus);
+	console.log("currentPartyId (from PartyContext):", currentPartyId);
 	console.log(
 		"partyDetails?.restaurantId (context):",
 		partyDetails?.restaurantId
 	);
-	console.log("restaurant.id (prop):", restaurant.id);
-	console.log("checkInObj (hook):", JSON.stringify(checkInObj)); // Log the whole object
-	console.log("checkInStatus (hook):", checkInStatus);
-
-	// Re-calculate the disable flags here for logging
-	const isPersonallyCheckedIn_debug =
-		checkInObj?.status === "REQUESTED" || checkInObj?.status === "ACCEPTED";
-	const isInActivePartyAtThisRestaurant_debug =
-		partyStatus === "active" && partyDetails?.restaurantId === restaurant.id;
-	const disableCheckIn_debug =
-		isPersonallyCheckedIn_debug || isInActivePartyAtThisRestaurant_debug;
-
-	console.log("isPersonallyCheckedIn_debug:", isPersonallyCheckedIn_debug);
+	console.log("restaurant.id (prop):", restaurant?.id);
 	console.log(
-		"isInActivePartyAtThisRestaurant_debug:",
-		isInActivePartyAtThisRestaurant_debug
-	);
-	console.log("disableCheckIn_debug:", disableCheckIn_debug);
-	console.log(
-		"Button disabled prop evaluates to:",
-		isLoading || isLoadingCheckIn || disableCheckIn_debug
-	); // Check all conditions used in renderCheckInButton
-	console.log("------------------------------------");
-	// --- END LOGGING ---
+		"isProcessingAction (local state for check-in):",
+		isProcessingAction
+	); // If you still have this local state
+	console.log("----------------------------------------------------------");
+	// --- END LOGGING BLOCK ---
 
-	const renderCheckInButton = () => {
-		if (isLoading) {
-			return <ActivityIndicator size="small" color="white" />;
+	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
+	const renderActionButtons = () => {
+		if (isLoadingCheckInStatus || isLoadingParty) {
+			// Combined initial loading for this section
+			return (
+				<View style={styles.actionsRow}>
+					<ActivityIndicator size="small" color={colors.primary} />
+				</View>
+			);
 		}
 
-		// Continue with rendering the check-in button based on the check-in status
-		if (checkInStatus) {
-			switch (checkInObj && checkInStatus) {
-				case "REQUESTED":
-					return (
-						<View style={styles.checkInRequestContainer}>
-							<ActivityIndicator
-								size="small"
-								color={colors.primary}
-								style={styles.loadingIndicator}
-							/>
-							<Text style={styles.awaitingApprovalText}>
-								Waiting to be seated
-							</Text>
-							<TouchableOpacity
-								onPress={handlingCancelCheckIn}
-								style={styles.cancelButton}
-							>
-								<Text style={styles.cancelCheckInButtonText}>
-									Cancel Check-In
-								</Text>
-							</TouchableOpacity>
-						</View>
-					);
-				case "ACCEPTED":
-					return (
-						<View style={styles.checkInButtonCheckedIn}>
-							<Ionicons name="checkmark-circle" size={50} color="#28a745" />
-							<Text style={styles.checkInButtonTextCheckedIn}>
-								Checked In at {checkInObj.table?.name}
-							</Text>
-							<Text style={styles.checkInButtonTextCheckedIn}>
-								Your Server is {checkInObj.server?.firstName}
-							</Text>
-						</View>
-					);
-				default:
-					console.log("  Rendering: DEFAULT state (Check In button)");
-
-					// --- Use the REFINED disableCheckIn logic here ---
-					const isPersonallyCheckedIn =
-						checkInObj?.status === "REQUESTED" ||
-						checkInObj?.status === "ACCEPTED";
-					const isInActivePartyAtThisRestaurant =
-						partyStatus === "active" &&
-						partyDetails?.restaurantId === restaurant.id;
-					const disableCheckIn =
-						isPersonallyCheckedIn || isInActivePartyAtThisRestaurant;
-					// --- End refined logic ---
-
-					console.log(
-						"  Final disabled value for default case:",
-						isLoading || disableCheckIn
-					);
-
-					const handlePersonalCheckInPress = () => {
-						if (currentPartyId) {
-							Alert.alert(
-								"Action Blocked",
-								"You are currently in a party session. Please leave or cancel the party before checking in personally."
-							);
-						} else {
-							openModal(); // Only open modal if not in a party
-						}
-					};
-
-					return (
+		// Scenario 1: User is already in a party (any party, for any restaurant)
+		if (currentPartyId) {
+			// If the current party is for THIS restaurant, show "View Party"
+			if (partyDetails?.restaurantId === restaurant.id) {
+				return (
+					<View style={styles.actionsRow}>
 						<TouchableOpacity
-							style={[
-								styles.checkInButton,
-								(isLoading || disableCheckIn) && styles.disabledButton,
-							]}
-							onPress={handlePersonalCheckInPress} // <<< Use the new handler with check
-							disabled={isLoading || disableCheckIn}
+							style={styles.actionButton}
+							onPress={handleViewParty}
 						>
-							<Text style={styles.checkInButtonText}>
-								{isInActivePartyAtThisRestaurant
-									? "Checked In Via Party"
-									: "Check In"}
-							</Text>
+							<MaterialCommunityIcons
+								name="account-group"
+								size={28}
+								color={colors.primary}
+							/>
+							<Text style={styles.actionButtonText}>View Party</Text>
 						</TouchableOpacity>
-					);
+						{/* Individual check-in button is hidden/disabled */}
+					</View>
+				);
+			} else {
+				// User is in a party at a DIFFERENT restaurant
+				return (
+					<View style={styles.actionsRow}>
+						<View style={styles.actionButtonDisabled}>
+							<MaterialCommunityIcons
+								name="information-outline"
+								size={28}
+								color={colors.textLight}
+							/>
+							<Text
+								style={[
+									styles.actionButtonTextDisabled,
+									{ textAlign: "center" },
+								]}
+							>
+								In party at{" "}
+								{partyDetails?.restaurantName || "another restaurant"}
+							</Text>
+						</View>
+					</View>
+				);
 			}
 		}
-	};
-	// Floating basket button
-	const FloatingBasketButton = () => {
-		const isGuest = currentUserData.role === "guest"; // Check if the user is a guest
 
-		return (
-			<TouchableOpacity
-				style={[styles.fabContainer, isGuest && styles.disabledButton]} // Apply disabled style if guest
-				onPress={() => navigateToBasketScreen()}
-				disabled={isGuest} // Disable the button for guest users
-			>
-				<View style={styles.fabContent}>
-					<MaterialCommunityIcons name="basket" size={32} color="white" />
-					{basketCount > 0 && (
-						<View style={styles.badge}>
-							<Text style={styles.badgeText}>{basketCount}</Text>
+		// Scenario 2: User is NOT in any party - show individual check-in options
+		switch (checkInStatus) {
+			case "REQUESTED":
+				return (
+					<View style={styles.actionsRow}>
+						<View style={styles.actionButtonDisabled}>
+							<MaterialCommunityIcons
+								name="timer-sand"
+								size={28}
+								color={colors.textLight}
+							/>
+							<Text style={styles.actionButtonTextDisabled}>Waiting...</Text>
 						</View>
-					)}
-				</View>
-			</TouchableOpacity>
-		);
+						<TouchableOpacity
+							style={styles.actionButton}
+							onPress={handleCancelIndividualCheckIn}
+							disabled={isProcessingAction}
+						>
+							{isProcessingAction ? (
+								<ActivityIndicator size="small" color={colors.danger} />
+							) : (
+								<MaterialCommunityIcons
+									name="cancel"
+									size={28}
+									color={colors.danger}
+								/>
+							)}
+							<Text style={[styles.actionButtonText, { color: colors.danger }]}>
+								Cancel
+							</Text>
+						</TouchableOpacity>
+					</View>
+				);
+			case "ACCEPTED":
+				return (
+					<View style={styles.actionsRow}>
+						<View style={styles.actionButtonCheckedIn}>
+							<MaterialCommunityIcons
+								name="check-circle"
+								size={28}
+								color={colors.success}
+							/>
+							<Text style={styles.actionButtonTextCheckedIn}>Checked In!</Text>
+							{tableNumber && (
+								<Text style={styles.tableText}>Table: {tableNumber}</Text>
+							)}
+						</View>
+						{/* Should not be able to start a party if already checked in individually */}
+						<View style={styles.actionButtonDisabled}>
+							<MaterialCommunityIcons
+								name="account-multiple-plus-outline"
+								size={28}
+								color={colors.textLight}
+							/>
+							<Text style={styles.actionButtonTextDisabled}>Start Party</Text>
+						</View>
+					</View>
+				);
+			case "NONE":
+			case "ERROR": // Treat error as ability to try again for individual check-in
+			default:
+				return (
+					<View style={styles.actionsRow}>
+						<TouchableOpacity
+							style={styles.actionButton}
+							onPress={openModal}
+							disabled={isProcessingAction}
+						>
+							{isProcessingAction && !isLoadingParty ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<MaterialCommunityIcons
+									name="calendar-check-outline"
+									size={28}
+									color={colors.primary}
+								/>
+							)}
+							<Text style={styles.actionButtonText}>Check In</Text>
+						</TouchableOpacity>
+						<TouchableOpacity
+							style={[
+								styles.actionButton,
+								isLoadingParty && styles.actionButtonDisabled,
+							]}
+							onPress={handleStartParty}
+							disabled={isLoadingParty}
+						>
+							{isLoadingParty ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<>
+									<MaterialCommunityIcons
+										name="account-multiple-plus-outline"
+										size={28}
+										color={colors.primary}
+									/>
+									<Text style={styles.actionButtonText}>Start Party</Text>
+								</>
+							)}
+						</TouchableOpacity>
+					</View>
+				);
+		}
 	};
 
-	const isCustomer = currentUserData.role === "customer";
-	// Determine if Host Party button should be shown/enabled
-	const canHostParty =
-		isCustomer && // Must be a customer
-		!checkInObj && // Not currently checked in
-		!currentPartyId; // Not already in another party
+	if (!restaurant) {
+		return (
+			<SafeAreaView style={styles.centered}>
+				<Text style={styles.errorText}>Restaurant data not found.</Text>
+				<PaperButton onPress={() => navigation.goBack()}>Go Back</PaperButton>
+			</SafeAreaView>
+		);
+	}
 
 	return (
-		<View style={styles.container}>
-			<ScrollView showsVerticalScrollIndicator={false}>
-				{/* Restaurant Image */}
+		<SafeAreaView style={styles.safeArea}>
+			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 				<Image source={{ uri: restaurant.imageUri }} style={styles.image} />
-
-				{/* Restaurant Information */}
 				<View style={styles.infoContainer}>
 					<Text style={styles.name}>{restaurant.restaurantName}</Text>
 					<Text style={styles.address}>
@@ -528,65 +467,24 @@ const RestaurantDetail = ({ route }) => {
 						{restaurant.zipcode}
 					</Text>
 					<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
-
-					{isCustomer ? (
-						<>
-							{renderCheckInButton()}
-							{/* 2. Conditionally Render Host Party Button (NEW LOGIC) */}
-							{canHostParty && (
-								<TouchableOpacity
-									style={[
-										styles.hostPartyButton,
-										// Use isLoadingParty from context for disabling
-										isLoadingParty && styles.disabledButton,
-									]}
-									onPress={handleHostParty}
-									disabled={isLoadingParty} // Disable if context is loading
-								>
-									{isLoadingParty ? ( // Use isLoadingParty from context
-										<ActivityIndicator size="small" color="white" />
-									) : (
-										<Text style={styles.hostPartyButtonText}>
-											Host a Party Here
-										</Text>
-									)}
-								</TouchableOpacity>
-							)}
-
-							{/* 3. Conditionally Render "In a Party" Message (NEW LOGIC) */}
-							{/* --- View Existing Party Link (Show if in a party) --- */}
-							{currentPartyId && (
-								<TouchableOpacity
-									style={styles.viewPartyLink} // Add style for this link
-									onPress={handleViewParty}
-									disabled={isLoadingParty} // Disable if context is loading
-								>
-									<Text style={styles.viewPartyLinkText}>
-										View Your Current Party
-									</Text>
-								</TouchableOpacity>
-							)}
-						</>
-					) : (
-						<View style={styles.guestContainer}>
-							<TouchableOpacity
-								onPress={() => navigation.navigate("Welcome")}
-								style={styles.guestButton}
-							>
-								<Text style={styles.guestButtonText}>
-									Log in or sign up to check in
-								</Text>
-							</TouchableOpacity>
-
-							<TouchableOpacity
-								style={styles.disabledCheckInButton}
-								disabled={true}
-							>
-								<Text style={styles.checkInButtonText}>Check In</Text>
-							</TouchableOpacity>
-						</View>
-					)}
 				</View>
+
+				{/* --- Action Icons Row --- */}
+				{currentUserData?.role === "customer" ? (
+					renderActionButtons()
+				) : (
+					<View style={styles.guestMessageContainer}>
+						<PaperButton
+							icon="login"
+							mode="contained"
+							onPress={() => navigation.navigate("Login")} // Or your Welcome/Login flow
+							style={styles.guestLoginButton}
+							labelStyle={styles.guestLoginButtonText}
+						>
+							Login or Sign Up to Order/Check-In
+						</PaperButton>
+					</View>
+				)}
 
 				{/* Check-In Modal */}
 				{isModalVisible && (
@@ -596,13 +494,12 @@ const RestaurantDetail = ({ route }) => {
 						visible={isModalVisible}
 						animationType="fade"
 					>
-						<View style={styles.modalContainer}>
-							<View style={[styles.modalContent, { marginTop: 100 }]}>
-								{/* Adjust marginTop to move the modal down */}
+						<View style={styles.modalOverlay}>
+							<View style={styles.modalContent}>
 								<Formik
-									initialValues={{ partySize: "" }}
+									initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
 									validationSchema={validationSchema}
-									onSubmit={handleCheckin}
+									onSubmit={handlePersonalCheckinSubmit}
 								>
 									{({
 										handleChange,
@@ -613,7 +510,7 @@ const RestaurantDetail = ({ route }) => {
 										touched,
 									}) => (
 										<>
-											<Text style={styles.questionText}>
+											<Text style={styles.modalTitle}>
 												How many in your party?
 											</Text>
 											<TextInput
@@ -622,28 +519,35 @@ const RestaurantDetail = ({ route }) => {
 												onBlur={handleBlur("partySize")}
 												value={values.partySize}
 												keyboardType="numeric"
-												placeholder="2"
+												placeholder="e.g., 2"
+												textAlign="center"
 											/>
 											{errors.partySize && touched.partySize && (
-												<Text style={styles.errorText}>{errors.partySize}</Text>
+												<Text style={styles.errorTextModal}>
+													{errors.partySize}
+												</Text>
 											)}
-											<View style={styles.buttonRow}>
+											<View style={styles.modalButtonRow}>
 												<TouchableOpacity
 													onPress={closeModal}
-													style={styles.modalButton}
+													style={[styles.modalButton, styles.cancelModalButton]}
 												>
 													<Text style={styles.modalButtonText}>Cancel</Text>
 												</TouchableOpacity>
-
 												<TouchableOpacity
 													onPress={handleSubmit}
-													style={styles.modalButton}
-													disabled={isLoading}
+													style={[
+														styles.modalButton,
+														isProcessingAction && styles.disabledButton,
+													]}
+													disabled={isProcessingAction}
 												>
-													{isLoading ? (
+													{isProcessingAction ? (
 														<ActivityIndicator size="small" color="white" />
 													) : (
-														<Text style={styles.modalButtonText}>Confirm</Text>
+														<Text style={styles.modalButtonText}>
+															Request Check-In
+														</Text>
 													)}
 												</TouchableOpacity>
 											</View>
@@ -658,254 +562,252 @@ const RestaurantDetail = ({ route }) => {
 				{/* Menu Section */}
 				<View style={styles.menuSection}>
 					<Text style={styles.menuHeader}>Menu</Text>
-					<MenuItemsList menuItems={menuItems} isLoading={isLoading} />
+					{isLoadingMenu ? (
+						<ActivityIndicator
+							size="large"
+							color={colors.primary}
+							style={{ marginTop: 20 }}
+						/>
+					) : menuItems.length > 0 ? (
+						<MenuItemsList
+							menuItems={menuItems}
+							isLoading={isLoadingMenu}
+							restaurantId={restaurant.id}
+						/>
+					) : (
+						<Text style={styles.noMenuText}>
+							Menu not available at this time.
+						</Text>
+					)}
 				</View>
 			</ScrollView>
 
 			{/* Floating Basket Button */}
-			<FloatingBasketButton />
-		</View>
+			{currentUserData?.role === "customer" && basketCount > 0 && (
+				<TouchableOpacity
+					style={styles.fabContainer}
+					onPress={() =>
+						navigation.navigate("BasketScreen", {
+							restaurant,
+							mode: "individual",
+						})
+					} // Default to individual mode
+				>
+					<View style={styles.fabContent}>
+						<MaterialCommunityIcons name="basket" size={32} color="white" />
+						{basketCount > 0 && (
+							<View style={styles.badge}>
+								<Text style={styles.badgeText}>{basketCount}</Text>
+							</View>
+						)}
+					</View>
+				</TouchableOpacity>
+			)}
+		</SafeAreaView>
 	);
 };
 
+// --- Styles ---
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		backgroundColor: "#f8f8f8",
-	},
-	image: {
-		width: "100%",
-		height: 200,
-		borderTopLeftRadius: 20,
-		borderTopRightRadius: 20,
-	},
+	safeArea: { flex: 1, backgroundColor: colors.backgroundDefault || "#f0f2f5" },
+	container: { flex: 1 },
+	image: { width: "100%", height: 220 },
 	infoContainer: {
-		padding: 20,
+		paddingHorizontal: 15,
+		paddingVertical: 20,
+		backgroundColor: colors.white,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray,
 	},
 	name: {
-		fontSize: 28,
+		fontSize: 24,
 		fontWeight: "bold",
 		marginBottom: 5,
+		color: colors.textDark,
 	},
-	address: {
-		fontSize: 16,
-		color: "#666",
+	address: { fontSize: 15, color: colors.text, marginBottom: 3 },
+	cuisine: { fontSize: 15, color: colors.text, fontStyle: "italic" },
+	actionsRow: {
+		flexDirection: "row",
+		justifyContent: "space-around",
+		alignItems: "flex-start", // Align items to top to accommodate varying text length
+		paddingVertical: 15,
+		paddingHorizontal: 10,
+		backgroundColor: colors.white,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray,
+		marginBottom: 15,
 	},
-	cuisine: {
-		fontSize: 16,
-		color: "#666",
-	},
-	checkInButton: {
-		backgroundColor: "#007bff",
-		padding: 15,
-		borderRadius: 10,
+	actionButton: {
 		alignItems: "center",
-		marginTop: 20,
+		paddingHorizontal: 5, // Reduced padding to fit more
+		flex: 1, // Allow buttons to share space
 	},
-	checkInButtonText: {
-		// Style for "Check In" button text
-		color: "white",
-		fontWeight: "bold",
-		fontSize: 16,
+	actionButtonDisabled: {
+		alignItems: "center",
+		paddingHorizontal: 5,
+		opacity: 0.5,
+		flex: 1,
 	},
-
-	checkInButtonCheckedIn: {
+	actionButtonCheckedIn: {
+		alignItems: "center",
+		paddingHorizontal: 5,
+		flex: 1,
+	},
+	actionButtonText: {
+		marginTop: 4,
+		fontSize: 12,
+		color: colors.primary,
+		fontWeight: "500",
+		textAlign: "center", // Center text for multi-line
+	},
+	actionButtonTextDisabled: {
+		marginTop: 4,
+		fontSize: 12,
+		color: colors.textLight,
+		textAlign: "center",
+	},
+	actionButtonTextCheckedIn: {
+		marginTop: 4,
+		fontSize: 12,
+		color: colors.success,
+		fontWeight: "500",
+		textAlign: "center",
+	},
+	tableText: {
+		fontSize: 11,
+		color: colors.textLight,
+		marginTop: 2,
+		textAlign: "center",
+	},
+	guestMessageContainer: {
 		padding: 20,
-		borderRadius: 10,
 		alignItems: "center",
+		backgroundColor: colors.white,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.lightGray,
+		marginBottom: 15,
 	},
-	checkInButtonTextCheckedIn: {
-		// Style for checked-in text
-		color: "#28a745",
-		fontWeight: "bold",
-		fontSize: 18,
-		marginTop: 10,
+	guestLoginButton: {
+		backgroundColor: colors.primary,
+		width: "90%",
+		paddingVertical: 8,
+		borderRadius: 8,
 	},
-
-	cancelCheckInButtonText: {
-		color: "white",
-		fontWeight: "bold",
-		fontSize: 14,
-		marginBottom: 5,
-	},
-	checkInRequestContainer: {
-		alignItems: "center",
-		marginTop: 20,
-	},
-	loadingIndicator: {
-		marginBottom: 10,
-	},
-	awaitingApprovalText: {
+	guestLoginButtonText: {
+		color: colors.white,
 		fontSize: 16,
-		marginBottom: 10,
-		color: "#333",
+		fontWeight: "bold",
 	},
-	cancelButton: {
-		backgroundColor: "#ffc107", // Yellow cancel button
-		padding: 10,
-		borderRadius: 5,
+	menuSection: {
+		paddingVertical: 10,
+		paddingHorizontal: 15,
+		backgroundColor: colors.white,
+		minHeight: 200,
+		marginBottom: 80 /* Space for FAB */,
+	},
+	menuHeader: {
+		fontSize: 20,
+		fontWeight: "bold",
+		marginBottom: 10,
+		color: colors.textDark,
+	},
+	noMenuText: { textAlign: "center", color: colors.textLight, marginTop: 20 },
+	fabContainer: {
+		backgroundColor: colors.accent || "#dc3545",
+		borderRadius: 28,
+		width: 56,
+		height: 56,
+		justifyContent: "center",
+		alignItems: "center",
+		position: "absolute",
+		bottom: 25,
+		right: 25,
+		elevation: 6,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.3,
+		shadowRadius: 3,
+	},
+	fabContent: { alignItems: "center", justifyContent: "center" },
+	badge: {
+		position: "absolute",
+		top: -5,
+		right: -5,
+		backgroundColor: colors.primary,
+		borderRadius: 10,
+		width: 20,
+		height: 20,
+		justifyContent: "center",
 		alignItems: "center",
 	},
-	modalContainer: {
+	badgeText: { color: "white", fontSize: 10, fontWeight: "bold" },
+	// Modal Styles
+	modalOverlay: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		margin: 0,
-		backgroundColor: "rgba(0, 0, 0, 0.5)",
+		backgroundColor: "rgba(0, 0, 0, 0.6)",
 	},
 	modalContent: {
-		alignSelf: "center",
 		backgroundColor: "white",
-		padding: 20,
 		borderRadius: 10,
-		width: "80%",
+		padding: 25,
+		width: "85%",
 		alignItems: "center",
-		maxHeight: "80%",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5,
 	},
-	buttonRow: {
+	modalTitle: {
+		fontSize: 18,
+		fontWeight: "bold",
+		marginBottom: 15,
+		textAlign: "center",
+		color: colors.textDark,
+	},
+	input: {
+		borderWidth: 1,
+		borderColor: colors.mediumGray || "#ccc",
+		padding: 12,
+		borderRadius: 8,
+		marginBottom: 10,
+		marginTop: 5,
+		textAlign: "center",
+		fontSize: 18,
+		width: "70%",
+	},
+	errorTextModal: {
+		color: colors.danger || "red",
+		textAlign: "center",
+		marginBottom: 10,
+		fontSize: 13,
+	},
+	modalButtonRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		width: "100%",
 		marginTop: 20,
 	},
-	input: {
-		borderWidth: 1,
-		borderColor: "#ddd",
-		padding: 10,
-		borderRadius: 5,
-		marginBottom: 20,
-		marginTop: 20,
-		textAlign: "center",
-		fontSize: 18,
-	},
-	questionText: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-	},
-	fabContainer: {
-		backgroundColor: "#dc3545", // Red basket button
-		borderRadius: 50,
-		padding: 16,
-		position: "absolute",
-		bottom: 16,
-		right: 16,
-	},
-	fabContent: {
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	badge: {
-		position: "absolute",
-		top: -8,
-		right: -8,
-		backgroundColor: "black",
-		borderRadius: 10,
-		padding: 4,
-	},
-	badgeText: {
-		color: "white",
-		fontSize: 12,
-	},
-	errorText: {
-		color: "red",
-		fontWeight: "bold",
-		fontSize: 14,
-		marginBottom: 10,
-	},
-	menuSection: {
-		padding: 20,
-	},
-	menuHeader: {
-		fontSize: 24,
-		fontWeight: "bold",
-		marginBottom: 10,
-	},
 	modalButton: {
-		backgroundColor: colors.primary, // Or any color you prefer
-		padding: 10,
+		paddingVertical: 12,
+		paddingHorizontal: 10,
 		borderRadius: 8,
 		alignItems: "center",
-		flex: 1, // Allow buttons to take equal width
-		marginHorizontal: 5, // Add some space between the buttons
+		flex: 1,
+		marginHorizontal: 5,
+		backgroundColor: colors.primary,
 	},
-	modalButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	guestContainer: {
+	cancelModalButton: { backgroundColor: colors.mediumGray || "#ccc" },
+	modalButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
+	centered: {
+		flex: 1,
+		justifyContent: "center",
 		alignItems: "center",
-		marginTop: 20,
-		marginBottom: 20,
-	},
-	guestButton: {
-		backgroundColor: colors.primary, // Or any suitable color
-		padding: 15,
-		borderRadius: 8,
-		alignItems: "center",
-		width: "80%",
-		marginBottom: 10, // Add margin below the button
-		// Add a shadow for the button (adjust values as needed)
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.2,
-		shadowRadius: 3,
-		elevation: 3, // For Android shadow
-	},
-	guestButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	disabledButton: {
-		backgroundColor: "#D3D3D3", // Use a disabled button color from your colors object
-	},
-
-	infoText: {
-		textAlign: "center",
-		marginTop: 10,
-		color: colors.textLight,
-		fontStyle: "italic",
-	},
-	// Ensure disabledButton style exists
-	disabledButton: {
-		backgroundColor: colors.mediumGray || "#cccccc",
-		opacity: 0.7,
-	},
-	// Ensure hostPartyButton styles exist
-	hostPartyButton: {
-		backgroundColor: colors.secondary || "#6c757d",
-		padding: 15,
-		borderRadius: 10,
-		alignItems: "center",
-		marginTop: 10,
-	},
-	hostPartyButtonText: {
-		color: "white",
-		fontWeight: "bold",
-		fontSize: 16,
-	},
-	// Ensure disabledCheckInButton style exists
-	disabledCheckInButton: {
-		backgroundColor: colors.mediumGray || "#cccccc",
-		padding: 15,
-		borderRadius: 10,
-		alignItems: "center",
-		marginTop: 10,
-		width: "80%", // Example width
-		opacity: 0.7,
-	},
-	// --- Add Styles for the View Party Link ---
-	viewPartyLink: {
-		marginTop: 15, // Space below the host button or check-in status
-		alignItems: "center",
-	},
-	viewPartyLinkText: {
-		color: colors.primary, // Use theme color
-		fontSize: 15,
-		textDecorationLine: "underline",
-	},
+		padding: 20,
+	}, // For error/loading states
 });
 
-export default RestaurantDetail;
+export default RestaurantDetailScreen;
