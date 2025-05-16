@@ -9,6 +9,7 @@ import {
 	setDoc,
 	getDoc,
 	updateDoc,
+	limit,
 } from "firebase/firestore";
 import app, { db, functions } from "../config/firebase";
 import { Alert } from "react-native";
@@ -70,70 +71,107 @@ const fetchMenu = async (restaurantId) => {
 	}
 };
 
-const useCheckInStatus = (restaurantId, customerId) => {
-	const [checkInStatus, setCheckInStatus] = useState(null);
+const useCheckInStatus = (restaurantId, userId) => {
+	console.log(
+		`--- useCheckInStatus Hook: Initial Call --- R_ID: ${restaurantId}, U_ID: ${userId}`
+	); // Log 1: Hook called
+
+	const [checkInStatus, setStatus] = useState("NONE"); // e.g., NONE, REQUESTED, ACCEPTED, ERROR
 	const [tableNumber, setTableNumber] = useState(null);
-	const [isLoading, setIsLoading] = useState(true);
-	const [checkInObj, setCheckInObj] = useState(null);
+	const [isLoading, setIsLoading] = useState(true); // Start as true when hook is called with valid IDs
+	const [checkInObj, setCheckInObj] = useState(null); // Store the full check-in document
+	const [error, setError] = useState(null);
 
 	useEffect(() => {
-		// --- Suggestion: Add guards for missing IDs ---
-		if (!restaurantId || !customerId) {
-			console.log("useCheckInStatus: Missing restaurantId or customerId");
-			setCheckInStatus("notCheckedIn");
-			setTableNumber(null);
-			setCheckInObj(null);
-			setIsLoading(false);
-			return () => {}; // Return empty cleanup function
-		}
-		setIsLoading(true);
 		console.log(
-			`useCheckInStatus: Setting up listener for R:${restaurantId} C:${customerId}`
-		);
-		// Firestore query for check-ins matching restaurant and customer
+			`useCheckInStatus Effect: Running. R_ID: ${restaurantId}, U_ID: ${userId}`
+		); // Log 2: Effect runs
+
+		// --- Handle null inputs gracefully ---
+		if (!userId || !restaurantId) {
+			console.log(
+				"useCheckInStatus Effect: userId or restaurantId is null/undefined. Resetting state and exiting effect."
+			); // Log 3
+			setStatus("NONE");
+			setTableNumber(null);
+			setIsLoading(false); // No loading if no IDs
+			setCheckInObj(null);
+			setError(null);
+			return; // Don't proceed to query if IDs are missing
+		}
+		// --- End null input handling ---
+
+		setIsLoading(true); // Set loading true when we are about to query
+		setError(null); // Clear previous errors
+		console.log(
+			`useCheckInStatus Effect: Setting up Firestore listener for R: ${restaurantId}, U: ${userId}`
+		); // Log 4
+
+		const checkInsRef = collection(db, "checkIns");
+		// Query for active check-ins (REQUESTED or ACCEPTED) for this user at this restaurant
 		const q = query(
-			collection(db, "checkIns"),
+			checkInsRef,
 			where("restaurantId", "==", restaurantId),
-			where("customerId", "==", customerId)
+			where("customerId", "==", userId),
+			where("status", "in", ["REQUESTED", "ACCEPTED"]), // Only look for active ones
+			limit(1) // Should only be one active check-in per user per restaurant
 		);
 
-		// Set up real-time listener
 		const unsubscribe = onSnapshot(
 			q,
-			(snapshot) => {
-				if (!snapshot.empty) {
-					const checkInDoc = snapshot.docs[0];
-					const checkInData = checkInDoc.data();
-					setCheckInStatus(checkInData.status);
+			(querySnapshot) => {
+				console.log(
+					`useCheckInStatus Snapshot: Received update. Found ${querySnapshot.size} matching check-ins.`
+				); // Log 5
 
-					// Set table number if check-in is accepted, otherwise reset
-					setTableNumber(
-						checkInData.status === "ACCEPTED" ? checkInData.tableNumber : null
-					);
-					setCheckInObj({ id: checkInDoc.id, ...checkInData });
+				if (!querySnapshot.empty) {
+					const checkInDoc = querySnapshot.docs[0];
+					const checkInData = { id: checkInDoc.id, ...checkInDoc.data() };
+					console.log(
+						"useCheckInStatus Snapshot: Check-in found:",
+						checkInData
+					); // Log 6
+
+					setStatus(checkInData.status || "ERROR"); // Use status from doc, fallback to ERROR
+					setTableNumber(checkInData.table?.name || null); // Assuming table is an object with a name
+					setCheckInObj(checkInData);
+					setError(null);
 				} else {
-					console.log("UseCheckInStatus: no matching check-in found");
-					// If no check-in found
-					setCheckInStatus("notCheckedIn");
+					console.log(
+						"useCheckInStatus Snapshot: No active check-in found (REQUESTED or ACCEPTED)."
+					); // Log 7
+					setStatus("NONE"); // No active check-in means user is not checked in or request was denied/cancelled
 					setTableNumber(null);
 					setCheckInObj(null);
 				}
-				setIsLoading(false);
+				setIsLoading(false); // Finished processing snapshot
+				console.log("useCheckInStatus Snapshot: setIsLoading(false)"); // Log 8
 			},
-			(error) => {
-				console.error("Error fetching check-in status:", error);
-				setCheckInStatus("error");
+			(err) => {
+				console.error("useCheckInStatus Snapshot Error:", err); // Log 9
+				setError("Failed to get check-in status.");
+				setStatus("ERROR");
 				setTableNumber(null);
 				setCheckInObj(null);
 				setIsLoading(false);
 			}
 		);
 
-		// Cleanup listener on unmount
-		return () => unsubscribe();
-	}, [restaurantId, customerId]);
+		// Cleanup function
+		return () => {
+			console.log(
+				`useCheckInStatus Effect Cleanup: Unsubscribing listener for R: ${restaurantId}, U: ${userId}`
+			); // Log 10
+			unsubscribe();
+		};
+	}, [restaurantId, userId]); // Dependencies: re-run effect if these change
 
-	return { checkInStatus, isLoading, tableNumber, checkInObj };
+	// Log the state being returned by the hook
+	console.log(
+		`--- useCheckInStatus Hook: Returning State --- Status: ${checkInStatus}, Table: ${tableNumber}, Loading: ${isLoading}, Error: ${error}`
+	); // Log 11
+
+	return { checkInStatus, tableNumber, isLoading, checkInObj, error };
 };
 
 const checkIn = async (
@@ -249,8 +287,6 @@ const handleCancelCheckIn = async (restaurantId, userId) => {
 	}
 };
 
-
-
 /**
  * Handles the process of initiating a check-in request, specifically for parties.
  * Calls the core checkIn utility and then activates the party via context function.
@@ -262,7 +298,7 @@ const handleCancelCheckIn = async (restaurantId, userId) => {
  * @param {string|null} partyStatus - The status of the current party, if any.
  * @param {function} activatePartyCheckIn - Function from PartyContext to activate the party.
  * @returns {Promise<boolean>} - True if the check-in request was successfully created, false otherwise.
- * 
+ *
  */
 export const handlePartyCheckInRequest = async (
 	currentUserData,

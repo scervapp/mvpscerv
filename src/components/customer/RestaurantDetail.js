@@ -61,7 +61,10 @@ const RestaurantDetailScreen = () => {
 	const [isModalVisible, setIsModalVisible] = useState(false);
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
-	const [isProcessingAction, setIsProcessingAction] = useState(false); // For individual check-in/cancel actions
+	const [isProcessingAction, setIsProcessingAction] = useState(false);
+	const [isProcessingCheckInAction, setIsProcessingCheckInAction] =
+		useState(false);
+	const [isStartingPartyProcess, setIsStartingPartyProcess] = useState(false);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
 	const {
@@ -142,14 +145,12 @@ const RestaurantDetailScreen = () => {
 	const handlePersonalCheckinSubmit = async (values) => {
 		if (
 			isLoadingCheckInStatus ||
-			isProcessingAction ||
+			isProcessingCheckInAction ||
 			checkInStatus === "REQUESTED" ||
 			checkInStatus === "ACCEPTED"
 		) {
-			console.log("Check-in already in progress or completed.");
 			return;
 		}
-		// Prevent individual check-in if user is in an active party at THIS restaurant
 		if (
 			currentPartyId &&
 			partyDetails?.restaurantId === restaurant.id &&
@@ -157,19 +158,18 @@ const RestaurantDetailScreen = () => {
 		) {
 			Alert.alert(
 				"In a Party",
-				"You are already in a party at this restaurant. Manage your party from the Party Lobby."
+				"You are already in a party at this restaurant. Manage your party from the Party Hub."
 			);
 			closeModal();
 			return;
 		}
 
-		setIsProcessingAction(true);
+		setIsProcessingCheckInAction(true);
 		const customerName = `${currentUserData.firstName || ""} ${
 			currentUserData.lastName || ""
 		}`.trim();
 		try {
 			const { success, checkInId } = await checkIn(
-				// Assuming checkIn utility handles Firestore write
 				restaurant.id,
 				currentUserData.uid,
 				values.partySize,
@@ -177,7 +177,6 @@ const RestaurantDetailScreen = () => {
 			);
 			if (success && checkInId) {
 				console.log("Personal check-in requested successfully:", checkInId);
-				// useCheckInStatus hook will update checkInStatus via its listener
 			} else {
 				Alert.alert(
 					"Check-In Failed",
@@ -188,16 +187,15 @@ const RestaurantDetailScreen = () => {
 			console.error("Error during personal check-in:", error);
 			Alert.alert("Error", `An error occurred: ${error.message}`);
 		} finally {
-			setIsProcessingAction(false);
+			setIsProcessingCheckInAction(false);
 			closeModal();
 		}
 	};
 
 	const handleCancelIndividualCheckIn = async () => {
-		if (!checkInObj?.id || isProcessingAction) return;
-		setIsProcessingAction(true);
+		if (!checkInObj?.id || isProcessingCheckInAction) return;
+		setIsProcessingCheckInAction(true);
 		try {
-			// Pass checkInObj.id to ensure cancelling the correct one
 			const success = await handleCancelCheckIn(
 				restaurant.id,
 				currentUserData.uid,
@@ -215,7 +213,7 @@ const RestaurantDetailScreen = () => {
 				"An error occurred while canceling your check-in request."
 			);
 		} finally {
-			setIsProcessingAction(false);
+			setIsProcessingCheckInAction(false);
 		}
 	};
 
@@ -236,24 +234,68 @@ const RestaurantDetailScreen = () => {
 			checkInStatus === "ACCEPTED" ||
 			currentPartyId
 		) {
-			// Prevent starting party if already checked in, in a party, or action is loading
 			console.log(
-				"Cannot start party due to existing check-in or party status."
+				"Cannot start party: Action in progress, already checked in, or already in a party."
 			);
+			if (currentPartyId) {
+				Alert.alert(
+					"Already in a Party",
+					"You are already in a party. Go to the Party Hub to manage it."
+				);
+			} else if (
+				checkInStatus === "REQUESTED" ||
+				checkInStatus === "ACCEPTED"
+			) {
+				Alert.alert(
+					"Already Checked In",
+					"You are already checked in or have a pending check-in at this restaurant."
+				);
+			}
 			return;
 		}
+		setIsStartingPartyProcess(true);
+		try {
+			console.log(
+				`RestaurantDetail: Calling createParty for restaurant: ${restaurant.id}`
+			);
+			const newPartyId = await createParty(restaurant.id); // Context calls CF
 
-		const newPartyId = await createParty(restaurant.id); // Context calls CF
-		if (newPartyId) {
-			navigation.navigate("PartyLobbyScreen", { partyId: newPartyId });
+			if (newPartyId) {
+				console.log(
+					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
+				);
+				navigation.navigate("PartyTab", {
+					// Navigate to the Tab
+					screen: "PartySession", // Navigate to the screen within the Tab's stack
+				});
+			} else {
+				// PartyContext's createParty function should handle its own errors and show Alerts
+				console.log(
+					"RestaurantDetail: createParty did not return a newPartyId. Error likely handled by context."
+				);
+			}
+		} catch (error) {
+			// Catch unexpected errors from createParty itself, though context should also handle
+			console.error(
+				"RestaurantDetail: Unexpected error in handleStartParty:",
+				error
+			);
+			Alert.alert(
+				"Error",
+				"An unexpected error occurred while starting the party."
+			);
+		} finally {
+			setIsStartingPartyProcess(false);
 		}
-		// Errors handled by PartyContext
 	};
 
 	// --- View Existing Party Handler ---
 	const handleViewParty = () => {
 		if (currentPartyId) {
-			navigation.navigate("PartyLobbyScreen", { partyId: currentPartyId });
+			// Navigate to the Party Hub
+			navigation.navigate("PartyTab", {
+				screen: "PartySession",
+			});
 		}
 	};
 
@@ -265,26 +307,7 @@ const RestaurantDetailScreen = () => {
 			.typeError("Must be a number"),
 	});
 
-	// --- ADD OR VERIFY THIS LOGGING BLOCK ---
-	console.log("--- RestaurantDetail State Check (Before Action Buttons) ---");
-	console.log("isLoadingParty (from PartyContext):", isLoadingParty);
-	console.log(
-		"isLoadingCheckInStatus (from useCheckInStatus hook):",
-		isLoadingCheckInStatus
-	);
-	console.log("checkInStatus (from useCheckInStatus hook):", checkInStatus);
-	console.log("currentPartyId (from PartyContext):", currentPartyId);
-	console.log(
-		"partyDetails?.restaurantId (context):",
-		partyDetails?.restaurantId
-	);
-	console.log("restaurant.id (prop):", restaurant?.id);
-	console.log(
-		"isProcessingAction (local state for check-in):",
-		isProcessingAction
-	); // If you still have this local state
-	console.log("----------------------------------------------------------");
-	// --- END LOGGING BLOCK ---
+	// // --- ADD OR VERIFY THIS LOGGING BLOCK ---
 
 	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
 	const renderActionButtons = () => {
@@ -299,47 +322,28 @@ const RestaurantDetailScreen = () => {
 
 		// Scenario 1: User is already in a party (any party, for any restaurant)
 		if (currentPartyId) {
-			// If the current party is for THIS restaurant, show "View Party"
-			if (partyDetails?.restaurantId === restaurant.id) {
-				return (
-					<View style={styles.actionsRow}>
-						<TouchableOpacity
-							style={styles.actionButton}
-							onPress={handleViewParty}
-						>
-							<MaterialCommunityIcons
-								name="account-group"
-								size={28}
-								color={colors.primary}
-							/>
-							<Text style={styles.actionButtonText}>View Party</Text>
-						</TouchableOpacity>
-						{/* Individual check-in button is hidden/disabled */}
-					</View>
-				);
-			} else {
-				// User is in a party at a DIFFERENT restaurant
-				return (
-					<View style={styles.actionsRow}>
-						<View style={styles.actionButtonDisabled}>
-							<MaterialCommunityIcons
-								name="information-outline"
-								size={28}
-								color={colors.textLight}
-							/>
-							<Text
-								style={[
-									styles.actionButtonTextDisabled,
-									{ textAlign: "center" },
-								]}
-							>
-								In party at{" "}
-								{partyDetails?.restaurantName || "another restaurant"}
-							</Text>
-						</View>
-					</View>
-				);
-			}
+			const buttonText =
+				partyDetails?.restaurantId === restaurant.id
+					? "View Your Party"
+					: `View Party @ ${partyDetails?.restaurantName || "Other"}`;
+			return (
+				<View style={styles.actionsRow}>
+					<TouchableOpacity
+						style={styles.actionButton}
+						onPress={handleViewParty}
+					>
+						<MaterialCommunityIcons
+							name="account-group"
+							size={28}
+							color={colors.primary}
+						/>
+						<Text style={[styles.actionButtonText, { textAlign: "center" }]}>
+							{buttonText}
+						</Text>
+					</TouchableOpacity>
+					{/* Individual check-in and start party are implicitly disabled/hidden */}
+				</View>
+			);
 		}
 
 		// Scenario 2: User is NOT in any party - show individual check-in options
@@ -353,14 +357,16 @@ const RestaurantDetailScreen = () => {
 								size={28}
 								color={colors.textLight}
 							/>
-							<Text style={styles.actionButtonTextDisabled}>Waiting...</Text>
+							<Text style={styles.actionButtonTextDisabled}>
+								Waiting to be seated
+							</Text>
 						</View>
 						<TouchableOpacity
 							style={styles.actionButton}
 							onPress={handleCancelIndividualCheckIn}
-							disabled={isProcessingAction}
+							disabled={isProcessingCheckInAction}
 						>
-							{isProcessingAction ? (
+							{isProcessingCheckInAction ? (
 								<ActivityIndicator size="small" color={colors.danger} />
 							) : (
 								<MaterialCommunityIcons
@@ -382,14 +388,14 @@ const RestaurantDetailScreen = () => {
 							<MaterialCommunityIcons
 								name="check-circle"
 								size={28}
-								color={colors.success}
+								color={colors.statusSuccess}
 							/>
 							<Text style={styles.actionButtonTextCheckedIn}>Checked In!</Text>
 							{tableNumber && (
 								<Text style={styles.tableText}>Table: {tableNumber}</Text>
 							)}
 						</View>
-						{/* Should not be able to start a party if already checked in individually */}
+						{/* Start Party button is disabled/hidden as user is already checked in individually */}
 						<View style={styles.actionButtonDisabled}>
 							<MaterialCommunityIcons
 								name="account-multiple-plus-outline"
@@ -401,16 +407,17 @@ const RestaurantDetailScreen = () => {
 					</View>
 				);
 			case "NONE":
-			case "ERROR": // Treat error as ability to try again for individual check-in
+			case "ERROR": // Allow retrying individual check-in or starting a party
+
 			default:
 				return (
 					<View style={styles.actionsRow}>
 						<TouchableOpacity
 							style={styles.actionButton}
-							onPress={openModal}
-							disabled={isProcessingAction}
+							onPress={openModal} // For individual check-in
+							disabled={isProcessingCheckInAction}
 						>
-							{isProcessingAction && !isLoadingParty ? (
+							{isProcessingCheckInAction ? (
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
 								<MaterialCommunityIcons
@@ -419,28 +426,27 @@ const RestaurantDetailScreen = () => {
 									color={colors.primary}
 								/>
 							)}
-							<Text style={styles.actionButtonText}>Check In</Text>
+							<Text style={styles.actionButtonText}>Check In Solo</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
 							style={[
 								styles.actionButton,
-								isLoadingParty && styles.actionButtonDisabled,
+								(isStartingPartyProcess || isLoadingParty) &&
+									styles.actionButtonDisabled, // Disable if global or local party start is loading
 							]}
 							onPress={handleStartParty}
-							disabled={isLoadingParty}
+							disabled={isStartingPartyProcess || isLoadingParty}
 						>
-							{isLoadingParty ? (
+							{isStartingPartyProcess ? (
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
-								<>
-									<MaterialCommunityIcons
-										name="account-multiple-plus-outline"
-										size={28}
-										color={colors.primary}
-									/>
-									<Text style={styles.actionButtonText}>Start Party</Text>
-								</>
+								<MaterialCommunityIcons
+									name="account-multiple-plus-outline"
+									size={28}
+									color={colors.primary}
+								/>
 							)}
+							<Text style={styles.actionButtonText}>Start Party</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -609,150 +615,135 @@ const RestaurantDetailScreen = () => {
 
 // --- Styles ---
 const styles = StyleSheet.create({
-	safeArea: { flex: 1, backgroundColor: colors.backgroundDefault || "#f0f2f5" },
-	container: { flex: 1 },
-	image: { width: "100%", height: 220 },
+	safeArea: {
+		flex: 1,
+		backgroundColor: colors.backgroundLight, // Use new color
+	},
+	container: {
+		flex: 1,
+	},
+	centered: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
+		backgroundColor: colors.backgroundLight,
+	},
+	image: {
+		width: "100%",
+		height: 250,
+		resizeMode: "cover",
+	},
 	infoContainer: {
-		paddingHorizontal: 15,
-		paddingVertical: 20,
-		backgroundColor: colors.white,
+		padding: 20,
+		backgroundColor: colors.surfaceWhite, // Use new color
 		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
+		borderBottomColor: colors.borderLight, // Use new color
 	},
 	name: {
-		fontSize: 24,
+		fontSize: 26,
 		fontWeight: "bold",
-		marginBottom: 5,
-		color: colors.textDark,
+		marginBottom: 8,
+		color: colors.textDark, // Use new color
 	},
-	address: { fontSize: 15, color: colors.text, marginBottom: 3 },
-	cuisine: { fontSize: 15, color: colors.text, fontStyle: "italic" },
+	address: {
+		fontSize: 16,
+		color: colors.textMedium, // Use new color
+		marginBottom: 4,
+	},
+	cuisine: {
+		fontSize: 16,
+		color: colors.textMedium, // Use new color
+		fontStyle: "italic",
+		marginBottom: 10,
+	},
 	actionsRow: {
 		flexDirection: "row",
 		justifyContent: "space-around",
-		alignItems: "flex-start", // Align items to top to accommodate varying text length
+		alignItems: "flex-start", // Align items to start to allow varying text lengths
 		paddingVertical: 15,
 		paddingHorizontal: 10,
-		backgroundColor: colors.white,
+		backgroundColor: colors.surfaceWhite, // Card-like background for actions
+		borderTopWidth: 1,
 		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
-		marginBottom: 15,
+		borderColor: colors.borderLight,
+		marginBottom: 10, // Space before menu
 	},
 	actionButton: {
 		alignItems: "center",
-		paddingHorizontal: 5, // Reduced padding to fit more
+		padding: 10,
+		borderRadius: 8,
+		minWidth: 120, // Give buttons some space
 		flex: 1, // Allow buttons to share space
+		marginHorizontal: 5, // Space between buttons
+		// backgroundColor: colors.primary + '1A', // Lighter primary for touch feedback (optional)
+	},
+	actionButtonText: {
+		marginTop: 6,
+		fontSize: 13,
+		color: colors.primary, // Use new color
+		fontWeight: "600",
+		textAlign: "center",
 	},
 	actionButtonDisabled: {
 		alignItems: "center",
-		paddingHorizontal: 5,
-		opacity: 0.5,
+		padding: 10,
+		borderRadius: 8,
+		minWidth: 120,
 		flex: 1,
+		marginHorizontal: 5,
+		opacity: 0.6,
+	},
+	actionButtonTextDisabled: {
+		marginTop: 6,
+		fontSize: 13,
+		color: colors.textLight, // Use new color
+		fontWeight: "500",
+		textAlign: "center",
 	},
 	actionButtonCheckedIn: {
 		alignItems: "center",
-		paddingHorizontal: 5,
+		padding: 10,
+		borderRadius: 8,
+		minWidth: 120,
 		flex: 1,
-	},
-	actionButtonText: {
-		marginTop: 4,
-		fontSize: 12,
-		color: colors.primary,
-		fontWeight: "500",
-		textAlign: "center", // Center text for multi-line
-	},
-	actionButtonTextDisabled: {
-		marginTop: 4,
-		fontSize: 12,
-		color: colors.textLight,
-		textAlign: "center",
+		marginHorizontal: 5,
+		backgroundColor: colors.statusSuccess + "1A", // Light success background
 	},
 	actionButtonTextCheckedIn: {
-		marginTop: 4,
-		fontSize: 12,
-		color: colors.success,
-		fontWeight: "500",
-		textAlign: "center",
+		marginTop: 6,
+		fontSize: 13,
+		color: colors.statusSuccess, // Use new color
+		fontWeight: "600",
 	},
 	tableText: {
-		fontSize: 11,
-		color: colors.textLight,
+		fontSize: 12,
+		color: colors.statusSuccess,
+		fontWeight: "bold",
 		marginTop: 2,
-		textAlign: "center",
 	},
 	guestMessageContainer: {
 		padding: 20,
 		alignItems: "center",
-		backgroundColor: colors.white,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
-		marginBottom: 15,
 	},
 	guestLoginButton: {
-		backgroundColor: colors.primary,
-		width: "90%",
-		paddingVertical: 8,
-		borderRadius: 8,
+		backgroundColor: colors.primary, // Use new color
+		paddingHorizontal: 15,
 	},
 	guestLoginButtonText: {
-		color: colors.white,
+		color: colors.textOnPrimaryBrand, // Use new color
 		fontSize: 16,
-		fontWeight: "bold",
 	},
-	menuSection: {
-		paddingVertical: 10,
-		paddingHorizontal: 15,
-		backgroundColor: colors.white,
-		minHeight: 200,
-		marginBottom: 80 /* Space for FAB */,
-	},
-	menuHeader: {
-		fontSize: 20,
-		fontWeight: "bold",
-		marginBottom: 10,
-		color: colors.textDark,
-	},
-	noMenuText: { textAlign: "center", color: colors.textLight, marginTop: 20 },
-	fabContainer: {
-		backgroundColor: colors.accent || "#dc3545",
-		borderRadius: 28,
-		width: 56,
-		height: 56,
-		justifyContent: "center",
-		alignItems: "center",
-		position: "absolute",
-		bottom: 25,
-		right: 25,
-		elevation: 6,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.3,
-		shadowRadius: 3,
-	},
-	fabContent: { alignItems: "center", justifyContent: "center" },
-	badge: {
-		position: "absolute",
-		top: -5,
-		right: -5,
-		backgroundColor: colors.primary,
-		borderRadius: 10,
-		width: 20,
-		height: 20,
-		justifyContent: "center",
-		alignItems: "center",
-	},
-	badgeText: { color: "white", fontSize: 10, fontWeight: "bold" },
-	// Modal Styles
 	modalOverlay: {
 		flex: 1,
+		backgroundColor: "rgba(0, 0, 0, 0.6)",
 		justifyContent: "center",
 		alignItems: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.6)",
 	},
 	modalContent: {
-		backgroundColor: "white",
-		borderRadius: 10,
+		backgroundColor: colors.surfaceWhite, // Use new color
 		padding: 25,
+		borderRadius: 12,
 		width: "85%",
 		alignItems: "center",
 		shadowColor: "#000",
@@ -764,26 +755,36 @@ const styles = StyleSheet.create({
 	modalTitle: {
 		fontSize: 18,
 		fontWeight: "bold",
-		marginBottom: 15,
+		marginBottom: 20,
+		color: colors.textDark, // Use new color
 		textAlign: "center",
-		color: colors.textDark,
 	},
 	input: {
+		// For Formik TextInput
 		borderWidth: 1,
-		borderColor: colors.mediumGray || "#ccc",
-		padding: 12,
+		borderColor: colors.borderLight, // Use new color
+		backgroundColor: colors.surfaceWhite,
+		paddingHorizontal: 15,
+		paddingVertical: 12,
 		borderRadius: 8,
-		marginBottom: 10,
-		marginTop: 5,
-		textAlign: "center",
 		fontSize: 18,
-		width: "70%",
+		color: colors.textDark,
+		marginBottom: 10,
+		width: "80%", // Or specific width
+		textAlign: "center",
+	},
+	errorText: {
+		// General error text on screen
+		color: colors.statusDanger, // Use new color
+		textAlign: "center",
+		marginBottom: 10,
 	},
 	errorTextModal: {
-		color: colors.danger || "red",
-		textAlign: "center",
-		marginBottom: 10,
+		// Error text inside modal
+		color: colors.statusDanger,
 		fontSize: 13,
+		marginBottom: 10,
+		textAlign: "center",
 	},
 	modalButtonRow: {
 		flexDirection: "row",
@@ -792,22 +793,82 @@ const styles = StyleSheet.create({
 		marginTop: 20,
 	},
 	modalButton: {
+		backgroundColor: colors.primary, // Use new color
 		paddingVertical: 12,
 		paddingHorizontal: 10,
 		borderRadius: 8,
 		alignItems: "center",
-		flex: 1,
+		flex: 1, // Distribute space
 		marginHorizontal: 5,
-		backgroundColor: colors.primary,
 	},
-	cancelModalButton: { backgroundColor: colors.mediumGray || "#ccc" },
-	modalButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
-	centered: {
-		flex: 1,
+	cancelModalButton: {
+		backgroundColor: colors.textMedium, // Use new color for cancel
+	},
+	modalButtonText: {
+		color: colors.textOnPrimaryBrand, // Use new color
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	disabledButton: {
+		opacity: 0.5,
+	},
+	menuSection: {
+		paddingVertical: 20,
+		paddingHorizontal: 15, // Consistent padding
+	},
+	menuHeader: {
+		fontSize: 22,
+		fontWeight: "bold",
+		marginBottom: 15,
+		color: colors.textDark,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+		paddingBottom: 8,
+	},
+	noMenuText: {
+		textAlign: "center",
+		color: colors.textMedium,
+		marginTop: 20,
+		fontStyle: "italic",
+	},
+	fabContainer: {
+		position: "absolute",
+		right: 20,
+		bottom: 20,
+		backgroundColor: colors.brandOrange, // Use new accent color
+		width: 64,
+		height: 64,
+		borderRadius: 32,
 		justifyContent: "center",
 		alignItems: "center",
-		padding: 20,
-	}, // For error/loading states
+		elevation: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.3,
+		shadowRadius: 4,
+	},
+	fabContent: {
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	badge: {
+		position: "absolute",
+		right: -5,
+		top: -5,
+		backgroundColor: colors.statusDanger, // Use new color
+		borderRadius: 12,
+		width: 24,
+		height: 24,
+		justifyContent: "center",
+		alignItems: "center",
+		borderWidth: 1,
+		borderColor: colors.surfaceWhite,
+	},
+	badgeText: {
+		color: colors.surfaceWhite,
+		fontSize: 12,
+		fontWeight: "bold",
+	},
 });
 
 export default RestaurantDetailScreen;

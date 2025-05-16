@@ -100,18 +100,20 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 
 		// 4. Create the Party Document
 		const partyId = db.collection("parties").doc().id; // Pre-generate ID for both docs
-		const partyRef = db.collection("parties").doc(); // Auto-generate ID
+		const partyRef = db.collection("parties").doc(partyId); // Auto-generate ID
 		const sharedBasketRef = db.collection("shared_baskets").doc(partyId); // Use the same ID
 
-		const now = FieldValue.serverTimestamp();
+		const now = admin.firestore.FieldValue.serverTimestamp();
 
 		const partyDataToSet = {
+			id: partyId,
 			restaurantId: restaurantId,
 			restaurantName: restaurantName,
 			restaurantTaxRate: restaurantTaxRate,
 			hostUserId: hostUserId,
 			hostName: hostName,
 			guestUserIds: [],
+			guestPips: [],
 			guestNames: [],
 			status: "pending",
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -124,6 +126,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			restaurantId: restaurantId,
 			items: [], // Initially empty
 			lastUpdated: now,
+			createdAt: now,
 		};
 
 		console.log(

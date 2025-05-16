@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useContext, useCallback } from "react";
+import React, {
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+	useMemo,
+} from "react";
 import {
 	View,
 	Text,
@@ -9,10 +15,7 @@ import {
 	Button, // Or use TouchableOpacity/react-native-paper Button
 	SafeAreaView,
 	RefreshControl,
-	TouchableOpacity, // For invite/leave buttons if not using Button component
 	Share,
-	Modal,
-	TextInput, // To share invite code
 } from "react-native";
 import {
 	useRoute,
@@ -26,96 +29,145 @@ import { AuthContext } from "../../context/authContext";
 import { useParty } from "../../context/customer/PartyContext"; // Import the hook
 
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // For icons
-import { Formik } from "formik";
+import * as Clipboard from "expo-clipboard";
 import * as Yup from "yup";
 import {
 	handlePartyCheckInRequest,
 	useCheckInStatus,
 } from "../../utils/customerUtils";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
+
+import { IconButton } from "react-native-paper";
+import PartyLobbyFooter from "../../components/customer/Party/PartyLobbyFooter";
+import { httpsCallable } from "firebase/functions";
+import PartyLobbyHeaderContent from "../../components/customer/Party/PartyLobbyHeaderContent";
+import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
+import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";
 
 const PartyLobbyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	// Get partyId from navigation. If it's missing, context listener won't start.
-	const [isCheckInModalVisible, setIsCheckInModalVisible] = useState(false);
-	const initialPartyId = route.params?.partyId;
+	const initialPartyIdFromRoute = route.params?.partyId;
 
 	const { currentUserData } = useContext(AuthContext);
+
 	const {
 		currentPartyId, // Get the ID managed by context
 		partyDetails,
 		partyStatus,
 		isLoadingParty,
 		partyError,
+		sharedBasketItems,
+		isLoadingBasket,
+		addItemToPartyBasket,
+		removePartyBasketItem,
+		updatePartyBasketQuantity,
 		inviteToParty, // Use context functions
 		addLocalPIPToParty,
+		activatePartyCheckIn,
 		leaveParty,
 		clearPartyState, // To clear state if user manually navigates away
 		cancelParty,
 	} = useParty();
+
+	const isHost = useMemo(() => {
+		if (!currentUserData?.uid || !partyDetails?.hostUserId) {
+			return false;
+		}
+		return currentUserData.uid === partyDetails.hostUserId;
+	}, [currentUserData?.uid, partyDetails?.hostUserId]);
+
+	// --- 2. Call ALL hooks UNCONDITIONALLY at the top level ---
+	const restaurantIdForCheckIn = useMemo(() => {
+		return isHost && partyDetails?.restaurantId
+			? partyDetails.restaurantId
+			: null;
+	}, [isHost, partyDetails?.restaurantId]);
+
+	const userIdForCheckIn = useMemo(() => {
+		return isHost && currentUserData?.uid ? currentUserData.uid : null;
+	}, [isHost, currentUserData?.uid]);
+
+	const showLoading = isLoadingParty || (isHost && isLoadingHostCheckIn);
+
+	const {
+		checkInStatus: hostCheckInStatus,
+		isLoading: isLoadingHostCheckIn,
+		checkInObj: hostCheckInObj,
+	} = useCheckInStatus(restaurantIdForCheckIn, userIdForCheckIn);
 
 	const [isActionLoading, setIsActionLoading] = useState(false); // Specific loading for invite/leave actions
 	const [refreshing, setRefreshing] = useState(false);
 	const [isLoadingCheckInAction, setIsLoadingCheckInAction] = useState(false); // <<< NEW: Loading for check-in action
 	const [isPipModalVisible, setIsPipModalVisible] = useState(false);
 	const [pips, setPips] = useState([]);
+	const [isCheckInModalVisible, setIsCheckInModalVisible] = useState(false);
 	const [isLoadingPips, setIsLoadingPips] = useState(false);
 
-	// Only call if we have the necessary IDs and the current user is the host
-	const isHost = currentUserData?.uid === partyDetails?.hostUserId;
-
-	const {
-		checkInStatus: hostCheckInStatus, // Rename to avoid conflict
-		isLoading: isLoadingHostCheckIn, // Rename to avoid conflict
-		checkInObj: hostCheckInObj, // Get the object if needed
-	} = useCheckInStatus(
-		isHost ? partyDetails?.restaurantId : null, // Only fetch if host
-		isHost ? currentUserData?.uid : null // Only fetch if host
-	);
-
-	if ((isLoadingParty || (isHost && isLoadingHostCheckIn)) && !partyDetails) {
-		return (
-			<View style={styles.centered}>
-				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
-		);
-	}
-
-	const guests = partyDetails?.guestNames || [];
 	const currentPartyStatus = partyDetails?.status || "unknown"; // Use status from details
 
 	const openCheckInModal = () => setIsCheckInModalVisible(true);
 	const closeCheckInModal = () => setIsCheckInModalVisible(false);
 
-	// Effect to handle navigation if partyId mismatch or context clears
+	const onRefresh = useCallback(() => {
+		// Manual refresh is less critical with the real-time listener,
+		// but can be kept as a fallback or removed.
+		// If kept, it doesn't need to do anything as the listener handles updates.
+		setRefreshing(true);
+		// Simulate refresh end after a short delay
+		setTimeout(() => setRefreshing(false), 1000);
+	}, []);
+	// --- Effect to handle navigation if party context doesn't match route param ---
 	useEffect(() => {
-		// If the context clears the partyId (e.g., user left/kicked), navigate back
-		if (!isLoadingParty && !currentPartyId && initialPartyId) {
-			console.log("PartyLobby: Context cleared partyId, navigating back.");
-			if (navigation.canGoBack()) {
-				navigation.goBack();
+		console.log(
+			"PartyLobbyScreen: useEffect for navigation/party mismatch check RUNNING. isLoadingParty:",
+			isLoadingParty,
+			"currentPartyId:",
+			currentPartyId,
+			"initialPartyIdFromRoute:",
+			initialPartyIdFromRoute
+		);
+		// This effect runs when the context's idea of the party changes,
+		// or when the initial loading state of the context resolves.
+		if (!isLoadingParty && partyDetails && currentPartyId) {
+			// Wait for all context loading to settle
+
+			if (currentPartyId !== initialPartyIdFromRoute) {
+				// If context has no party, or a DIFFERENT party than what this screen was opened for,
+				// it implies the party ended, user left, or an error occurred.
+				console.log(
+					`PartyLobby: Mismatch or party cleared. ContextPartyId: ${currentPartyId}, RoutePartyId: ${initialPartyIdFromRoute}. Navigating back.`
+				);
+				Alert.alert("Party Ended", "This party session is no longer active.");
+				if (navigation.canGoBack()) {
+					navigation.goBack();
+				} else {
+					navigation.dispatch(
+						CommonActions.reset({
+							index: 0,
+							routes: [{ name: "CustomerHome" }],
+						})
+					);
+				}
 			} else {
-				// If cannot go back (e.g., deep link), reset to home
-				navigation.dispatch(
-					CommonActions.reset({
-						index: 0,
-						routes: [{ name: "CustomerHome" }], // Adjust route name if needed
-					})
+				// Context currentPartyId matches initialPartyIdFromRoute, and not loading
+				// This means partyDetails should be loading or loaded by the context listener.
+				console.log(
+					`PartyLobby: Context matches route. Party ID: ${currentPartyId}`
 				);
 			}
+
+			// If initialPartyIdFromRoute is null/undefined, this screen was likely opened incorrectly.
+			// The rendering logic below should handle !partyDetails.
 		}
-		// If the route param doesn't match context (shouldn't happen often, but safety check)
-		else if (
-			currentPartyId &&
-			initialPartyId &&
-			currentPartyId !== initialPartyId
-		) {
-			console.warn("PartyLobby: Route partyId and Context partyId mismatch!");
-			// Decide how to handle: trust context or navigate back? Let's trust context for now.
-		}
-	}, [currentPartyId, isLoadingParty, initialPartyId, navigation]);
+	}, [
+		currentPartyId,
+		isLoadingParty,
+		initialPartyIdFromRoute,
+		navigation,
+		partyDetails,
+	]);
 
 	// Effect to clear party state if user manually navigates away using back button
 	useEffect(() => {
@@ -132,6 +184,39 @@ const PartyLobbyScreen = () => {
 		return unsubscribe;
 	}, [navigation, currentPartyId, clearPartyState]);
 
+	// --- NEW: Group Shared Basket Items for Display ---
+	const groupedBasketItems = useMemo(() => {
+		console.log(
+			"PartyLobbyScreen: useMemo for groupedBasketItems RUNNING. sharedBasketItems length:",
+			sharedBasketItems?.length
+		); // Log 10
+		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
+		const groups = {};
+		sharedBasketItems.forEach((item) => {
+			// Group by the PIP name stored on the item, or fallback
+			const groupKey =
+				item.orderedByPipName ||
+				`User: ${item.orderedByUserId?.slice(-4) || "Unknown"}`;
+			if (!groups[groupKey]) {
+				groups[groupKey] = {
+					groupName: groupKey,
+					isCurrentUserGroup: item.orderedByUserId === currentUserData?.uid,
+					items: [],
+				};
+			}
+			groups[groupKey].items.push(item);
+		});
+		return Object.values(groups);
+	}, [sharedBasketItems, currentUserData?.uid]);
+
+	// Visual loading feedback — but don't block effects/hooks
+	if (isLoadingParty || !partyDetails) {
+		return (
+			<View style={styles.centered}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
 	// --- Action Handlers ---
 
 	const fetchPips = async () => {
@@ -327,7 +412,7 @@ const PartyLobbyScreen = () => {
 	};
 
 	// --- MODIFIED: Handle Check-in Submit using Utility ---
-	const handleCheckinSubmit = async (values) => {
+	const handlePartyCheckInSubmit = async (values) => {
 		if (!partyDetails?.restaurantId) {
 			Alert.alert("Error", "Restaurant details missing.");
 			return;
@@ -354,23 +439,105 @@ const PartyLobbyScreen = () => {
 		// Errors are handled by Alerts within the utility
 	};
 
+	// --- NEW: Navigate to Menu for Adding Party Items ---
+	const handleNavigateToAddItems = () => {
+		if (!partyDetails?.restaurantId || !currentPartyId) {
+			Alert.alert("Error", "Party or restaurant details missing.");
+			return;
+		}
+		navigation.navigate("RestaurantDetail", {
+			// Or your Menu screen name
+			restaurant: {
+				// Pass necessary restaurant info
+				id: partyDetails.restaurantId,
+				name: partyDetails.restaurantName,
+				taxRate: partyDetails.restaurantTaxRate, // Ensure this is on partyDetails
+			},
+			partyContext: {
+				// Indicate party mode and who is ordering
+				partyId: currentPartyId,
+				orderingForUserId: currentUserData.uid,
+				orderingForPipName: currentUserData.firstName || "Me", // Or selected PIP if host adds for others
+			},
+		});
+	};
+
+	// --- NEW: Send Party Order to Kitchen ---
+	const handleSendPartyOrderToChefsQ = async () => {
+		if (
+			!currentPartyId ||
+			partyStatus !== "active" ||
+			!partyDetails?.checkInId
+		) {
+			Alert.alert(
+				"Cannot Send",
+				"Party must be active and checked in to send the order."
+			);
+			return;
+		}
+		// This function will call a new Cloud Function: sendPartyOrderToChefsQ
+		// That CF will find all items in shared_baskets/{currentPartyId} where sentToChefQ is false,
+		// process them, and update their sentToChefQ status.
+		setIsActionLoading(true);
+		try {
+			const sendOrderFunction = httpsCallable(
+				functions,
+				"sendPartyOrderToChefsQ"
+			);
+			const result = await sendOrderFunction({ partyId: currentPartyId });
+			if (result.data.success) {
+				Alert.alert("Success", "New items sent to the kitchen!");
+			} else {
+				throw new Error(result.data.error || "Failed to send party order.");
+			}
+		} catch (error) {
+			console.error("Error sending party order:", error);
+			Alert.alert("Error", `Could not send order: ${error.message}`);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
+	const handleSendAllNewPartyItemsToChefsQ = async () => {
+		if (
+			!isHost ||
+			!currentPartyId ||
+			partyStatus !== "active" ||
+			!partyDetails?.checkInId
+		) {
+			Alert.alert(
+				"Action Denied",
+				"Only the host can perform this action when the party is active and checked in."
+			);
+			return;
+		}
+		setIsActionLoading(true);
+		try {
+			// This would typically call a cloud function
+			// const sendAllItemsFunction = httpsCallable(funcsInstance, "sendAllPartyItemsToChefsQ");
+			// const result = await sendAllItemsFunction({ partyId: currentPartyId });
+			// if (result.data.success) {
+			Alert.alert(
+				"Success (Placeholder)",
+				"All new items would be sent to the kitchen!"
+			);
+			// } else {
+			// 	throw new Error(result.data.error || "Failed to send all items.");
+			// }
+		} catch (error) {
+			console.error("Error in handleSendAllNewPartyItemsToChefsQ:", error);
+			Alert.alert("Error", `Could not send all items: ${error.message}`);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
 	// --- Validation Schema (Copied from RestaurantDetail) ---
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
 			.min(1, "Party size must be atleast 1")
 			.required("Party size is required"),
 	});
-
-	
-
-	const onRefresh = useCallback(() => {
-		// Manual refresh is less critical with the real-time listener,
-		// but can be kept as a fallback or removed.
-		// If kept, it doesn't need to do anything as the listener handles updates.
-		setRefreshing(true);
-		// Simulate refresh end after a short delay
-		setTimeout(() => setRefreshing(false), 500);
-	}, []);
 
 	// --- Render Guest Item ---
 	const renderGuest = ({ item }) => (
@@ -383,94 +550,18 @@ const PartyLobbyScreen = () => {
 		</View>
 	);
 
-	// --- Render PIP Item for Modal ---
-	const renderPipSelectionItem = ({ item: pip }) => {
-		// Check if this PIP is already a guest in the party
-		// Ensure partyDetails and guestUserIds exist before checking
-
-		const relevantIdTocheck = pip.isUser ? pip.userId : pip.id;
-
-		// Check if this PIP (user or placeholder) is already a guest
-		// Ensure guestUserIds exists and relevantIdToCheck is valid
-		const isAlreadyGuest =
-			partyDetails?.guestUserIds?.includes(pip.id) ?? false; // Assuming pip.id is the userId
-
-		const isDisabled =
-			isAlreadyGuest ||
-			(pip.isUser && !pip.userId) || // Cannot invite a 'user' PIP without a userId
-			isActionLoading;
-
-		return (
-			<TouchableOpacity
-				style={[
-					styles.pipSelectionItem,
-					isDisabled && styles.disabledPipItem, // Apply disabled style
-				]}
-				onPress={() => {
-					// --- Log tap details ---
-					console.log(
-						"PartyLobby: Tapped PIP:",
-						JSON.stringify(pip),
-						`isAlreadyGuest: ${isAlreadyGuest}, isDisabled: ${isDisabled}`
-					);
-					("");
-					// --- Decide action based on PIP type ---
-					if (!isDisabled) {
-						if (pip.isUser && pip.userId) {
-							// It's an external user, send an invite notification
-							sendInviteToUserPIP(pip.userId, pip.name);
-						} else if (!pip.isUser) {
-							// It's a local placeholder, add directly to party
-							addLocalPip(pip.id, pip.name); // Pass placeholder ID (pip.id)
-						} else {
-							console.warn("PartyLobby: Invalid PIP state on tap:", pip);
-						}
-					} else {
-						console.log(
-							"PartyLobby: Tap ignored (PIP disabled/already guest)."
-						);
-					}
-				}}
-				disabled={isDisabled} // Disable button
-			>
-				<Ionicons
-					// Use different icons based on PIP type
-					name={pip.isUser ? "person-circle" : "person-outline"}
-					size={24}
-					// Dim icon color if disabled
-					color={isDisabled ? colors.textLight : colors.text}
-					style={styles.pipIcon}
-				/>
-				<Text
-					style={[
-						styles.pipSelectionName,
-						// Dim text color if disabled
-						isDisabled && styles.disabledPipText,
-					]}
-				>
-					{pip.name}
-				</Text>
-				{/* Show different indicators based on status */}
-				{isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Already in party)</Text>
-				)}
-				{!pip.isUser && !isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Local)</Text> // Indicate local PIP
-				)}
-				{pip.isUser && !pip.userId && !isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Invalid User Data)</Text> // Indicate bad data
-				)}
-			</TouchableOpacity>
-		);
-	};
-
 	// --- Main Render Logic ---
-	if (isLoadingParty && !partyDetails) {
-		// Show loading only on initial load
+	// Use a combined loading state for the screen's main content
+	const isScreenLoading =
+		isLoadingParty ||
+		(initialPartyIdFromRoute &&
+			(!partyDetails || partyDetails.id !== initialPartyIdFromRoute));
+	if (isScreenLoading) {
 		return (
-			<View style={styles.centered}>
+			<SafeAreaView style={styles.centered}>
 				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
+				<Text style={styles.loadingText}>Loading Party Details...</Text>
+			</SafeAreaView>
 		);
 	}
 
@@ -496,267 +587,75 @@ const PartyLobbyScreen = () => {
 			</SafeAreaView>
 		);
 	}
-
-	// Handle case where context has loaded but details are null (e.g., party deleted)
-	if (!isLoadingParty && !partyDetails && initialPartyId) {
+	if (!partyDetails && initialPartyIdFromRoute) {
+		// Party was expected but not found after loading
 		return (
 			<SafeAreaView style={styles.centered}>
 				<Text style={styles.errorText}>Party not found or has ended.</Text>
+				<Button title="Go Back" onPress={() => navigation.goBack()} />
+			</SafeAreaView>
+		);
+	}
+
+	// If no partyDetails at all (e.g. navigated here without a partyId somehow)
+	if (!partyDetails) {
+		return (
+			<SafeAreaView style={styles.centered}>
+				<Text style={styles.errorText}>No active party session.</Text>
 				<Button
-					title="Go Back"
-					onPress={() =>
-						navigation.canGoBack()
-							? navigation.goBack()
-							: navigation.navigate("CustomerHome")
-					}
+					title="Go Home"
+					onPress={() => navigation.navigate("CustomerHome")}
 				/>
 			</SafeAreaView>
 		);
 	}
+
+	const guests = partyDetails.guestPips || []; // Use guestPips
+	const currentPartyStatusDisplay = partyDetails.status || "unknown";
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<FlatList
 				style={styles.container}
 				ListHeaderComponent={
-					<>
-						<Text style={styles.title}>Party Lobby</Text>
-						<Text style={styles.restaurantName}>
-							{partyDetails?.restaurantName || "Restaurant"}
-						</Text>
-						<Text style={styles.statusText}>
-							Status:{" "}
-							<Text
-								style={[
-									styles.statusValue,
-									styles[`status_${currentPartyStatus}`],
-								]}
-							>
-								{currentPartyStatus.toUpperCase()}
-							</Text>
-						</Text>
-						{partyError && (
-							<Text style={styles.inlineErrorText}>{partyError}</Text>
-						)}
-						<View style={styles.hostSection}>
-							<Text style={styles.sectionTitle}>Host</Text>
-							<View style={styles.guestItem}>
-								<Ionicons
-									name="person-circle"
-									size={24}
-									color={colors.primary}
-								/>
-								<Text style={styles.guestName}>
-									{partyDetails?.hostName || "Host"} {isHost ? "(You)" : ""}
-								</Text>
-							</View>
-						</View>
-						<Text style={styles.sectionTitle}>Guests ({guests.length})</Text>
-					</>
+					<PartyLobbyHeaderContent
+						partyDetails={partyDetails}
+						partyStatus={currentPartyStatusDisplay} // Use the display status
+						partyError={partyError}
+						isHost={isHost}
+					/>
 				}
-				data={guests}
+				data={partyDetails?.guestPips || []}
 				renderItem={renderGuest}
 				keyExtractor={(item) => item.userId}
 				ListEmptyComponent={
 					<Text style={styles.emptyText}>No guests have joined yet.</Text>
 				}
 				ListFooterComponent={
-					<>
-						{/* --- Host Buttons --- */}
-						{isHost && ( // Keep outer check for host
-							<View style={styles.buttonContainer}>
-								{/* Invite/Code Buttons: Show if PENDING or ACTIVE */}
-								{(currentPartyStatus === "pending" ||
-									currentPartyStatus === "active") && (
-									<>
-										{/* Invite PIP Button */}
-										<TouchableOpacity
-											style={[
-												styles.actionButton,
-												styles.inviteButton,
-												(isLoadingParty || isActionLoading || isLoadingPips) &&
-													styles.disabledButton,
-											]}
-											onPress={handleInvitePip}
-											disabled={
-												isLoadingParty || isActionLoading || isLoadingPips
-											}
-										>
-											{isLoadingParty || isActionLoading || isLoadingPips ? (
-												<ActivityIndicator color="#fff" />
-											) : (
-												<Text style={styles.actionButtonText}>Invite PIP</Text>
-											)}
-										</TouchableOpacity>
-										{/* Generate Code Button */}
-										<TouchableOpacity
-											style={[
-												styles.actionButton,
-												styles.inviteButton,
-												(isLoadingParty || isActionLoading) &&
-													styles.disabledButton,
-											]}
-											onPress={handleGenerateCode}
-											disabled={isLoadingParty || isActionLoading}
-										>
-											{isLoadingParty || isActionLoading ? (
-												<ActivityIndicator color="#fff" />
-											) : (
-												<Text style={styles.actionButtonText}>
-													Get Invite Code
-												</Text>
-											)}
-										</TouchableOpacity>
-										{/* --- View Table Order Button --- */}
-										{currentPartyStatus === "active" &&
-											partyDetails?.checkInId && (
-												<TouchableOpacity
-													style={[styles.actionButton, styles.viewOrderButton]} // Add a new style if needed
-													onPress={() =>
-														navigation.navigate("BasketScreen", {
-															// <<< Navigation happens here
-															mode: "party", // <<< Tells BasketScreen to show party view
-															restaurant: {
-																// Pass necessary restaurant info
-																id: partyDetails.restaurantId,
-																restaurantName: partyDetails.restaurantName,
-																taxRate: partyDetails.restaurantTaxRate, // Ensure tax rate is available
-															},
-														})
-													}
-												>
-													<Text style={styles.actionButtonText}>
-														View Table Order
-													</Text>
-												</TouchableOpacity>
-											)}
-									</>
-								)}
-
-								{/* Check In / Waiting / Cancel Buttons: Show ONLY if PENDING */}
-								{currentPartyStatus === "pending" && (
-									<>
-										{/* --- MODIFIED: Check In / Waiting Button --- */}
-										{hostCheckInStatus === "REQUESTED" ? (
-											// Show "Waiting" state
-											<View style={styles.waitingContainer}>
-												<ActivityIndicator
-													size="small"
-													color={colors.primary}
-													style={styles.waitingIndicator}
-												/>
-												<Text style={styles.waitingText}>
-													Waiting for Table...
-												</Text>
-												{/* Optionally add cancel button here if needed */}
-											</View>
-										) : hostCheckInStatus === "ACCEPTED" ? (
-											// This case shouldn't really happen if party activation works,
-											// but good to handle. Party status should become 'active'.
-											<View style={styles.waitingContainer}>
-												<Ionicons
-													name="checkmark-circle"
-													size={24}
-													color={colors.success}
-												/>
-												<Text style={styles.waitingText}>
-													Check-In Accepted!
-												</Text>
-											</View>
-										) : (
-											// Show "Check In Party" button
-											<TouchableOpacity
-												style={[
-													styles.actionButton,
-													styles.checkInButton,
-													(isLoadingParty ||
-														isActionLoading ||
-														isLoadingCheckInAction ||
-														isLoadingHostCheckIn) && // Also disable if check-in status is loading
-														styles.disabledButton,
-												]}
-												onPress={openCheckInModal}
-												disabled={
-													isLoadingParty ||
-													isActionLoading ||
-													isLoadingCheckInAction ||
-													isLoadingHostCheckIn // Disable if loading status
-												}
-											>
-												{isLoadingCheckInAction ? (
-													<ActivityIndicator color="#fff" />
-												) : (
-													<Text style={styles.actionButtonText}>
-														Check In Party
-													</Text>
-												)}
-											</TouchableOpacity>
-										)}
-										{/* --- End MODIFIED Button --- */}
-
-										{/* --- Cancel Party Button --- */}
-										<TouchableOpacity
-											style={[
-												styles.actionButton,
-												styles.cancelPartyButton,
-												(isLoadingParty || isActionLoading) &&
-													styles.disabledButton,
-											]}
-											onPress={handleCancelParty} // <<< Call new handler
-											disabled={isLoadingParty || isActionLoading}
-										>
-											{isLoadingParty || isActionLoading ? (
-												<ActivityIndicator color="#fff" />
-											) : (
-												<Text style={styles.actionButtonText}>
-													Cancel Party
-												</Text>
-											)}
-										</TouchableOpacity>
-										{/* --- End Cancel Party Button --- */}
-									</>
-								)}
-							</View>
-						)}
-
-						{/* --- Leave Button (Guests Only) --- */}
-						{/* Allow leaving if PENDING OR ACTIVE */}
-						{!isHost &&
-							(currentPartyStatus === "pending" ||
-								currentPartyStatus === "active") && (
-								<View style={styles.buttonContainer}>
-									<TouchableOpacity
-										style={[
-											styles.actionButton,
-											styles.leaveButton,
-											(isLoadingParty || isActionLoading) &&
-												styles.disabledButton,
-										]}
-										onPress={handleLeaveParty}
-										disabled={isLoadingParty || isActionLoading}
-									>
-										{isLoadingParty || isActionLoading ? (
-											<ActivityIndicator color="#fff" />
-										) : (
-											<Text style={styles.actionButtonText}>Leave Party</Text>
-										)}
-									</TouchableOpacity>
-								</View>
-							)}
-
-						{/* --- Status Messages --- */}
-						{currentPartyStatus === "active" && (
-							<Text style={styles.infoText}>
-								Party is active! Add items to your basket.
-							</Text>
-						)}
-						{currentPartyStatus === "completed" && (
-							<Text style={styles.infoText}>This party has ended.</Text>
-						)}
-						{currentPartyStatus === "cancelled" && (
-							<Text style={styles.infoText}>This party was cancelled.</Text>
-						)}
-					</>
+					<PartyLobbyFooter
+						isHost={isHost} // Pass the correctly defined isHost
+						partyStatus={currentPartyStatusDisplay}
+						partyDetails={partyDetails}
+						currentUserData={currentUserData}
+						isLoadingPartyAction={isActionLoading}
+						isLoadingPips={isLoadingPips}
+						isLoadingHostCheckIn={isLoadingHostCheckIn} // Pass host's individual check-in loading
+						hostCheckInStatus={hostCheckInStatus} // Pass host's individual check-in status
+						sharedBasketItems={sharedBasketItems}
+						isLoadingBasket={isLoadingBasket}
+						groupedBasketItems={groupedBasketItems}
+						handleNavigateToAddItems={handleNavigateToAddItems}
+						handleInvitePip={handleInvitePip}
+						handleGenerateCode={handleGenerateCode}
+						setIsCheckInModalVisible={setIsCheckInModalVisible}
+						handleSendPartyOrderToChefsQ={handleSendPartyOrderToChefsQ}
+						handleSendAllNewPartyItemsToChefsQ={
+							handleSendAllNewPartyItemsToChefsQ
+						}
+						handleLeaveParty={handleLeaveParty}
+						handleCancelParty={handleCancelParty}
+						navigation={navigation}
+					/>
 				}
 				refreshControl={
 					<RefreshControl
@@ -767,112 +666,26 @@ const PartyLobbyScreen = () => {
 				}
 			/>
 
-			{/* --- PIP Selection Modal --- */}
-			<Modal
-				visible={isPipModalVisible}
-				animationType="slide"
-				transparent={true}
-				onRequestClose={() => setIsPipModalVisible(false)}
-			>
-				<View style={styles.modalOverlay}>
-					<View style={styles.modalContent}>
-						<Text style={styles.modalTitle}>Select PIP to Invite</Text>
-						{isLoadingPips ? (
-							<ActivityIndicator size="small" color={colors.primary} />
-						) : pips.length === 0 ? (
-							<Text style={styles.noPipsText}>
-								You haven't added any PIPs yet.
-							</Text>
-						) : (
-							<FlatList
-								data={pips}
-								renderItem={renderPipSelectionItem}
-								keyExtractor={(item) => item.id}
-								style={styles.pipModalList}
-							/>
-						)}
-						<TouchableOpacity
-							style={styles.closeButton}
-							onPress={() => setIsPipModalVisible(false)}
-						>
-							<Text style={styles.closeButtonText}>Close</Text>
-						</TouchableOpacity>
-					</View>
-				</View>
-			</Modal>
+			<PipInvitationModal
+				isVisible={isPipModalVisible}
+				onClose={() => setIsPipModalVisible(false)}
+				pips={pips}
+				isLoadingPips={isLoadingPips}
+				partyDetails={partyDetails}
+				isActionLoading={isActionLoading}
+				onSelectUserPip={sendInviteToUserPIP}
+				onSelectLocalPip={addLocalPIP}
+			/>
 
 			{/* --- Check-In Modal --- */}
-			{isCheckInModalVisible && (
-				<Modal
-					transparent={true}
-					onRequestClose={closeCheckInModal}
-					visible={isCheckInModalVisible}
-					animationType="fade"
-				>
-					<View style={styles.modalOverlay}>
-						<View style={styles.modalContent}>
-							<Formik
-								// Pre-fill party size
-								initialValues={{
-									partySize: (
-										partyDetails?.guestUserIds?.length + 1 || 1
-									).toString(),
-								}}
-								validationSchema={validationSchema}
-								onSubmit={handleCheckinSubmit} // Use the new handler
-							>
-								{({
-									handleChange,
-									handleBlur,
-									handleSubmit,
-									values,
-									errors,
-									touched,
-								}) => (
-									<>
-										<Text style={styles.modalTitle}>Confirm Party Size</Text>
-										<TextInput
-											style={styles.input} // Add input style
-											onChangeText={handleChange("partySize")}
-											onBlur={handleBlur("partySize")}
-											value={values.partySize}
-											keyboardType="numeric"
-											placeholder="Party Size"
-										/>
-										{errors.partySize && touched.partySize && (
-											<Text style={styles.errorText}>{errors.partySize}</Text> // Use error style
-										)}
-										<View style={styles.modalButtonRow}>
-											<TouchableOpacity
-												onPress={closeCheckInModal}
-												style={[styles.modalButton, styles.cancelModalButton]} // Add specific cancel style
-											>
-												<Text style={styles.modalButtonText}>Cancel</Text>
-											</TouchableOpacity>
-											<TouchableOpacity
-												onPress={handleSubmit}
-												style={[
-													styles.modalButton,
-													isLoadingCheckInAction && styles.disabledButton,
-												]} // Use confirm style
-												disabled={isLoadingCheckInAction}
-											>
-												{isLoadingCheckInAction ? (
-													<ActivityIndicator size="small" color="white" />
-												) : (
-													<Text style={styles.modalButtonText}>
-														Confirm Check In
-													</Text>
-												)}
-											</TouchableOpacity>
-										</View>
-									</>
-								)}
-							</Formik>
-						</View>
-					</View>
-				</Modal>
-			)}
+			<PartyCheckInModal
+				isVisible={isCheckInModalVisible}
+				onClose={closeCheckInModal}
+				initialPartySize={(partyDetails?.guestPips?.length || 0) + 1}
+				validationSchema={validationSchema}
+				onSubmit={handlePartyCheckInSubmit}
+				isLoadingAction={isLoadingCheckInAction}
+			/>
 			{/* --- End Check-In Modal --- */}
 		</SafeAreaView>
 	);
@@ -887,26 +700,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		padding: 20,
 	},
-	title: {
-		fontSize: 24,
-		fontWeight: "bold",
-		textAlign: "center",
-		marginBottom: 10,
-		color: colors.textDark,
-	},
-	restaurantName: {
-		fontSize: 18,
-		fontWeight: "500",
-		textAlign: "center",
-		marginBottom: 15,
-		color: colors.text,
-	},
-	statusText: {
-		fontSize: 16,
-		textAlign: "center",
-		marginBottom: 20,
-		color: colors.textLight,
-	},
+
 	statusValue: { fontWeight: "bold", color: colors.textDark },
 	status_pending: { color: colors.warning || "#ffc107" },
 	status_active: { color: colors.success || "green" },
@@ -974,97 +768,79 @@ const styles = StyleSheet.create({
 		fontStyle: "italic",
 		paddingBottom: 20,
 	},
-	cancelPartyButton: {
-		backgroundColor: colors.warning, // Use danger color for cancelling
-		marginTop: 10, // Add some space above it
-	},
 
-	waitingContainer: {
-		// Style for the "Waiting for Table..." indicator
+	actionsRow: {
 		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "center",
-		padding: 15,
-		backgroundColor: colors.warningBackground || "#fff8e1", // Light yellow
-		borderRadius: 8,
-		borderWidth: 1,
-		borderColor: colors.warning || "#ffc107",
-		marginTop: 10, // Match button margin
+		justifyContent: "space-around",
+		alignItems: "flex-start",
+		paddingVertical: 10,
+		marginTop: 10,
 		marginBottom: 10,
+		// borderTopWidth: 1,
+		// borderTopColor: colors.lightGray,
 	},
-	waitingIndicator: {
-		marginRight: 10,
-	},
-	waitingText: {
-		fontSize: 16,
-		fontWeight: "500",
-		color: colors.warningText || "#856404", // Darker yellow
-	},
-
-	// --- Modal Styles ---
-	modalOverlay: {
-		flex: 1,
-		justifyContent: "center",
+	actionIcon: {
 		alignItems: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.6)",
+		padding: 8,
+		minWidth: 80, // Give icons some space
 	},
-	modalContent: {
-		backgroundColor: "white",
-		borderRadius: 10,
-		padding: 20,
-		width: "85%",
-		maxHeight: "70%",
+	actionIconText: {
+		fontSize: 11,
+		color: colors.primary,
+		marginTop: 4,
+		textAlign: "center",
+	},
+	actionIconDisabled: {
+		alignItems: "center",
+		padding: 8,
+		minWidth: 80,
+		opacity: 0.5,
+	},
+	actionIconTextDisabled: {
+		fontSize: 11,
+		color: colors.textLight,
+		marginTop: 4,
+		textAlign: "center",
+	},
+	section: {
+		marginBottom: 20,
+		padding: 15,
+		backgroundColor: colors.white || "#ffffff",
+		borderRadius: 8,
+		marginHorizontal: 5, // Slight horizontal margin for sections
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
-		alignItems: "center",
-	}, // Added alignItems
-	modalTitle: {
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.05,
+		shadowRadius: 2,
+		elevation: 1,
+	},
+	sectionTitle: {
 		fontSize: 18,
 		fontWeight: "bold",
-		marginBottom: 15,
-		textAlign: "center",
-		color: colors.textDark,
-	},
-	pipModalList: { marginBottom: 15, width: "100%" }, // Ensure list takes width
-	pipSelectionItem: {
-		flexDirection: "row",
-		alignItems: "center",
-		paddingVertical: 12,
+		marginBottom: 12,
+		color: colors.primary,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.lightGray || "#eee",
-		width: "100%",
+		paddingBottom: 6,
 	},
-	pipSelectionName: {
-		marginLeft: 10,
-		fontSize: 16,
-		flex: 1,
-		color: colors.textDark,
-	},
-	disabledPipItem: { opacity: 0.5 },
-	disabledPipText: { color: colors.textLight },
-	alreadyInvitedText: {
-		fontSize: 12,
-		fontStyle: "italic",
-		color: colors.textLight,
-	},
-	noPipsText: {
+
+	emptyText: {
 		textAlign: "center",
 		color: colors.textLight,
-		marginVertical: 20,
+		marginTop: 15,
 		fontStyle: "italic",
+		paddingBottom: 10,
 	},
-	closeButton: {
-		backgroundColor: colors.mediumGray || "#ccc",
-		paddingVertical: 10,
-		paddingHorizontal: 20,
-		borderRadius: 8,
-		alignItems: "center",
-		marginTop: 10,
+	infoText: {
+		// For messages like "Party ended"
+		textAlign: "center",
+		marginTop: 20,
+		fontSize: 15,
+		color: colors.text,
+		fontStyle: "italic",
+		paddingBottom: 20,
 	},
-	closeButtonText: { color: colors.textDark, fontSize: 16, fontWeight: "bold" },
+
 	input: {
 		borderWidth: 1,
 		borderColor: colors.mediumGray || "#ccc",

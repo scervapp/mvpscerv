@@ -35,6 +35,9 @@ import {
 } from "firebase/firestore"; // <<< Import Firestore functions
 import { db } from "../config/firebase";
 import { useParty } from "../context/customer/PartyContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import PartySessionScreen from "../screens/customer/PartySessionScreen";
+import RestaurantDetailScreen from "../components/customer/RestaurantDetail";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -121,6 +124,28 @@ const CustomerDashboardStack = () => (
 	</Stack.Navigator>
 );
 
+const PartyStackScreen = () => (
+	<Stack.Navigator screenOptions={defaultHeaderOptions}>
+		<Stack.Screen
+			name="PartySession" // This is your new hub/lobby screen
+			component={PartySessionScreen} // Make sure to import PartySessionScreen
+			options={{ headerTitle: "My Party" }} // Title can be dynamic
+		/>
+		{/* If "Start a Party" from PartySessionScreen needs a restaurant list: */}
+		{/* <Stack.Screen
+			name="SelectRestaurantForParty"
+			component={RestaurantListScreen} // You'd need/create this screen
+			options={{ headerTitle: "Choose a Restaurant" }}
+		/> */}
+		<Stack.Screen
+			name="RestaurantDetailForPartyCreation" // If you navigate here from SelectRestaurantForParty
+			component={RestaurantDetailScreen} // Reusing RestaurantDetail
+			options={{ headerTitle: "Confirm Party Restaurant" }}
+		/>
+		{/* Add other screens if needed directly in the party flow, e.g., a dedicated menu screen for adding party items */}
+	</Stack.Navigator>
+);
+
 const AccountScreenStack = () => (
 	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		<Stack.Screen
@@ -191,8 +216,12 @@ const ActiveOrdersStack = () => (
 );
 
 const CustomerBottomNavigation = () => {
+	const insets = useSafeAreaInsets();
+	const internalTabBarContentHeight = 50;
+	const originalPaddingTop = 10;
+
 	const { currentUserData } = useContext(AuthContext);
-	const { joinParty, currentPartyId } = useParty();
+	const { joinParty, currentPartyId } = useParty()
 	const navigation = useNavigation();
 
 	useEffect(() => {
@@ -298,9 +327,11 @@ const CustomerBottomNavigation = () => {
 					borderWidth: 2,
 					borderColor: "black",
 					borderTopWidth: 0,
-					paddingTop: 10,
+					paddingTop: originalPaddingTop,
+					paddingBottom: insets.bottom,
 					elevation: Platform.OS === "android" ? 4 : 0,
-					height: 60,
+					height:
+						originalPaddingTop + internalTabBarContentHeight + insets.bottom,
 					paddingBottom: Platform.OS === "ios" ? 10 : 0,
 				},
 			})}
@@ -309,6 +340,23 @@ const CustomerBottomNavigation = () => {
 				name="CustomerDashboard"
 				component={CustomerDashboardStack}
 				options={{ headerShown: false }}
+			/>
+
+			<Tab.Screen
+				name="PartyTab" // Name for the route
+				component={PartyStackScreen} // The stack containing PartySessionScreen
+				options={{
+					headerShown: false,
+					tabBarIcon: ({ focused, color, size }) => (
+						<Ionicons
+							name={focused ? "people" : "people-outline"}
+							size={30}
+							color={color}
+						/>
+					),
+					// tabBarBadge: currentPartyId ? '●' : undefined, // Simple dot badge
+					// tabBarBadgeStyle: { backgroundColor: colors.success, color: colors.success, fontSize: 9, top: -2, left:2 },
+				}}
 			/>
 			<Tab.Screen
 				name="AccountScreen"
