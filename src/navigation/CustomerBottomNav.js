@@ -38,6 +38,7 @@ import { useParty } from "../context/customer/PartyContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PartySessionScreen from "../screens/customer/PartySessionScreen";
 import RestaurantDetailScreen from "../components/customer/RestaurantDetail";
+import PartyMenuScreen from "../screens/customer/PartyMenuScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -131,12 +132,12 @@ const PartyStackScreen = () => (
 			component={PartySessionScreen} // Make sure to import PartySessionScreen
 			options={{ headerTitle: "My Party" }} // Title can be dynamic
 		/>
-		{/* If "Start a Party" from PartySessionScreen needs a restaurant list: */}
-		{/* <Stack.Screen
-			name="SelectRestaurantForParty"
-			component={RestaurantListScreen} // You'd need/create this screen
-			options={{ headerTitle: "Choose a Restaurant" }}
-		/> */}
+		<Stack.Screen // NEW SCREEN FOR PARTY MENU
+			name="PartyMenu"
+			component={PartyMenuScreen}
+			// Options can be dynamic, e.g., set by PartyMenuScreen itself using navigation.setOptions
+			// options={({ route }) => ({ title: `Menu: ${route.params?.restaurantName || 'Menu'}` })}
+		/>
 		<Stack.Screen
 			name="RestaurantDetailForPartyCreation" // If you navigate here from SelectRestaurantForParty
 			component={RestaurantDetailScreen} // Reusing RestaurantDetail
@@ -221,7 +222,7 @@ const CustomerBottomNavigation = () => {
 	const originalPaddingTop = 10;
 
 	const { currentUserData } = useContext(AuthContext);
-	const { joinParty, currentPartyId } = useParty()
+	const { joinParty, currentPartyId } = useParty();
 	const navigation = useNavigation();
 
 	useEffect(() => {

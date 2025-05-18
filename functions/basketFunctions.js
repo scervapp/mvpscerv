@@ -2,82 +2,186 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 
 const db = admin.firestore();
-// Add Item to Basket
+/**
+ * Adds item(s) to a user's individual basket.
+ * If selectedPIPs are provided, creates an item for each.
+ * Otherwise, creates one item for the current user.
+ *
+ * @param {object} data - The data object.
+ * @param {string} data.userId - The Firebase UID of the user whose basket it is.
+ * @param {string} data.restaurantId - The ID of the restaurant this basket is for.
+ * @param {object} data.dish - Core details of the menu item being added.
+ * Expected: { id: string (menuItemId), name: string, price: number, category?: string, imageUri?: string, restaurantId: string (original item's restaurant) }
+ * @param {number} data.quantity - The quantity for EACH item instance being created.
+ * @param {Array<{id: string, name: string, specialInstructions: string}>} [data.selectedPIPs] - Optional. Array of PIPs this item is for.
+ * If a PIP object has an ID matching data.userId, it's considered for "Myself".
+ * @param {string} [data.generalSpecialInstructions] - Optional. General notes if no PIPs or for "Myself" if not in selectedPIPs.
+ * @param {object} [data.table] - Optional table information.
+ * @param {object} [data.server] - Optional server information.
+ * @param {object} context - The Firebase Functions context object.
+ * @param {object} context.auth - The authenticated user information.
+ * @returns {Promise<{success: boolean, basketItemIds?: string[], error?: string}>}
+ */
 async function addItemToBasket(data, context) {
+	// 1. Authentication Check
+	if (!context.auth || !context.auth.uid) {
+		console.error("addItemToBasket: Authentication failed.");
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+	// Ensure the userId in data matches the authenticated user, or allow admin override if needed
+	if (context.auth.uid !== data.userId) {
+		// Potentially check for admin role if you want admins to add to other users' baskets
+		console.error(
+			"addItemToBasket: Authenticated user does not match userId in data."
+		);
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"User can only add items to their own basket."
+		);
+	}
+
+	// 2. Input Validation
 	const {
 		userId,
-		restaurantId,
+		restaurantId, // The ID of the restaurant this basket is associated with
 		dish,
-		selectedPIPs,
-		table,
-		specialInstructions,
-		server,
+		quantity,
+		selectedPIPs = [], // Default to empty array
+		generalSpecialInstructions = "",
+		table, // Optional
+		server, // Optional
 	} = data;
 
+	if (
+		!userId ||
+		!restaurantId ||
+		!dish ||
+		!dish.id ||
+		typeof dish.price !== "number" ||
+		typeof quantity !== "number" ||
+		quantity <= 0
+	) {
+		console.error("addItemToBasket: Invalid input.", {
+			userId,
+			restaurantId,
+			dish,
+			quantity,
+		});
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing or invalid required fields (userId, restaurantId, dish details, quantity)."
+		);
+	}
+
+	const basketCollectionRef = db.collection("baskets");
+	const timestamp = admin.firestore.FieldValue.serverTimestamp();
+	const createdBasketItemIds = [];
+
 	try {
-		// 1. Input Validation
-		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
-			throw new functions.https.HttpsError(
-				"unauthenticated",
-				"User not authenticated"
+		const batch = db.batch(); // Use a batch for multiple writes if selectedPIPs is used
+
+		if (selectedPIPs && selectedPIPs.length > 0) {
+			// Scenario 1: Items are for specific PIPs (or "Myself" if included in selectedPIPs)
+			console.log(
+				`addItemToBasket: Adding items for ${selectedPIPs.length} selected targets (PIPs/Myself). Quantity per target: ${quantity}`
 			);
-		}
 
-		if (!restaurantId || !dish || !dish.id) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Invalid data provided"
-			);
-		}
+			for (const pipTarget of selectedPIPs) {
+				if (!pipTarget || !pipTarget.id || !pipTarget.name) {
+					console.warn(
+						"addItemToBasket: Skipping invalid pipTarget in selectedPIPs array:",
+						pipTarget
+					);
+					continue; // Skip malformed PIP objects
+				}
 
-		// 2. Get Basket Items Reference
-		const basketItemsRef = db.collection("baskets");
+				const basketItemRef = basketCollectionRef.doc(); // Generate new unique ID for each basket item
+				createdBasketItemIds.push(basketItemRef.id);
 
-		// 3. Check for Existing UNSENT Item with the Same PIPs
-		const existingItemsQuery = basketItemsRef
-			.where("restaurantId", "==", restaurantId)
-			.where("dish.id", "==", dish.id)
-			.where(
-				"pip.id",
-				"in",
-				selectedPIPs.map((pip) => pip.id)
-			)
-			.where("sentToChefQ", "==", false);
-		const existingItemsSnapshot = await existingItemsQuery.get();
-
-		if (!existingItemsSnapshot.empty) {
-			// 4a. If any unsent items with the same dish and PIPs exist, update their quantities
-			const batch = db.batch();
-			existingItemsSnapshot.forEach((doc) => {
-				batch.update(doc.ref, {
-					quantity: admin.firestore.FieldValue.increment(1),
-				});
-			});
-			await batch.commit();
+				const basketItemData = {
+					userId: userId, // The main user who owns this basket/order
+					restaurantId: restaurantId, // Restaurant this basket is for
+					menuItemId: dish.id,
+					dish: {
+						// Store a denormalized copy of essential dish info
+						name: dish.name,
+						price: dish.price, // Price per unit at time of adding
+						category: dish.category || null,
+						// imageUri: dish.imageUri || null, // Optional
+					},
+					quantity: quantity,
+					pipId: pipTarget.id, // ID of the PIP (or currentUserId if it's for "Myself")
+					pipName: pipTarget.name, // Name of the PIP (or "Myself")
+					specialInstructions: pipTarget.specialInstructions || "", // PIP-specific instructions
+					table: table || null,
+					server: server || null,
+					createdAt: timestamp,
+					updatedAt: timestamp,
+					status: "new", // Or your default status for newly added items
+					sentToChefQ: false, // Default for new items
+					// Add originalRestaurantId from dish if it's different from the basket's restaurantId (e.g. virtual kitchen)
+					originalDishRestaurantId: dish.restaurantId || restaurantId,
+				};
+				batch.set(basketItemRef, basketItemData);
+				console.log(
+					`addItemToBasket: Queued item for PIP: ${pipTarget.name} (ID: ${pipTarget.id}) with quantity ${quantity}`
+				);
+			}
 		} else {
-			// 4b. If the dish is new for all selected PIPs, or all existing instances are sent, create new documents
-			const batch = db.batch();
-			selectedPIPs.forEach((pip) => {
-				const newItemRef = basketItemsRef.doc();
-				batch.set(newItemRef, {
-					restaurantId,
-					dish,
-					quantity: 1,
-					specialInstructions: specialInstructions,
-					pip,
-					sentToChefQ: false,
-					table: table,
-					server: server,
-					userId: userId,
-				});
-			});
-			await batch.commit();
+			// Scenario 2: Item is for the current user, no specific PIPs selected (or "Myself" was the only implicit target)
+			console.log(
+				`addItemToBasket: Adding single item for user ${userId}. Quantity: ${quantity}`
+			);
+			const basketItemRef = basketCollectionRef.doc();
+			createdBasketItemIds.push(basketItemRef.id);
+
+			const basketItemData = {
+				userId: userId,
+				restaurantId: restaurantId,
+				menuItemId: dish.id,
+				dish: {
+					name: dish.name,
+					price: dish.price,
+					category: dish.category || null,
+					// imageUri: dish.imageUri || null,
+				},
+				quantity: quantity,
+				pipId: null, // No specific PIP
+				pipName: null, // No specific PIP
+				specialInstructions: generalSpecialInstructions || "", // General instructions
+				table: table || null,
+				server: server || null,
+				createdAt: timestamp,
+				updatedAt: timestamp,
+				status: "new",
+				sentToChefQ: false,
+				originalDishRestaurantId: dish.restaurantId || restaurantId,
+			};
+			batch.set(basketItemRef, basketItemData);
 		}
 
-		return { success: true };
+		await batch.commit();
+		console.log(
+			`addItemToBasket: Successfully committed ${createdBasketItemIds.length} item(s) to basket for user ${userId}. IDs:`,
+			createdBasketItemIds
+		);
+		return { success: true, basketItemIds: createdBasketItemIds };
 	} catch (error) {
-		console.error("Error adding to basket:", error);
-		throw new functions.https.HttpsError("internal", error.message);
+		console.error(
+			`addItemToBasket: Error processing request for user ${userId}:`,
+			error
+		);
+		if (error instanceof functions.https.HttpsError) {
+			throw error; // Re-throw HttpsErrors
+		}
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to add item(s) to basket.",
+			error.message
+		);
 	}
 }
 
@@ -107,7 +211,7 @@ async function removeItemFromBasket(data, context) {
 		// 3. Check if the basket item exists
 		const basketItemSnapshot = await basketItemRef.get();
 
-		if (!basketItemSnapshot.exists()) {
+		if (!basketItemSnapshot.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
 				"Basket item not found"
@@ -265,6 +369,151 @@ async function sendToChefsQ(data, context) {
 		throw new functions.https.HttpsError("internal", error.message);
 	}
 }
+
+/**
+ * Adds a menu item to a shared party basket.
+ *
+ * @param {object} data - The data object.
+ * @param {string} data.partyId - The ID of the party.
+ * @param {string} data.orderingForUserId - The Firebase UID of the user ordering the item.
+ * @param {string} [data.orderingForPipName] - The name of the PIP if the host is ordering for them.
+ * @param {object} data.menuItemData - The details of the menu item being added.
+ * Expected structure: {
+ * id: string, // menuItemId from your menu
+ * name: string, // dishName
+ * price: number,
+ * quantity: number,
+ * specialInstructions?: string,
+ * // any other relevant menuItem fields you want to store
+ * }
+ * @param {object} context - The Firebase Functions context object.
+ * @param {object} context.auth - The authenticated user information.
+ * @returns {Promise<{success: boolean, basketItemId?: string, error?: string}>}
+ */
+exports.addItemToSharedBasket = functions.https.onCall(
+	async (data, context) => {
+		// 1. Authentication Check
+		if (!context.auth || !context.auth.uid) {
+			console.error(
+				"addItemToSharedBasket: Authentication failed. User not logged in."
+			);
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated to add items to a party basket."
+			);
+		}
+		const currentUserId = context.auth.uid; // User calling the function
+
+		// 2. Input Validation
+		const {
+			partyId,
+			orderingForUserId, // This is who the item is for
+			orderingForPipName, // Optional: if host adds for a local PIP
+			menuItemData,
+		} = data;
+
+		if (!partyId || typeof partyId !== "string") {
+			console.error(
+				"addItemToSharedBasket: Invalid input - partyId missing or invalid.",
+				data
+			);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID is required."
+			);
+		}
+		if (!orderingForUserId || typeof orderingForUserId !== "string") {
+			console.error(
+				"addItemToSharedBasket: Invalid input - orderingForUserId missing or invalid.",
+				data
+			);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Ordering user ID is required."
+			);
+		}
+		if (
+			!menuItemData ||
+			typeof menuItemData.id !== "string" ||
+			typeof menuItemData.name !== "string" ||
+			typeof menuItemData.price !== "number" ||
+			typeof menuItemData.quantity !== "number" ||
+			menuItemData.quantity <= 0
+		) {
+			console.error(
+				"addItemToSharedBasket: Invalid input - menuItemData is incomplete or invalid.",
+				data
+			);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Valid menu item data (id, name, price, quantity) is required."
+			);
+		}
+
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+
+		try {
+			// 3. Check if the party and shared basket exist (optional, but good practice)
+			const basketDoc = await sharedBasketRef.get();
+			if (!basketDoc.exists) {
+				console.error(
+					`addItemToSharedBasket: Shared basket for partyId ${partyId} not found.`
+				);
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Party basket not found. The party may have ended or not exist."
+				);
+			}
+
+			// 4. Construct the new basket item
+			const basketItemId = db.collection("dummy").doc().id; // Generate a unique ID for the basket item
+			const newItem = {
+				id: basketItemId, // Unique ID for this instance in the basket
+				menuItemId: menuItemData.id,
+				dishName: menuItemData.name, // Store essential details directly
+				price: menuItemData.price, // Price per unit at the time of adding
+				quantity: menuItemData.quantity,
+				specialInstructions: menuItemData.specialInstructions || "",
+				orderedByUserId: orderingForUserId,
+				orderedByPipName: orderingForPipName || null, // Store PIP name if provided
+				addedByUserId: currentUserId, // Who actually performed the add action (could be host adding for someone else)
+				addedAt: admin.firestore.FieldValue.serverTimestamp(),
+				status: "new", // Initial status (e.g., 'new', 'sentToChefQ', 'confirmedByKitchen')
+				// You might want to copy other relevant details from menuItemData if needed
+				// e.g., category, description (if short), imageUri (if small/thumbnail)
+			};
+
+			console.log(
+				`addItemToSharedBasket: Adding new item to party ${partyId}:`,
+				newItem
+			);
+
+			// 5. Atomically add the new item to the 'items' array in the shared basket
+			await sharedBasketRef.update({
+				items: admin.firestore.FieldValue.arrayUnion(newItem),
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			console.log(
+				`addItemToSharedBasket: Item ${basketItemId} successfully added to shared basket for party ${partyId}.`
+			);
+			return { success: true, basketItemId: basketItemId };
+		} catch (error) {
+			console.error(
+				`addItemToSharedBasket: Error adding item to party ${partyId}:`,
+				error
+			);
+			if (error instanceof functions.https.HttpsError) {
+				throw error; // Re-throw HttpsErrors
+			}
+			throw new functions.https.HttpsError(
+				"internal",
+				"Failed to add item to party basket.",
+				error.message
+			);
+		}
+	}
+);
 
 exports.addItemToBasket = functions.https.onCall(addItemToBasket);
 exports.removeItemFromBasket = functions.https.onCall(removeItemFromBasket);

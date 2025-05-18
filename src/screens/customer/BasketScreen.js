@@ -43,6 +43,7 @@ import {
 	orderBy,
 } from "firebase/firestore";
 import { useParty } from "../../context/customer/PartyContext";
+import OrderItemCard from "../../components/customer/OrderItemCard";
 
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
@@ -91,157 +92,80 @@ const BasketScreen = ({ route, navigation }) => {
 		fetchFeeConfig();
 	}, []);
 
-	// --- Modified Data Fetching ---
+	// This useEffect should correctly populate displayItems for "individual" mode
 	useEffect(() => {
-		let unsubscribe = () => {};
 		setIsLoading(true);
-
-		if (mode === "party" && partyStatus === "active" && checkInId) {
-			// --- PARTY MODE ---
-			console.log(
-				`BasketScreen (Party Mode): Fetching items for checkInId: ${checkInId}`
-			);
-			const q = query(
-				collection(db, "baskets"),
-				where("checkInId", "==", checkInId),
-				orderBy("createdAt", "asc")
-			);
-			unsubscribe = onSnapshot(
-				q,
-				(snapshot) => {
-					const items = snapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-					setDisplayItems(items);
-					setIsLoading(false);
-				},
-				(error) => {
-					console.error(
-						"BasketScreen (Party Mode): Error fetching party order:",
-						error
-					);
-					setIsLoading(false);
-					// Handle error
-				}
-			);
-		} else if (mode === "individual" && restaurant?.id) {
-			// --- INDIVIDUAL MODE ---
-			// Use the existing logic from useBasket context (assuming it provides items per restaurant)
-			// Or fetch directly if needed (less ideal if context already does it)
-			console.log(
-				`BasketScreen (Individual Mode): Using items for restaurant: ${restaurant.id}`
-			);
+		if (mode === "individual" && restaurant?.id && baskets) {
 			const itemsFromContext = baskets[restaurant.id]?.items || [];
+			console.log(
+				`BasketScreen (Individual Mode): Items from context for ${restaurant.id}:`,
+				JSON.stringify(itemsFromContext, null, 2)
+			);
 			setDisplayItems(itemsFromContext);
 			setIsLoading(false);
-			// If useBasket doesn't provide items directly, you'd need a query here based on userId/restaurantId
 		} else {
-			// Invalid mode or missing data
-			console.log("BasketScreen: Invalid mode or missing data for fetching.", {
-				mode,
-				partyStatus,
-				checkInId,
-				restaurantId: restaurant?.id,
-			});
+			// Handle other modes or missing data if this screen were to support them
+			console.log(
+				"BasketScreen: Not in individual mode or missing data for item display.",
+				{ mode, restaurantId: restaurant?.id }
+			);
 			setDisplayItems([]);
 			setIsLoading(false);
 		}
+	}, [mode, restaurant?.id, baskets]);
 
-		return () => unsubscribe(); // Cleanup listener
-	}, [mode, checkInId, partyStatus, restaurant?.id, baskets]); // Dependencies
-
-	// --- Data Transformation and Totals Calculation ---
 	const {
-		subtotal, // After discounts
-		taxEstimate, // Client-side estimate
-		platformFeeEstimate, // Client-side estimate
-		grandTotalEstimate, // Client-side estimate
+		subtotal,
+		taxEstimate,
+		platformFeeEstimate,
+		grandTotalEstimate,
 		totalDiscount,
 		originalSubtotal,
-		pipDataForDisplay, // Transformed data for rendering PIPs
+		pipDataForDisplay, // This will be the output of transformBasketData
 	} = useMemo(() => {
-		console.log(`BasketScreen (${mode} Mode): Recalculating totals...`);
-
-		// --- ADD LOGS HERE TO DEBUG ---
-		console.log(
-			`BasketScreen (${mode} Mode): Input displayItems count:`,
-			displayItems?.length
+		// Pass currentUserId and a name for their section to transformBasketData
+		const transformedPipData = transformBasketData(
+			displayItems,
+			currentUserData?.uid,
+			currentUserData?.firstName || "Your Items" // Name for the current user's section
 		);
-		if (displayItems?.length > 0) {
-			// Log the first item to see its structure
-			console.log(
-				`BasketScreen (${mode} Mode): First displayItem:`,
-				JSON.stringify(displayItems[0], null, 2)
-			);
-		}
-		console.log(
-			`BasketScreen (${mode} Mode): Input restaurant.taxRate:`,
-			restaurant?.taxRate
-		);
-		console.log(`BasketScreen (${mode} Mode): Input fees:`, fees);
-		// --- END DEBUG LOGS ---
 
-		if (!displayItems || typeof fees !== "number" /* ... other guards */) {
-			console.log("  Skipping calculation due to missing inputs.");
-			return {
-				/* default zeroed object */
-			};
-		}
-		let calcSubtotal = 0;
+		// Now, calculate overall totals based on the raw displayItems,
+		// as transformBasketData now also calculates per-person subtotals.
 		let calcOriginalSubtotal = 0;
-		let calcTotalDiscount = 0;
+		let calcSubtotalAfterDiscounts = 0;
 
-		// Calculate overall totals first
 		displayItems.forEach((item) => {
-			const originalPrice = Math.round((Number(item?.dish?.price) || 0) * 100);
-			const quantity = Number(item?.quantity) || 1;
-			calcOriginalSubtotal += originalPrice * quantity;
-			const price = item?.discount
+			const originalItemPrice = (Number(item.dish?.price) || 0) * 100;
+			const quantity = Number(item.quantity) || 1;
+			calcOriginalSubtotal += originalItemPrice * quantity;
+
+			const finalItemPrice = item.discount
 				? parseFloat(item.discountedPrice) * 100
-				: originalPrice;
-			calcSubtotal += Math.round(price || 0) * quantity;
+				: originalItemPrice;
+			calcSubtotalAfterDiscounts += Math.round(finalItemPrice) * quantity;
 		});
-		calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
 
-		// Estimate tax and fee based on current subtotal
-		// NOTE: Tax estimate uses restaurant.taxRate, final tax calculated by Stripe Tax later
+		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotalAfterDiscounts;
 		const calcTaxEstimate = Math.round(
-			calcSubtotal * (restaurant?.taxRate || 0)
+			calcSubtotalAfterDiscounts * (restaurant?.taxRate || 0)
 		);
-		const calcPlatformFeeEstimate = Math.round(calcSubtotal * fees); // Fee on pre-tax subtotal
-
+		const calcPlatformFeeEstimate = Math.round(
+			calcSubtotalAfterDiscounts * fees
+		);
 		const calcGrandTotalEstimate =
-			calcSubtotal + calcTaxEstimate + calcPlatformFeeEstimate; // Estimate BEFORE gratuity
-
-		// Transform data for PIP display
-		const transformedData = transformBasketData(displayItems);
-		const filteredData = transformedData.filter((p) => p?.items?.length > 0);
-		const calcPipDataForDisplay = filteredData.map((personData) => {
-			let pipSubtotal = 0;
-			personData.items.forEach((item) => {
-				const originalPrice = Math.round(
-					(Number(item?.dish?.price) || 0) * 100
-				);
-				const quantity = Number(item?.quantity) || 1;
-				const price = item?.discount
-					? parseFloat(item.discountedPrice) * 100
-					: originalPrice;
-				pipSubtotal += Math.round(price || 0) * quantity;
-			});
-			return { ...personData, subtotal: pipSubtotal }; // Add calculated subtotal per PIP
-		});
+			calcSubtotalAfterDiscounts + calcTaxEstimate + calcPlatformFeeEstimate;
 
 		return {
-			subtotal: calcSubtotal,
+			subtotal: calcSubtotalAfterDiscounts,
 			taxEstimate: calcTaxEstimate,
 			platformFeeEstimate: calcPlatformFeeEstimate,
 			grandTotalEstimate: calcGrandTotalEstimate,
 			totalDiscount: calcTotalDiscount,
 			originalSubtotal: calcOriginalSubtotal,
-			pipDataForDisplay: calcPipDataForDisplay,
+			pipDataForDisplay: transformedPipData, // Use the transformed data for rendering sections
 		};
-	}, [displayItems, restaurant?.taxRate, fees, transformBasketData]); // Dependencies
+	}, [displayItems, restaurant?.taxRate, fees, currentUserData]); // Added currentUserData
 
 	// --- Actions ---
 	const handleSendToChefsQ = async () => {
@@ -346,122 +270,20 @@ const BasketScreen = ({ route, navigation }) => {
 		return checkInStatus === "ACCEPTED" && hasUnsentItems;
 	}, [checkInStatus, hasUnsentItems]);
 
-	// --- Render Functions ---
-	const renderBasketItem = ({ item: basketItem, personId }) => {
-		const isCurrentUserItem = basketItem.userId === currentUserData.uid;
-
-		// Allow edit only in individual mode OR if it's your item in party mode
-		const allowEdit =
-			mode === "individual" || (mode === "party" && isCurrentUserItem);
-
-		// Note: personId might not be needed if item object contains all info
-		const itemTotal =
-			Math.round(
-				(basketItem.discount
-					? parseFloat(basketItem.discountedPrice)
-					: basketItem.dish?.price || 0) * 100
-			) * basketItem.quantity;
-		return (
-			<View
-				key={basketItem.id}
-				style={[
-					styles.basketItemRow,
-					basketItem.sentToChefQ ? styles.sentItemVisual : {},
-				]}
-			>
-				<View style={styles.itemIconContainer}>
-					{basketItem.sentToChefQ ? (
-						<Ionicons
-							name="checkmark-circle"
-							size={22}
-							color={colors.success || "green"}
-						/>
-					) : (
-						<Ionicons
-							name="time-outline"
-							size={22}
-							color={colors.warning || "#E85D04"}
-						/> // Changed to outline version
-					)}
-				</View>
-				<View style={styles.itemDetails}>
-					<Text
-						style={[
-							styles.dishName,
-							basketItem.sentToChefQ && styles.sentItemText,
-						]}
-					>
-						{basketItem.dish.name}
-					</Text>
-					{basketItem.specialInstructions && (
-						<Text style={styles.specialInstructions}>
-							{basketItem.specialInstructions}
-						</Text>
-					)}
-				</View>
-				<View style={styles.itemControlsAndPrice}>
-					{!basketItem.sentToChefQ && allowEdit ? (
-						<View style={styles.quantityControls}>
-							<IconButton
-								icon="minus-circle-outline"
-								size={22}
-								onPress={() => {
-									const currentQuantity = basketItem.quantity;
-									if (currentQuantity === 1) {
-										Alert.alert(
-											"Confirm Remove",
-											`Remove ${basketItem.dish.name}?`,
-											[
-												{ text: "Cancel", style: "cancel" },
-												{
-													text: "Remove",
-													// --- CORRECTED CALL (2 args) ---
-													onPress: () => handleQuantityChange(basketItem.id, 0),
-													style: "destructive",
-												},
-											]
-										);
-									} else {
-										// --- CORRECTED CALL (2 args) ---
-										handleQuantityChange(basketItem.id, currentQuantity - 1);
-									}
-								}}
-								style={styles.quantityButton}
-							/>
-							<Text style={styles.quantity}>{basketItem.quantity}</Text>
-							<IconButton
-								icon="plus-circle-outline"
-								size={22}
-								onPress={() =>
-									handleQuantityChange(basketItem.id, basketItem.quantity + 1)
-								}
-								style={styles.quantityButton}
-							/>
-						</View>
-					) : (
-						<Text style={styles.itemQuantitySent}>x {basketItem.quantity}</Text> // Show quantity if sent
-					)}
-					<Text
-						style={[
-							styles.itemPrice,
-							basketItem.sentToChefQ && styles.sentItemText,
-						]}
-					>
-						{formatCurrency(itemTotal)}
-					</Text>
-				</View>
-			</View>
-		);
-	};
-
 	const renderPipSection = ({ item: personData }) => (
 		<View key={personData.personId} style={styles.pipSection}>
 			<Text style={styles.pipName}>{personData.pipName}</Text>
 			<FlatList
 				data={personData.items}
-				renderItem={({ item }) =>
-					renderBasketItem({ item, personId: personData.personId })
-				}
+				renderItem={({ item }) => (
+					<OrderItemCard
+						item={item}
+						onQuantityChange={handleQuantityChange}
+						allowEdit={!item.sentToChefQ}
+						isSentToKitchen={item.sentToChefQ}
+						restaurantId={restaurant.id}
+					/>
+				)}
 				keyExtractor={(item) => item.id}
 				scrollEnabled={false} // Disable scroll for inner list
 			/>

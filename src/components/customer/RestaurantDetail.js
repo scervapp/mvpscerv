@@ -1,5 +1,11 @@
 // screens/customer/RestaurantDetailScreen.js
-import React, { useContext, useEffect, useState, useMemo } from "react";
+import React, {
+	useContext,
+	useEffect,
+	useState,
+	useMemo,
+	useCallback,
+} from "react";
 import {
 	View,
 	Text,
@@ -31,29 +37,22 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
-
-// Assuming formatCurrency is available or defined
-const formatCurrency = (cents) => {
-	if (typeof cents !== "number" || isNaN(cents)) {
-		return "$0.00";
-	}
-	const value = cents / 100;
-	return `${value < 0 ? "-" : ""}$${Math.abs(value).toFixed(2)}`;
-};
+import { collection, onSnapshot } from "firebase/firestore";
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { restaurant } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
+	const { restaurant, initialView } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
 
 	const { currentUserData } = useContext(AuthContext);
-	const { baskets } = useBasket(); // For individual basket count
+	const { baskets, addItemToBasket: addItemToIndividualBasketFromContext } =
+		useBasket(); // For individual basket count
+
 	const {
 		createParty,
 		isLoadingParty, // Loading state from PartyContext for party creation
 		currentPartyId,
-		partyDetails, // Details of the current party from context
-		partyStatus, // Status of the current party from context
+		partyDetails, // Details of the current party from context // Function from context
 		activatePartyCheckIn, // Function from context
 	} = useParty(); // Using the custom hook
 
@@ -65,6 +64,7 @@ const RestaurantDetailScreen = () => {
 	const [isProcessingCheckInAction, setIsProcessingCheckInAction] =
 		useState(false);
 	const [isStartingPartyProcess, setIsStartingPartyProcess] = useState(false);
+	const [userPips, setUserPips] = useState([]);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
 	const {
@@ -85,6 +85,28 @@ const RestaurantDetailScreen = () => {
 		return baskets && restaurant?.id ? baskets[restaurant.id] : { items: [] };
 	}, [baskets, restaurant?.id]);
 	const basketCount = restaurantBasket?.items?.length || 0;
+
+	// Fetch user's PIPs (needed by MenuItemsList for SelectedItemModal)
+	useEffect(() => {
+		if (currentUserData?.uid && currentUserData.role !== "guest") {
+			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
+			const unsubscribe = onSnapshot(
+				pipsRef,
+				(snapshot) => {
+					setUserPips(
+						snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+					);
+				},
+				(error) => {
+					console.error("RestaurantDetailScreen: Error fetching PIPs:", error);
+					setUserPips([]);
+				}
+			);
+			return () => unsubscribe();
+		} else {
+			setUserPips([]);
+		}
+	}, [currentUserData?.uid]);
 
 	// Effect to fetch menu items for the restaurant
 	useEffect(() => {
@@ -299,6 +321,87 @@ const RestaurantDetailScreen = () => {
 		}
 	};
 
+	// --- Callback for MenuItemsList to add item to INDIVIDUAL BASKET ---
+	const handleAddItemToIndividualBasket = useCallback(
+		async (itemDataFromModal) => {
+			// itemDataFromModal from SelectedItemModal contains:
+			// { menuItemDetails (includes original menu item data),
+			//   quantity, specialInstructions (general if no PIPs/Myself selected with notes),
+			//   individualPips? (array of {id, name, specialInstructions} if individual mode and PIPs selected)
+			// }
+
+			if (!currentUserData?.uid) {
+				Alert.alert("Login Required", "Please log in to add items.");
+				return;
+			}
+			if (!addItemToIndividualBasketFromContext) {
+				Alert.alert("Error", "Basket functionality is not available.");
+				return;
+			}
+			if (!restaurant?.id) {
+				Alert.alert("Error", "Restaurant information is missing.");
+				return;
+			}
+
+			const {
+				menuItemDetails,
+				quantity,
+				individualPips,
+				specialInstructions: generalSpecialInstructions,
+			} = itemDataFromModal;
+
+			const dishForContext = {
+				id: menuItemDetails.id,
+				name: menuItemDetails.name,
+				price: menuItemDetails.price,
+				category: menuItemDetails.category,
+				imageUri: menuItemDetails.imageUri,
+				restaurantId: menuItemDetails.restaurantId,
+			};
+
+			try {
+				console.log(
+					"RestaurantDetailScreen: Calling BasketContext.addItemToIndividualBasketFromContext with:",
+					{
+						restaurantId: restaurant.id,
+						dish: dishForContext,
+						selectedPIPs: individualPips || [],
+						generalSpecialInstructions,
+						quantity,
+					}
+				);
+
+				console.log("These are the pips ", individualPips);
+
+				// Ensure your BasketContext.addItemToBasket and its Cloud Function
+				// can handle the 'quantity' and the 'selectedPIPs' array (each PIP object having its own specialInstructions).
+				await addItemToIndividualBasketFromContext(
+					restaurant.id,
+					dishForContext,
+					individualPips || [], // Array of {id, name, specialInstructions}
+					{}, // server placeholder
+					generalSpecialInstructions,
+					{}, // table placeholder
+					quantity // Pass quantity
+				);
+				// Snackbar is shown by MenuItemsList
+				console.log(
+					"RestaurantDetailScreen: Item added to individual basket successfully."
+				);
+			} catch (error) {
+				console.error(
+					"RestaurantDetailScreen: Error in Individual addItemToBasket call:",
+					error
+				);
+				Alert.alert(
+					"Error",
+					"Could not add item to your basket. " + error.message
+				);
+			}
+		},
+		[currentUserData?.uid, addItemToIndividualBasketFromContext, restaurant?.id]
+	);
+
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
 			.min(1, "Min 1")
@@ -465,104 +568,113 @@ const RestaurantDetailScreen = () => {
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-				<Image source={{ uri: restaurant.imageUri }} style={styles.image} />
-				<View style={styles.infoContainer}>
-					<Text style={styles.name}>{restaurant.restaurantName}</Text>
-					<Text style={styles.address}>
-						{restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
-						{restaurant.zipcode}
-					</Text>
-					<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
-				</View>
+				{initialView !== "menuForParty" && (
+					<>
+						<Image source={{ uri: restaurant.imageUri }} style={styles.image} />
+						<View style={styles.infoContainer}>
+							<Text style={styles.name}>{restaurant.restaurantName}</Text>
+							<Text style={styles.address}>
+								{restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
+								{restaurant.zipcode}
+							</Text>
+							<Text style={styles.cuisine}>
+								Cuisine: {restaurant.cuisineType}
+							</Text>
+						</View>
 
-				{/* --- Action Icons Row --- */}
-				{currentUserData?.role === "customer" ? (
-					renderActionButtons()
-				) : (
-					<View style={styles.guestMessageContainer}>
-						<PaperButton
-							icon="login"
-							mode="contained"
-							onPress={() => navigation.navigate("Login")} // Or your Welcome/Login flow
-							style={styles.guestLoginButton}
-							labelStyle={styles.guestLoginButtonText}
-						>
-							Login or Sign Up to Order/Check-In
-						</PaperButton>
-					</View>
-				)}
-
-				{/* Check-In Modal */}
-				{isModalVisible && (
-					<Modal
-						transparent={true}
-						onRequestClose={closeModal}
-						visible={isModalVisible}
-						animationType="fade"
-					>
-						<View style={styles.modalOverlay}>
-							<View style={styles.modalContent}>
-								<Formik
-									initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
-									validationSchema={validationSchema}
-									onSubmit={handlePersonalCheckinSubmit}
+						{/* --- Action Icons Row --- */}
+						{currentUserData?.role === "customer" ? (
+							renderActionButtons()
+						) : (
+							<View style={styles.guestMessageContainer}>
+								<PaperButton
+									icon="login"
+									mode="contained"
+									onPress={() => navigation.navigate("Login")} // Or your Welcome/Login flow
+									style={styles.guestLoginButton}
+									labelStyle={styles.guestLoginButtonText}
 								>
-									{({
-										handleChange,
-										handleBlur,
-										handleSubmit,
-										values,
-										errors,
-										touched,
-									}) => (
-										<>
-											<Text style={styles.modalTitle}>
-												How many in your party?
-											</Text>
-											<TextInput
-												style={styles.input}
-												onChangeText={handleChange("partySize")}
-												onBlur={handleBlur("partySize")}
-												value={values.partySize}
-												keyboardType="numeric"
-												placeholder="e.g., 2"
-												textAlign="center"
-											/>
-											{errors.partySize && touched.partySize && (
-												<Text style={styles.errorTextModal}>
-													{errors.partySize}
-												</Text>
-											)}
-											<View style={styles.modalButtonRow}>
-												<TouchableOpacity
-													onPress={closeModal}
-													style={[styles.modalButton, styles.cancelModalButton]}
-												>
-													<Text style={styles.modalButtonText}>Cancel</Text>
-												</TouchableOpacity>
-												<TouchableOpacity
-													onPress={handleSubmit}
-													style={[
-														styles.modalButton,
-														isProcessingAction && styles.disabledButton,
-													]}
-													disabled={isProcessingAction}
-												>
-													{isProcessingAction ? (
-														<ActivityIndicator size="small" color="white" />
-													) : (
-														<Text style={styles.modalButtonText}>
-															Request Check-In
+									Login or Sign Up to Order/Check-In
+								</PaperButton>
+							</View>
+						)}
+
+						{/* Check-In Modal */}
+						{isModalVisible && (
+							<Modal
+								transparent={true}
+								onRequestClose={closeModal}
+								visible={isModalVisible}
+								animationType="fade"
+							>
+								<View style={styles.modalOverlay}>
+									<View style={styles.modalContent}>
+										<Formik
+											initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
+											validationSchema={validationSchema}
+											onSubmit={handlePersonalCheckinSubmit}
+										>
+											{({
+												handleChange,
+												handleBlur,
+												handleSubmit,
+												values,
+												errors,
+												touched,
+											}) => (
+												<>
+													<Text style={styles.modalTitle}>
+														How many in your party?
+													</Text>
+													<TextInput
+														style={styles.input}
+														onChangeText={handleChange("partySize")}
+														onBlur={handleBlur("partySize")}
+														value={values.partySize}
+														keyboardType="numeric"
+														placeholder="e.g., 2"
+														textAlign="center"
+													/>
+													{errors.partySize && touched.partySize && (
+														<Text style={styles.errorTextModal}>
+															{errors.partySize}
 														</Text>
 													)}
-												</TouchableOpacity>
-											</View>
-										</>
-									)}
-								</Formik>
-							</View>
-						</View>
-					</Modal>
+													<View style={styles.modalButtonRow}>
+														<TouchableOpacity
+															onPress={closeModal}
+															style={[
+																styles.modalButton,
+																styles.cancelModalButton,
+															]}
+														>
+															<Text style={styles.modalButtonText}>Cancel</Text>
+														</TouchableOpacity>
+														<TouchableOpacity
+															onPress={handleSubmit}
+															style={[
+																styles.modalButton,
+																isProcessingAction && styles.disabledButton,
+															]}
+															disabled={isProcessingAction}
+														>
+															{isProcessingAction ? (
+																<ActivityIndicator size="small" color="white" />
+															) : (
+																<Text style={styles.modalButtonText}>
+																	Request Check-In
+																</Text>
+															)}
+														</TouchableOpacity>
+													</View>
+												</>
+											)}
+										</Formik>
+									</View>
+								</View>
+							</Modal>
+						)}
+					</>
 				)}
 
 				{/* Menu Section */}
@@ -578,7 +690,13 @@ const RestaurantDetailScreen = () => {
 						<MenuItemsList
 							menuItems={menuItems}
 							isLoading={isLoadingMenu}
-							restaurantId={restaurant.id}
+							restaurantId={restaurant.id} // For individual basket context if modal needs it
+							pips={userPips} // Pass current user's local PIPs
+							onConfirmAddItemToContext={handleAddItemToIndividualBasket} // The unified callback
+							// Will be 'individual' if partyContextData is null
+							// partyContextData is not explicitly passed here as this screen handles 'individual'
+							// If this screen *could* add to party, then:
+							// partyContextData={orderingMode === 'party' ? partyContextData : null}
 						/>
 					) : (
 						<Text style={styles.noMenuText}>

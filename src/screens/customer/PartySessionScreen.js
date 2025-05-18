@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext, useState, useEffect, useMemo } from "react";
 import {
 	View,
 	Text,
@@ -8,6 +8,9 @@ import {
 	TouchableOpacity,
 	TextInput,
 	Alert, // For placeholder actions
+	SafeAreaView,
+	FlatList,
+	Modal,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import {
@@ -19,6 +22,10 @@ import {
 import colors from "../../utils/styles/appStyles";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "../../config/firebase";
+
+
 
 // Placeholder for components to be reused/refactored from PartyLobbyScreen for active party state
 // e.g., import PartyDetailsDisplay from '../components/customer/Party/PartyDetailsDisplay';
@@ -76,6 +83,37 @@ const IconTextButton = ({
 	);
 };
 
+// --- Placeholder for a reusable Basket Item Row/Card ---
+// This would be refactored from your BasketScreen.js item display logic
+const PartyBasketItemCard = ({ item, isCurrentUserItem }) => {
+	// isCurrentUserItem: boolean, true if this item belongs to the logged-in user
+	// Item should have: id, name, quantity, price, orderedByPipName (optional), status (e.g., 'new', 'sentToChefQ')
+	return (
+		<View style={styles.itemCard}>
+			<View style={styles.itemInfo}>
+				<Text style={styles.itemName}>{item.name}</Text>
+				<Text style={styles.itemDetails}>
+					Qty: {item.quantity} - Price: $
+					{(item.price * item.quantity).toFixed(2)}
+				</Text>
+				{item.orderedByPipName &&
+					item.orderedByUserId === partyDetails?.hostUserId && ( // Show "For: PIP" if host added it
+						<Text style={styles.itemOrderedBy}>
+							For: {item.orderedByPipName}
+						</Text>
+					)}
+			</View>
+			<View style={styles.itemStatusContainer}>
+				{item.status === "sentToChefQ" ? (
+					<Text style={styles.itemStatusSent}>Sent</Text>
+				) : (
+					<Text style={styles.itemStatusNew}>New</Text>
+				)}
+			</View>
+		</View>
+	);
+};
+
 const PartySessionScreen = () => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
@@ -87,17 +125,37 @@ const PartySessionScreen = () => {
 		sharedBasketItems, // Needed for the active party view
 		// --- Context Actions ---
 		// Assuming these functions exist in PartyContext and handle backend + context state updates:
-		// createParty, // (restaurantId) => Promise<string | null> (returns partyId or null)
 		joinParty, // ({ inviteCode }) => Promise<boolean> (returns true on success)
 		leaveParty, // () => Promise<void>
 		cancelParty, // () => Promise<void>
-		// activatePartyCheckIn, // (checkInDocId) => Promise<void>
+		activatePartyCheckIn, // (checkInDocId) => Promise<void>
+		addLocalPIPToParty,
+		inviteToParty,
 		// sendMyItemsToKitchen, // (itemsToSend) => Promise<void>
 	} = useParty();
 
 	const [inviteCode, setInviteCode] = useState("");
 	const [uiLoading, setUiLoading] = useState(false); // For local actions like join attempt
 	const [uiError, setUiError] = useState(null);
+	const [isMembersModalVisible, setIsMembersModalVisible] = useState(false);
+	const [isActionsModalVisible, setIsActionsModalVisible] = useState(false);
+	const [userPips, setUserPips] = useState([]);
+
+	useEffect(() => {
+		if (currentUserData?.uid && currentUserData.role !== "guest") {
+			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
+			const unsubscribe = onSnapshot(pipsRef, (snapshot) => {
+				setUserPips(
+					snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+				);
+			});
+			return () => unsubscribe();
+		} else {
+			setUserPips([]);
+		}
+	}, [currentUserData?.uid]);
+
+	
 
 	// Derived state
 	const isHost =
@@ -173,7 +231,7 @@ const PartySessionScreen = () => {
 		]);
 	};
 
-	const handleCancelParty = async () => {
+	const handleCancelPartyAction = async () => {
 		// Host only
 		Alert.alert(
 			"Cancel Party",
@@ -198,6 +256,118 @@ const PartySessionScreen = () => {
 		);
 	};
 
+	const handleActivateCheckInAction = async () => {
+		setIsActionsModalVisible(false);
+		Alert.alert(
+			"Activate Party",
+			"Host needs to check-in at the restaurant to activate the party."
+		);
+		// Potentially open RestaurantDetailScreen for the host to check-in or a dedicated check-in modal
+		// await activatePartyCheckIn(checkInIdFromHost);
+	};
+	const handleInviteAction = () => {
+		setIsActionsModalVisible(false);
+		Alert.alert("Invite Guests", "This will open the invitation flow.");
+		// await inviteToParty({ partyId: currentPartyId, generateCode: true });
+	};
+
+	const groupedBasket = useMemo(() => {
+		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
+		const groups = {};
+		sharedBasketItems.forEach((item) => {
+			const key = item.orderedByUserId || "unassigned_items"; // Group by user ID
+			if (!groups[key]) {
+				groups[key] = {
+					userId: item.orderedByUserId,
+					userName:
+						item.orderedByPipName ||
+						partyDetails?.guestPips?.find(
+							(p) => p.userId === item.orderedByUserId
+						)?.name ||
+						(item.orderedByUserId === currentUserData?.uid
+							? "Your Items"
+							: `User ${item.orderedByUserId?.slice(-4) || "Unknown"}`),
+					items: [],
+				};
+			}
+			// Add a unique key for rendering each item instance if item IDs within a user's list might not be unique
+			// (e.g. if item.id is menuItemId, not a unique basket item ID)
+			groups[key].items.push({
+				...item,
+				_renderKey: `${item.id}-${Math.random()}`,
+			});
+		});
+		const currentUserGroupKey = currentUserData?.uid;
+		const currentUserGroup = groups[currentUserGroupKey];
+		if (currentUserGroupKey) delete groups[currentUserGroupKey]; // Remove to re-insert at top
+		return currentUserGroup
+			? [currentUserGroup, ...Object.values(groups)]
+			: Object.values(groups);
+	}, [sharedBasketItems, currentUserData?.uid, partyDetails?.guestPips]);
+
+	const handleAddMyItems = () => {
+		if (!partyDetails?.restaurantId || !currentPartyId || !currentUserData) {
+			Alert.alert("Error", "Party, restaurant, or user details are missing.");
+			return;
+		}
+		navigation.navigate("PartyMenu", {
+			// Navigate to the new PartyMenuScreen route
+			restaurantId: partyDetails.restaurantId,
+			restaurantName: partyDetails.restaurantName,
+			partyContextData: {
+				partyId: currentPartyId,
+				orderingForUserId: currentUserData.uid,
+				orderingForPipName: currentUserData.firstName || "Myself", // Initial target
+			},
+			userPips: userPips, // Pass the current user's local PIPs
+		});
+	};
+
+	const handleSendUserItemsToChefsQ = async (userId) => {
+		if (partyDetails?.status !== "active") {
+			Alert.alert(
+				"Party Not Active",
+				"The party must be checked in and active to send items."
+			);
+			return;
+		}
+		const itemsToSend = sharedBasketItems.filter(
+			(item) =>
+				item.orderedByUserId === userId &&
+				(item.status === "new" || !item.status)
+		);
+		if (itemsToSend.length === 0) {
+			Alert.alert("No New Items", "You have no new items to send.");
+			return;
+		}
+		const itemIds = itemsToSend.map((item) => item.id); // Make sure item.id is the unique ID of the basket item
+		Alert.alert(
+			"Confirm Send",
+			`Send ${itemsToSend.length} of your item(s) to the kitchen?`,
+			[
+				{ text: "Cancel" },
+				{
+					text: "Send",
+					onPress: async () => {
+						setUiLoading(true); // Use a specific loading state if preferred
+						console.log(
+							`Simulating send to kitchen for user ${userId}, items:`,
+							itemIds
+						);
+						// TODO: await sendPartyItemsToKitchen(currentPartyId, userId, itemIds);
+						setTimeout(() => {
+							Alert.alert(
+								"Items Sent!",
+								`${itemsToSend.length} item(s) would be sent to the kitchen.`
+							);
+							setUiLoading(false);
+						}, 1500);
+					},
+				},
+			]
+		);
+	};
+
 	// --- Render Logic ---
 
 	// State 1: Context is loading details for an *existing* party reference
@@ -211,85 +381,260 @@ const PartySessionScreen = () => {
 	}
 
 	// State 2: User is IN an active party
+	// --- ACTIVE PARTY LOBBY UI ---
 	if (currentPartyId && partyDetails) {
-		// This is where the main UI for an active party will go.
-		// You'll integrate components and logic from your previous PartyLobbyScreen.
+		const partyIsPending = partyDetails.status === "pending";
+		const partyIsActive = partyDetails.status === "active";
+		const canCurrentUserSendItems =
+			partyIsActive &&
+			sharedBasketItems.some(
+				(item) =>
+					item.orderedByUserId === currentUserData?.uid &&
+					(item.status === "new" || !item.status)
+			);
+
 		return (
-			<ScrollView
-				style={styles.screen}
-				contentContainerStyle={styles.scrollContentContainer}
-			>
-				<View style={styles.activePartyHeader}>
-					<Text style={styles.activePartyTitle}>
-						{partyDetails.restaurantName || "Party Hub"}
-					</Text>
-					<Text style={styles.activePartyStatus}>
-						Status: {partyDetails.status}
-					</Text>
+			<SafeAreaView style={styles.screen}>
+				<View style={styles.headerBar}>
+					<View style={styles.headerInfo}>
+						<Text style={styles.headerRestaurantName} numberOfLines={1}>
+							{partyDetails.restaurantName}
+						</Text>
+						<Text style={styles.headerPartyStatus}>
+							Status:{" "}
+							<Text
+								style={
+									partyIsActive ? styles.statusActive : styles.statusPending
+								}
+							>
+								{partyDetails.status}
+							</Text>
+						</Text>
+					</View>
+					<View style={styles.headerActions}>
+						<IconTextButton
+							iconName="people-outline"
+							text={null}
+							onPress={() => setIsMembersModalVisible(true)}
+							iconSize={28}
+							color={colors.primary}
+							style={styles.headerIconButton}
+						/>
+						<IconTextButton
+							iconName="ellipsis-vertical"
+							text={null}
+							onPress={() => setIsActionsModalVisible(true)}
+							iconSize={26}
+							color={colors.primary}
+							style={styles.headerIconButton}
+						/>
+					</View>
 				</View>
 
-				{/* Placeholder for detailed party content */}
-				<View style={styles.contentSection}>
-					<Text style={styles.sectionTitle}>Members (Placeholder)</Text>
-					{/* <PartyMembersList members={partyDetails.guestPips} /> */}
-				</View>
+				<FlatList
+					data={groupedBasket}
+					keyExtractor={(group) => group.userId || group.userName}
+					renderItem={({ item: group }) => (
+						<View style={styles.userBasketSection}>
+							<Text style={styles.userNameHeader}>{group.userName}</Text>
+							{group.items.length > 0 ? (
+								group.items.map((basketItem) => (
+									<OrderItemCard
+										key={basketItem.id} // Use the unique ID of the item in the shared basket
+										item={basketItem} // Pass the full item from sharedBasketItems
+										onQuantityChange={handlePartyItemQuantityChange} // Use the new handler
+										allowEdit={
+											basketItem.orderedByUserId === currentUserData.uid &&
+											(basketItem.status === "new" || !basketItem.status) // Only current user can edit their new items
+										}
+										isSentToKitchen={basketItem.status === "sentToChefQ"}
+									/>
+								))
+							) : (
+								<Text style={styles.emptyUserBasketText}>
+									No items added yet.
+								</Text>
+							)}
 
-				<View style={styles.contentSection}>
-					<Text style={styles.sectionTitle}>Shared Basket (Placeholder)</Text>
-					{/* <SharedBasketView items={sharedBasketItems} partyStatus={partyDetails.status} /> */}
-				</View>
+							{/* "Send My New Items" button at the bottom of the current user's section */}
+							{group.userId === currentUserData?.uid &&
+								group.items.some((i) => !i.status || i.status === "new") && (
+									<TouchableOpacity
+										style={[
+											styles.sendAllUserItemsButton,
+											!partyIsActive && styles.disabledButtonVisual,
+										]}
+										onPress={() =>
+											handleSendUserItemsToChefsQ(currentUserData.uid)
+										}
+										disabled={!partyIsActive || uiLoading}
+									>
+										<Text style={styles.sendAllUserItemsButtonText}>
+											{partyIsActive
+												? "Send My New Items"
+												: "Party Not Active to Send"}
+										</Text>
+										{uiLoading && (
+											<ActivityIndicator
+												size="small"
+												color={colors.textOnPrimaryBrand}
+												style={{ marginLeft: 10 }}
+											/>
+										)}
+									</TouchableOpacity>
+								)}
+						</View>
+					)}
+					ListEmptyComponent={
+						<View style={styles.emptyBasketContainer}>
+							<FontAwesome5
+								name="shopping-basket"
+								size={48}
+								color={colors.textLight}
+							/>
+							<Text style={styles.emptyBasketText}>Party basket is empty.</Text>
+							<Text style={styles.emptyBasketSubText}>
+								Tap the '+' button to add your items!
+							</Text>
+						</View>
+					}
+					contentContainerStyle={styles.flatListContentContainer}
+				/>
 
-				<View style={[styles.contentSection, styles.actionsRowContainer]}>
-					<Text style={styles.sectionTitle}>Actions</Text>
-					{/* <ActivePartyActions isHost={isHost} partyDetails={partyDetails} /> */}
-					{/* Example actions - to be componentized */}
-					<IconTextButton
-						iconName="person-add-outline"
-						text="Invite"
-						onPress={() => Alert.alert("Invite Tapped")}
-					/>
-					{partyDetails.status === "active" && (
-						<IconTextButton
-							iconName="send-outline"
-							text="Send Items"
-							onPress={() => Alert.alert("Send Items Tapped")}
-						/>
-					)}
-					{isHost && partyDetails.status === "pending" && (
-						<IconTextButton
-							iconSet="MaterialCommunityIcons"
-							iconName="location-check"
-							text="Activate"
-							onPress={() => Alert.alert("Activate Check-in Tapped")}
-						/>
-					)}
-					{isHost && partyDetails.status === "pending" ? (
-						<IconTextButton
-							iconSet="MaterialCommunityIcons"
-							iconName="close-circle-outline"
-							text="Cancel Party"
-							onPress={handleCancelParty}
-							color={colors.danger}
-							disabled={uiLoading}
-						/>
-					) : (
-						<IconTextButton
-							iconSet="Ionicons"
-							iconName="exit-outline"
-							text="Leave Party"
-							onPress={handleLeaveParty}
-							color={colors.danger}
-							disabled={uiLoading}
-						/>
-					)}
-				</View>
-				{uiLoading && (
-					<ActivityIndicator
-						style={{ marginVertical: 10 }}
-						color={colors.primary}
-					/>
+				{/* Add My Items FAB: Available if party is pending or active */}
+				{(partyIsPending || partyIsActive) && (
+					<TouchableOpacity
+						style={styles.addItemFab}
+						onPress={handleAddMyItems}
+					>
+						<Ionicons name="add" size={30} color={colors.textOnPrimaryBrand} />
+					</TouchableOpacity>
 				)}
-			</ScrollView>
+
+				{/* Modals */}
+				<Modal
+					transparent={true}
+					visible={isMembersModalVisible}
+					onRequestClose={() => setIsMembersModalVisible(false)}
+					animationType="fade"
+				>
+					<TouchableOpacity
+						style={styles.modalOverlay}
+						activeOpacity={1}
+						onPressOut={() => setIsMembersModalVisible(false)}
+					>
+						<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
+							<Text style={styles.modalTitle}>Party Members</Text>
+							<FlatList
+								data={partyDetails.guestPips || []}
+								keyExtractor={(pip) =>
+									pip.userId || pip.localPipId || Math.random().toString()
+								}
+								renderItem={({ item }) => (
+									<View style={styles.memberItemContainer}>
+										<Ionicons
+											name={
+												item.userId === partyDetails.hostUserId
+													? "person-circle"
+													: "person-circle-outline"
+											}
+											size={24}
+											color={
+												item.userId === partyDetails.hostUserId
+													? colors.primary
+													: colors.textMedium
+											}
+										/>
+										<Text style={styles.memberItemText}>
+											{item.name}{" "}
+											{item.userId === partyDetails.hostUserId && "(Host)"}
+										</Text>
+									</View>
+								)}
+								ListEmptyComponent={
+									<Text style={styles.modalEmptyText}>Just you so far!</Text>
+								}
+							/>
+							<TouchableOpacity
+								style={styles.modalCloseButton}
+								onPress={() => setIsMembersModalVisible(false)}
+							>
+								<Text style={styles.modalCloseButtonText}>Close</Text>
+							</TouchableOpacity>
+						</TouchableOpacity>
+					</TouchableOpacity>
+				</Modal>
+
+				<Modal
+					transparent={true}
+					visible={isActionsModalVisible}
+					onRequestClose={() => setIsActionsModalVisible(false)}
+					animationType="fade"
+				>
+					<TouchableOpacity
+						style={styles.modalOverlay}
+						activeOpacity={1}
+						onPressOut={() => setIsActionsModalVisible(false)}
+					>
+						<TouchableOpacity
+							style={styles.modalActionsContent}
+							activeOpacity={1}
+						>
+							<Text style={styles.modalTitle}>Party Actions</Text>
+							{isHost && (partyIsPending || partyIsActive) && (
+								<IconTextButton
+									text="Invite Guests"
+									iconName="person-add-outline"
+									onPress={handleInviteAction}
+									style={styles.modalActionButton}
+									textStyle={styles.modalActionButtonText}
+									color={colors.primary}
+								/>
+							)}
+							{isHost && partyIsPending && (
+								<IconTextButton
+									text="Activate Party"
+									iconName="location-check"
+									iconSet="MaterialCommunityIcons"
+									onPress={handleActivateCheckInAction}
+									style={styles.modalActionButton}
+									textStyle={styles.modalActionButtonText}
+									color={colors.primary}
+								/>
+							)}
+							{isHost && partyIsPending ? (
+								<IconTextButton
+									text="Cancel Party"
+									iconName="close-circle-outline"
+									iconSet="MaterialCommunityIcons"
+									color={colors.statusDanger}
+									onPress={handleCancelPartyAction}
+									style={styles.modalActionButton}
+									textStyle={styles.modalActionButtonText}
+								/>
+							) : (
+								<IconTextButton
+									text="Leave Party"
+									iconName="exit-outline"
+									color={colors.statusDanger}
+									onPress={handleLeavePartyAction}
+									style={styles.modalActionButton}
+									textStyle={styles.modalActionButtonText}
+								/>
+							)}
+							<TouchableOpacity
+								style={[
+									styles.modalCloseButton,
+									styles.actionsModalCloseButton,
+								]}
+								onPress={() => setIsActionsModalVisible(false)}
+							>
+								<Text style={styles.modalCloseButtonText}>Close</Text>
+							</TouchableOpacity>
+						</TouchableOpacity>
+					</TouchableOpacity>
+				</Modal>
+			</SafeAreaView>
 		);
 	}
 
@@ -359,69 +704,240 @@ const PartySessionScreen = () => {
 
 // --- Styles --- (Modern, clean, professional)
 const styles = StyleSheet.create({
-	screen: {
-		flex: 1,
-		backgroundColor: colors.background || "#FDFEFE", // Light background
-	},
-	scrollContentContainer: {
-		paddingBottom: 30, // Space for final elements
-	},
+	screen: { flex: 1, backgroundColor: colors.backgroundLight },
 	centeredScreen: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 		paddingHorizontal: 20,
-		paddingBottom: 20, // Give some bottom padding
-		backgroundColor: colors.background || "#FDFEFE",
+		backgroundColor: colors.backgroundLight,
 	},
-	statusText: {
-		marginTop: 15,
-		fontSize: 16,
-		color: colors.textDark,
-	},
-	// Active Party State Styles
-	activePartyHeader: {
-		paddingVertical: 20,
-		paddingHorizontal: 15,
-		backgroundColor: colors.primary, // Use primary color for header
+	statusText: { marginTop: 15, fontSize: 16, color: colors.textDark },
+	flatListContentContainer: { paddingBottom: 100, paddingTop: 10 }, // Ensure space for FAB
+
+	headerBar: {
+		flexDirection: "row",
+		justifyContent: "space-between",
 		alignItems: "center",
-		borderBottomLeftRadius: 20,
-		borderBottomRightRadius: 20,
-		marginBottom: 20,
-	},
-	activePartyTitle: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.white, // White text on primary background
-	},
-	activePartyStatus: {
-		fontSize: 16,
-		color: colors.whiteAlpha70, // Slightly transparent white
-		marginTop: 4,
-	},
-	contentSection: {
-		marginBottom: 25,
+		paddingVertical: 10,
 		paddingHorizontal: 15,
-	},
-	sectionTitle: {
-		fontSize: 18,
-		fontWeight: "600", // Semi-bold
-		color: colors.textDark,
-		marginBottom: 12,
+		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
-		paddingBottom: 6,
+		borderBottomColor: colors.borderLight,
 	},
-	actionsRowContainer: {
-		// For icon buttons in active party
-		// If you want them in a row:
-		// flexDirection: 'row',
-		// justifyContent: 'space-around',
-		// alignItems: 'flex-start', // Icons at top, text below
-		// flexWrap: 'wrap', // Allow wrapping if many actions
+	headerInfo: { flex: 1, marginRight: 10 },
+	headerRestaurantName: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.primary,
+		marginBottom: 2,
+	},
+	headerPartyStatus: { fontSize: 14, color: colors.textMedium },
+	statusPending: { color: colors.statusWarning, fontWeight: "bold" },
+	statusActive: { color: colors.statusSuccess, fontWeight: "bold" },
+	headerActions: { flexDirection: "row", alignItems: "center" },
+	headerIconButton: { paddingHorizontal: 8 }, // Add padding to header icons for better touch area
+
+	userBasketSection: {
+		marginVertical: 8,
+		marginHorizontal: 12,
+		padding: 12,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 10,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.08,
+		shadowRadius: 2.5,
+		elevation: 2,
+	},
+	userNameHeader: {
+		fontSize: 18,
+		fontWeight: "600",
+		color: colors.textDark,
+		marginBottom: 10,
+		paddingBottom: 6,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	itemCard: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 10,
+		marginTop: 5,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight + "60", // Lighter border for items
+	},
+	itemInfo: { flex: 1 }, // Allow text to wrap
+	itemName: {
+		fontSize: 16,
+		color: colors.textDark,
+		fontWeight: "500",
+		marginBottom: 3,
+	},
+	itemDetails: { fontSize: 13, color: colors.textMedium },
+	itemOrderedBy: {
+		fontSize: 12,
+		color: colors.textLight,
+		fontStyle: "italic",
+		marginTop: 3,
+	},
+	itemStatusContainer: { paddingLeft: 10, alignItems: "flex-end" },
+	itemStatusSent: {
+		fontSize: 13,
+		color: colors.statusSuccess,
+		fontWeight: "bold",
+	},
+	itemStatusNew: { fontSize: 13, color: colors.statusInfo, fontWeight: "500" },
+
+	sendAllUserItemsButton: {
+		backgroundColor: colors.primary,
+		paddingVertical: 12,
+		borderRadius: 8,
+		alignItems: "center",
+		marginTop: 15,
+		flexDirection: "row",
+		justifyContent: "center",
+	},
+	sendAllUserItemsButtonText: {
+		color: colors.textOnPrimaryBrand,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	disabledButtonVisual: { backgroundColor: colors.textLight },
+
+	emptyBasketContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 30,
+		marginTop: 50,
+	},
+	emptyBasketText: {
+		textAlign: "center",
+		marginTop: 15,
+		fontSize: 18,
+		color: colors.textMedium,
+		fontWeight: "500",
+	},
+	emptyBasketSubText: {
+		textAlign: "center",
+		marginTop: 5,
+		fontSize: 14,
+		color: colors.textLight,
+	},
+	emptyUserBasketText: {
+		textAlign: "center",
+		marginVertical: 10,
+		fontSize: 14,
+		color: colors.textLight,
+		fontStyle: "italic",
 	},
 
-	// No Active Party State Styles
+	addItemFab: {
+		position: "absolute",
+		right: 20,
+		bottom: 25,
+		backgroundColor: colors.brandOrange,
+		width: 60,
+		height: 60,
+		borderRadius: 30,
+		justifyContent: "center",
+		alignItems: "center",
+		elevation: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.3,
+		shadowRadius: 4,
+	},
+
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0, 0, 0, 0.6)",
+		justifyContent: "center",
+		alignItems: "center",
+		paddingHorizontal: 20,
+	},
+	modalContent: {
+		backgroundColor: colors.surfaceWhite,
+		paddingVertical: 20,
+		paddingHorizontal: 15,
+		borderRadius: 12,
+		width: "90%",
+		maxHeight: "70%",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5,
+	},
+	modalActionsContent: {
+		backgroundColor: colors.surfaceWhite,
+		paddingVertical: 10,
+		paddingHorizontal: 5,
+		borderRadius: 12,
+		width: "90%",
+		alignItems: "stretch",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5,
+	},
+	modalTitle: {
+		fontSize: 21,
+		fontWeight: "bold",
+		marginBottom: 20,
+		textAlign: "center",
+		color: colors.textDark,
+	},
+	memberItemContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	memberItemText: { fontSize: 17, color: colors.textMedium, marginLeft: 10 },
+	modalEmptyText: {
+		textAlign: "center",
+		color: colors.textMedium,
+		marginVertical: 10,
+	},
+	modalActionButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 15,
+		paddingHorizontal: 15,
+	},
+	iconTextButtonContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 8,
+	}, // General purpose
+	iconTextButtonText: { fontWeight: "500" }, // General purpose
+	modalActionButtonText: {
+		// Specific for text next to icon in modal actions
+		marginLeft: 18,
+		fontSize: 17,
+		color: colors.textDark, // Default text color for modal actions
+	},
+	modalCloseButton: {
+		backgroundColor: colors.textMedium,
+		paddingVertical: 12,
+		paddingHorizontal: 20,
+		borderRadius: 8,
+		alignItems: "center",
+		marginTop: 20,
+	},
+	actionsModalCloseButton: { marginTop: 10, marginHorizontal: 10 }, // Specific margin for actions modal close
+	modalCloseButtonText: {
+		color: colors.surfaceWhite,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+
+	// Styles for the "No Active Party" Hub
 	hubTitle: {
 		fontSize: 32,
 		fontWeight: "bold",
@@ -431,7 +947,7 @@ const styles = StyleSheet.create({
 	},
 	hubSubtitle: {
 		fontSize: 16,
-		color: colors.textMedium, // Medium emphasis text
+		color: colors.textMedium,
 		textAlign: "center",
 		marginBottom: 30,
 		paddingHorizontal: 10,

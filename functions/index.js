@@ -13,6 +13,8 @@ const setAdminClaim = require("./SetAdminClaimFunction");
 const dishRatingFunction = require("./dishRatingFunction");
 const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
+const basketFunctions = require("./basketFunctions");
+
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -24,6 +26,8 @@ exports.updateBasketItemQuantity =
 exports.sendToChefsQ = require("./basketFunctions").sendToChefsQ;
 
 exports.clearBasket = require("./basketFunctions").clearBasket;
+
+exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket
 
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;

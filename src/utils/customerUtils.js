@@ -401,51 +401,82 @@ export const handlePartyCheckInRequest = async (
 // Transform basket data to group items by PIP
 // --- NOTE: This will likely need significant changes for the party feature ---
 // --- It currently assumes items are grouped by HOST'S placeholder PIPs ---
-const transformBasketData = (basketItems) => {
-	const groupedBasketItems = {};
+const transformBasketData = (
+	basketItems,
+	currentUserId,
+	currentUserName = "Your Items"
+) => {
+	const groupedByPerson = {};
 
-	// --- Guard against non-array input ---
 	if (!Array.isArray(basketItems)) {
-		console.warn("transformBasketData received non-array:", basketItems);
+		console.warn(
+			"transformBasketData: basketItems is not an array or is undefined.",
+			basketItems
+		);
 		return [];
 	}
+	if (!currentUserId) {
+		console.warn(
+			"transformBasketData: currentUserId is undefined. Items for 'yourself' might not be grouped correctly."
+		);
+	}
 
-	basketItems.forEach((basketItem) => {
-		// --- Safer Access to PIP data ---
-		const pipId = basketItem.pip?.id; // Use optional chaining
-		const pipName = basketItem.pip?.name; // Use optional chaining
+	basketItems.forEach((item) => {
+		let personId;
+		let personDisplayName;
 
-		// --- Handle items potentially missing PIP data ---
-		if (!pipId || !pipName) {
-			console.warn("Basket item missing valid PIP data:", basketItem);
-			// Decide how to handle: skip, group under 'Unknown', or use userId?
-			// For now, let's skip items without proper PIP info for grouping.
-			return;
+		if (item.pipId && item.pipName) {
+			// Item is for a specific PIP
+			personId = item.pipId;
+			personDisplayName = item.pipName;
+		} else if (item.userId === currentUserId) {
+			// Item is for the current logged-in user (no specific PIP assigned)
+			personId = currentUserId; // Use current user's ID as the key for their items
+			personDisplayName = currentUserName; // e.g., "Baxter's Items" or "Your Items"
+		} else {
+			// Fallback or unassigned items (should ideally not happen if data is clean)
+			console.warn(
+				"transformBasketData: Item cannot be clearly assigned to current user or a PIP",
+				item
+			);
+			personId = "unassigned_" + Math.random().toString(); // Avoid collisions
+			personDisplayName = "Unassigned";
 		}
 
-		if (!groupedBasketItems[pipId]) {
-			groupedBasketItems[pipId] = {
-				personId: pipId, // Use pipId as personId for consistency
-				pipName: pipName,
+		if (!groupedByPerson[personId]) {
+			groupedByPerson[personId] = {
+				personId: personId, // This is the key for the group (either pipId or currentUserId)
+				pipName: personDisplayName, // This is the name to display for the section header
+				isCurrentUserSection: personId === currentUserId,
 				items: [],
-				// totalPrice: 0, // Recalculate later if needed
+				subtotal: 0, // Initialize subtotal for this person
 			};
 		}
 
-		// --- Simplified Logic: Just add the item ---
-		// The previous logic for merging quantities might be incorrect
-		// if items can have different statuses (sent/unsent) or special instructions.
-		// Let's just add each basketItem instance for now. Display logic can handle summing.
-		groupedBasketItems[pipId].items.push({ ...basketItem });
+		// Add item to the correct group
+		groupedByPerson[personId].items.push(item);
 
-		// --- Remove total price calculation here - do it in useMemo where needed ---
+		// Calculate item total and add to person's subtotal
+		const itemPrice = item.discount
+			? parseFloat(item.discountedPrice) * 100
+			: (Number(item.dish?.price) || 0) * 100;
+		const quantity = Number(item.quantity) || 1;
+		groupedByPerson[personId].subtotal += Math.round(itemPrice) * quantity;
 	});
 
-	// Sort by PIP name for consistent display order
-	const sortedData = Object.values(groupedBasketItems).sort((a, b) =>
-		a.pipName.localeCompare(b.pipName)
-	);
-	return sortedData;
+	const result = Object.values(groupedByPerson);
+
+	// Optional: Sort to ensure "Your Items" (current user's section) appears first
+	result.sort((a, b) => {
+		if (a.isCurrentUserSection && !b.isCurrentUserSection) return -1;
+		if (!a.isCurrentUserSection && b.isCurrentUserSection) return 1;
+		// Then sort by pipName alphabetically
+		if (a.pipName < b.pipName) return -1;
+		if (a.pipName > b.pipName) return 1;
+		return 0;
+	});
+
+	return result;
 };
 
 // --- Updated Export List ---

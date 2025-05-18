@@ -7,11 +7,21 @@ import { httpsCallable } from "firebase/functions";
 
 const BasketContext = createContext({
 	baskets: {},
-	addItemToBasket: (restaurant, dish, specialInstructions) => [],
+	// Updated signature to reflect new parameters
+	addItemToBasket: async (
+		restaurantId,
+		dish, // Core menu item details
+		selectedPIPs, // Array of {id, name, specialInstructions}
+		server,
+		generalSpecialInstructions, // General notes if no PIPs or for "Myself"
+		table,
+		quantity // New quantity parameter
+	) => {},
 	removeItemFromBasket: (restaurantId, basketItemId) => {},
 	clearBasket: (restaurantId) => {},
+	handleQuantityChange: async (basketItemId, newQuantity) => {}, // Added from BasketScreen
 	basketError: null,
-	loading: false,
+	loading: true, // Default loading to true until initial fetch
 });
 
 export const BasketProvider = ({ children }) => {
@@ -88,158 +98,101 @@ export const BasketProvider = ({ children }) => {
 		};
 	}, [currentUser]);
 
-	// const addItemToBasket = async (
-	//   dish,
-	//   selectedPIPs = [],
-	//   specialInstructions
-	// ) => {
-	//   try {
-	//     setBasketError(null); // Clear any previous errors
-
-	//     // 1. Validate Input
-	//     if (!currentUser) {
-	//       throw new Error("You need to be logged in to add items to the basket.");
-	//     }
-
-	//     if (!dish.restaurantId) {
-	//       throw new Error("Invalid restaurant data.");
-	//     }
-
-	//     if (!dish || !dish.id) {
-	//       throw new Error("Invalid dish data.");
-	//     }
-
-	//     // 2. Prepare Data
-	//     const restaurantId = dish.restaurantId;
-	//     const userBasketRef = doc(db, "baskets", currentUser.uid);
-
-	//     // Check if the basket document exists
-	//     const basketSnapshot = await getDoc(userBasketRef);
-
-	//     if (basketSnapshot.exists()) {
-	//       let currentBasket = baskets[restaurantId] || { items: [] };
-	//       // 3. Check for Existing Item with the Same PIPs
-	//       const existingDishIndex = currentBasket.items.findIndex(
-	//         (item) =>
-	//           item.dish.id === dish.id &&
-	//           JSON.stringify(item.pips) === JSON.stringify(selectedPIPs)
-	//       );
-
-	//       if (existingDishIndex > -1) {
-	//         // 4a. If the dish with the same PIPs exists, update its quantity
-	//         const updatedItem = {
-	//           ...currentBasket.items[existingDishIndex],
-	//           quantity: currentBasket.items[existingDishIndex].quantity + 1,
-	//         };
-
-	//         await updateDoc(userBasketRef, {
-	//           [`${restaurantId}.items.${existingDishIndex}`]: updatedItem,
-	//         });
-
-	//         currentBasket.items[existingDishIndex] = updatedItem;
-	//       } else {
-	//         // 4b. If the dish is new or has different PIPs, create a new entry
-	//         const newItem = {
-	//           dish: dish,
-	//           quantity: 1,
-	//           specialInstructions: specialInstructions, // You can add special instructions handling here if needed
-	//           pips: selectedPIPs,
-	//         };
-
-	//         await updateDoc(userBasketRef, {
-	//           [`${restaurantId}.items`]: arrayUnion(newItem),
-	//         });
-
-	//         currentBasket.items.push(newItem);
-
-	//         // 5. Update the overall baskets state
-	//         setBaskets({ ...baskets, [restaurantId]: currentBasket });
-	//       }
-	//     } else {
-	//       // If the basket document doesnt exists, create a new one with the first item
-	//       const newBasket = {
-	//         [restaurantId]: {
-	//           items: [
-	//             {
-	//               dish,
-	//               quantity: 1,
-	//               specialInstructions: specialInstructions,
-	//               pips: selectedPIPs,
-	//             },
-	//           ],
-	//         },
-	//       };
-	//       console.log("Trying to add this to basket...", newBasket);
-	//       await setDoc(userBasketRef, newBasket);
-	//       // Update the localState
-	//       setBaskets(newBasket);
-	//       console.log("Basket added", newBasket);
-	//     }
-	//   } catch (error) {
-	//     console.error("Error adding to basket:", error);
-	//     setBasketError(error.message);
-	//     Alert.alert("Error", "Failed to add item to basket. Please try again.");
-	//   }
-	// };
-
 	const addItemToBasket = async (
 		restaurantId,
-		dish,
-		selectedPIPs = [],
-		server = {},
-		specialInstructions,
-		table = {}
+		dish, // This is the core menuItem object: { id, name, price, category, imageUri, restaurantId (original) }
+		selectedPIPs = [], // Array of { id (pip's user or local ID), name, specialInstructions }
+		server = {}, // Optional server info
+		generalSpecialInstructions = "", // General notes if no PIPs or if item is for "Myself"
+		table = {}, // Optional table info
+		quantity // NEW: The quantity selected in the modal
 	) => {
 		try {
-			setBasketError(null); // Clear any previous errors
-
-			// 1. Validate Input
-			if (!currentUser) {
+			setBasketError(null);
+			if (!currentUser || !currentUser.uid) {
 				throw new Error("You need to be logged in to add items to the basket.");
 			}
-
-			if (!restaurantId) {
-				throw new Error("Invalid restaurant data.");
+			if (!restaurantId) throw new Error("Invalid restaurant data.");
+			if (
+				!dish ||
+				!dish.id ||
+				typeof dish.price !== "number" ||
+				typeof quantity !== "number" ||
+				quantity <= 0
+			) {
+				throw new Error("Invalid dish data or quantity.");
 			}
 
-			if (!dish || !dish.id) {
-				throw new Error("Invalid dish data.");
-			}
+			const addItemFunction = httpsCallable(functions, "addItemToBasket"); // Your existing CF name
 
-			const addItemFunction = httpsCallable(functions, "addItemToBasket");
+			// The Cloud Function "addItemToBasket" needs to be updated to handle:
+			// 1. The 'quantity' parameter.
+			// 2. The 'selectedPIPs' array. If this array is not empty, the CF should
+			//    create a separate basket item document in Firestore for EACH PIP in the array,
+			//    each with the specified 'quantity' and their individual 'specialInstructions'.
+			// 3. If 'selectedPIPs' is empty, it creates one item for the currentUser.uid
+			//    with the 'generalSpecialInstructions' and 'quantity'.
+
 			await addItemFunction({
 				userId: currentUser.uid,
-				restaurantId,
-				dish,
-				selectedPIPs,
-				table,
-				specialInstructions,
-				server,
+				restaurantId, // The restaurant this basket belongs to
+				dish, // Pass the core menu item details
+				quantity, // Pass the selected quantity
+				selectedPIPs, // Pass the array of PIPs with their specific instructions
+				generalSpecialInstructions, // Pass general instructions
+				table, // Pass table info if available
+				server, // Pass server info if available
 			});
+			// No need to manually update 'baskets' state here if the useEffect listener is working correctly.
+			// The listener will pick up the new document(s) created by the Cloud Function.
+			console.log(
+				"BasketContext: addItemToBasket Cloud Function called successfully."
+			);
 		} catch (error) {
-			console.error("Error adding to basket:", error);
-			setBasketError(error.message);
-			Alert.alert("Error", "Failed to add item to basket. Please try again.");
+			console.error("BasketContext: Error adding to basket:", error);
+			const message =
+				error.message || "Failed to add item to basket. Please try again.";
+			setBasketError(message);
+			Alert.alert("Error Adding Item", message);
+			// Re-throw the error if the calling component needs to react to it
+			throw error;
 		}
 	};
 
 	const removeItemFromBasket = async (restaurantId, basketItemId) => {
+		if (!currentUser || !currentUser.uid) {
+			Alert.alert("Error", "You need to be logged in.");
+			return;
+		}
+		if (!restaurantId || !basketItemId) {
+			Alert.alert("Error", "Missing information to remove item.");
+			return;
+		}
+		console.log(
+			`BasketContext: Attempting to remove item ${basketItemId} from restaurant ${restaurantId} via removeItemFromBasket.`
+		);
 		try {
-			if (!currentUser) {
-				throw new Error(
-					"You need to be logged in to remove items from the basket."
-				);
-			}
 			const removeItemFunction = httpsCallable(
 				functions,
 				"removeItemFromBasket"
 			);
 			await removeItemFunction({
 				userId: currentUser.uid,
-				restaurantId,
+				restaurantId, // CF might not need this if basketItemId is globally unique
 				basketItemId,
 			});
-		} catch (error) {}
+			console.log(
+				`BasketContext: removeItemFromBasket Cloud Function called for item ${basketItemId}.`
+			);
+			// Firestore listener will update the UI.
+		} catch (error) {
+			console.error("BasketContext: Error removing item from basket:", error);
+			Alert.alert(
+				"Error Removing Item",
+				error.message || "Could not remove item from basket."
+			);
+			// setBasketError(error.message); // Optionally set context error
+		}
 	};
 
 	const clearBasket = async (restaurantId) => {
@@ -260,7 +213,25 @@ export const BasketProvider = ({ children }) => {
 		}
 	};
 
-	const handleQuantityChange = async (basketItemId, newQuantity) => {
+	const handleQuantityChange = async (
+		restaurantId,
+		basketItemId,
+		newQuantity
+	) => {
+		if (!currentUser) throw new Error("Login required.");
+		newQuantity = Math.max(0, Math.min(10, newQuantity)); // Clamp quantity
+
+		// If newQuantity is 0, it might mean removing the item.
+		// Your Cloud Function needs to handle this (either update to 0 or delete).
+		// Or, you can call removeItemFromBasket if newQuantity is 0.
+		if (newQuantity === 0) {
+			// Assuming basketItemId includes restaurantId or context is clear
+			// This needs careful handling if basketItemId is not globally unique across restaurants
+			// For now, let's assume removeItemFromBasket is called directly by UI for removal.
+			await removeItemFromBasket(restaurantId, basketItemId);
+			return; // Item removal is handled, no need to call update quantity CF
+			// For safety, let's prevent setting quantity to 0 directly via update if remove is separate
+		}
 		try {
 			// Ensure newQuantity is within a valid range (0 to 10)
 			newQuantity = Math.max(0, Math.min(10, newQuantity));
