@@ -758,3 +758,308 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+/**
+ * Updates the quantity of a specific item in a shared party basket.
+ * This function expects newQuantity to be > 0.
+ * Removal of items (when quantity becomes 0) is handled by a separate function
+ * triggered by the client-side context.
+ *
+ * @param {object} data - The data object.
+ * @param {string} data.partyId - The ID of the party.
+ * @param {string} data.itemId - The unique ID of the basket item instance to update.
+ * @param {number} data.newQuantity - The new quantity for the item (must be > 0).
+ * @param {string} data.userId - The Firebase UID of the user requesting the update.
+ * @param {object} context - The Firebase Functions context object.
+ * @param {object} context.auth - The authenticated user information.
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+exports.updateSharedBasketItemQuantity = functions.https.onCall(
+	async (data, context) => {
+		// 1. Authentication Check
+		if (!context.auth || !context.auth.uid) {
+			console.error("updateSharedBasketItemQuantity: Authentication failed.");
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const requestingUserId = context.auth.uid;
+
+		// 2. Input Validation
+		const { partyId, itemId, newQuantity, userId } = data; // userId in data is the item owner for permission check
+
+		if (
+			!partyId ||
+			!itemId ||
+			typeof newQuantity !== "number" ||
+			newQuantity <= 0 ||
+			!userId
+		) {
+			console.error("updateSharedBasketItemQuantity: Invalid input.", data);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID, Item ID, a positive New Quantity, and User ID (for permission check) are required."
+			);
+		}
+		if (newQuantity > 10) {
+			// Example: Max quantity limit
+			console.warn(
+				`updateSharedBasketItemQuantity: Requested quantity ${newQuantity} exceeds limit for item ${itemId}. Clamping to 10.`
+			);
+			// newQuantity = 10; // Or throw an error if you prefer strict limits
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Quantity cannot exceed 10."
+			);
+		}
+
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+		const partyRef = db.collection("parties").doc(partyId);
+
+		try {
+			return await db.runTransaction(async (transaction) => {
+				// Get party details to check host status
+				const partyDoc = await transaction.get(partyRef);
+				if (!partyDoc.exists) {
+					console.error(
+						`updateSharedBasketItemQuantity: Party ${partyId} not found.`
+					);
+					throw new functions.https.HttpsError("not-found", "Party not found.");
+				}
+				const partyData = partyDoc.data();
+				const isHost = partyData.hostUserId === requestingUserId;
+
+				// Get the current shared basket
+				const basketDoc = await transaction.get(sharedBasketRef);
+				if (!basketDoc.exists) {
+					console.error(
+						`updateSharedBasketItemQuantity: Shared basket for partyId ${partyId} not found.`
+					);
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Party basket not found."
+					);
+				}
+
+				const basketData = basketDoc.data();
+				const itemsArray = basketData.items || [];
+				let itemFoundAndUpdated = false;
+
+				const updatedItemsArray = itemsArray.map((item) => {
+					if (item.id === itemId) {
+						itemFoundAndUpdated = true;
+
+						// Permission Check:
+						// 1. Item must be "new" (not yet sent to kitchen).
+						// 2. Either the requesting user is the host OR the requesting user is the one who ordered the item.
+						if (item.status !== "new") {
+							if (!isHost) {
+								// Only host can modify already sent/processed items (if that's your rule)
+								console.error(
+									`updateSharedBasketItemQuantity: Item ${itemId} status is '${item.status}', cannot be updated by non-host ${requestingUserId}.`
+								);
+								throw new functions.https.HttpsError(
+									"permission-denied",
+									"Cannot update quantity of an item already processed, unless you are the host."
+								);
+							}
+							console.log(
+								`updateSharedBasketItemQuantity: Host ${requestingUserId} is updating item ${itemId} with status ${item.status}.`
+							);
+						}
+
+						if (!isHost && item.orderedByUserId !== requestingUserId) {
+							console.error(
+								`updateSharedBasketItemQuantity: User ${requestingUserId} is not the host and did not order item ${itemId} (owner: ${item.orderedByUserId}).`
+							);
+							throw new functions.https.HttpsError(
+								"permission-denied",
+								"You can only update the quantity of your own items."
+							);
+						}
+
+						console.log(
+							`updateSharedBasketItemQuantity: Updating quantity for item ${itemId} from ${item.quantity} to ${newQuantity}.`
+						);
+						return {
+							...item,
+							quantity: newQuantity,
+							updatedAt: new Date(),
+						};
+					}
+					return item;
+				});
+
+				if (!itemFoundAndUpdated) {
+					console.warn(
+						`updateSharedBasketItemQuantity: Item ${itemId} not found in basket for party ${partyId}. No update performed.`
+					);
+					throw new functions.https.HttpsError(
+						"not-found",
+						`Item ${itemId} not found in the party basket.`
+					);
+				}
+
+				// Update the shared basket document
+				transaction.update(sharedBasketRef, {
+					items: updatedItemsArray,
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+				});
+
+				console.log(
+					`updateSharedBasketItemQuantity: Quantity for item ${itemId} successfully updated to ${newQuantity} in shared basket for party ${partyId}.`
+				);
+				return { success: true };
+			});
+		} catch (error) {
+			console.error(
+				`updateSharedBasketItemQuantity: Transaction error for party ${partyId}, item ${itemId}:`,
+				error
+			);
+			if (error instanceof functions.https.HttpsError) {
+				throw error; // Re-throw HttpsErrors
+			}
+			const errorMessage =
+				error.message || "Failed to update item quantity in party basket.";
+			throw new functions.https.HttpsError(
+				"internal",
+				errorMessage,
+				error.details
+			);
+		}
+	}
+);
+
+/**
+ * Removes a specific item from a shared party basket.
+ *
+ * @param {object} data - The data object.
+ * @param {string} data.partyId - The ID of the party.
+ * @param {string} data.itemId - The unique ID of the basket item instance to remove.
+ * @param {string} data.userId - The Firebase UID of the user requesting removal (for permissions).
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+exports.removeSharedBasketItem = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			console.error("removeSharedBasketItem: Authentication failed.");
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const requestingUserId = context.auth.uid;
+
+		const { partyId, itemId, userId } = data; // userId in data is the item owner for permission check
+
+		if (!partyId || !itemId || !userId) {
+			console.error(
+				"removeSharedBasketItem: Invalid input - partyId, itemId, or userId (for check) missing.",
+				data
+			);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID, Item ID, and User ID for check are required."
+			);
+		}
+
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+		const partyRef = db.collection("parties").doc(partyId);
+
+		try {
+			// Get party details to check host status and item ownership
+			const partyDocSnap = await partyRef.get();
+			if (!partyDocSnap.exists) {
+				console.error(`removeSharedBasketItem: Party ${partyId} not found.`);
+				throw new functions.https.HttpsError("not-found", "Party not found.");
+			}
+			const partyData = partyDocSnap.data();
+			const isHost = partyData.hostUserId === requestingUserId;
+
+			return await db.runTransaction(async (transaction) => {
+				const basketDoc = await transaction.get(sharedBasketRef);
+				if (!basketDoc.exists) {
+					console.error(
+						`removeSharedBasketItem: Shared basket for partyId ${partyId} not found.`
+					);
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Party basket not found."
+					);
+				}
+
+				const basketData = basketDoc.data();
+				const items = basketData.items || [];
+				let itemToRemove = null;
+				let itemRemovedFromArray = false;
+
+				const updatedItems = items.filter((item) => {
+					if (item.id === itemId) {
+						itemToRemove = item; // Capture the item being removed for permission checks
+						itemRemovedFromArray = true;
+						return false; // Exclude this item
+					}
+					return true; // Keep other items
+				});
+
+				if (!itemRemovedFromArray || !itemToRemove) {
+					console.warn(
+						`removeSharedBasketItem: Item ${itemId} not found in basket for party ${partyId}. No action taken.`
+					);
+					// It's often better to return success if the item is already gone,
+					// as the desired state (item removed) is achieved.
+					return {
+						success: true,
+						message: "Item not found or already removed.",
+					};
+				}
+
+				// Permission Check:
+				// 1. Item must be "new" (not yet sent to kitchen), unless the remover is the host.
+				// 2. The requesting user must be the host OR the one who ordered the item.
+				if (itemToRemove.status !== "new" && !isHost) {
+					console.error(
+						`removeSharedBasketItem: Item ${itemId} status is '${itemToRemove.status}', cannot be removed by non-host ${requestingUserId}.`
+					);
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"Cannot remove items already processed, unless you are the host."
+					);
+				}
+				if (!isHost && itemToRemove.orderedByUserId !== requestingUserId) {
+					console.error(
+						`removeSharedBasketItem: Permission denied. User ${requestingUserId} is not the host nor the owner (${itemToRemove.orderedByUserId}) of item ${itemId}.`
+					);
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"You can only remove your own items."
+					);
+				}
+
+				transaction.update(sharedBasketRef, {
+					items: updatedItems,
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+				});
+				console.log(
+					`removeSharedBasketItem: Item ${itemId} removed from shared basket for party ${partyId} by ${requestingUserId}.`
+				);
+				return { success: true };
+			});
+		} catch (error) {
+			console.error(
+				`removeSharedBasketItem: Transaction error for party ${partyId}, item ${itemId}:`,
+				error
+			);
+			if (error instanceof functions.https.HttpsError) throw error;
+			const errorMessage =
+				error.message || "Failed to remove item from party basket.";
+			throw new functions.https.HttpsError(
+				"internal",
+				errorMessage,
+				error.details
+			);
+		}
+	}
+);

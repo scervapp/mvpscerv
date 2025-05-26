@@ -111,10 +111,10 @@ const MenuItemsList = ({
 	// This function is passed to SelectedItemModal's onConfirm prop
 	const handleModalConfirm = async (itemDataFromModal) => {
 		// --- LOG THE EXACT OBJECT RECEIVED FROM SelectedItemModal ---
-		console.log(
-			"MenuItemsList: handleModalConfirm - Received itemDataFromModal:",
-			JSON.stringify(itemDataFromModal, null, 2)
-		);
+		// console.log(
+		// 	"MenuItemsList: handleModalConfirm - Received itemDataFromModal:",
+		// 	JSON.stringify(itemDataFromModal, null, 2)
+		// );
 		// itemDataFromModal from SelectedItemModal contains:
 		// { selectedItem (core menu item), quantity, specialInstructions,
 		//   chosenPartyTargetName? (if party mode), individualPips? (if individual mode and modal handles it) }
@@ -145,6 +145,10 @@ const MenuItemsList = ({
 
 			finalItemData.individualPips = targetsFromModal; // Direct assignment
 		} else if (orderingMode === "party" && partyContextData) {
+			console.log(
+				"MenuItemsList (Party Mode): itemDataFromModal.chosenPartyTargetName is:",
+				itemDataFromModal.chosenPartyTargetName
+			);
 			finalItemData.partyContextData = {
 				...partyContextData, // Includes partyId, orderingForUserId (current logged-in user)
 				// Override/set orderingForPipName based on modal selection

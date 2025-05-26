@@ -208,8 +208,15 @@ const SelectedItemModal = ({
 			const partyTarget = orderTargets[0];
 			itemDataForContext.chosenPartyTargetName = partyTarget.name;
 			itemDataForContext.specialInstructions = partyTarget.specialInstructions;
+			console.log(
+				"SelectedItemModal (Party Mode): chosenPartyTargetName being set to:",
+				partyTarget.name
+			);
 		}
-
+		console.log(
+			"SelectedItemModal: Calling onConfirm with itemDataForContext:",
+			JSON.stringify(itemDataForContext, null, 2)
+		);
 		onConfirm(itemDataForContext);
 	};
 

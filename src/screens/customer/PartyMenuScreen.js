@@ -7,6 +7,7 @@ import {
 	ActivityIndicator,
 	SafeAreaView,
 	Alert,
+	ScrollView,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import MenuItemsList from "../../components/customer/MenuItemsList";
@@ -74,11 +75,30 @@ const PartyMenuScreen = () => {
 
 			const { menuItemDetails, quantity } = itemDataFromModal; // menuItemDetails is the new structure
 
+			const updatedPartyContextFromList = itemDataFromModal.partyContextData;
+
+			console.log(
+				"===================+++++++++++++++++++++",
+				updatedPartyContextFromList
+			);
+
+			if (
+				!updatedPartyContextFromList ||
+				typeof updatedPartyContextFromList.orderingForPipName === "undefined"
+			) {
+				console.error(
+					"PartyMenuScreen: orderingForPipName is missing from the data prepared by MenuItemsList.",
+					itemDataFromModal
+				);
+				Alert.alert("Error", "Could not determine who the item is for.");
+				return;
+			}
+
 			try {
 				const partyAddItemData = {
 					partyId: partyContextData.partyId,
 					orderingForUserId: partyContextData.orderingForUserId, // Logged-in user
-					orderingForPipName: itemDataFromModal.chosenPartyTargetName, // From SelectedItemModal
+					orderingForPipName: updatedPartyContextFromList.orderingForPipName, // From SelectedItemModal
 				};
 				const itemDetailsForPartyContext = {
 					// Structure for PartyContext.addItemToPartyBasket
@@ -90,23 +110,15 @@ const PartyMenuScreen = () => {
 					// Include any other fields from menuItemDetails your CF needs
 					category: menuItemDetails.category,
 					imageUri: menuItemDetails.imageUri,
+					restaurantId: restaurantId,
 				};
 
-				console.log(
-					"PartyMenuScreen: Calling PartyContext.addItemToPartyBasket with:",
-					partyAddItemData,
-					itemDetailsForPartyContext
-				);
 				const addedPartyItemId = await addItemToPartyBasket(
 					partyAddItemData,
 					itemDetailsForPartyContext
 				);
 
 				if (addedPartyItemId) {
-					console.log(
-						"PartyMenuScreen: Item added to party basket successfully:",
-						addedPartyItemId
-					);
 					// MenuItemsList will show its own snackbar.
 					// You could navigate back to PartySessionScreen or allow adding more items.
 					// For now, let's assume they stay on the menu.
@@ -139,17 +151,19 @@ const PartyMenuScreen = () => {
 
 	return (
 		<SafeAreaView style={styles.screen}>
-			<MenuItemsList
-				menuItems={menuItems}
-				isLoading={isLoadingMenu} // Let MenuItemsList handle its internal display based on this
-				pips={userPips} // Pass current user's PIPs for "Order For" dropdown in modal
-				onConfirmAddItemToContext={handleConfirmAddItemToPartyBasket}
-				orderingMode="party" // Explicitly set to party mode
-				partyContextData={partyContextData} // Pass the necessary party context
-				// restaurantId is not strictly needed by MenuItemsList if onConfirm handles everything,
-				// but SelectedItemModal might use it if it were for individual mode.
-				// For party mode, partyContextData.partyId is key.
-			/>
+			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+				<MenuItemsList
+					menuItems={menuItems}
+					isLoading={isLoadingMenu} // Let MenuItemsList handle its internal display based on this
+					pips={userPips} // Pass current user's PIPs for "Order For" dropdown in modal
+					onConfirmAddItemToContext={handleConfirmAddItemToPartyBasket}
+					orderingMode="party" // Explicitly set to party mode
+					partyContextData={partyContextData} // Pass the necessary party context
+					// restaurantId is not strictly needed by MenuItemsList if onConfirm handles everything,
+					// but SelectedItemModal might use it if it were for individual mode.
+					// For party mode, partyContextData.partyId is key.
+				/>
+			</ScrollView>
 		</SafeAreaView>
 	);
 };

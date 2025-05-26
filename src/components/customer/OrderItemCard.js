@@ -1,21 +1,22 @@
 // components/customer/OrderItemCard.js (or a suitable path)
 import React from "react";
-import { View, Text, StyleSheet, Alert } from "react-native";
+import { View, Text, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { IconButton } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Or your preferred icon set
 import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 
-const OrderItemCard = ({
-	item,
-	onQuantityChange, // (itemId, newQuantity) => void
-	allowEdit = false, // True if quantity can be changed
-	isSentToKitchen = false,
-	restaurantId,
+const OrderItemCard = (props) => {
+	const {
+		restaurantId,
+		item,
+		onQuantityChange,
+		allowEdit = false,
+		isSentToKitchen = false,
+		isUpdating = false,
+	} = props;
 
-	// You might add other props like onRemoveItem if decrementing to 0 means removal
-}) => {
-	if (!item || !item.dish) {
+	if (!item || !item.dishName) {
 		// Handle cases where item or item.dish might be undefined
 		return (
 			<View style={styles.basketItemRow}>
@@ -25,9 +26,10 @@ const OrderItemCard = ({
 	}
 
 	const handleDecrement = () => {
+		if (!allowEdit || isUpdating) return;
 		const currentQuantity = item.quantity;
 		if (currentQuantity === 1) {
-			Alert.alert("Confirm Remove", `Remove ${item.dish.name}?`, [
+			Alert.alert("Confirm Remove", `Remove ${item.dishName}?`, [
 				{ text: "Cancel", style: "cancel" },
 				{
 					text: "Remove",
@@ -41,21 +43,26 @@ const OrderItemCard = ({
 	};
 
 	const handleIncrement = () => {
+		if (!allowEdit || isUpdating) return; // Disable if updating
 		onQuantityChange(restaurantId, item.id, item.quantity + 1);
 	};
 
 	const itemTotal =
 		Math.round(
-			(item.discount
-				? parseFloat(item.discountedPrice)
-				: item.dish?.price || 0) * 100
+			(item.discount ? parseFloat(item.discountedPrice) : item?.price || 0) *
+				100
 		) * item.quantity;
 
 	const displayOrderedForName = item.orderedByPipName || item.pip?.name;
 	return (
-		<View style={[styles.card, isSentToKitchen && styles.sentItemCardVisual]}>
+		<View
+			style={[
+				styles.orderItemCard,
+				isSentToKitchen && styles.sentItemCardVisual,
+				isUpdating && styles.updatingItemVisual, // Apply visual style when updating
+			]}
+		>
 			<View style={styles.itemContent}>
-				{/* Optional: Icon for item status (new/sent) - can be on left or right */}
 				<View style={styles.statusIconContainer}>
 					{isSentToKitchen ? (
 						<Ionicons
@@ -64,7 +71,7 @@ const OrderItemCard = ({
 							color={colors.statusSuccess}
 						/>
 					) : (
-						// Using a more subtle icon for "new" or pending items if desired
+						// Show a subtle icon for items not yet sent, or nothing
 						<MaterialCommunityIcons
 							name="circle-outline"
 							size={24}
@@ -77,7 +84,7 @@ const OrderItemCard = ({
 					<Text
 						style={[styles.dishName, isSentToKitchen && styles.sentItemText]}
 					>
-						{item.dish.name}
+						{item.dishName}
 					</Text>
 					{displayOrderedForName && (
 						<Text
@@ -102,28 +109,34 @@ const OrderItemCard = ({
 				</View>
 
 				<View style={styles.controlsAndPriceContainer}>
-					{!isSentToKitchen && allowEdit ? (
+					{/* Show ActivityIndicator if this item is updating */}
+					{isUpdating ? (
+						<View style={styles.quantityControls}>
+							{/* Keep container for consistent height */}
+							<ActivityIndicator size="small" color={colors.primary} />
+						</View>
+					) : !isSentToKitchen && allowEdit ? (
 						<View style={styles.quantityControls}>
 							<IconButton
-								icon="minus-circle" // Using filled for more visual weight
-								size={26} // Slightly larger for easier touch
+								icon="minus-circle"
+								size={26}
 								onPress={handleDecrement}
 								style={styles.quantityButton}
 								color={colors.textMedium}
-								rippleColor="rgba(0,0,0,0.1)"
+								disabled={isUpdating} // Disable while any update is in progress
 							/>
 							<Text style={styles.quantityText}>{item.quantity}</Text>
 							<IconButton
-								icon="plus-circle" // Using filled
+								icon="plus-circle"
 								size={26}
 								onPress={handleIncrement}
 								style={styles.quantityButton}
-								color={colors.primary} // Primary color for increment
-								rippleColor="rgba(0,0,0,0.1)"
+								color={colors.primary}
+								disabled={isUpdating} // Disable while any update is in progress
 							/>
 						</View>
 					) : (
-						// Display quantity if not editable or already sent
+						// Display quantity as text if not editable or already sent
 						<Text style={styles.quantityDisplayOnly}>Qty: {item.quantity}</Text>
 					)}
 					<Text

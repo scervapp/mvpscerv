@@ -15,7 +15,6 @@ const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
 const basketFunctions = require("./basketFunctions");
 
-
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -27,7 +26,7 @@ exports.sendToChefsQ = require("./basketFunctions").sendToChefsQ;
 
 exports.clearBasket = require("./basketFunctions").clearBasket;
 
-exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket
+exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket;
 
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
@@ -68,6 +67,9 @@ exports.leaveParty = partyFunctions.leaveParty;
 exports.cancelParty = partyFunctions.cancelParty;
 exports.activatePartyCheckIn = partyFunctions.activatePartyCheckIn;
 exports.addLocalPIPToParty = partyFunctions.addLocalPipToParty;
+exports.updateSharedBasketItemQuantity =
+	partyFunctions.updateSharedBasketItemQuantity;
+exports.removeSharedBasketItem = partyFunctions.removeSharedBasketItem;
 
 // User Search Functions
 exports.searchPIPs = userSearchFunctions.searchPIPs;

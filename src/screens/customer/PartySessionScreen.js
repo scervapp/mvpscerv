@@ -24,14 +24,7 @@ import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
-
-
-
-// Placeholder for components to be reused/refactored from PartyLobbyScreen for active party state
-// e.g., import PartyDetailsDisplay from '../components/customer/Party/PartyDetailsDisplay';
-// e.g., import PartyMembersList from '../components/customer/Party/PartyMembersList';
-// e.g., import SharedBasketView from '../components/customer/Party/SharedBasketView';
-// e.g., import ActivePartyActions from '../components/customer/Party/ActivePartyActions';
+import OrderItemCard from "../../components/customer/OrderItemCard";
 
 /**
  * A reusable button component featuring an icon and text underneath.
@@ -83,37 +76,6 @@ const IconTextButton = ({
 	);
 };
 
-// --- Placeholder for a reusable Basket Item Row/Card ---
-// This would be refactored from your BasketScreen.js item display logic
-const PartyBasketItemCard = ({ item, isCurrentUserItem }) => {
-	// isCurrentUserItem: boolean, true if this item belongs to the logged-in user
-	// Item should have: id, name, quantity, price, orderedByPipName (optional), status (e.g., 'new', 'sentToChefQ')
-	return (
-		<View style={styles.itemCard}>
-			<View style={styles.itemInfo}>
-				<Text style={styles.itemName}>{item.name}</Text>
-				<Text style={styles.itemDetails}>
-					Qty: {item.quantity} - Price: $
-					{(item.price * item.quantity).toFixed(2)}
-				</Text>
-				{item.orderedByPipName &&
-					item.orderedByUserId === partyDetails?.hostUserId && ( // Show "For: PIP" if host added it
-						<Text style={styles.itemOrderedBy}>
-							For: {item.orderedByPipName}
-						</Text>
-					)}
-			</View>
-			<View style={styles.itemStatusContainer}>
-				{item.status === "sentToChefQ" ? (
-					<Text style={styles.itemStatusSent}>Sent</Text>
-				) : (
-					<Text style={styles.itemStatusNew}>New</Text>
-				)}
-			</View>
-		</View>
-	);
-};
-
 const PartySessionScreen = () => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
@@ -132,6 +94,7 @@ const PartySessionScreen = () => {
 		addLocalPIPToParty,
 		inviteToParty,
 		// sendMyItemsToKitchen, // (itemsToSend) => Promise<void>
+		handlePartyItemQuantityChange,
 	} = useParty();
 
 	const [inviteCode, setInviteCode] = useState("");
@@ -140,6 +103,7 @@ const PartySessionScreen = () => {
 	const [isMembersModalVisible, setIsMembersModalVisible] = useState(false);
 	const [isActionsModalVisible, setIsActionsModalVisible] = useState(false);
 	const [userPips, setUserPips] = useState([]);
+	const [updatingItemId, setUpdatingItemId] = useState(null);
 
 	useEffect(() => {
 		if (currentUserData?.uid && currentUserData.role !== "guest") {
@@ -154,8 +118,6 @@ const PartySessionScreen = () => {
 			setUserPips([]);
 		}
 	}, [currentUserData?.uid]);
-
-	
 
 	// Derived state
 	const isHost =
@@ -271,31 +233,112 @@ const PartySessionScreen = () => {
 		// await inviteToParty({ partyId: currentPartyId, generateCode: true });
 	};
 
+	const onItemQuantityChangeInParty = async (
+		restaurantId,
+		itemId,
+		newQuantity
+	) => {
+		if (!currentPartyId || !currentUserData?.uid) {
+			Alert.alert(
+				"Error",
+				"Cannot update item: Party or user information missing."
+			);
+			return;
+		}
+		console.log(
+			"PartySessionScreen: About to call context function. Type of 'handlePartyItemQuantityChange' from useParty():",
+			typeof handlePartyItemQuantityChange
+		);
+
+		if (typeof handlePartyItemQuantityChange !== "function") {
+			Alert.alert(
+				"Error",
+				"Cannot update item: Update function not available."
+			);
+			console.error(
+				"PartySessionScreen: updatePartyBasketItemQuantity is not a function from context!"
+			);
+			return;
+		}
+
+		console.log(
+			`PartySessionScreen: Updating item ${itemId} in party ${currentPartyId} to quantity ${newQuantity} by user ${currentUserData.uid}`
+		);
+		setUpdatingItemId(itemId);
+		try {
+			// The updatePartyBasketItemQuantity in PartyContext will handle calling
+			// removePartyBasketItem if newQuantity is 0.
+			const success = await handlePartyItemQuantityChange(
+				currentPartyId,
+				itemId,
+				newQuantity,
+				currentUserData.uid
+			);
+
+			console.log(
+				"PartySessionScreen: Call to PartyContext.handlePartyItemQuantityChange has COMPLETED (either successfully or context handled its error)."
+			);
+
+			if (success) {
+				console.log(
+					"PartySessionScreen: Item quantity/removal processed by context."
+				);
+			} else {
+				// Error alert likely shown by context, or you can show a generic one here
+				console.log(
+					"PartySessionScreen: Context reported issue processing item quantity/removal."
+				);
+			}
+		} catch (error) {
+			console.error(
+				"PartySessionScreen: Error calling updatePartyBasketItemQuantity from context:",
+				error
+			);
+			Alert.alert("Error", "Failed to update item in party basket.");
+		} finally {
+			setUpdatingItemId(null);
+		}
+	};
+	// --- END OF FUNCTION DEFINITION ---
+
 	const groupedBasket = useMemo(() => {
 		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
 		const groups = {};
 		sharedBasketItems.forEach((item) => {
-			const key = item.orderedByUserId || "unassigned_items"; // Group by user ID
-			if (!groups[key]) {
-				groups[key] = {
-					userId: item.orderedByUserId,
-					userName:
-						item.orderedByPipName ||
-						partyDetails?.guestPips?.find(
-							(p) => p.userId === item.orderedByUserId
-						)?.name ||
-						(item.orderedByUserId === currentUserData?.uid
-							? "Your Items"
-							: `User ${item.orderedByUserId?.slice(-4) || "Unknown"}`),
+			const groupOwnerUserId = item.orderedByUserId || "unassigned_items";
+
+			if (!groups[groupOwnerUserId]) {
+				// Determine the display name for the group's header
+				let groupDisplayName;
+				if (groupOwnerUserId === currentUserData?.uid) {
+					// If the group owner is the current logged-in user
+					groupDisplayName = currentUserData.firstName || "Your Items";
+				} else if (partyDetails?.guestPips) {
+					// Try to find the name from the party's guest list
+					const guestInfo = partyDetails.guestPips.find(
+						(p) => p.userId === groupOwnerUserId
+					);
+					if (guestInfo && guestInfo.name) {
+						groupDisplayName = guestInfo.name;
+					} else {
+						// Fallback if guest not found or name is missing
+						groupDisplayName = `User ${
+							groupOwnerUserId.slice(-4) || "Unknown"
+						}`;
+					}
+				} else {
+					// Fallback if no guestPips list
+					groupDisplayName = `User ${groupOwnerUserId.slice(-4) || "Unknown"}`;
+				}
+
+				groups[groupOwnerUserId] = {
+					userId: groupOwnerUserId,
+					userName: groupDisplayName, // This is for the section header
 					items: [],
 				};
 			}
-			// Add a unique key for rendering each item instance if item IDs within a user's list might not be unique
-			// (e.g. if item.id is menuItemId, not a unique basket item ID)
-			groups[key].items.push({
-				...item,
-				_renderKey: `${item.id}-${Math.random()}`,
-			});
+			// The item itself still carries its own orderedByPipName for display within OrderItemCard
+			groups[groupOwnerUserId].items.push(item);
 		});
 		const currentUserGroupKey = currentUserData?.uid;
 		const currentUserGroup = groups[currentUserGroupKey];
@@ -385,6 +428,25 @@ const PartySessionScreen = () => {
 	if (currentPartyId && partyDetails) {
 		const partyIsPending = partyDetails.status === "pending";
 		const partyIsActive = partyDetails.status === "active";
+
+		if (
+			groupedBasket &&
+			groupedBasket.length > 0 &&
+			groupedBasket[0].items &&
+			groupedBasket[0].items.length > 0
+		) {
+		} else if (
+			groupedBasket &&
+			groupedBasket.length > 0 &&
+			(!groupedBasket[0].items || groupedBasket[0].items.length === 0)
+		) {
+			console.log(
+				"PartySessionScreen: First group in groupedBasket has no items or items array is missing."
+			);
+		} else {
+			console.log("PartySessionScreen: groupedBasket is empty or undefined.");
+		}
+		// --- END LOGS ---
 		const canCurrentUserSendItems =
 			partyIsActive &&
 			sharedBasketItems.some(
@@ -438,18 +500,29 @@ const PartySessionScreen = () => {
 						<View style={styles.userBasketSection}>
 							<Text style={styles.userNameHeader}>{group.userName}</Text>
 							{group.items.length > 0 ? (
-								group.items.map((basketItem) => (
-									<OrderItemCard
-										key={basketItem.id} // Use the unique ID of the item in the shared basket
-										item={basketItem} // Pass the full item from sharedBasketItems
-										onQuantityChange={handlePartyItemQuantityChange} // Use the new handler
-										allowEdit={
-											basketItem.orderedByUserId === currentUserData.uid &&
-											(basketItem.status === "new" || !basketItem.status) // Only current user can edit their new items
-										}
-										isSentToKitchen={basketItem.status === "sentToChefQ"}
-									/>
-								))
+								group.items.map((basketItem, index) => {
+									if (!basketItem || typeof basketItem.dishName !== "string") {
+										console.warn(
+											`PartySessionScreen: Item for ${group.userName} at index ${index} is missing dishName or is invalid. Item:`,
+											basketItem
+										);
+									}
+									// --- END LOG ---
+									return (
+										<OrderItemCard
+											key={basketItem.id} // Use the unique ID of the item in the shared basket
+											item={basketItem} // Pass the full item from sharedBasketItems
+											onQuantityChange={onItemQuantityChangeInParty} // Use the new handler
+											allowEdit={
+												basketItem.orderedByUserId === currentUserData.uid &&
+												(basketItem.status === "new" || !basketItem.status) // Only current user can edit their new items
+											}
+											restaurantId={basketItem.restaurantId}
+											isSentToKitchen={basketItem.status === "sentToChefQ"}
+											isUpdating={updatingItemId === basketItem.id}
+										/>
+									);
+								})
 							) : (
 								<Text style={styles.emptyUserBasketText}>
 									No items added yet.

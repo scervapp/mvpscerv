@@ -392,124 +392,131 @@ async function sendToChefsQ(data, context) {
  */
 exports.addItemToSharedBasket = functions.https.onCall(
 	async (data, context) => {
-		// 1. Authentication Check
 		if (!context.auth || !context.auth.uid) {
-			console.error(
-				"addItemToSharedBasket: Authentication failed. User not logged in."
-			);
+			console.error("addItemToSharedBasket: Authentication failed.");
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated to add items to a party basket."
+				"User must be authenticated."
 			);
 		}
-		const currentUserId = context.auth.uid; // User calling the function
+		const currentUserId = context.auth.uid;
 
-		// 2. Input Validation
 		const {
 			partyId,
-			orderingForUserId, // This is who the item is for
-			orderingForPipName, // Optional: if host adds for a local PIP
-			menuItemData,
+			orderingForUserId,
+			orderingForPipName,
+			menuItemData, // Expects { id, name, price, quantity, specialInstructions?, category?, imageUri?, restaurantId? }
 		} = data;
 
-		if (!partyId || typeof partyId !== "string") {
-			console.error(
-				"addItemToSharedBasket: Invalid input - partyId missing or invalid.",
-				data
-			);
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Party ID is required."
-			);
-		}
-		if (!orderingForUserId || typeof orderingForUserId !== "string") {
-			console.error(
-				"addItemToSharedBasket: Invalid input - orderingForUserId missing or invalid.",
-				data
-			);
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Ordering user ID is required."
-			);
-		}
 		if (
+			!partyId ||
+			!orderingForUserId ||
 			!menuItemData ||
-			typeof menuItemData.id !== "string" ||
-			typeof menuItemData.name !== "string" ||
+			!menuItemData.id ||
 			typeof menuItemData.price !== "number" ||
 			typeof menuItemData.quantity !== "number" ||
 			menuItemData.quantity <= 0
 		) {
-			console.error(
-				"addItemToSharedBasket: Invalid input - menuItemData is incomplete or invalid.",
-				data
-			);
+			console.error("addItemToSharedBasket: Invalid input.", data);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Valid menu item data (id, name, price, quantity) is required."
+				"Missing or invalid required fields."
 			);
+		}
+		// Validate that the restaurantId for the item is present if you intend to store it per item
+		if (
+			typeof menuItemData.restaurantId !== "string" ||
+			!menuItemData.restaurantId
+		) {
+			console.warn(
+				`addItemToSharedBasket: menuItemData.restaurantId is missing or invalid for item ${menuItemData.name}. Storing as null or consider fetching party's restaurantId.`
+			);
+			// If all items in a party basket must belong to the party's restaurant,
+			// you might fetch the party document here to get its restaurantId and use that.
+			// For now, we'll proceed, and it will be stored as null if not provided.
 		}
 
 		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+		const partyRef = db.collection("parties").doc(partyId);
 
 		try {
-			// 3. Check if the party and shared basket exist (optional, but good practice)
-			const basketDoc = await sharedBasketRef.get();
-			if (!basketDoc.exists) {
-				console.error(
-					`addItemToSharedBasket: Shared basket for partyId ${partyId} not found.`
+			return await db.runTransaction(async (transaction) => {
+				const partyDoc = await transaction.get(partyRef);
+				if (!partyDoc.exists) {
+					console.error(`addItemToSharedBasket: Party ${partyId} not found.`);
+					throw new functions.https.HttpsError("not-found", "Party not found.");
+				}
+
+				const basketDoc = await transaction.get(sharedBasketRef);
+				if (!basketDoc.exists) {
+					console.error(
+						`addItemToSharedBasket: Shared basket for partyId ${partyId} not found.`
+					);
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Party basket not found."
+					);
+				}
+
+				const currentBasketData = basketDoc.data();
+				const itemsArray = currentBasketData.items || [];
+
+				const basketItemId = db.collection("dummy").doc().id;
+				const newItem = {
+					id: basketItemId,
+					menuItemId: menuItemData.id,
+					dishName: menuItemData.name,
+					price: menuItemData.price,
+					quantity: menuItemData.quantity,
+					specialInstructions: menuItemData.specialInstructions || "",
+					orderedByUserId: orderingForUserId,
+					orderedByPipName: orderingForPipName || null,
+					addedByUserId: currentUserId,
+					addedAt: new Date(), // <<< Use new Date() here (Cloud Function's server time)
+					status: "new",
+					category: menuItemData.category || null,
+					imageUri: menuItemData.imageUri || null,
+					restaurantId: menuItemData.restaurantId || null, // Store what's passed, even if null
+				};
+
+				console.log(
+					`addItemToSharedBasket: Preparing to add new item to party ${partyId}:`,
+					JSON.stringify(newItem, null, (key, value) => {
+						// Custom replacer for Date objects if direct stringify is too verbose or problematic for logs
+						if (value instanceof Date) {
+							return value.toISOString();
+						}
+						return value;
+					})
 				);
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Party basket not found. The party may have ended or not exist."
+
+				const updatedItemsArray = [...itemsArray, newItem];
+
+				transaction.update(sharedBasketRef, {
+					items: updatedItemsArray,
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(), // serverTimestamp is fine for top-level fields
+				});
+
+				console.log(
+					`addItemToSharedBasket: Item ${basketItemId} transactionally added to shared basket for party ${partyId}.`
 				);
-			}
-
-			// 4. Construct the new basket item
-			const basketItemId = db.collection("dummy").doc().id; // Generate a unique ID for the basket item
-			const newItem = {
-				id: basketItemId, // Unique ID for this instance in the basket
-				menuItemId: menuItemData.id,
-				dishName: menuItemData.name, // Store essential details directly
-				price: menuItemData.price, // Price per unit at the time of adding
-				quantity: menuItemData.quantity,
-				specialInstructions: menuItemData.specialInstructions || "",
-				orderedByUserId: orderingForUserId,
-				orderedByPipName: orderingForPipName || null, // Store PIP name if provided
-				addedByUserId: currentUserId, // Who actually performed the add action (could be host adding for someone else)
-				addedAt: admin.firestore.FieldValue.serverTimestamp(),
-				status: "new", // Initial status (e.g., 'new', 'sentToChefQ', 'confirmedByKitchen')
-				// You might want to copy other relevant details from menuItemData if needed
-				// e.g., category, description (if short), imageUri (if small/thumbnail)
-			};
-
-			console.log(
-				`addItemToSharedBasket: Adding new item to party ${partyId}:`,
-				newItem
-			);
-
-			// 5. Atomically add the new item to the 'items' array in the shared basket
-			await sharedBasketRef.update({
-				items: admin.firestore.FieldValue.arrayUnion(newItem),
-				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+				return { success: true, basketItemId: basketItemId };
 			});
-
-			console.log(
-				`addItemToSharedBasket: Item ${basketItemId} successfully added to shared basket for party ${partyId}.`
-			);
-			return { success: true, basketItemId: basketItemId };
 		} catch (error) {
 			console.error(
-				`addItemToSharedBasket: Error adding item to party ${partyId}:`,
+				`addItemToSharedBasket: Transaction error for party ${partyId}:`,
 				error
 			);
 			if (error instanceof functions.https.HttpsError) {
-				throw error; // Re-throw HttpsErrors
+				throw error;
 			}
+			const errorMessage =
+				error.message ||
+				"Failed to add item to party basket due to an internal error.";
 			throw new functions.https.HttpsError(
 				"internal",
-				"Failed to add item to party basket.",
-				error.message
+				errorMessage,
+				error.details
 			);
 		}
 	}

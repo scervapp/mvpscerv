@@ -54,7 +54,7 @@ export const PartyProvider = ({ children }) => {
 	const [isCheckingExistingParty, setIsCheckingExistingParty] = useState(true);
 	const [isPartyDetailsListenerLoading, setIsPartyDetailsListenerLoading] =
 		useState(false);
-
+	const [uiItemIsUpdating, setUiItemUpdateLoading] = useState(false);
 	// --- Cloud Function References ---
 	const createPartyFunction = httpsCallable(functions, "createParty");
 	const joinPartyFunction = httpsCallable(functions, "joinParty");
@@ -666,7 +666,7 @@ export const PartyProvider = ({ children }) => {
 			const result = await addItemToSharedBasketFunction({
 				partyId,
 				orderingForUserId,
-				orderingForPipName, // Can be null or undefined
+				orderingForPipName,
 				menuItemData: {
 					// Ensure structure matches what CF expects
 					id: menuItemDetails.id, // menuItemId
@@ -675,6 +675,9 @@ export const PartyProvider = ({ children }) => {
 					quantity: menuItemDetails.quantity,
 					specialInstructions: menuItemDetails.specialInstructions || "",
 					// Pass any other menuItem fields your CF expects or uses
+					category: menuItemDetails.category,
+					imageUri: menuItemDetails.imageUri,
+					restaurantId: menuItemDetails.restaurantId,
 				},
 			});
 
@@ -705,6 +708,141 @@ export const PartyProvider = ({ children }) => {
 		}
 	};
 
+	const handlePartyItemQuantityChange = async (
+		partyId,
+		itemId,
+		newQuantity,
+		userId
+	) => {
+		console.log("HandleParty Pressed quantity is", newQuantity);
+		if (!currentPartyId || !currentUserData?.uid) {
+			Alert.alert(
+				"Error",
+				"Cannot update item: Party or user information missing."
+			);
+			return;
+		}
+
+		console.log(
+			`PartySessionScreen: Updating item ${itemId} in party ${currentPartyId} to quantity ${newQuantity} by user ${currentUserData.uid}`
+		);
+		let numericQuantity = Number(newQuantity);
+		if (isNaN(numericQuantity)) {
+			Alert.alert("Error", "Invalid quantity provided to context.");
+			return false;
+		}
+		numericQuantity = Math.max(0, Math.min(10, numericQuantity)); // Clamp
+
+		if (numericQuantity === 0) {
+			console.log(
+				`PartyContext: Quantity is 0 for item ${itemId}. Calling removePartyBasketItem.`
+			);
+			return await removePartyBasketItem(partyId, itemId, userId);
+		}
+		const payload = {
+			partyId: partyId,
+			itemId: itemId,
+			newQuantity: numericQuantity,
+			userId: userId, // This is the calling user, for permissions in CF
+		};
+
+		setUiItemUpdateLoading(true); // Optional: local loading state for this action
+		try {
+			// The updatePartyBasketItemQuantity in PartyContext will handle calling
+			// removePartyBasketItem if newQuantity is 0.
+			const success = await updatePartyBasketItemQuantityFunction(payload);
+			if (success) {
+				console.log(
+					"PartySessionScreen: Item quantity/removal processed by context."
+				);
+			} else {
+				// Context likely showed an alert
+				console.log(
+					"PartySessionScreen: Context reported issue processing item quantity/removal."
+				);
+			}
+		} catch (error) {
+			console.error(
+				"PartySessionScreen: Error calling updatePartyBasketItemQuantity from context:",
+				error
+			);
+			Alert.alert("Error", "Failed to update item in party basket.");
+		} finally {
+			setUiItemUpdateLoading(false);
+		}
+	};
+	const removePartyBasketItem = useCallback(
+		async (partyId, itemId, userIdPerformingAction) => {
+			// userIdPerformingAction is context.auth.uid from the CF, but good to pass for clarity or if CF needs it in `data`
+			// For the CF we defined, it uses context.auth.uid primarily for the requesting user.
+			// The `userId` in the CF's `data` payload is used for checking item ownership if not host.
+
+			if (!currentUserData?.uid) {
+				// Check against the logged-in user from AuthContext
+				Alert.alert("Error", "You must be logged in to remove items.");
+				return false;
+			}
+			if (!partyId || !itemId) {
+				Alert.alert("Error", "Missing information to remove item.");
+				console.error(
+					"PartyContext.removePartyBasketItem: Missing partyId or itemId",
+					{ partyId, itemId }
+				);
+				return false;
+			}
+
+			// The userId to check against for ownership in the Cloud Function should be the item's orderedByUserId.
+			// However, the Cloud Function will fetch the item and check its orderedByUserId itself.
+			// The userId passed here is more about who is *requesting* the action for logging/CF-side checks.
+			// For simplicity, we pass the current user's ID as the 'userId' in the data payload,
+			// and the CF will use context.auth.uid for the actual permission checks against item owner or host.
+
+			setIsLoadingPartyAction(true);
+			setPartyError(null);
+			try {
+				console.log(
+					`PartyContext: Calling removeSharedBasketItem CF for party ${partyId}, item ${itemId}, by user ${currentUserData.uid}`
+				);
+				const result = await removePartyBasketItemFunction({
+					partyId,
+					itemId,
+					userId: currentUserData.uid, // User initiating the request
+				});
+
+				if (result.data.success) {
+					console.log(
+						`PartyContext: Item ${itemId} reported as removed successfully by CF.`
+					);
+					// Listener for sharedBasketItems will update the UI.
+					return true;
+				} else {
+					throw new Error(
+						result.data.error ||
+							"Cloud function failed to remove item but returned success:false."
+					);
+				}
+			} catch (error) {
+				console.error(
+					"PartyContext: Error calling removeSharedBasketItem CF:",
+					error
+				);
+				const message =
+					error.message || "Could not remove item from party basket.";
+				setPartyError(message);
+				Alert.alert("Remove Item Failed", message);
+				return false;
+			} finally {
+				setIsLoadingPartyAction(false);
+			}
+		},
+		[
+			currentUserData?.uid,
+			removePartyBasketItemFunction,
+			setIsLoadingPartyAction,
+			setPartyError,
+		]
+	);
+
 	// --- Context Value ---
 	const value = {
 		currentPartyId,
@@ -726,6 +864,7 @@ export const PartyProvider = ({ children }) => {
 		cancelParty,
 		addLocalPIPToParty,
 		addItemToPartyBasket,
+		handlePartyItemQuantityChange,
 	};
 
 	return (
