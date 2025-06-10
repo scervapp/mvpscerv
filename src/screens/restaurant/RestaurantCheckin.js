@@ -1,5 +1,11 @@
-import React, { useEffect, useState, useContext } from "react";
-import { View, Text, FlatList, TouchableOpacity } from "react-native";
+import React, { useEffect, useState, useContext, useCallback } from "react";
+import {
+	View,
+	Text,
+	FlatList,
+	TouchableOpacity,
+	SafeAreaView,
+} from "react-native";
 import { AuthContext } from "../../context/authContext";
 import {
 	collection,
@@ -7,216 +13,239 @@ import {
 	query,
 	getDocs,
 	onSnapshot,
+	orderBy,
 } from "firebase/firestore";
 
 import { db, functions } from "../../config/firebase";
 import { StyleSheet } from "react-native";
-import moment from "moment";
-import TableSelectionModal from "../../components/restaurant/TableSelectionModal";
+
 import { userOrientation } from "../../utils/userOrientation";
 import { httpsCallable } from "firebase/functions";
 import colors from "../../utils/styles/appStyles";
+import CheckInRequestCard from "../../components/restaurant/CheckInRequestCard";
+import { Ionicons } from "@expo/vector-icons";
+import { RefreshControl, ActivityIndicator } from "react-native";
+import TableAndServerSelectionModal from "../../components/restaurant/TableAndServerSelectionModal";
 
 const RestaurantCheckin = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const [isTableModalVisible, setIsTableModalVisible] = useState(false);
-	const [selectedTabelId, setSelectedTableId] = useState(null);
-	const [selectedCheckInId, setSelectedCheckInId] = useState(null);
-	const [customerId, setCustomerId] = useState(null);
-	const [selectedCustomerId, setSelectedCustomerId] = useState(null);
-	const [checkInRequests, setCheckInRequests] = useState(null);
+	const [checkInRequests, setCheckInRequests] = useState([]);
 	const [isLoading, setIsLoading] = useState(false);
-	const [numInParty, setNumInParty] = useState(null);
+	const [error, setError] = useState(null);
+	const [isRefreshing, setIsRefreshing] = useState(false);
+	const [selectedCheckIn, setSelectedCheckIn] = useState(null);
+	const [isProcessing, setIsProcessing] = useState(false);
+	const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
+	const [selectedTable, setSelectedTable] = useState(null);
 
 	const { isLandscape } = userOrientation();
 
 	useEffect(() => {
-		// 1. Fetch pending check-in requests for the restaurant (replace 'yourRestaurantId' with the actual ID)
+		const restaurantId = currentUserData?.uid;
+		if (!restaurantId) {
+			setError("Your user profile is not linked to a restaurant.");
+			setIsLoading(false);
+			return;
+		}
+
 		const q = query(
 			collection(db, "checkIns"),
-			where("restaurantId", "==", currentUserData.uid),
-			where("status", "==", "REQUESTED")
+			where("restaurantId", "==", restaurantId),
+			where("status", "==", "REQUESTED"),
+			orderBy("timestamp", "asc")
 		);
 
-		const unsubscribe = onSnapshot(q, (querySnapshot) => {
-			const requestsData = querySnapshot.docs.map((doc) => ({
-				id: doc.id,
-				...doc.data(),
-			}));
-			setCheckInRequests(requestsData);
-			setIsLoading(false);
-		});
+		const unsubscribe = onSnapshot(
+			q,
+			(querySnapshot) => {
+				const requestsData = querySnapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setCheckInRequests(requestsData);
+				setError(null);
+				setIsLoading(false);
+				setIsRefreshing(false);
+			},
+			(err) => {
+				console.error("RestaurantCheckin: Snapshot error:", err);
+				setError("Failed to listen for check-in requests.");
+				setIsLoading(false);
+				setIsRefreshing(false);
+			}
+		);
 
 		return () => unsubscribe();
+	}, [currentUserData?.restaurantId]);
+
+	const onRefresh = useCallback(() => {
+		setIsRefreshing(true);
+		// The listener will auto-refresh, this just shows the spinner.
+		setTimeout(() => setIsRefreshing(false), 1000);
 	}, []);
 
-	const formatTime = (timestamp) => {
-		const now = moment();
-		const then = moment(timestamp.toDate());
-		const diffMinutes = now.diff(then, "minutes");
+	const handleSelectCheckIn = (checkInData) => {
+		setSelectedCheckIn(checkInData);
+		setIsSelectionModalVisible(true);
+	};
 
-		if (diffMinutes < 60) {
-			return `${diffMinutes} Mins Ago`;
-		} else {
-			return then.format("h:mm A"); // Display actual time if over an hour
+	const handleConfirmSelection = async ({ table, server }) => {
+		if (!selectedCheckIn || !table || !server) {
+			Alert.alert("Error", "Missing information to confirm seating.");
+			return;
+		}
+
+		setIsProcessing(true);
+		try {
+			// Call your Cloud Function to finalize the check-in
+			const handleCheckInResponseFunction = httpsCallable(
+				functions,
+				"handleCheckInResponse"
+			);
+			const result = await handleCheckInResponseFunction({
+				checkInId: selectedCheckIn.id,
+				action: "ACCEPTED",
+				table: { id: table.id, name: table.name }, // Pass essential data
+				server: {
+					id: server.id,
+					name: `${server.firstName} ${server.lastName}`.trim(),
+				},
+				customerId: selectedCheckIn.userId,
+				restaurantId: currentUserData.uid,
+				numInParty: selectedCheckIn.numberOfPeople,
+			});
+
+			if (result.data.success) {
+				Alert.alert(
+					"Success!",
+					`${selectedCheckIn.customerName} has been seated at Table ${table.name}.`
+				);
+			} else {
+				throw new Error(result.data.error || "Failed to confirm check-in.");
+			}
+		} catch (err) {
+			console.error("Error confirming check-in:", err);
+			Alert.alert("Error", err.message || "An unexpected error occurred.");
+		} finally {
+			setIsProcessing(false);
+			setIsSelectionModalVisible(false);
+			setSelectedCheckIn(null);
 		}
 	};
 
-	const openTableModal = (item) => {
-		setSelectedCheckInId(item.id);
-		setSelectedCustomerId(item.customerId);
-		setNumInParty(item.numberOfPeople);
-		setIsTableModalVisible(true);
-	};
-
-	const closeTableModal = () => {
-		setIsTableModalVisible(false);
-	};
-
-	const renderStatusIcon = (status) => {
-		switch (status) {
-			case "REQUESTED":
-				return "Pending";
-			case "COMPLETED":
-				return "Completed";
-			default:
-				return "Unknown";
+	const renderContent = () => {
+		if (isLoading) {
+			return (
+				<ActivityIndicator
+					size="large"
+					color={colors.primary}
+					style={{ marginTop: 50 }}
+				/>
+			);
 		}
-	};
-
-	const renderItem = ({ item }) => (
-		<TouchableOpacity
-			onPress={() => {
-				if (item.status === "REQUESTED") {
-					openTableModal(item);
-				}
-			}}
-		>
-			<View style={styles.checkInItem}>
-				<View style={styles.checkInDetailsLeft}>
-					<Text style={styles.checkInTime}>{formatTime(item.timestamp)}</Text>
-					{item.customerName && (
-						<Text style={styles.customerName}>
-							{item.customerName} - P{item.numberOfPeople}
-						</Text>
-					)}
+		if (error) {
+			return (
+				<View style={styles.infoContainer}>
+					<Text style={styles.errorText}>{error}</Text>
 				</View>
-				<View style={styles.checkInDetailsRight}>
-					<Text style={styles.checkInStatus}>
-						{renderStatusIcon(item.status)}
+			);
+		}
+
+		if (checkInRequests.length === 0) {
+			return (
+				<View style={styles.infoContainer}>
+					<Ionicons
+						name="checkmark-done-circle-outline"
+						size={60}
+						color={colors.textLight}
+					/>
+					<Text style={styles.noCheckinsText}>
+						No customers are waiting at the moment.
 					</Text>
 				</View>
-			</View>
-		</TouchableOpacity>
-	);
+			);
+		}
+		return (
+			<FlatList
+				data={checkInRequests}
+				renderItem={({ item }) => (
+					<CheckInRequestCard item={item} onSelect={handleSelectCheckIn} />
+				)}
+				keyExtractor={(item) => item.id}
+				contentContainerStyle={styles.listContainer}
+				showsVerticalScrollIndicator={false}
+				refreshControl={
+					<RefreshControl
+						refreshing={isRefreshing}
+						onRefresh={onRefresh}
+						tintColor={colors.primary}
+					/>
+				}
+			/>
+		);
+	};
 
 	return (
-		<View style={styles.container}>
-			{/* Table Selection Modal */}
-			{isTableModalVisible && (
-				<TableSelectionModal
-					isVisible={isTableModalVisible}
-					onClose={closeTableModal}
-					selectedCheckinId={selectedCheckInId}
-					currentRestaurantId={currentUserData.uid}
-					selectedCustomerId={selectedCustomerId}
-					numInParty={numInParty}
-				/>
-			)}
+		<SafeAreaView style={styles.safeArea}>
+			<View style={styles.container}>
+				<View style={styles.titleContainer}>
+					<Text style={styles.title}>Customers Waiting</Text>
+				</View>
 
-			<View style={styles.titleContainer}>
-				<Text style={styles.title}>Customers Waiting</Text>
-			</View>
-			<View style={styles.listContainer}>
-				{/* Conditionally render loading indicator, empty message, or check-in requests list */}
-				{isLoading ? (
-					<ActivityIndicator size="large" color={colors.primary} />
-				) : !checkInRequests || checkInRequests.length === 0 ? (
-					<View style={styles.noCheckinsContainer}>
-						<Text style={styles.noCheckinsText}>
-							No customers waiting at the moment
-						</Text>
-					</View>
-				) : (
-					<FlatList
-						data={checkInRequests}
-						renderItem={renderItem}
-						keyExtractor={(item) => item.id}
-						numColumns={isLandscape ? 2 : 1}
-						columnWrapperStyle={
-							isLandscape && { justifyContent: "space-around" }
-						}
-						contentContainerStyle={styles.requestListContainer}
-						showVerticalScrolIndicator={false}
+				{renderContent()}
+
+				{selectedCheckIn && (
+					<TableAndServerSelectionModal
+						isVisible={isSelectionModalVisible}
+						onClose={() => setIsSelectionModalVisible(false)}
+						onConfirm={handleConfirmSelection}
+						numInParty={selectedCheckIn.numberOfPeople}
+						currentRestaurantId={currentUserData?.uid}
 					/>
 				)}
 			</View>
-		</View>
+			{/* Show a global processing overlay if you like */}
+			{isProcessing && (
+				<View style={styles.processingOverlay}>
+					<ActivityIndicator size="large" color={colors.surfaceWhite} />
+					<Text style={styles.processingText}>Confirming...</Text>
+				</View>
+			)}
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		backgroundColor: colors.background,
-		paddingHorizontal: 20,
-		paddingTop: 30,
-	},
-	titleContainer: {
-		alignItems: "center",
-	},
-	title: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.primary,
-	},
-	listContainer: {
-		backgroundColor: "#fff",
-		padding: 15,
-		borderRadius: 10,
-		marginTop: 20,
-		flex: 1,
-	},
-	checkInItem: {
-		flexDirection: "row",
-		alignItems: "center", // Align items vertically
-		padding: 15,
-		marginBottom: 10,
-		backgroundColor: colors.background,
-		borderRadius: 8,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.1,
-		shadowRadius: 2,
-		elevation: 2,
-	},
-	checkInDetailsLeft: {
-		flex: 1,
-		marginRight: 10,
-	},
-	checkInTime: {
-		fontSize: 14,
-		color: colors.textLight,
-		marginBottom: 5,
-	},
-	customerName: {
-		fontSize: 28,
-		fontWeight: "bold",
-	},
-	checkInStatus: {
-		fontSize: 16,
-		fontWeight: "bold",
-		color: colors.secondary,
-	},
-	noCheckinsContainer: {
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	container: { flex: 1, backgroundColor: colors.backgroundLight },
+	titleContainer: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
+	title: { fontSize: 28, fontWeight: "bold", color: colors.textDark },
+	listContainer: { paddingHorizontal: 15, paddingVertical: 10 },
+	infoContainer: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
+		padding: 20,
 	},
 	noCheckinsText: {
-		fontSize: 16,
-		color: colors.textLight,
+		fontSize: 18,
+		color: colors.textMedium,
 		textAlign: "center",
+		marginTop: 15,
+	},
+	errorText: { fontSize: 16, color: colors.statusDanger, textAlign: "center" },
+	processingOverlay: {
+		...StyleSheet.absoluteFillObject,
+		backgroundColor: "rgba(0,0,0,0.6)",
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	processingText: {
+		marginTop: 15,
+		color: colors.surfaceWhite,
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 

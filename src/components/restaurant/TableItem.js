@@ -1,91 +1,102 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Card, ListItem } from "react-native-elements";
+import { Ionicons } from "@expo/vector-icons";
 
-const TableItem = ({
-	item,
-	onPress,
-	isSelected,
-	isCheckinFlow,
-	width,
-	height,
-}) => {
-	// Determin background color based on status
-	const tableItemStyle = {
-		...styles.tableItem,
-		backgroundColor: getTableItemStyle(item.status),
-		width: width,
-		height: height,
-	};
+import colors from "../../utils/styles/appStyles";
+
+const TableItem = ({ item, onPress, isSelected }) => {
+	const isAvailable = item.status === "available";
+
+	const cardStyle = [
+		styles.cardContainer,
+		!isAvailable && styles.cardDisabled, // Dim the card if not available
+		isSelected && styles.cardSelected, // Highlight if selected
+	];
+
+	const textStyle = [
+		styles.tableName,
+		!isAvailable && styles.textDisabled,
+		isSelected && styles.textSelected,
+	];
 
 	return (
 		<TouchableOpacity
-			disabled={!onPress}
-			onPress={onPress}
-			style={[
-				styles.tableItem,
-				tableItemStyle,
-				isSelected && styles.selected,
-				styles.shadowEffect,
-			]}
+			style={cardStyle}
+			onPress={() => onPress(item)}
+			disabled={!isAvailable} // Only available tables can be selected
 		>
-			<View style={styles.tableContent}>
-				<Text style={styles.tableNumber}>{item.name}</Text>
-				{isCheckinFlow && item.status === "available" && (
-					<Text style={styles.status}>item.status</Text>
-				)}
-			</View>
+			<Ionicons
+				name={isAvailable ? "checkmark-circle" : "close-circle"}
+				size={24}
+				color={
+					isSelected
+						? colors.surfaceWhite
+						: isAvailable
+						? colors.statusSuccess
+						: colors.statusDanger
+				}
+				style={styles.statusIcon}
+			/>
+			<Text style={textStyle}>{item.name}</Text>
+			<Text
+				style={[
+					styles.capacityText,
+					!isAvailable && styles.textDisabled,
+					isSelected && styles.textSelected,
+				]}
+			>
+				Seats: {item.capacity}
+			</Text>
 		</TouchableOpacity>
 	);
 };
 
-const getTableItemStyle = (status) => {
-	switch (status) {
-		case "available":
-			return "#147a23"; // Green style
-		case "OCCUPIED":
-			return "#851f18"; // Red style
-		case "checkedOut":
-			return "orange"; // Yellow style
-		default:
-			return {}; // Default styles (optional)
-	}
-};
 const styles = StyleSheet.create({
-	tableItem: {
-		borderRadius: 10,
-		margin: 10,
+	cardContainer: {
+		flex: 1,
+		margin: 8,
+		minHeight: 100,
+		borderRadius: 12,
+		backgroundColor: colors.surfaceWhite,
 		justifyContent: "center",
 		alignItems: "center",
-	},
-	tableContent: {
-		alignItems: "center",
-	},
-	tableNumber: {
-		fontSize: 18, // Increased font size for better visibility
-		fontWeight: "bold",
-		color: "#fff", // White text for better contrast
-		marginBottom: 5,
-	},
-	capacity: {
-		fontSize: 14,
-		color: "#fff", // White text for contrast
-		marginTop: 5,
-	},
-	selected: {
-		backgroundColor: "#007bff", // Highlight color when selected
-	},
-	status: {
-		fontSize: 14,
-		color: "#ddd", // Lighter text for subtlety
-		marginTop: 5,
-	},
-	shadowEffect: {
+		// Shadow for a professional look
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 4 },
-		shadowOpacity: 0.3,
-		shadowRadius: 5,
-		elevation: 5, // Android shadow support
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 3.84,
+		elevation: 5,
+		borderWidth: 2,
+		borderColor: "transparent", // Default transparent border
+	},
+	cardDisabled: {
+		backgroundColor: colors.backgroundLight,
+		opacity: 0.7,
+	},
+	cardSelected: {
+		backgroundColor: colors.primary, // Use your primary brand color for selection
+		borderColor: colors.brandOrange, // Use accent for border
+	},
+	statusIcon: {
+		position: "absolute",
+		top: 8,
+		right: 8,
+	},
+	tableName: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textDark,
+	},
+	capacityText: {
+		fontSize: 14,
+		color: colors.textMedium,
+		marginTop: 4,
+	},
+	textSelected: {
+		color: colors.surfaceWhite, // White text on selected background
+	},
+	textDisabled: {
+		color: colors.textLight,
 	},
 });
 

@@ -32,6 +32,7 @@ const TableSelectionModal = ({
 	const [table, setTable] = useState(null);
 
 	const [server, setServer] = useState(null);
+
 	// Fetch and subscribe to tables in real-time
 	useEffect(() => {
 		if (isVisible) {

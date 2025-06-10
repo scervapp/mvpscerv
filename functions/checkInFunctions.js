@@ -146,84 +146,138 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 });
 
 // Handle Checkin-In Response (Accept or Decline)
+/**
+ * Handles a restaurant's response to a check-in request (accept or decline).
+ * Updates the check-in document, the table document, and if it's a party,
+ * the party document's status.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.checkInId - The ID of the check-in document.
+ * @param {string} data.action - The action being taken, e.g., "ACCEPTED".
+ * @param {object} data.table - Object with table details, e.g., { id: "table1", name: "Table 1" }.
+ * @param {object} data.server - Object with server details, e.g., { id: "server1", name: "John D." }.
+ * @param {string} data.customerId - The UID of the customer who checked in.
+ * @param {string} data.restaurantId - The UID of the restaurant.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
 exports.handleCheckInResponse = functions.https.onCall(
 	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated."
+			);
+		}
+
 		const {
 			checkInId,
-			action,
+			action, // e.g., "ACCEPTED"
 			table,
 			server,
-			restaurantId,
 			customerId,
-			numInParty,
+			restaurantId,
 		} = data;
 
-		try {
-			if (!checkInId || !action || (action === "accept" && !table)) {
-				throw new functions.https.HttpsError(
-					"invalid-argument",
-					"Invalid data provided"
-				);
-			}
-
-			// 2. Get the checkin document reference
-			const checkInRef = db.collection("checkIns").doc(checkInId);
-
-			// 2a. Get the table document reference
-			const tableRef = db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.collection("tables")
-				.doc(table.id);
-			const checkInSnapshot = await checkInRef.get();
-			if (!checkInSnapshot.exists) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Check-in request not found"
-				);
-			}
-
-			// 4. Update teh checkin status optionally assign talbe number
-			let updatedData = { status: action }; // Default update
-			if (action === "ACCEPTED") {
-				updatedData = {
-					...updatedData,
-					table,
-					server,
-				};
-			}
-
-			await checkInRef.update(updatedData);
-			await tableRef.update({
-				status: "OCCUPIED",
-				restaurantId: restaurantId,
-				customerId: customerId,
-				numInParty: numInParty,
-				tableId: table.id,
-			});
-
-			// 6. Delete the associated notification document
-			const notificationsRef = db.collection("notifications");
-			const notificationQuery = notificationsRef.where(
-				"checkInId",
-				"==",
-				checkInId
+		// --- ROBUST VALIDATION ---
+		// This is the check that was likely failing, causing your error.
+		if (!checkInId || !table.id || !server.id || !customerId || !restaurantId) {
+			console.error(
+				"handleCheckInResponse: Invalid input. One or more required IDs are missing.",
+				data
 			);
-			const notificationSnapshot = await notificationQuery.get();
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Missing critical information (checkInId, tableId, serverId, customerId, restaurantId)."
+			);
+		}
 
-			if (!notificationSnapshot.empty) {
-				const notificationDoc = notificationSnapshot.docs[0];
-				await notificationDoc.ref.delete();
-			}
+		const checkInRef = db.collection("checkIns").doc(checkInId);
+		const tableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(table.id);
+		const customerRef = db.collection("customers").doc(customerId);
 
-			return { success: true };
+		try {
+			return await db.runTransaction(async (transaction) => {
+				const checkInDoc = await transaction.get(checkInRef);
+				if (!checkInDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Check-in request not found. It may have been cancelled."
+					);
+				}
+				const checkInData = checkInDoc.data();
+
+				// Prevent re-processing an already handled check-in
+				if (checkInData.status !== "REQUESTED") {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						`This check-in has already been processed. Current status: ${checkInData.status}`
+					);
+				}
+
+				// Update the check-in document
+				transaction.update(checkInRef, {
+					status: "ACCEPTED",
+					table: { id: table.id, name: table.name },
+					server: { id: server.id, name: server.name },
+					acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+
+				// Update the table's status to OCCUPIED
+				transaction.update(tableRef, {
+					status: "OCCUPIED",
+					currentCheckInId: checkInId,
+					currentCustomerId: customerId,
+				});
+
+				// Update the customer's activeCheckIn status
+				transaction.update(customerRef, {
+					activeCheckIn: {
+						checkInId: checkInId,
+						restaurantId: restaurantId,
+						status: "ACCEPTED",
+						table: { id: table.id, name: table.name },
+					},
+				});
+
+				// If this check-in is associated with a party, update the party's status too
+				if (checkInData.associatedPartyId) {
+					const partyRef = db
+						.collection("parties")
+						.doc(checkInData.associatedPartyId);
+					transaction.update(partyRef, {
+						status: "active", // The party is now officially active
+						tableName: table.name, // Denormalize table name onto party
+						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+					});
+					console.log(
+						`handleCheckInResponse: Updated associated party ${checkInData.associatedPartyId} to active.`
+					);
+				}
+
+				console.log(
+					`handleCheckInResponse: Successfully accepted check-in ${checkInId} for table ${table.name}.`
+				);
+				return { success: true };
+			});
 		} catch (error) {
-			console.error("Error handling checkin response", error);
-			throw new functions.https.HttpsError("internal", error.message);
+			console.error(
+				`Error handling check-in response for ${checkInId}:`,
+				error
+			);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"An unexpected error occurred while confirming the check-in.",
+				error.message
+			);
 		}
 	}
 );
-
 exports.clearTable = functions.firestore
 	.document("restaurants/{restaurantId}/tables/{tableId}")
 	.onUpdate(async (change, context) => {
