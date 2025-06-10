@@ -11,6 +11,7 @@ import {
 	SafeAreaView,
 	FlatList,
 	Modal,
+	Share,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import {
@@ -118,6 +119,7 @@ const PartySessionScreen = () => {
 	const [isProcessingPartyCheckIn, setIsProcessingPartyCheckIn] =
 		useState(false);
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+	const [uiJoinLoading, setUiJoinLoading] = useState(false);
 
 	const partyCheckInValidationSchema = Yup.object().shape({
 		partySize: Yup.number()
@@ -189,34 +191,17 @@ const PartySessionScreen = () => {
 		);
 	};
 
+	// Handler for the "Join Party" button on the hub screen
 	const handleJoinPartyAttempt = async () => {
 		if (!inviteCode.trim()) {
-			setUiError("Please enter an invite code.");
+			Alert.alert("Invalid Code", "Please enter an invite code.");
 			return;
 		}
-		setUiLoading(true);
-		setUiError(null);
-		try {
-			const joined = await joinParty({ inviteCode }); // Assuming joinParty is from context
-			if (!joined) {
-				// If joinParty returns false or PartyContext sets an error, reflect it
-				setUiError(
-					partyError ||
-						"Failed to join party. The code might be invalid, expired, or the party is full."
-				);
-			}
-			// If joinParty is successful, PartyContext will update currentPartyId,
-			// and this component will re-render into the "Active Party State".
-			// No explicit navigation needed from here if context drives the state.
-		} catch (error) {
-			console.error("PartySessionScreen: Error joining party", error);
-			setUiError(
-				error.message || "An unexpected error occurred while trying to join."
-			);
-		} finally {
-			setUiLoading(false);
-			setInviteCode(""); // Clear input after attempt
-		}
+		setUiJoinLoading(true);
+		// Context function handles alerts for success/failure
+		await joinParty({ inviteCode: inviteCode.trim() });
+		setUiJoinLoading(false);
+		setInviteCode(""); // Clear input
 	};
 
 	const handleLeaveParty = async () => {
@@ -343,10 +328,38 @@ const PartySessionScreen = () => {
 			setIsPartyCheckInModalVisible(false); // Close modal regardless of success/failure
 		}
 	};
-	const handleInviteAction = () => {
-		setIsActionsModalVisible(false);
-		Alert.alert("Invite Guests", "This will open the invitation flow.");
-		// await inviteToParty({ partyId: currentPartyId, generateCode: true });
+
+	const handleInviteAction = async () => {
+		setIsActionsModalVisible(false); // Close the actions modal
+		if (typeof inviteToParty !== "function") {
+			Alert.alert("Error", "Invite function is not available.");
+			return;
+		}
+
+		const generatedCode = await inviteToParty(); // Context function handles loading state
+
+		if (generatedCode) {
+			const message = `Join my party at ${
+				partyDetails?.restaurantName || "the restaurant"
+			}! Use this code in the Scerv app: ${generatedCode}`;
+			Alert.alert(
+				"Invite Code Generated!",
+				`Code: ${generatedCode}\n\nThis code expires in about 1 hour.`,
+				[
+					{
+						text: "Copy Code",
+						onPress: () => Clipboard.setString(generatedCode),
+					},
+					{
+						text: "Share",
+						onPress: () =>
+							Share.share({ message, title: "Scerv Party Invite" }),
+					},
+					{ text: "OK", style: "cancel" },
+				]
+			);
+		}
+		// Errors are handled by the context function's alerts
 	};
 
 	const onItemQuantityChangeInParty = async (

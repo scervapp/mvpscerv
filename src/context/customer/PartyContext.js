@@ -59,6 +59,7 @@ export const PartyProvider = ({ children }) => {
 	const [isPartyDetailsListenerLoading, setIsPartyDetailsListenerLoading] =
 		useState(false);
 	const [isLoading, setIsLoading] = useState(false);
+	const [isLoadingAction, setIsLoadingAction] = useState(false);
 
 	const [uiItemIsUpdating, setUiItemUpdateLoading] = useState(false);
 	// --- Cloud Function References ---
@@ -308,33 +309,6 @@ export const PartyProvider = ({ children }) => {
 			console.log(
 				`[PartyContext.createParty] FINALLY BLOCK: Setting isLoadingPartyAction: false`
 			);
-			setIsLoadingPartyAction(false);
-		}
-	};
-
-	// --- Action: Join Party ---
-	const joinParty = async (inviteData) => {
-		// inviteData = { partyId: '...' } OR { inviteCode: '...' }
-		if (!currentUserData?.uid || isLoadingPartyAction) return;
-		console.log("PartyContext: Attempting to join party with:", inviteData);
-		setIsLoadingPartyAction(true);
-		setPartyError(null);
-		try {
-			const result = await joinPartyFunction(inviteData);
-			if (result.data.success && result.data.partyId) {
-				const joinedPartyId = result.data.partyId;
-				console.log("PartyContext: Joined party successfully:", joinedPartyId);
-				setCurrentPartyId(joinedPartyId); // Trigger listener
-				setPartyStatus("pending"); // Assume pending initially
-				return joinedPartyId;
-			} else {
-				throw new Error(result.data.error || "Failed to join party.");
-			}
-		} catch (error) {
-			console.error("PartyContext: Error joining party:", error);
-			setPartyError(`Could not join party: ${error.message}`);
-			Alert.alert("Error", `Could not join party: ${error.message}`);
-		} finally {
 			setIsLoadingPartyAction(false);
 		}
 	};
@@ -617,63 +591,96 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	// --- Action: Invite to Party ---
-	const inviteToParty = async (inviteData) => {
-		// inviteData = { partyId: '...', inviteeUserId: '...' } OR { partyId: '...', generateCode: true }
-		if (!currentUserData?.uid || !inviteData?.partyId || isLoadingPartyAction) {
-			console.warn("inviteToParty prerequisites not met", {
-				uid: currentUserData?.uid,
-				partyId: inviteData?.partyId,
-				isLoading: isLoadingPartyAction,
-			});
-			// Optionally throw an error or return a specific failure object
-			return null; // Indicate failure or inability to proceed
+	const inviteToParty = useCallback(async () => {
+		const partyId = partyDetails?.id;
+		if (!isHost || !partyId) {
+			Alert.alert(
+				"Permission Denied",
+				"Only the party host can generate an invite code."
+			);
+			return null; // Return null to indicate failure
 		}
 
-		// Optional: Client-side check if current user is the host (backend also checks)
-		if (partyDetails?.hostUserId !== currentUserData.uid) {
-			Alert.alert("Error", "Only the host can send invites.");
-			return null;
-		}
-
-		console.log(
-			`PartyContext: Attempting invite for party ${inviteData.partyId}`,
-			inviteData
-		);
-		setIsLoadingPartyAction(true);
+		setIsLoadingAction(true);
 		setPartyError(null);
-
 		try {
-			// Call the cloud function, passing the necessary data
-			const result = await inviteToPartyFunction(inviteData);
+			console.log(
+				`PartyContext: Calling inviteToParty CF for party ${partyId}`
+			);
+			const result = await inviteToPartyFunction({ partyId });
 
-			if (result.data.success) {
-				console.log("PartyContext: Invite action successful.");
-				// If a code was generated, the function returns it
-				if (result.data.inviteCode) {
-					console.log("Generated invite code:", result.data.inviteCode);
-					// Return the result so the UI can display the code/expiry
-					return {
-						success: true,
-						inviteCode: result.data.inviteCode,
-						expiresAt: result.data.expiresAt,
-					};
-				}
-				// If inviting a specific user, just return success
-				return { success: true };
+			if (result.data.success && result.data.inviteCode) {
+				console.log(
+					`PartyContext: Invite code generated: ${result.data.inviteCode}`
+				);
+				return result.data.inviteCode; // Return the code to the UI
 			} else {
-				// Handle specific errors returned from the function
-				throw new Error(result.data.error || "Failed to process invite.");
+				throw new Error(
+					result.data.error ||
+						"Cloud function failed to generate an invite code."
+				);
 			}
 		} catch (error) {
-			console.error("PartyContext: Error inviting to party:", error);
-			setPartyError(`Invite failed: ${error.message}`);
-			Alert.alert("Invite Error", `Could not process invite: ${error.message}`);
+			console.error("PartyContext: Error calling inviteToParty CF:", error);
+			const message = error.message || "Could not generate an invite code.";
+			setPartyError(message);
+			Alert.alert("Invite Error", message);
 			return null; // Indicate failure
 		} finally {
-			setIsLoadingPartyAction(false);
+			setIsLoadingAction(false);
 		}
-	};
+	}, [
+		isHost,
+		partyDetails?.id,
+		setIsLoadingAction,
+		setPartyError,
+		inviteToPartyFunction,
+	]);
 	// --- End Invite Action ---
+	// --- Action: Join Party ---
+	const joinParty = useCallback(
+		async ({ inviteCode }) => {
+			if (!inviteCode) {
+				Alert.alert("Error", "An invite code is required.");
+				return false;
+			}
+
+			setIsLoadingAction(true);
+			setPartyError(null);
+			try {
+				console.log(
+					`PartyContext: Calling joinParty CF with code: ${inviteCode}`
+				);
+				const result = await joinPartyFunction({ inviteCode });
+
+				if (result.data.success && result.data.partyId) {
+					console.log(
+						`PartyContext: Successfully joined party ${result.data.partyId}.`
+					);
+					// The main context listener will automatically pick up the party details
+					// once the user is added to guestUserIds. We can also manually set it
+					// to speed up the UI transition.
+					setCurrentPartyId(result.data.partyId);
+					return true; // Indicate success
+				} else {
+					throw new Error(
+						result.data.error || "Cloud function failed to join party."
+					);
+				}
+			} catch (error) {
+				console.error("PartyContext: Error calling joinParty CF:", error);
+				const message =
+					error.message ||
+					"Could not join the party. Please check the code and try again.";
+				setPartyError(message);
+				Alert.alert("Join Failed", message);
+				return false; // Indicate failure
+			} finally {
+				setIsLoadingAction(false);
+			}
+		},
+		[setIsLoadingAction, setPartyError, joinPartyFunction, setCurrentPartyId]
+	);
 
 	/**
 	 * Adds an item to the shared party basket.
