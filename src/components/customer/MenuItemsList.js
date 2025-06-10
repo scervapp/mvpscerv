@@ -28,7 +28,8 @@ const MenuItemsList = ({
 	pips,
 	onConfirmAddItemToContext,
 	orderingMode = "individual",
-	partyContextData = null,
+
+	partyData,
 }) => {
 	// --- END LOG ---
 	const { currentUserData } = useContext(AuthContext);
@@ -44,7 +45,7 @@ const MenuItemsList = ({
 	const [showSpecialInstructionsModal, setShowSpecialInstructionsModal] =
 		useState(false);
 	const [selectedPip, setSelectedPip] = useState(null);
-	const [localPips, setLocalPips] = useState([]);
+	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	const isGuest = currentUserData.role === "guest";
 
@@ -55,6 +56,7 @@ const MenuItemsList = ({
 		}, 2000);
 	};
 
+	[];
 	useEffect(() => {
 		// Hide the tooltip automatically after 3 seconds
 		if (showGuestTooltip) {
@@ -62,42 +64,6 @@ const MenuItemsList = ({
 			return () => clearTimeout(timer);
 		}
 	}, [showGuestTooltip]);
-
-	useEffect(() => {
-		// Only fetch PIPs if in individual mode, user exists, and is not a guest.
-		// For party mode, the "Order For" dropdown in SelectedItemModal will use this same 'localPips' list.
-		if (currentUserData?.uid && !isGuest) {
-			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-			const unsubscribe = onSnapshot(
-				pipsRef,
-				(snapshot) => {
-					const pipsArray = snapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-
-					setLocalPips(pipsArray);
-				},
-				(error) => {
-					console.error(
-						"MenuItemsList: useEffect - Error fetching PIPs:",
-						error
-					);
-					setLocalPips([]); // Set to empty on error to prevent crashes
-				}
-			);
-
-			// Cleanup function for this useEffect
-			return () => {
-				unsubscribe();
-			};
-		} else {
-			console.log(
-				"MenuItemsList: useEffect - No user, or is guest, or not in individual mode. Clearing/not fetching local PIPs."
-			);
-			setLocalPips([]); // Clear pips if no user or is guest
-		}
-	}, [currentUserData?.uid, isGuest]); // Rerun if user or guest status changes
 
 	const handleSelectItem = (menuItem) => {
 		if (isGuest) {
@@ -110,122 +76,64 @@ const MenuItemsList = ({
 
 	// This function is passed to SelectedItemModal's onConfirm prop
 	const handleModalConfirm = async (itemDataFromModal) => {
-		// --- LOG THE EXACT OBJECT RECEIVED FROM SelectedItemModal ---
-		// console.log(
-		// 	"MenuItemsList: handleModalConfirm - Received itemDataFromModal:",
-		// 	JSON.stringify(itemDataFromModal, null, 2)
-		// );
-		// itemDataFromModal from SelectedItemModal contains:
-		// { selectedItem (core menu item), quantity, specialInstructions,
-		//   chosenPartyTargetName? (if party mode), individualPips? (if individual mode and modal handles it) }
+		setIsSubmitting(true);
 
+		// Start with a clean base object
 		const finalItemData = {
 			menuItemDetails: {
-				// Core details of the dish
-				id: itemDataFromModal.selectedItem.id, // This is the menuItemId
-				name: itemDataFromModal.selectedItem.name,
-				price: itemDataFromModal.selectedItem.price,
-				restaurantId: itemDataFromModal.selectedItem.restaurantId, // Keep original restaurantId
-				// Include any other fields from selectedItem your Cloud Functions might need
-				// e.g., category: itemDataFromModal.selectedItem.category, imageUri: itemDataFromModal.selectedItem.imageUri
-				...itemDataFromModal.selectedItem, // Spread the rest
+				...itemDataFromModal.selectedItem,
 			},
 			quantity: itemDataFromModal.quantity,
-			specialInstructions: itemDataFromModal.specialInstructions,
-			individualPips: [],
 		};
-		console.log(
-			"MenuItemsList (handleModalConfirm): Initialized finalItemData (before mode check):",
-			JSON.stringify(finalItemData, null, 2)
-		);
 
+		// Now, add properties based on the ordering mode.
 		if (orderingMode === "individual") {
-			// Log 3: The specific property from itemDataFromModal we are interested in
-			const targetsFromModal = itemDataFromModal.individualTargets;
+			finalItemData.individualPips = itemDataFromModal.individualTargets || [];
+			// For individual mode, general instructions might be on the top level
+			finalItemData.specialInstructions =
+				itemDataFromModal.specialInstructions || "";
+		} else if (orderingMode === "party") {
+			if (!partyData) {
+				console.error(
+					"MenuItemsList: In party mode, but 'partyData' prop is missing!"
+				);
+				Alert.alert("Error", "Party information is missing. Cannot add item.");
+				setIsModalVisible(false);
+				return;
+			}
 
-			finalItemData.individualPips = targetsFromModal; // Direct assignment
-		} else if (orderingMode === "party" && partyContextData) {
-			console.log(
-				"MenuItemsList (Party Mode): itemDataFromModal.chosenPartyTargetName is:",
-				itemDataFromModal.chosenPartyTargetName
-			);
+			// Add the nested partyContextData object that the parent screen expects
 			finalItemData.partyContextData = {
-				...partyContextData, // Includes partyId, orderingForUserId (current logged-in user)
-				// Override/set orderingForPipName based on modal selection
-				orderingForPipName: itemDataFromModal.chosenPartyTargetName, // This comes from SelectedItemModal
+				partyId: partyData.partyId,
+				currentUserId: partyData.currentUserId,
+				orderingForPipName: itemDataFromModal.chosenPartyTargetName,
 			};
+			// Add special instructions for the party target
+			finalItemData.specialInstructions =
+				itemDataFromModal.specialInstructions || "";
+		} else {
+			console.error("MenuItemsList: Unknown orderingMode:", orderingMode);
+			setIsModalVisible(false);
+			return;
 		}
 
 		try {
-			// Call the unified function passed from RestaurantDetailScreen
+			console.log(
+				"MenuItemsList: Calling onConfirmAddItemToContext with finalItemData:",
+				JSON.stringify(finalItemData, null, 2)
+			);
+			// Call the unified function passed from the parent screen (e.g., PartyMenuScreen)
 			await onConfirmAddItemToContext(finalItemData);
 			showSnackbar(
 				`Added to ${orderingMode === "party" ? "Party Order" : "Your Order"}!`
 			);
 		} catch (error) {
+			// This catch block is where your error was appearing
 			console.error("MenuItemsList: Error confirming item from modal:", error);
-			// Alert for error is likely handled by the context function called by onConfirmAddItemToContext
+			Alert.alert("Error", `Could not add item. (${error.message})`);
 		} finally {
+			setIsSubmitting(false);
 			setIsModalVisible(false); // Close modal after action
-		}
-	};
-
-	const handleAddToBasket = (menuItem) => {
-		setSelectedItem(menuItem);
-		setSelectedPIPs([]);
-		setIsModalVisible(true);
-	};
-
-	const handlePipSelection = (pipId) => {
-		setSelectedPIPs((prevSelectedPIPs) => {
-			if (prevSelectedPIPs.some((selectedPip) => selectedPip.id === pipId)) {
-				// If already selected, remove it
-				return prevSelectedPIPs.filter(
-					(selectedPip) => selectedPip.id !== pipId
-				);
-			} else {
-				// If not selected, add it along with the name
-				const selectedPip = pips.find((pip) => pip.id === pipId);
-				setSelectedPip(selectedPip);
-				setShowSpecialInstructionsModal(true); // Open the modal for special instructions
-				return [...prevSelectedPIPs, { id: pipId, name: selectedPip.name }];
-			}
-		});
-	};
-
-	const handleAddSpecialInstructions = () => {
-		// 1. Find the selected PIP in the selectedPIPs array
-		const pipIndex = selectedPIPs.findIndex((p) => p.id === selectedPip.id);
-
-		if (pipIndex !== -1) {
-			// 2. Update the specialInstructions for the selected PIP
-			const updatedPIPs = [...selectedPIPs];
-			updatedPIPs[pipIndex] = { ...updatedPIPs[pipIndex], specialInstructions };
-			setSelectedPIPs(updatedPIPs);
-		}
-
-		setShowSpecialInstructionsModal(false);
-		setSpecialInstructions("");
-	};
-
-	const closeModal = () => {
-		setIsModalVisible(false);
-	};
-	const confirmAddToBasket = async () => {
-		if (selectedItem) {
-			try {
-				addItemToBasket(
-					selectedItem.restaurantId,
-					selectedItem,
-					selectedPIPs,
-					specialInstructions
-				); // Pass selectedPIPs to addItemToBasket
-				showSnackbar();
-				closeModal();
-			} catch (error) {
-				console.error("Error adding to basket:", error);
-				Alert.alert("Error", "Failed to add item to basket. Please try again.");
-			}
 		}
 	};
 
@@ -386,10 +294,11 @@ const MenuItemsList = ({
 				<SelectedItemModal
 					visible={isModalVisible}
 					selectedItem={selectedItem}
-					pips={localPips} // Pass current user's local PIPs (for party mode "Order For" or individual mode PIPs)
+					pips={pips || []} // Pass current user's local PIPs (for party mode "Order For" or individual mode PIPs)
 					onClose={() => setIsModalVisible(false)}
 					onConfirm={handleModalConfirm} // This is the key callback
 					orderingMode={orderingMode}
+					isLoading={isSubmitting}
 					// restaurantId and partyContextData are not directly needed by modal if
 					// handleModalConfirm structures the data for onConfirmAddItemToContext
 				/>

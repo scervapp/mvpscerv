@@ -10,6 +10,7 @@ import {
 	getDoc,
 	updateDoc,
 	limit,
+	serverTimestamp,
 } from "firebase/firestore";
 import app, { db, functions } from "../config/firebase";
 import { Alert } from "react-native";
@@ -397,6 +398,75 @@ export const handlePartyCheckInRequest = async (
 	}
 };
 
+/**
+ * Creates a check-in document in Firestore specifically for a party.
+ * @param {string} restaurantId - The ID of the restaurant.
+ * @param {string} hostUserId - The Firebase UID of the host creating the check-in.
+ * @param {string} hostName - The name of the host.
+ * @param {number} partySize - The number of people in the party.
+ * @param {string} partyId - The ID of the party this check-in is associated with.
+ * @returns {Promise<{success: boolean, checkInId?: string, error?: string}>}
+ */
+const requestPartyTableCheckIn = async (
+	restaurantId,
+	hostUserId,
+	hostName,
+	partySize,
+	partyId
+) => {
+	console.log("requestPartyTableCheckIn utility called with:", {
+		restaurantId,
+		hostUserId,
+		hostName,
+		partySize,
+		partyId,
+	});
+
+	if (!restaurantId || !hostUserId || !hostName || !partySize || !partyId) {
+		console.error("requestPartyTableCheckIn: Missing required parameters.");
+		return {
+			success: false,
+			error: "Missing required information for party check-in.",
+		};
+	}
+	if (isNaN(parseInt(partySize, 10)) || parseInt(partySize, 10) <= 0) {
+		console.error("requestPartyTableCheckIn: Invalid party size.", {
+			partySize,
+		});
+		return { success: false, error: "Invalid party size provided." };
+	}
+
+	try {
+		const checkInRef = doc(collection(db, "checkIns")); // Create a new document reference with auto-generated ID
+		const checkInData = {
+			restaurantId: restaurantId,
+			userId: hostUserId, // The user performing the check-in (the host)
+			customerName: hostName, // Name of the host
+			numberOfPeople: parseInt(partySize, 10),
+			status: "REQUESTED", // Initial status for a new check-in
+			timestamp: serverTimestamp(), // Firestore server timestamp
+			type: "party", // Differentiate from individual check-ins
+			associatedPartyId: partyId, // Link to the party document
+			// You can add other relevant fields, e.g., tableNumber: null initially
+		};
+
+		await setDoc(checkInRef, checkInData);
+		console.log(
+			`requestPartyTableCheckIn: Party check-in document ${checkInRef.id} created for party ${partyId}.`
+		);
+		return { success: true, checkInId: checkInRef.id };
+	} catch (error) {
+		console.error(
+			"requestPartyTableCheckIn: Error creating party check-in document:",
+			error
+		);
+		return {
+			success: false,
+			error: error.message || "Could not request table for the party.",
+		};
+	}
+};
+
 // Function to transform basket data, grouping items by PIP and calculating totals
 // Transform basket data to group items by PIP
 // --- NOTE: This will likely need significant changes for the party feature ---
@@ -487,4 +557,5 @@ export {
 	handleCancelCheckIn,
 	useCheckInStatus,
 	transformBasketData,
+	requestPartyTableCheckIn,
 };

@@ -66,6 +66,7 @@ exports.joinParty = partyFunctions.joinParty;
 exports.leaveParty = partyFunctions.leaveParty;
 exports.cancelParty = partyFunctions.cancelParty;
 exports.activatePartyCheckIn = partyFunctions.activatePartyCheckIn;
+exports.cancelPartyCheckIn = partyFunctions.cancelPartyCheckIn;
 exports.addLocalPIPToParty = partyFunctions.addLocalPipToParty;
 exports.updateSharedBasketItemQuantity =
 	partyFunctions.updateSharedBasketItemQuantity;

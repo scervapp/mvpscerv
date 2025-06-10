@@ -1,5 +1,11 @@
 // screens/customer/PartyMenuScreen.js (NEW FILE)
-import React, { useState, useEffect, useContext, useCallback } from "react";
+import React, {
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+	useMemo,
+} from "react";
 import {
 	View,
 	Text,
@@ -19,31 +25,36 @@ import colors from "../../utils/styles/appStyles";
 const PartyMenuScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const {
-		restaurantId,
-		restaurantName,
-		partyContextData, // { partyId, orderingForUserId, orderingForPipName (initial) }
-		userPips, // Current user's local PIPs list
-	} = route.params;
+	const { partyId } = route.params;
 
-	const { addItemToPartyBasket, isLoadingParty } = useParty(); // isLoadingParty for context actions
+	const { addItemToPartyBasket, isLoadingParty, partyDetails, currentPartyId } =
+		useParty(); // isLoadingParty for context actions
 	const { currentUserData } = useContext(AuthContext);
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 
 	useEffect(() => {
-		navigation.setOptions({ title: `Menu: ${restaurantName}` });
+		// Update header with restaurant name from the live party details
+		if (partyDetails?.id === partyId && partyDetails?.restaurantName) {
+			navigation.setOptions({
+				title: `Add to Party @ ${partyDetails.restaurantName}`,
+			});
+		}
+	}, [partyId, partyDetails?.restaurantName, navigation]);
+
+	// This effect fetches the menu, but only if the context has loaded the correct party details.
+	useEffect(() => {
 		let isMounted = true;
 		const loadMenu = async () => {
-			if (!restaurantId) {
+			if (partyDetails?.id !== partyId || !partyDetails?.restaurantId) {
 				if (isMounted) setIsLoadingMenu(false);
 				Alert.alert("Error", "Restaurant ID is missing.");
 				return;
 			}
 			setIsLoadingMenu(true);
 			try {
-				const fetchedMenu = await fetchMenu(restaurantId);
+				const fetchedMenu = await fetchMenu(partyDetails.restaurantId);
 				if (isMounted) setMenuItems(fetchedMenu);
 			} catch (error) {
 				console.error("PartyMenuScreen: Error fetching menu:", error);
@@ -56,95 +67,100 @@ const PartyMenuScreen = () => {
 		return () => {
 			isMounted = false;
 		};
-	}, [restaurantId, restaurantName, navigation]);
+	}, [partyId, partyDetails.restaurantId]);
 
-	const handleConfirmAddItemToPartyBasket = useCallback(
+	const handleConfirmAddItemToPartyContext = useCallback(
 		async (itemDataFromModal) => {
-			// itemDataFromModal from SelectedItemModal contains:
-			// { selectedItem (core menu item), quantity, specialInstructions,
-			//   chosenPartyTargetName (if party mode from SelectedItemModal) }
+			// Log 1: Confirm this function is now being entered
 
-			if (!currentUserData?.uid) {
-				Alert.alert("Login Required", "Please log in to add items.");
+			if (!partyId || !currentUserData?.uid || !addItemToPartyBasket) {
+				console.error(
+					"PartyMenuScreen: Missing critical data for add item call.",
+					{
+						partyId,
+						uid: currentUserData?.uid,
+						funcExists: !!addItemToPartyBasket,
+					}
+				);
+				Alert.alert(
+					"Error",
+					"Cannot add item at this time. Party information is missing."
+				);
 				return;
 			}
-			if (!partyContextData || !partyContextData.partyId) {
-				Alert.alert("Error", "Party information is missing.");
-				return;
-			}
 
-			const { menuItemDetails, quantity } = itemDataFromModal; // menuItemDetails is the new structure
+			const {
+				menuItemDetails,
+				quantity,
+				specialInstructions,
+				partyContextData,
+			} = itemDataFromModal;
 
-			const updatedPartyContextFromList = itemDataFromModal.partyContextData;
+			const partyAddItemData = {
+				partyId: partyContextData.partyId,
+				orderingForUserId: partyContextData.currentUserId,
+				orderingForPipName: partyContextData.orderingForPipName, // Now correctly accessed from the nested object
+			};
 
+			const itemDetailsForPartyContext = {
+				id: menuItemDetails.id,
+				name: menuItemDetails.name,
+				price: menuItemDetails.price,
+				quantity,
+				specialInstructions,
+				restaurantId: menuItemDetails.restaurantId,
+			};
+
+			// Log 2: Log the data just before calling the context
 			console.log(
-				"===================+++++++++++++++++++++",
-				updatedPartyContextFromList
+				"PartyMenuScreen: About to call PartyContext.addItemToPartyBasket with partyData:",
+				JSON.stringify(partyAddItemData, null, 2)
 			);
 
-			if (
-				!updatedPartyContextFromList ||
-				typeof updatedPartyContextFromList.orderingForPipName === "undefined"
-			) {
-				console.error(
-					"PartyMenuScreen: orderingForPipName is missing from the data prepared by MenuItemsList.",
-					itemDataFromModal
-				);
-				Alert.alert("Error", "Could not determine who the item is for.");
-				return;
-			}
-
 			try {
-				const partyAddItemData = {
-					partyId: partyContextData.partyId,
-					orderingForUserId: partyContextData.orderingForUserId, // Logged-in user
-					orderingForPipName: updatedPartyContextFromList.orderingForPipName, // From SelectedItemModal
-				};
-				const itemDetailsForPartyContext = {
-					// Structure for PartyContext.addItemToPartyBasket
-					id: menuItemDetails.id, // This is the menuItemId
-					name: menuItemDetails.name,
-					price: menuItemDetails.price,
-					quantity: quantity,
-					specialInstructions: itemDataFromModal.specialInstructions, // From SelectedItemModal (per target)
-					// Include any other fields from menuItemDetails your CF needs
-					category: menuItemDetails.category,
-					imageUri: menuItemDetails.imageUri,
-					restaurantId: restaurantId,
-				};
-
-				const addedPartyItemId = await addItemToPartyBasket(
+				await addItemToPartyBasket(
 					partyAddItemData,
 					itemDetailsForPartyContext
 				);
-
-				if (addedPartyItemId) {
-					// MenuItemsList will show its own snackbar.
-					// You could navigate back to PartySessionScreen or allow adding more items.
-					// For now, let's assume they stay on the menu.
-				} else {
-					// Error alert likely handled by PartyContext
-					console.log(
-						"PartyMenuScreen: Failed to add item to party basket (context likely handled error)."
-					);
-				}
 			} catch (error) {
+				// Context function should handle alerts, but we can log here
 				console.error(
-					"PartyMenuScreen: Error in addItemToPartyBasket call:",
+					"PartyMenuScreen: Error returned from addItemToPartyBasket context call:",
 					error
 				);
-				Alert.alert("Error", "Could not add item to party basket.");
 			}
 		},
-		[currentUserData?.uid, partyContextData, addItemToPartyBasket]
-	);
+		[
+			partyId, // The ID from the route, this is stable
+			currentUserData?.uid, // The current user's ID
+			addItemToPartyBasket, // The function from the context
+		]
+	); // Dependency array ensures function is recreated only if these values change
 
-	if (isLoadingMenu && menuItems.length === 0) {
-		// Show loader only if menu is truly empty and loading
+	// Construct the list of people to order for from the current party members
+	const partyMembersForModal = useMemo(() => {
+		// Only provide the member list if the context's party matches this screen's party
+		if (partyDetails?.id !== partyId) return [];
+		return partyDetails.guestPips || [];
+	}, [partyId, partyDetails?.guestPips]);
+
+	// Show a loading indicator if the context is loading OR if the context's party ID
+	// does not match the one this screen was opened for.
+	if (isLoadingParty || currentPartyId !== partyId) {
 		return (
 			<SafeAreaView style={styles.centeredScreen}>
 				<ActivityIndicator size="large" color={colors.primary} />
-				<Text>Loading menu...</Text>
+				<Text style={styles.loadingText}>Syncing Party Details...</Text>
+			</SafeAreaView>
+		);
+	}
+
+	// Once context is synced, we might still be loading the menu
+	if (isLoadingMenu) {
+		return (
+			<SafeAreaView style={styles.centeredScreen}>
+				<ActivityIndicator size="large" color={colors.primary} />
+				<Text style={styles.loadingText}>Loading Menu...</Text>
 			</SafeAreaView>
 		);
 	}
@@ -154,14 +170,16 @@ const PartyMenuScreen = () => {
 			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 				<MenuItemsList
 					menuItems={menuItems}
-					isLoading={isLoadingMenu} // Let MenuItemsList handle its internal display based on this
-					pips={userPips} // Pass current user's PIPs for "Order For" dropdown in modal
-					onConfirmAddItemToContext={handleConfirmAddItemToPartyBasket}
-					orderingMode="party" // Explicitly set to party mode
-					partyContextData={partyContextData} // Pass the necessary party context
-					// restaurantId is not strictly needed by MenuItemsList if onConfirm handles everything,
-					// but SelectedItemModal might use it if it were for individual mode.
-					// For party mode, partyContextData.partyId is key.
+					isLoading={isLoadingMenu}
+					pips={partyMembersForModal} // <<< PASS THE CORRECT LIST HERE
+					onConfirmAddItemToContext={handleConfirmAddItemToPartyContext}
+					orderingMode="party"
+					partyData={{
+						partyId: partyId,
+						currentUserId: currentUserData.uid,
+					}}
+					// partyData prop is no longer needed as this screen gets it from context
+					// restaurantId is also not needed as it's derived from partyDetails
 				/>
 			</ScrollView>
 		</SafeAreaView>
@@ -179,6 +197,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		backgroundColor: colors.backgroundLight,
 	},
+	loadingText: { marginTop: 10, fontSize: 16, color: colors.textMedium },
 	// Add any other specific styles for PartyMenuScreen if needed
 });
 

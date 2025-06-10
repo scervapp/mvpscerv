@@ -33,6 +33,10 @@ export const PartyContext = createContext({
 	joinParty: async (inviteData) => {}, // inviteData can be { partyId } or { inviteCode }
 	leaveParty: async () => {},
 	activatePartyCheckIn: async (checkInDocId) => {},
+	cancelPartyCheckIn: async () => {
+		console.warn("Default cancelPartyCheckIn called");
+		return false;
+	},
 	inviteToParty: async () => {},
 	cancelParty: async () => {},
 	clearPartyState: () => {},
@@ -54,6 +58,8 @@ export const PartyProvider = ({ children }) => {
 	const [isCheckingExistingParty, setIsCheckingExistingParty] = useState(true);
 	const [isPartyDetailsListenerLoading, setIsPartyDetailsListenerLoading] =
 		useState(false);
+	const [isLoading, setIsLoading] = useState(false);
+
 	const [uiItemIsUpdating, setUiItemUpdateLoading] = useState(false);
 	// --- Cloud Function References ---
 	const createPartyFunction = httpsCallable(functions, "createParty");
@@ -62,7 +68,11 @@ export const PartyProvider = ({ children }) => {
 	const activatePartyCheckInFunction = httpsCallable(
 		functions,
 		"activatePartyCheckIn"
-	); // Assuming this exists or will be created
+	);
+	const cancelPartyCheckInFunction = httpsCallable(
+		functions,
+		"cancelPartyCheckIn"
+	);
 	const cancelPartyFunction = httpsCallable(functions, "cancelParty");
 	const inviteToPartyFunction = httpsCallable(functions, "inviteToParty");
 	const addLocalPIPToPartyFunction = httpsCallable(
@@ -123,50 +133,35 @@ export const PartyProvider = ({ children }) => {
 
 	// --- NEW: Effect to check for existing party on load ---
 	// Effect to check for existing party on load or when isCheckingExistingParty is true
+
 	useEffect(() => {
-		let isMounted = true;
+		// This effect will find an existing party when the app loads or the user changes.
+		// It will NOT set up a continuous listener itself, but rather find the ID to pass
+		// to the other effects which DO set up listeners.
 
-		if (!currentUserData?.uid || !isCheckingExistingParty || currentPartyId) {
-			// Don't check if:
-			// 1. No user
-			// 2. We are not in the "checking existing party" phase
-			// 3. A partyId is already loaded in the context (e.g., from create/join action or previous successful check)
-			if (!currentUserData?.uid || currentPartyId) {
-				// If no user, or party already found, checking is effectively done or not needed.
-				if (isCheckingExistingParty) setIsCheckingExistingParty(false);
-			}
-			console.log("PartyContext: Skipping initial party check. Conditions:", {
-				hasUser: !!currentUserData?.uid,
-				isChecking: isCheckingExistingParty,
-				hasPartyId: !!currentPartyId,
-			});
-			return;
-		}
+		const findAndSetInitialParty = async (userId) => {
+			setIsLoading(true);
+			console.log(
+				`PartyContext: Running findAndSetInitialParty for user: ${userId}`
+			);
 
-		console.log(
-			"PartyContext: Starting initial check for existing party for user:",
-			currentUserData.uid
-		);
-		// setIsLoadingPartyDetailsListenerLoading(true); // Indicate that we are now trying to determine party state
+			// Query 1: Find a party where the user is the host
+			const hostQuery = query(
+				collection(db, "parties"),
+				where("hostUserId", "==", userId),
+				where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
+				limit(1)
+			);
 
-		const checkForExistingParty = async (userId) => {
-			setPartyError(null);
+			// Query 2: Find a party where the user is a guest
+			const guestQuery = query(
+				collection(db, "parties"),
+				where("guestUserIds", "array-contains", userId),
+				where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
+				limit(1)
+			);
+
 			try {
-				const partiesRef = collection(db, "parties");
-				// Query for parties where user is host OR in guestUserIds, and status is pending or active
-				const hostQuery = query(
-					partiesRef,
-					where("hostUserId", "==", userId),
-					where("status", "in", ["pending", "active"]),
-					limit(1)
-				);
-				const guestQuery = query(
-					partiesRef,
-					where("guestUserIds", "array-contains", userId),
-					where("status", "in", ["pending", "active"]),
-					limit(1)
-				);
-
 				const [hostSnapshot, guestSnapshot] = await Promise.all([
 					getDocs(hostQuery),
 					getDocs(guestQuery),
@@ -175,162 +170,89 @@ export const PartyProvider = ({ children }) => {
 				let foundPartyDoc = null;
 				if (!hostSnapshot.empty) {
 					foundPartyDoc = hostSnapshot.docs[0];
+					console.log(
+						`PartyContext: Found user as HOST of party: ${foundPartyDoc.id}`
+					);
 				} else if (!guestSnapshot.empty) {
 					foundPartyDoc = guestSnapshot.docs[0];
+					console.log(
+						`PartyContext: Found user as GUEST in party: ${foundPartyDoc.id}`
+					);
 				}
 
-				if (isMounted && foundPartyDoc) {
-					const partyData = foundPartyDoc.data();
-					console.log(
-						`PartyContext: Initial check found existing party ${foundPartyDoc.id}, status: ${partyData.status}. Setting currentPartyId.`
-					);
-					setCurrentPartyId(foundPartyDoc.id); // This will trigger the partyDetails listener below
-					// Listeners will set details, status, and their loading flags.
-				} else if (isMounted) {
-					console.log(
-						"PartyContext: Initial check - No active/pending party found for user."
-					);
-					// No party found, ensure state is clear (though clearPartyState might have run if user was null initially)
-					if (currentPartyId) setCurrentPartyId(null); // Ensure it's null if no doc found
-					if (partyDetails) setPartyDetails(null);
-					if (partyStatus) setPartyStatus(null);
+				if (foundPartyDoc) {
+					setCurrentPartyId(foundPartyDoc.id);
+				} else {
+					console.log("PartyContext: No active party found for user.");
+					setCurrentPartyId(null);
 				}
 			} catch (error) {
-				console.error(
-					"PartyContext: Error during initial check for existing party:",
-					error
-				);
-				if (isMounted) setPartyError("Failed to check initial party status.");
+				console.error("PartyContext: Error finding initial party:", error);
+				setPartyError("Could not check for an existing party.");
+				setCurrentPartyId(null);
 			} finally {
-				if (isMounted) {
-					console.log(
-						"PartyContext: Finished initial party check. Setting isCheckingExistingParty to false."
-					);
-					setIsCheckingExistingParty(false);
-					// setIsLoadingPartyDetailsListenerLoading(false); // Loading for this phase is done
-				}
+				setIsLoading(false); // Finished checking
 			}
 		};
 
-		checkForExistingParty(currentUserData.uid);
-
-		return () => {
-			isMounted = false;
-		};
-	}, [currentUserData?.uid, isCheckingExistingParty, clearPartyState]);
-
-	// --- Listener for Party Document ---
-	// Listener for Party Document Details
-	useEffect(() => {
-		let unsubscribeParty = () => {};
-		if (currentPartyId && currentUserData?.uid) {
-			// Only listen if we have a party ID and a user
-			console.log(
-				`PartyContext: Setting up details listener for party: parties/${currentPartyId}`
-			);
-			setIsPartyDetailsListenerLoading(true);
-			setPartyError(null);
-			const partyRef = doc(db, "parties", currentPartyId);
-			unsubscribeParty = onSnapshot(
-				partyRef,
-				(docSnap) => {
-					if (docSnap.exists()) {
-						const data = docSnap.data();
-						console.log("PartyContext: PartyDetails snapshot received:", data);
-						setPartyDetails({ id: docSnap.id, ...data });
-						setPartyStatus(data.status);
-						// Check if current user is still a member (important if kicked or left via another device)
-						const userIsMember =
-							data.hostUserId === currentUserData.uid ||
-							data.guestUserIds?.includes(currentUserData.uid);
-						if (
-							!userIsMember &&
-							data.status !== "completed" &&
-							data.status !== "cancelled"
-						) {
-							console.log(
-								"PartyContext: User no longer member of active party, clearing state."
-							);
-							clearPartyState(); // This will set currentPartyId to null, stopping this listener.
-						}
-					} else {
-						console.log(
-							`PartyContext: Party ${currentPartyId} not found by listener or deleted.`
-						);
-						setPartyError("The party session was not found or has ended.");
-						clearPartyState(); // Party is gone, clear everything.
-					}
-					setIsPartyDetailsListenerLoading(false);
-				},
-				(err) => {
-					console.error(
-						"PartyContext: Error listening to party snapshot:",
-						err
-					);
-					setPartyError("Failed to sync party details.");
-					setIsPartyDetailsListenerLoading(false);
-				}
-			);
+		if (currentUserData?.uid) {
+			findAndSetInitialParty(currentUserData.uid);
 		} else {
-			// No currentPartyId, or no user, so clear details and ensure no loading state for details.
-			if (partyDetails) setPartyDetails(null);
-			if (partyStatus) setPartyStatus(null);
-			if (isPartyDetailsListenerLoading)
-				setIsPartyDetailsListenerLoading(false);
+			// No user, clear everything and stop loading.
+			setCurrentPartyId(null);
+			setPartyDetails(null);
+			setSharedBasketItems([]);
+			setIsLoading(false);
 		}
-		return () => {
-			console.log(
-				"PartyContext: Cleaning up party details listener for ID:",
-				currentPartyId
-			);
-			unsubscribeParty();
-		};
-	}, [currentPartyId, currentUserData?.uid, clearPartyState]); // Re-subscribe if partyId or user changes
+	}, [currentUserData?.uid]); // This effect runs only when the user changes.
+
+	// This effect listens to the SPECIFIC party document once its ID is known.
+	useEffect(() => {
+		if (!currentPartyId) return; // Do nothing if there's no party ID
+
+		console.log(
+			`PartyContext: Attaching listener to party document: ${currentPartyId}`
+		);
+		const partyRef = doc(db, "parties", currentPartyId);
+		const unsubscribePartyDetails = onSnapshot(partyRef, (docSnap) => {
+			if (docSnap.exists()) {
+				setPartyDetails({ id: docSnap.id, ...docSnap.data() });
+			} else {
+				// The party was deleted, the main listener above will handle clearing the state.
+				console.log(
+					`PartyContext: Party document ${currentPartyId} was deleted.`
+				);
+			}
+		});
+
+		return () => unsubscribePartyDetails();
+	}, [currentPartyId]); // Re-run only when the party ID changes
 
 	// Listener for Shared Basket
 	useEffect(() => {
-		let unsubscribeBasket = () => {};
-		if (
-			!isCheckingExistingParty &&
-			!isPartyDetailsListenerLoading &&
-			currentPartyId &&
-			(partyStatus === "pending" || partyStatus === "active")
-		) {
-			setIsLoadingBasket(true);
-			const sharedBasketRef = doc(db, "shared_baskets", currentPartyId);
-			console.log(
-				`PartyContext: Setting up listener for shared_baskets/${currentPartyId}`
-			);
-			unsubscribeBasket = onSnapshot(
-				sharedBasketRef,
-				(docSnap) => {
-					if (docSnap.exists()) {
-						setSharedBasketItems(docSnap.data().items || []);
-					} else {
-						setSharedBasketItems([]);
-					}
-					setIsLoadingBasket(false);
-				},
-				(error) => {
-					console.error(
-						"PartyContext: Error listening to shared basket:",
-						error
-					);
-					setSharedBasketItems([]);
-					setIsLoadingBasket(false);
-				}
-			);
-		} else {
-			if (sharedBasketItems.length > 0) setSharedBasketItems([]);
-			if (isLoadingBasket) setIsLoadingBasket(false);
+		if (!currentPartyId) {
+			setSharedBasketItems([]); // Clear basket if no party
+			return;
 		}
+
+		console.log(
+			`PartyContext: Attaching listener to shared basket: ${currentPartyId}`
+		);
+		const basketRef = doc(db, "shared_baskets", currentPartyId);
+		const unsubscribeBasket = onSnapshot(basketRef, (docSnap) => {
+			if (docSnap.exists()) {
+				setSharedBasketItems(docSnap.data().items || []);
+			} else {
+				console.warn(
+					`PartyContext: No shared basket found for party ${currentPartyId}.`
+				);
+				setSharedBasketItems([]);
+			}
+			setIsLoading(false); // Consider loading complete after basket is fetched/checked
+		});
+
 		return () => unsubscribeBasket();
-	}, [
-		currentPartyId,
-		partyStatus,
-		isCheckingExistingParty,
-		isPartyDetailsListenerLoading,
-	]); // Added more loading flags
+	}, [currentPartyId]); // Re-run only when the party ID changes
 	// --- END NEW Shared Basket Listener ---
 
 	// --- Action: Create Party ---
@@ -444,53 +366,181 @@ export const PartyProvider = ({ children }) => {
 		// No finally here, state cleared on success path
 	};
 
-	// --- Action: Activate Party on Check-in ---
-	const activatePartyCheckIn = async (checkInDocId) => {
-		if (
-			!currentUserData?.uid ||
-			!currentPartyId ||
-			partyStatus !== "pending" ||
-			isLoadingPartyAction
-		) {
-			console.log("PartyContext: activatePartyCheckIn prerequisites not met.", {
-				currentPartyId,
-				partyStatus,
-				isLoadingPartyAction,
-			});
-			return; // Only host of a pending party can activate
-		}
-		// Add check: Ensure current user is the host? (Backend function also checks)
-		if (partyDetails?.hostUserId !== currentUserData.uid) {
+	const isHost = partyDetails?.hostUserId === currentUserData?.uid; // Make sure partyDetails is up-to-date
+
+	const activatePartyCheckIn = useCallback(
+		async (checkInDocId) => {
+			// Log parameters received and current context state
 			console.log(
-				"PartyContext: Only the host can activate the party check-in."
+				`PartyContext: activatePartyCheckIn INVOKED. Received checkInDocId: "${checkInDocId}"`
 			);
-			return;
-		}
+			console.log(
+				`PartyContext: Current partyId from context state: "${currentPartyId}"`
+			);
+			console.log(`PartyContext: Is current user host? ${isHost}`); // Verify host status
+
+			// Ensure currentPartyId is valid and the user is the host (host check also in CF)
+			if (
+				!currentPartyId ||
+				typeof currentPartyId !== "string" ||
+				currentPartyId.trim() === ""
+			) {
+				Alert.alert("Error", "No active party selected to activate.");
+				console.error(
+					"PartyContext.activatePartyCheckIn: currentPartyId is invalid or missing.",
+					currentPartyId
+				);
+				return false;
+			}
+			if (
+				!checkInDocId ||
+				typeof checkInDocId !== "string" ||
+				checkInDocId.trim() === ""
+			) {
+				Alert.alert("Error", "Check-In ID is missing for party activation.");
+				console.error(
+					"PartyContext.activatePartyCheckIn: checkInDocId is invalid or missing.",
+					checkInDocId
+				);
+				return false;
+			}
+			// Client-side check for host status (Cloud Function will also verify)
+			if (!isHost) {
+				Alert.alert(
+					"Permission Denied",
+					"Only the party host can activate the check-in."
+				);
+				console.warn(
+					"PartyContext.activatePartyCheckIn: Non-host attempting to activate."
+				);
+				return false;
+			}
+
+			setIsLoadingPartyAction(true);
+			setPartyError(null);
+
+			const payloadToCloudFunction = {
+				partyId: currentPartyId, // Use the partyId from the context's state
+				checkInId: checkInDocId,
+			};
+
+			console.log(
+				"PartyContext: Payload for activatePartyCheckInFunction CF:",
+				JSON.stringify(payloadToCloudFunction, null, 2)
+			);
+
+			try {
+				const result = await activatePartyCheckInFunction(
+					payloadToCloudFunction
+				);
+
+				if (result.data.success) {
+					console.log(
+						"PartyContext: activatePartyCheckIn CF successful. Party status should update via listener."
+					);
+					// The partyDetails listener should pick up the status change to "AWAITING_TABLE"
+					// and the activeCheckInId.
+					return true;
+				} else {
+					// If CF returns { success: false, error: "..." }
+					console.error(
+						"PartyContext: Cloud function reported failure for party activation:",
+						result.data.error
+					);
+					Alert.alert(
+						"Activation Failed",
+						result.data.error || "Could not activate party check-in."
+					);
+					setPartyError(
+						result.data.error || "Could not activate party check-in."
+					);
+					return false;
+				}
+			} catch (error) {
+				// This catches errors from the httpsCallable itself or if CF throws an HttpsError
+				console.error(
+					"PartyContext: Error calling activatePartyCheckInFunction:",
+					error
+				);
+				const message =
+					error.message || "Could not activate party check-in link.";
+				setPartyError(message);
+				Alert.alert("Activation Error", message);
+				return false;
+			} finally {
+				setIsLoadingPartyAction(false);
+			}
+		},
+		[
+			currentPartyId,
+			isHost,
+			activatePartyCheckInFunction,
+			setIsLoadingPartyAction,
+			setPartyError,
+		]
+	);
+
+	// --- NEW cancelPartyCheckIn function ---
+	const cancelPartyCheckIn = useCallback(async () => {
+		// This function doesn't need arguments as it gets them from the context's state.
+		const partyId = partyDetails?.id;
+		const checkInId = partyDetails?.activeCheckInId;
+		const isHost = partyDetails?.hostUserId === currentUserData?.uid;
+		const currentStatus = partyDetails?.status;
 
 		console.log(
-			`PartyContext: Activating party ${currentPartyId} with checkIn ${checkInDocId}`
+			`PartyContext: Attempting to cancel check-in. PartyID: ${partyId}, CheckInID: ${checkInId}, IsHost: ${isHost}, Status: ${currentStatus}`
 		);
-		setIsLoadingPartyAction(true); // Use general loading or a specific one?
+
+		if (
+			!isHost ||
+			currentStatus !== "AWAITING_TABLE" ||
+			!partyId ||
+			!checkInId
+		) {
+			Alert.alert(
+				"Cannot Cancel",
+				"This check-in request cannot be cancelled at this time."
+			);
+			console.error("PartyContext.cancelPartyCheckIn: Pre-conditions not met.");
+			return false;
+		}
+
+		setIsLoadingPartyAction(true);
 		setPartyError(null);
+
 		try {
-			const result = await activatePartyCheckInFunction({
-				partyId: currentPartyId,
-				checkInDocId: checkInDocId,
-			});
+			const result = await cancelPartyCheckInFunction({ partyId, checkInId });
 			if (result.data.success) {
-				console.log("PartyContext: Party activated successfully.");
-				// State (status, checkInId) will update via the listener
+				console.log(
+					"PartyContext: Check-in cancellation successful. Listener will update UI."
+				);
+				// The party listener will automatically see the status change back to 'pending'.
+				return true;
 			} else {
-				throw new Error(result.data.error || "Failed to activate party.");
+				throw new Error(
+					result.data.error || "Cloud function failed to cancel check-in."
+				);
 			}
 		} catch (error) {
-			console.error("PartyContext: Error activating party:", error);
-			setPartyError(`Could not activate party: ${error.message}`);
-			Alert.alert("Error", `Could not activate party: ${error.message}`);
+			console.error(
+				"PartyContext: Error calling cancelPartyCheckIn CF:",
+				error
+			);
+			const message = error.message || "Could not cancel the check-in request.";
+			setPartyError(message);
+			Alert.alert("Cancellation Failed", message);
+			return false;
 		} finally {
 			setIsLoadingPartyAction(false);
 		}
-	};
+	}, [
+		partyDetails,
+		currentUserData?.uid,
+		setIsLoadingPartyAction,
+		setPartyError,
+		cancelPartyCheckInFunction,
+	]);
 
 	// --- NEW Action: Cancel Party (for Host) ---
 	const cancelParty = async () => {
@@ -520,53 +570,51 @@ export const PartyProvider = ({ children }) => {
 		// No finally needed
 	};
 
-	const addLocalPIPToParty = async (partyId, localPipId, localPipName) => {
-		if (
-			!currentUserData?.uid ||
-			!partyId ||
-			!localPipId ||
-			!localPipName ||
-			isLoadingPartyAction
-		) {
-			console.warn("addLocalPipToParty prerequisites not met");
-			return null; // Indicate failure
-		}
-
-		// Optional: Client-side host check (backend also checks)
-		if (partyDetails?.hostUserId !== currentUserData.uid) {
-			Alert.alert("Error", "Only the host can add guests.");
-			return null;
-		}
-
-		console.log(
-			`PartyContext: Attempting to add local PIP ${localPipId} (${localPipName}) to party ${partyId}`
-		);
-		setIsLoadingPartyAction(true);
-		setPartyError(null);
-
-		try {
-			const result = await addLocalPipToPartyFunction({
-				partyId,
-				localPipId,
-				localPipName,
-			});
-
-			if (result.data.success) {
-				console.log("PartyContext: Local PIP added successfully.");
-				// The party listener will update the UI with the new guest
-				return { success: true };
-			} else {
-				throw new Error(result.data.error || "Failed to add local PIP.");
+	const addLocalPIPToParty = useCallback(
+		async (partyId, pipsToAdd) => {
+			// pipsToAdd is an array of {id, name}
+			if (!partyId || !pipsToAdd || pipsToAdd.length === 0) {
+				console.warn(
+					"PartyContext.addLocalPIPsToParty: Prerequisites not met (missing partyId or pipsToAdd)."
+				);
+				return false;
 			}
-		} catch (error) {
-			console.error("PartyContext: Error adding local PIP:", error);
-			setPartyError(`Add local PIP failed: ${error.message}`);
-			Alert.alert("Error", `Could not add local PIP: ${error.message}`);
-			return null; // Indicate failure
-		} finally {
-			setIsLoadingPartyAction(false);
-		}
-	};
+
+			setIsLoading(true);
+			setPartyError(null);
+			try {
+				console.log(
+					`PartyContext: Calling addLocalPIPsToParty CF for party ${partyId}`
+				);
+				const result = await addLocalPIPToPartyFunction({
+					partyId,
+					pipsToAdd,
+				});
+				if (result.data.success) {
+					console.log(
+						"PartyContext: Members added successfully. Listener will update UI."
+					);
+					return true;
+				} else {
+					throw new Error(
+						result.data.error || "Cloud function failed to add members."
+					);
+				}
+			} catch (error) {
+				console.error(
+					"PartyContext: Error calling addLocalPIPsToParty CF:",
+					error
+				);
+				const message = error.message || "Could not add members to the party.";
+				setPartyError(message);
+				Alert.alert("Failed to Add Members", message);
+				return false;
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[addLocalPIPToPartyFunction, setIsLoading, setPartyError]
+	);
 
 	// --- Action: Invite to Party ---
 	const inviteToParty = async (inviteData) => {
@@ -635,6 +683,8 @@ export const PartyProvider = ({ children }) => {
 	 */
 	const addItemToPartyBasket = async (partyContextData, menuItemDetails) => {
 		const { partyId, orderingForUserId, orderingForPipName } = partyContextData;
+
+		console.log("Party Context Add Item To Basket Called");
 
 		if (!currentUserData?.uid) {
 			Alert.alert("Error", "You must be logged in to add items.");
@@ -848,17 +898,15 @@ export const PartyProvider = ({ children }) => {
 		currentPartyId,
 		partyStatus,
 		partyDetails,
-		isLoadingParty:
-			isLoadingPartyAction ||
-			isCheckingExistingParty ||
-			isPartyDetailsListenerLoading ||
-			isLoadingBasket,
+		isLoadingParty: isLoading,
+
 		partyError,
 		sharedBasketItems,
 		createParty,
 		joinParty,
 		leaveParty,
 		activatePartyCheckIn,
+		cancelPartyCheckIn,
 		clearPartyState,
 		inviteToParty,
 		cancelParty,

@@ -91,6 +91,7 @@ const SelectedItemModal = ({
 	pips, // Current user's local PIP list
 	onConfirm,
 	orderingMode = "individual",
+	isLoading = false,
 }) => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
@@ -109,8 +110,6 @@ const SelectedItemModal = ({
 	const [editingTargetForInstructions, setEditingTargetForInstructions] =
 		useState(null); // Stores { id, name, currentInstructions }
 
-	const MYSELF_ID = currentUserData?.uid || "currentUser"; // Unique ID for "Myself"
-
 	useEffect(() => {
 		if (visible && selectedItem) {
 			setQuantity(1);
@@ -118,7 +117,7 @@ const SelectedItemModal = ({
 			if (orderingMode === "party" && currentUserData) {
 				setOrderTargets([
 					{
-						id: MYSELF_ID,
+						id: currentUserData.uid,
 						name: currentUserData.firstName || "Myself",
 						specialInstructions: "",
 					},
@@ -127,7 +126,7 @@ const SelectedItemModal = ({
 				setOrderTargets([]);
 			}
 		}
-	}, [visible, selectedItem, orderingMode, currentUserData, MYSELF_ID]);
+	}, [visible, selectedItem, orderingMode, currentUserData]);
 
 	const openInstructionModalForTarget = (target) => {
 		// target is {id, name}
@@ -177,67 +176,60 @@ const SelectedItemModal = ({
 	};
 
 	const handleConfirmPress = () => {
+		console.log("Handle Confirm Press Triggered");
 		if (!selectedItem) return;
 
-		if (orderingMode === "individual" && orderTargets.length === 0) {
+		// Validation for target selection
+		if (
+			(orderingMode === "party" || orderingMode === "individual") &&
+			orderTargets.length === 0
+		) {
+			// In individual mode, if no PIPs are selected, we can assume it's for "Myself".
+			if (orderingMode === "individual" && currentUserData) {
+				const myselfTarget = {
+					id: currentUserData.uid,
+					name: currentUserData.firstName || "Myself",
+					specialInstructions: "", // Assuming no special instructions if not explicitly entered
+				};
+				// Call onConfirm with the constructed data for the current user
+				onConfirm({
+					selectedItem: { ...selectedItem },
+					quantity,
+					individualTargets: [myselfTarget],
+				});
+				return;
+			}
 			Alert.alert(
 				"Order For Whom?",
-				"Please select at least one person (Yourself or a PIP) for this item."
-			);
-			return;
-		}
-		if (orderingMode === "party" && orderTargets.length === 0) {
-			Alert.alert(
-				"Order For Whom?",
-				"Please select who this item is for in the party."
+				"Please select at least one person for this item."
 			);
 			return;
 		}
 
-		const itemDataForContext = {
+		// Construct the data object to pass back to the parent (MenuItemsList)
+		const dataToConfirm = {
 			selectedItem: { ...selectedItem },
-			quantity, // This quantity will apply to EACH selected target if multiple in individual mode
-			// Or to the single target in party mode.
-			// specialInstructions are now part of the targets
+			quantity,
 		};
 
 		if (orderingMode === "individual") {
-			itemDataForContext.individualTargets = orderTargets; // Array of {id, name, specialInstructions}
+			dataToConfirm.individualTargets = orderTargets;
 		} else if (orderingMode === "party") {
-			// In party mode, orderTargets should contain only one item
 			const partyTarget = orderTargets[0];
-			itemDataForContext.chosenPartyTargetName = partyTarget.name;
-			itemDataForContext.specialInstructions = partyTarget.specialInstructions;
-			console.log(
-				"SelectedItemModal (Party Mode): chosenPartyTargetName being set to:",
-				partyTarget.name
-			);
+			dataToConfirm.chosenPartyTargetName = partyTarget.name;
+			dataToConfirm.specialInstructions = partyTarget.specialInstructions;
+			// Call the onConfirm prop with the data object
+			onConfirm(dataToConfirm);
 		}
-		console.log(
-			"SelectedItemModal: Calling onConfirm with itemDataForContext:",
-			JSON.stringify(itemDataForContext, null, 2)
-		);
-		onConfirm(itemDataForContext);
 	};
-
 	if (!selectedItem) return null;
 
 	// Options for "Order For" in individual mode (Myself + PIPs)
-	const individualOrderForOptions = currentUserData
-		? [
-				{ id: MYSELF_ID, name: currentUserData.firstName || "Myself" },
-				...(pips || []),
-		  ]
-		: [...(pips || [])];
 
 	// Options for "Order For" in party mode (Myself + User's local PIPs)
 	// This assumes 'pips' prop contains the current user's local PIPs
-	const partyOrderForOptions = currentUserData
-		? [
-				{ id: MYSELF_ID, name: currentUserData.firstName || "Myself" },
-				...(pips || []),
-		  ]
-		: [...(pips || [])];
+
+	const displayOptions = pips || [];
 
 	return (
 		<Modal
@@ -295,21 +287,51 @@ const SelectedItemModal = ({
 								<Text style={styles.sectionTitle}>
 									Order this item for (in party):
 								</Text>
-								{partyOrderForOptions.map((option) => {
-									const isSelected = orderTargets[0]?.id === option.id; // In party mode, orderTargets has one item
+								{displayOptions.map((option) => {
+									const uniqueKey = option.userId || option.localPipId;
+									const isSelected = orderTargets[0]?.id === uniqueKey; // In party mode, orderTargets has one item
+									const targetObject = { id: uniqueKey, name: option.name };
 									return (
-										<TouchableOpacity
-											key={option.id}
-											style={styles.pipCheckboxItem}
-											onPress={() => handlePartyModeTargetSelection(option)}
-										>
-											<MaterialCommunityIcons
-												name={isSelected ? "radiobox-marked" : "radiobox-blank"}
-												size={24}
-												color={colors.primary}
-											/>
-											<Text style={styles.pipNameText}>{option.name}</Text>
-										</TouchableOpacity>
+										<View key={uniqueKey} style={styles.pipEntryContainer}>
+											{/* Step 1: Tapping here selects the person by calling handlePartyModeTargetSelection */}
+											<TouchableOpacity
+												style={styles.pipCheckboxItem}
+												onPress={() =>
+													handlePartyModeTargetSelection(targetObject)
+												}
+											>
+												<MaterialCommunityIcons
+													name={
+														isSelected ? "radiobox-marked" : "radiobox-blank"
+													}
+													size={24}
+													color={colors.primary}
+												/>
+												<Text style={styles.pipNameText}>{option.name}</Text>
+											</TouchableOpacity>
+
+											{/* Step 2: This button appears only if the person is selected */}
+											{isSelected && (
+												// Tapping THIS button calls openInstructionModalForTarget
+												<TouchableOpacity
+													onPress={() =>
+														openInstructionModalForTarget(orderTargets[0])
+													}
+													style={styles.editInstructionsButton}
+												>
+													<Ionicons
+														name="pencil-outline"
+														size={20}
+														color={colors.primary}
+													/>
+													<Text style={styles.editInstructionsText}>
+														{orderTargets[0].specialInstructions
+															? "Edit Notes"
+															: "Add Notes"}
+													</Text>
+												</TouchableOpacity>
+											)}
+										</View>
 									);
 								})}
 								{/* Input for party mode target's special instructions */}
@@ -355,7 +377,7 @@ const SelectedItemModal = ({
 									Manage Your PIPs
 								</Button>
 
-								{individualOrderForOptions.map((target) => {
+								{displayOptions.map((target) => {
 									const currentSelection = orderTargets.find(
 										(t) => t.id === target.id
 									);
@@ -397,7 +419,7 @@ const SelectedItemModal = ({
 										</View>
 									);
 								})}
-								{individualOrderForOptions.length === 0 && (
+								{displayOptions.length === 0 && (
 									<Text style={styles.noPipsText}>
 										You can add items for yourself.
 									</Text>
@@ -424,6 +446,8 @@ const SelectedItemModal = ({
 								{ backgroundColor: colors.primary },
 							]}
 							labelStyle={{ color: colors.textOnPrimaryBrand, fontSize: 16 }}
+							disabled={isLoading}
+							loading={isLoading}
 						>
 							Add {quantity} to{" "}
 							{orderingMode === "party" ? "Party Basket" : "My Basket"}
@@ -649,18 +673,32 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginHorizontal: 15,
 	},
+	pipInstructionModalContent: {
+		backgroundColor: colors.surfaceWhite,
+		padding: 20,
+		borderRadius: 10,
+		width: "90%", // Use a percentage for better responsiveness
+		alignItems: "center",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5,
+	},
 	specialInstructionsInput: {
+		width: "100%", // Take full width of its container
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 		backgroundColor: colors.backgroundLight,
 		borderRadius: 8,
 		paddingHorizontal: 12,
 		paddingVertical: 10,
-		minHeight: 80,
-		textAlignVertical: "top",
 		fontSize: 15,
 		color: colors.textDark,
 		marginTop: 5,
+		// --- THE FIX ---
+		height: 100, // Give the input a fixed height instead of minHeight
+		textAlignVertical: "top", // Ensure text starts from the top in multiline input
 	},
 	helpText: {
 		fontSize: 13,

@@ -25,6 +25,11 @@ import { AuthContext } from "../../context/authContext";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import OrderItemCard from "../../components/customer/OrderItemCard";
+import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";
+import * as Yup from "yup";
+import { requestPartyTableCheckIn } from "../../utils/customerUtils";
+import AddMembersModal from "../../components/customer/Party/AddMembersModal";
+import { Button } from "react-native-paper";
 
 /**
  * A reusable button component featuring an icon and text underneath.
@@ -84,6 +89,7 @@ const PartySessionScreen = () => {
 		partyDetails,
 		isLoadingParty, // True when context is loading party details for currentPartyId
 		partyError,
+		cancelPartyCheckIn,
 		sharedBasketItems, // Needed for the active party view
 		// --- Context Actions ---
 		// Assuming these functions exist in PartyContext and handle backend + context state updates:
@@ -102,8 +108,24 @@ const PartySessionScreen = () => {
 	const [uiError, setUiError] = useState(null);
 	const [isMembersModalVisible, setIsMembersModalVisible] = useState(false);
 	const [isActionsModalVisible, setIsActionsModalVisible] = useState(false);
+	const [isAddMembersModalVisible, setIsAddMembersModalVisible] =
+		useState(false);
 	const [userPips, setUserPips] = useState([]);
+	const [hostPipsList, setHostPipsList] = useState([]);
 	const [updatingItemId, setUpdatingItemId] = useState(null);
+	const [isPartyCheckInModalVisible, setIsPartyCheckInModalVisible] =
+		useState(false);
+	const [isProcessingPartyCheckIn, setIsProcessingPartyCheckIn] =
+		useState(false);
+	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+
+	const partyCheckInValidationSchema = Yup.object().shape({
+		partySize: Yup.number()
+			.min(1, "Party must have at least 1 person.")
+			.max(50, "Party size cannot exceed 50.") // Example max
+			.required("Party size is required.")
+			.typeError("Must be a valid number."),
+	});
 
 	useEffect(() => {
 		if (currentUserData?.uid && currentUserData.role !== "guest") {
@@ -118,6 +140,30 @@ const PartySessionScreen = () => {
 			setUserPips([]);
 		}
 	}, [currentUserData?.uid]);
+
+	useEffect(() => {
+		// Fetch only if the "Add Members" modal is about to be opened by the host
+		if (isHost && isAddMembersModalVisible) {
+			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
+			const unsubscribe = onSnapshot(pipsRef, (snapshot) => {
+				const pipsArray = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setHostPipsList(pipsArray);
+			});
+			return () => unsubscribe();
+		}
+	}, [isHost, isAddMembersModalVisible, currentUserData?.uid]);
+
+	const calculatedInitialPartySize = useMemo(() => {
+		if (!partyDetails) return 1; // Default if no details
+		// Assuming guestPips includes all guests, and host is one person
+		return (
+			(partyDetails.guestPips?.length || 0) +
+				(partyDetails.hostUserId ? 1 : 0) || 1
+		);
+	}, [partyDetails]);
 
 	// Derived state
 	const isHost =
@@ -218,14 +264,84 @@ const PartySessionScreen = () => {
 		);
 	};
 
-	const handleActivateCheckInAction = async () => {
-		setIsActionsModalVisible(false);
+	const handleOpenPartyCheckInModal = () => {
+		setIsActionsModalVisible(false); // Close actions modal if open
+		if (isHost && partyDetails?.status === "pending") {
+			setIsPartyCheckInModalVisible(true); // Open the party check-in modal
+		} else {
+			Alert.alert(
+				"Info",
+				"Only the host can activate a pending party by checking in."
+			);
+		}
+	};
+
+	const handleCancelCheckInRequest = () => {
+		setIsActionsModalVisible(false); // Close the actions modal first
 		Alert.alert(
-			"Activate Party",
-			"Host needs to check-in at the restaurant to activate the party."
+			"Cancel Check-In Request",
+			"Are you sure you want to cancel your request for a table? This will revert the party to a 'pending' state.",
+			[
+				{ text: "Don't Cancel", style: "cancel" },
+				{
+					text: "Yes, Cancel",
+					style: "destructive",
+					onPress: async () => {
+						// Call the context function. It already handles loading states and alerts.
+						await cancelPartyCheckIn();
+					},
+				},
+			]
 		);
-		// Potentially open RestaurantDetailScreen for the host to check-in or a dedicated check-in modal
-		// await activatePartyCheckIn(checkInIdFromHost);
+	};
+
+	const handleSubmitPartyCheckIn = async (values) => {
+		// values will contain { partySize } from the PartyCheckInModal's Formik
+		if (!partyDetails || !currentUserData) {
+			Alert.alert("Error", "Missing party or user information.");
+			setIsPartyCheckInModalVisible(false); // Close modal on error
+			return;
+		}
+		setIsProcessingPartyCheckIn(true);
+		try {
+			const checkInResult = await requestPartyTableCheckIn(
+				partyDetails.restaurantId,
+				currentUserData.uid,
+				currentUserData.firstName || "Party Host",
+				values.partySize,
+				currentPartyId
+			);
+
+			if (checkInResult.success && checkInResult.checkInId) {
+				const activationSuccess = await activatePartyCheckIn(
+					checkInResult.checkInId
+				);
+				if (activationSuccess) {
+					Alert.alert(
+						"Party Activated!",
+						"Your party is now active and checked in."
+					);
+				}
+				// Error alerts for activation failure are likely handled within activatePartyCheckIn context function
+			} else {
+				Alert.alert(
+					"Check-In Failed",
+					checkInResult.error || "Could not request a table for the party."
+				);
+			}
+		} catch (error) {
+			console.error(
+				"PartySessionScreen: Error during party check-in process:",
+				error
+			);
+			Alert.alert(
+				"Error",
+				"An unexpected error occurred during party check-in."
+			);
+		} finally {
+			setIsProcessingPartyCheckIn(false);
+			setIsPartyCheckInModalVisible(false); // Close modal regardless of success/failure
+		}
 	};
 	const handleInviteAction = () => {
 		setIsActionsModalVisible(false);
@@ -299,6 +415,38 @@ const PartySessionScreen = () => {
 			setUpdatingItemId(null);
 		}
 	};
+
+	const handleAddMembersToParty = async (pipsToAdd) => {
+		if (!currentPartyId || pipsToAdd.length === 0) return;
+
+		// Use a local loading state for the button in AddMembersModal
+		setIsLoadingMembers(true);
+		try {
+			console.log(
+				`PartySessionScreen: Calling context.addLocalPIPsToParty for ${pipsToAdd.length} members.`
+			);
+			// Call the correct, new context function
+			const success = await addLocalPIPToParty(currentPartyId, pipsToAdd);
+			if (success) {
+				Alert.alert(
+					"Success",
+					`${pipsToAdd.length} member(s) added to the party.`
+				);
+				setIsAddMembersModalVisible(false); // Close the modal on success
+			}
+			// Errors are handled and alerted by the context function
+		} catch (error) {
+			// This catch is for unexpected client-side errors during the call
+			console.error(
+				"PartySessionScreen: Error in handleAddMembersToParty:",
+				error
+			);
+			Alert.alert("Error", "An unexpected error occurred.");
+		} finally {
+			setIsLoadingMembers(false);
+		}
+	};
+
 	// --- END OF FUNCTION DEFINITION ---
 
 	const groupedBasket = useMemo(() => {
@@ -353,16 +501,17 @@ const PartySessionScreen = () => {
 			Alert.alert("Error", "Party, restaurant, or user details are missing.");
 			return;
 		}
+
+		if (!currentPartyId) {
+			Alert.alert(
+				"Error",
+				"You are not currently in a party or it's still loading."
+			);
+			return;
+		}
 		navigation.navigate("PartyMenu", {
 			// Navigate to the new PartyMenuScreen route
-			restaurantId: partyDetails.restaurantId,
-			restaurantName: partyDetails.restaurantName,
-			partyContextData: {
-				partyId: currentPartyId,
-				orderingForUserId: currentUserData.uid,
-				orderingForPipName: currentUserData.firstName || "Myself", // Initial target
-			},
-			userPips: userPips, // Pass the current user's local PIPs
+			partyId: currentPartyId,
 		});
 	};
 
@@ -412,6 +561,20 @@ const PartySessionScreen = () => {
 	};
 
 	// --- Render Logic ---
+	const renderMemberItem = ({ item }) => {
+		const isUserTheHost = item.userId === partyDetails.hostUserId;
+		return (
+			<View style={styles.memberItemContainer}>
+				<Ionicons
+					name={isUserTheHost ? "person-circle" : "person-circle-outline"}
+					size={28}
+					color={isUserTheHost ? colors.primary : colors.textMedium}
+				/>
+				<Text style={styles.memberItemText}>{item.name}</Text>
+				{isUserTheHost && <Text style={styles.hostLabel}>(Host)</Text>}
+			</View>
+		);
+	};
 
 	// State 1: Context is loading details for an *existing* party reference
 	if (isLoadingParty && currentPartyId && !partyDetails) {
@@ -600,34 +763,22 @@ const PartySessionScreen = () => {
 							<Text style={styles.modalTitle}>Party Members</Text>
 							<FlatList
 								data={partyDetails.guestPips || []}
-								keyExtractor={(pip) =>
-									pip.userId || pip.localPipId || Math.random().toString()
-								}
-								renderItem={({ item }) => (
-									<View style={styles.memberItemContainer}>
-										<Ionicons
-											name={
-												item.userId === partyDetails.hostUserId
-													? "person-circle"
-													: "person-circle-outline"
-											}
-											size={24}
-											color={
-												item.userId === partyDetails.hostUserId
-													? colors.primary
-													: colors.textMedium
-											}
-										/>
-										<Text style={styles.memberItemText}>
-											{item.name}{" "}
-											{item.userId === partyDetails.hostUserId && "(Host)"}
-										</Text>
-									</View>
-								)}
-								ListEmptyComponent={
-									<Text style={styles.modalEmptyText}>Just you so far!</Text>
-								}
+								keyExtractor={(pip) => pip.userId || pip.localPipId}
+								renderItem={renderMemberItem}
 							/>
+							{isHost && (
+								<Button
+									icon="account-plus-outline"
+									mode="contained"
+									onPress={() => {
+										setIsMembersModalVisible(false); // Close current modal
+										setIsAddMembersModalVisible(true); // Open the new one
+									}}
+									style={styles.addMemberButton}
+								>
+									Add Members from PIPs
+								</Button>
+							)}
 							<TouchableOpacity
 								style={styles.modalCloseButton}
 								onPress={() => setIsMembersModalVisible(false)}
@@ -637,6 +788,14 @@ const PartySessionScreen = () => {
 						</TouchableOpacity>
 					</TouchableOpacity>
 				</Modal>
+				<AddMembersModal
+					isVisible={isAddMembersModalVisible}
+					onClose={() => setIsAddMembersModalVisible(false)}
+					onConfirmAdd={handleAddMembersToParty}
+					hostPips={hostPipsList}
+					partyMembers={partyDetails.guestPips || []}
+					isLoading={isLoadingMembers}
+				/>
 
 				<Modal
 					transparent={true}
@@ -654,6 +813,18 @@ const PartySessionScreen = () => {
 							activeOpacity={1}
 						>
 							<Text style={styles.modalTitle}>Party Actions</Text>
+							{isHost && partyDetails.status === "AWAITING_TABLE" && (
+								<IconTextButton
+									text="Cancel Check-In Request"
+									iconName="close-circle-outline"
+									iconSet="MaterialCommunityIcons"
+									onPress={handleCancelCheckInRequest}
+									style={styles.modalActionButton}
+									textStyle={styles.modalActionButtonText}
+									color={colors.statusDanger}
+									disabled={isLoadingParty} // Disable if any party action is happening
+								/>
+							)}
 							{isHost && (partyIsPending || partyIsActive) && (
 								<IconTextButton
 									text="Invite Guests"
@@ -666,13 +837,14 @@ const PartySessionScreen = () => {
 							)}
 							{isHost && partyIsPending && (
 								<IconTextButton
-									text="Activate Party"
-									iconName="location-check"
+									text="Activate Party Check-In"
+									iconName="location-enter"
 									iconSet="MaterialCommunityIcons"
-									onPress={handleActivateCheckInAction}
+									onPress={handleOpenPartyCheckInModal} // THIS OPENS THE PartyCheckInModal
 									style={styles.modalActionButton}
 									textStyle={styles.modalActionButtonText}
 									color={colors.primary}
+									disabled={isProcessingPartyCheckIn || isLoadingParty}
 								/>
 							)}
 							{isHost && partyIsPending ? (
@@ -690,7 +862,7 @@ const PartySessionScreen = () => {
 									text="Leave Party"
 									iconName="exit-outline"
 									color={colors.statusDanger}
-									onPress={handleLeavePartyAction}
+									onPress={handleLeaveParty}
 									style={styles.modalActionButton}
 									textStyle={styles.modalActionButtonText}
 								/>
@@ -707,6 +879,14 @@ const PartySessionScreen = () => {
 						</TouchableOpacity>
 					</TouchableOpacity>
 				</Modal>
+				<PartyCheckInModal
+					isVisible={isPartyCheckInModalVisible}
+					onClose={() => setIsPartyCheckInModalVisible(false)}
+					onSubmit={handleSubmitPartyCheckIn}
+					initialPartySize={calculatedInitialPartySize}
+					validationSchema={partyCheckInValidationSchema}
+					isLoadingAction={isProcessingPartyCheckIn}
+				/>
 			</SafeAreaView>
 		);
 	}
@@ -1095,6 +1275,10 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginBottom: 15, // Space below error
 		paddingHorizontal: 10,
+	},
+	addMemberButton: {
+		marginTop: 20,
+		backgroundColor: colors.brandOrange,
 	},
 });
 

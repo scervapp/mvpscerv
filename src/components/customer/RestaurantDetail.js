@@ -324,6 +324,7 @@ const RestaurantDetailScreen = () => {
 	// --- Callback for MenuItemsList to add item to INDIVIDUAL BASKET ---
 	const handleAddItemToIndividualBasket = useCallback(
 		async (itemDataFromModal) => {
+	
 			// itemDataFromModal from SelectedItemModal contains:
 			// { menuItemDetails (includes original menu item data),
 			//   quantity, specialInstructions (general if no PIPs/Myself selected with notes),
@@ -371,8 +372,6 @@ const RestaurantDetailScreen = () => {
 					}
 				);
 
-				console.log("These are the pips ", individualPips);
-
 				// Ensure your BasketContext.addItemToBasket and its Cloud Function
 				// can handle the 'quantity' and the 'selectedPIPs' array (each PIP object having its own specialInstructions).
 				await addItemToIndividualBasketFromContext(
@@ -401,6 +400,19 @@ const RestaurantDetailScreen = () => {
 		},
 		[currentUserData?.uid, addItemToIndividualBasketFromContext, restaurant?.id]
 	);
+
+	const optionsForIndividualOrder = useMemo(() => {
+		if (!currentUserData) return [];
+		const myselfOption = {
+			id: currentUserData.uid,
+			name: currentUserData.firstName || "Myself",
+		};
+		// Prevent adding "Myself" if it's somehow already in the pips list
+		const otherPips = (userPips || []).filter(
+			(p) => p.id !== currentUserData.uid
+		);
+		return [myselfOption, ...otherPips];
+	}, [userPips, currentUserData]);
 
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
@@ -691,7 +703,7 @@ const RestaurantDetailScreen = () => {
 							menuItems={menuItems}
 							isLoading={isLoadingMenu}
 							restaurantId={restaurant.id} // For individual basket context if modal needs it
-							pips={userPips} // Pass current user's local PIPs
+							pips={optionsForIndividualOrder} // Pass current user's local PIPs
 							onConfirmAddItemToContext={handleAddItemToIndividualBasket} // The unified callback
 							// Will be 'individual' if partyContextData is null
 							// partyContextData is not explicitly passed here as this screen handles 'individual'

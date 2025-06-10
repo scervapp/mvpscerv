@@ -6,38 +6,67 @@ exports.handleCheckIn = functions.firestore
 	.document("checkIns/{checkInId}")
 	.onCreate(async (snapshot, context) => {
 		const checkInData = snapshot.data();
+		const checkInId = context.params.checkInId;
+
+		console.log(
+			`handleCheckIn trigger fired for new check-in: ${checkInId}`,
+			checkInData
+		);
 
 		try {
-			// 1. Validate check-in request (you'll need to implement this logic)
-			// - Check if the restaurant is at capacity
-			// - Check if the restaurant is currently open
-			// - ... other validation checks as needed
+			// This function creates the check-in doc with status: "REQUESTED", so this line is redundant
+			// and can potentially cause a small race condition. It's better to ensure the initial write
+			// from the client utility is correct. For safety, we can remove or comment it out.
+			// await snapshot.ref.update({ status: "REQUESTED" });
 
-			// 2. Update check-in status to 'requested' (or another suitable initial status)
-			await snapshot.ref.update({ status: "REQUESTED" });
+			// --- VALIDATE DATA BEFORE CREATING NOTIFICATION ---
+			const { restaurantId, userId, customerName, numberOfPeople } =
+				checkInData;
+			if (!restaurantId || !userId || !customerName) {
+				console.error(
+					`handleCheckIn trigger: Missing critical data (restaurantId, userId, or customerName) for check-in ${checkInId}.`
+				);
+				// Throw an error to trigger the catch block and set status to "error".
+				throw new Error("Check-in document is missing required fields.");
+			}
 
-			// 3. Create notification for the restaurant
-			await db.collection("notifications").add({
-				restaurantId: checkInData.restaurantId,
-				customerId: checkInData.customerId,
-				checkInId: context.params.checkInId,
+			// Create notification for the restaurant
+			const notificationData = {
+				restaurantId: restaurantId,
+				customerId: userId, // <<< CORRECTED: Use 'userId' from checkInData
+				checkInId: checkInId,
 				type: "checkIn",
 				isRead: false,
-				customerName: checkInData.customerName,
+				customerName: customerName, // Already correct
 				timestamp: admin.firestore.FieldValue.serverTimestamp(),
-				status: "PENDING", // Or another initial status for the notification
-				numberOfPeople: checkInData.numberOfPeople,
-			});
+				status: "PENDING_CONFIRMATION", // More descriptive status for notification
+				numberOfPeople: numberOfPeople || 1, // Already correct, with fallback
+			};
 
-			// 4. Optionally, send a push notification to the restaurant staff
-			// ... (implementation depends on your notification system)
+			console.log(
+				`handleCheckIn trigger: Creating notification for check-in ${checkInId} with data:`,
+				notificationData
+			);
+			await db.collection("notifications").add(notificationData);
+			console.log(
+				`handleCheckIn trigger: Notification created successfully for check-in ${checkInId}.`
+			);
+
+			// Optionally, send a push notification to the restaurant staff
+			// ...
 
 			return null; // Indicate successful function execution
 		} catch (error) {
-			console.error("Error handling check-in:", error);
-			// If there's an error, you might want to update the check-in status to 'error' or 'failed'
-			await snapshot.ref.update({ status: "error" });
-			throw new functions.https.HttpsError("internal", error.message);
+			console.error(`Error handling check-in ${checkInId}:`, error);
+			// If there's an error, update the check-in status to 'error'
+			// to signal that the trigger process failed.
+			await snapshot.ref.update({
+				status: "error",
+				errorDetails: error.message,
+			});
+			// Re-throwing the error might cause the function to be retried, which might not be desired.
+			// Simply updating status to "error" and returning null is often sufficient.
+			return null;
 		}
 	});
 
