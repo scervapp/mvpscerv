@@ -160,7 +160,12 @@ const RestaurantDetailScreen = () => {
 		activatePartyCheckIn,
 	]);
 
-	const openModal = () => setIsModalVisible(true);
+	const openModal = () => {
+		console.log(
+			"RestaurantDetailScreen: openModal() called! Setting isModalVisible to true."
+		);
+		setIsModalVisible(true);
+	};
 	const closeModal = () => setIsModalVisible(false);
 
 	// Function to handle individual check-in request
@@ -324,7 +329,6 @@ const RestaurantDetailScreen = () => {
 	// --- Callback for MenuItemsList to add item to INDIVIDUAL BASKET ---
 	const handleAddItemToIndividualBasket = useCallback(
 		async (itemDataFromModal) => {
-	
 			// itemDataFromModal from SelectedItemModal contains:
 			// { menuItemDetails (includes original menu item data),
 			//   quantity, specialInstructions (general if no PIPs/Myself selected with notes),
@@ -426,6 +430,13 @@ const RestaurantDetailScreen = () => {
 
 	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
 	const renderActionButtons = () => {
+		console.log("RestaurantDetailScreen (renderActionButtons):", {
+			checkInStatus: checkInStatus,
+			isProcessingAction: isProcessingAction, // Is this stuck on true?
+			isLoadingCheckInStatus: isLoadingCheckInStatus,
+			isLoadingParty: isLoadingParty,
+		});
+
 		if (isLoadingCheckInStatus || isLoadingParty) {
 			// Combined initial loading for this section
 			return (

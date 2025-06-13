@@ -111,7 +111,7 @@ const RestaurantCheckin = () => {
 					id: server.id,
 					name: `${server.firstName} ${server.lastName}`.trim(),
 				},
-				customerId: selectedCheckIn.userId,
+				customerId: selectedCheckIn.customerId,
 				restaurantId: currentUserData.uid,
 				numInParty: selectedCheckIn.numberOfPeople,
 			});

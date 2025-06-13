@@ -177,7 +177,25 @@ const SelectedItemModal = ({
 
 	const handleConfirmPress = () => {
 		console.log("Handle Confirm Press Triggered");
-		if (!selectedItem) return;
+		if (!selectedItem) {
+			console.error(
+				"handleConfirmPress: Aborted because selectedItem is missing."
+			);
+			return;
+		}
+
+		console.log(
+			`handleConfirmPress: Checking validation. Mode: "${orderingMode}", orderTargets length: ${orderTargets.length}`
+		);
+
+		if (orderTargets.length === 0) {
+			// This condition should now only be a problem if the default selection fails.
+			Alert.alert(
+				"Order For Whom?",
+				"Please select at least one person for this item."
+			);
+			return; // Stop execution
+		}
 
 		// Validation for target selection
 		if (
@@ -221,6 +239,8 @@ const SelectedItemModal = ({
 			// Call the onConfirm prop with the data object
 			onConfirm(dataToConfirm);
 		}
+
+		onConfirm(dataToConfirm);
 	};
 	if (!selectedItem) return null;
 

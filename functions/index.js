@@ -27,6 +27,7 @@ exports.sendToChefsQ = require("./basketFunctions").sendToChefsQ;
 exports.clearBasket = require("./basketFunctions").clearBasket;
 
 exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket;
+exports.sendItemsToChefsQ = basketFunctions.sendItemsToChefsQ;
 
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
@@ -39,6 +40,7 @@ exports.createSetupIntent = paymentFunctions.createSetupIntent;
 exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.createEphemeralKey = paymentFunctions.createEphemeralKey;
 exports.preparePaymentSheetData = paymentFunctions.preparePaymentSheetData;
+exports.preparePartyPaymentSheet = paymentFunctions.preparePartyPaymentSheet;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
 exports.stripeWebhookLive = paymentFunctions.stripeWebhookLive;

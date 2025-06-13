@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import PartySessionScreen from "../screens/customer/PartySessionScreen";
 import RestaurantDetailScreen from "../components/customer/RestaurantDetail";
 import PartyMenuScreen from "../screens/customer/PartyMenuScreen";
+import PartyCheckoutScreen from "../screens/customer/PartyCheckoutScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -144,6 +145,19 @@ const PartyStackScreen = () => (
 			options={{ headerTitle: "Confirm Party Restaurant" }}
 		/>
 		{/* Add other screens if needed directly in the party flow, e.g., a dedicated menu screen for adding party items */}
+		<Stack.Screen
+			name="PartyCheckout" // This name must match the one used in navigation.navigate()
+			component={PartyCheckoutScreen}
+			options={{ headerTitle: "Checkout Your Items" }}
+		/>
+		<Stack.Screen
+			name="OrderConfirmation"
+			component={OrderConfirmationScreen}
+			option={{
+				headerTitle: "Order Confirmation",
+				headerLeft: () => null,
+			}}
+		/>
 	</Stack.Navigator>
 );
 

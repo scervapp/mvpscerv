@@ -20,257 +20,257 @@ import {
 	View,
 	ActivityIndicator,
 	StyleSheet,
-	Button,
 	TouchableOpacity,
+	SafeAreaView,
 } from "react-native";
 import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // Or Ionicons
+import { AuthContext } from "../../context/authContext";
+import { Button } from "react-native-paper";
+import { Ionicons } from "@expo/vector-icons";
 
-const OrderConfirmationScreen = () => {
-	const route = useRoute();
-	const navigation = useNavigation();
+const StatusIndicator = ({ status, message, details, error }) => {
+	let iconName, iconColor, title;
 
-	const orderDocId = route.params?.orderDocId; // Get session ID from navigation
-	const initialStatus = route.params?.status || "unknown";
-	const orderId = route.params?.orderId;
-
-	// --- ADD LOGGING HERE ---
-	console.log("--- OrderConfirmationScreen ---");
-	console.log("Received route.params:", JSON.stringify(route.params, null, 2)); // Log the whole params object
-	console.log("Extracted orderDocId:", orderDocId); // Log the extracted value
-	console.log("Initial status:", initialStatus);
-
-	const [orderDetails, setOrderDetails] = useState(null);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState(null);
-	const [currentStatus, setCurrentStatus] = useState(initialStatus);
-
-	// --- NEW: Handler to navigate home and reset stack ---
-	const handleCloseAndReset = () => {
-		console.log(
-			"OrderConfirmationScreen: Closing and resetting to CustomerHome"
-		);
-		navigation.dispatch(
-			CommonActions.reset({
-				index: 0,
-				routes: [
-					// Reset the entire navigation state to show CustomerHome (tabs)
-					// Adjust 'CustomerHome' if your root logged-in screen has a different name
-					{ name: "CustomerHome" },
-				],
-			})
-		);
-	};
-	// --- END NEW HANDLER ---
-
-	// --- Configure Header Button ---
-	useEffect(() => {
-		navigation.setOptions({
-			headerTitle:
-				orderDetails?.paymentStatus === "paid"
-					? "Order Confirmed"
-					: "Order Processing", // Dynamic title
-			headerLeft: () => null, // Keep back button hidden
-			// --- ADD 'X' BUTTON ---
-			headerRight: () => (
-				<TouchableOpacity
-					onPress={handleCloseAndReset}
-					style={{ marginRight: 15 }}
-				>
-					<MaterialCommunityIcons
-						name="close"
-						size={28}
-						color={colors.textDark || "black"}
-					/>
-				</TouchableOpacity>
-			),
-			// --- END 'X' BUTTON ---
-		});
-	}, [navigation, orderDetails?.paymentStatus]); // Update header when status changes
-
-	useEffect(() => {
-		// Check if we have the necessary orderId
-		if (!orderDocId) {
-			console.error(
-				"OrderConfirmationScreen: No orderId found in route params."
-			);
-			setError("Order details are missing. Cannot confirm status.");
-			setLoading(false);
-			return; // Stop if no ID
-		}
-
-		console.log(
-			`OrderConfirmationScreen: Listening directly to order document ID: ${orderId}`
-		);
-		setLoading(true); // Start loading when listener is set up
-		setError(null); // Clear previous errors
-
-		// --- Listen DIRECTLY to the order document using its ID ---
-		const orderRef = doc(db, "orders", orderDocId); // Reference the specific document
-
-		const unsubscribe = onSnapshot(
-			orderRef,
-			(docSnap) => {
-				if (docSnap.exists()) {
-					const orderData = { id: docSnap.id, ...docSnap.data() };
-					console.log("Order data received/updated via snapshot:", orderData);
-					setOrderDetails(orderData); // Update state with the latest order data
-					setLoading(false); // Stop loading once we have data
-				} else {
-					// Document doesn't exist - this shouldn't happen if createPendingOrder worked
-					console.error(`Order document with ID ${orderId} not found.`);
-					setError("Could not find order details.");
-					setLoading(false);
-				}
-			},
-			(err) => {
-				// Handle listener errors
-				console.error(`Error listening to order ${orderId} snapshot:`, err);
-				setError("Error fetching real-time order status.");
-				setLoading(false);
-			}
-		);
-		// --- End Firestore Listener ---
-
-		// Cleanup function to stop listening when the component unmounts
-		return () => {
-			console.log(
-				`OrderConfirmationScreen: Unsubscribing from order listener for ${orderId}`
-			);
-			unsubscribe();
-		};
-	}, [orderId]); // Dependency array: Re-run ONLY if orderId changes
-
-	// --- Render based on Status ---
-	const displayStatus = orderDetails?.paymentStatus || initialStatus;
-
-	if (loading) {
-		return (
-			<View style={styles.container}>
-				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.statusText}>Loading order details...</Text>
-			</View>
-		);
-	}
-
-	if (displayStatus === "paid") {
-		return (
-			<View style={styles.container}>
-				{/* Check mark icon */}
-				<Text style={styles.successTitle}>Payment Successful!</Text>
-				<Text style={styles.detailText}>Thank you for your order.</Text>
-				{/* Use orderId from the state/prop now */}
-				<Text style={styles.detailText}>
-					Order ID: {orderDetails?.orderId || "N/A"}
-				</Text>
-				<Text style={styles.detailText}>
-					Total Paid: {formatCurrency(orderDetails?.totalPrice)}
-				</Text>
-				{/* Add button to navigate home or view full order */}
-				<View style={styles.doneButtonContainer}>
-					<Button
-						title="Done"
-						onPress={handleCloseAndReset}
-						color={colors.primary}
-					/>
+	switch (status) {
+		case "paid":
+		case "succeeded":
+			iconName = "checkmark-circle";
+			iconColor = colors.statusSuccess;
+			title = "Payment Successful!";
+			break;
+		case "failed":
+			iconName = "alert-circle";
+			iconColor = colors.statusDanger;
+			title = "Payment Failed";
+			break;
+		case "processing":
+		default:
+			return (
+				<View style={styles.contentContainer}>
+					<ActivityIndicator size="large" color={colors.primary} />
+					<Text style={styles.statusTitle}>Processing Payment...</Text>
+					<Text style={styles.statusMessage}>
+						Please wait, we're confirming your payment.
+					</Text>
 				</View>
-			</View>
-		);
+			);
 	}
 
-	// --- >>> NEW: Failed Status Rendering <<< ---
-	if (displayStatus === "failed") {
-		return (
-			<View style={styles.container}>
-				<MaterialCommunityIcons
-					name="alert-circle-outline"
-					size={60}
-					color={colors.danger || "red"}
-					style={styles.iconSpacing}
-				/>
-				<Text style={styles.errorTitle}>Payment Failed</Text>
-				<Text style={styles.errorText}>
-					{orderDetails?.paymentFailureReason ||
-						"Payment could not be processed."}
-				</Text>
-				{/* Use headerRight 'X' button to dismiss, or keep specific buttons */}
-				<View style={styles.doneButtonContainer}>
-					<Button
-						title="Close"
-						onPress={handleCloseAndReset}
-						color={colors.primary}
-					/>
-				</View>
-			</View>
-		);
-	}
-	// --- >>> END FAILED CASE <<< ---
-
-	if (currentStatus === "error") {
-		return (
-			<View style={styles.container}>
-				<Text style={styles.errorTitle}>Error</Text>
-				<Text style={styles.errorText}>
-					{error || "Could not retrieve order status."}
-				</Text>
-				<Button title="Go Back" onPress={() => navigation.goBack()} />
-			</View>
-		);
-	}
-
-	// Fallback / Still processing if listener is active but status isn't 'paid' or 'failed' yet
 	return (
-		<View style={styles.container}>
-			<ActivityIndicator size="large" color={colors.primary} />
-			<Text style={styles.statusText}>Verifying payment, please wait...</Text>
-			{/* Optionally display sessionId for debugging */}
-			{/* <Text style={styles.statusText}>Session: {sessionId}</Text> */}
+		<View style={styles.contentContainer}>
+			<Ionicons
+				name={iconName}
+				size={80}
+				color={iconColor}
+				style={{ marginBottom: 20 }}
+			/>
+			<Text style={[styles.statusTitle, { color: iconColor }]}>{title}</Text>
+			{message && <Text style={styles.statusMessage}>{message}</Text>}
+			{details && <Text style={styles.detailsText}>{details}</Text>}
+			{error && <Text style={styles.errorText}>{error}</Text>}
 		</View>
 	);
 };
 
+const OrderConfirmationScreen = () => {
+	const route = useRoute();
+	const navigation = useNavigation();
+	const { currentUserData } = useContext(AuthContext);
+
+	// --- LOG 1: Log incoming parameters when the screen mounts ---
+	useEffect(() => {
+		console.log(
+			"OrderConfirmationScreen: MOUNTED. Received route.params:",
+			JSON.stringify(route.params, null, 2)
+		);
+	}, []);
+
+	// Get params from route
+	const {
+		mode = "individual", // 'individual' or 'party'
+		orderDocId, // For 'individual' mode
+		partyId, // For 'party' mode
+	} = route.params;
+
+	const [status, setStatus] = useState("processing");
+	const [error, setError] = useState(null);
+	const [details, setDetails] = useState(null);
+
+	const handleDone = () => {
+		navigation.dispatch(
+			CommonActions.reset({
+				index: 0,
+				routes: [{ name: "CustomerDashboard" }],
+			})
+		);
+	};
+
+	useEffect(() => {
+		navigation.setOptions({
+			headerTitle: status === "processing" ? "Confirming..." : "Confirmation",
+			headerLeft: () => null,
+			headerRight: () => (
+				<TouchableOpacity onPress={handleDone} style={{ marginRight: 15 }}>
+					<Ionicons name="close" size={28} color={colors.textDark} />
+				</TouchableOpacity>
+			),
+		});
+	}, [navigation, status]);
+
+	// --- Firestore Listener ---
+	useEffect(() => {
+		let unsubscribe = () => {};
+		let docRef;
+
+		if (mode === "individual" && orderDocId) {
+			console.log(
+				`OrderConfirmationScreen: Setting up listener for INDIVIDUAL order at "orders/${orderDocId}"`
+			);
+			docRef = doc(db, "orders", orderDocId);
+		} else if (mode === "party" && partyId && currentUserData?.uid) {
+			console.log(
+				`OrderConfirmationScreen: Setting up listener for PARTY order at "parties/${partyId}"`
+			);
+			docRef = doc(db, "parties", partyId);
+		} else {
+			console.error(
+				"OrderConfirmationScreen: Missing required params for listener.",
+				route.params
+			);
+			setError("Cannot display confirmation: Required information is missing.");
+			setStatus("failed");
+			return;
+		}
+
+		unsubscribe = onSnapshot(
+			docRef,
+			(docSnap) => {
+				// --- LOG 2: Log every time the listener fires with new data ---
+				console.log(
+					`OrderConfirmationScreen: SNAPSHOT RECEIVED for document: ${docRef.path}`
+				);
+
+				if (docSnap.exists()) {
+					const data = docSnap.data();
+					console.log(
+						"OrderConfirmationScreen: Document data:",
+						JSON.stringify(data, null, 2)
+					);
+
+					if (mode === "individual") {
+						const paymentStatus = data.paymentStatus || "processing";
+						setStatus(paymentStatus);
+						if (paymentStatus === "paid") {
+							setDetails(
+								`Order ID: ${data.orderId}\nTotal: ${formatCurrency(
+									data.totalPrice
+								)}`
+							);
+						} else if (paymentStatus === "failed") {
+							setError(
+								data.paymentFailureReason ||
+									"Please try another payment method."
+							);
+						}
+					} else if (mode === "party") {
+						const myPipData = (data.guestPips || []).find(
+							(p) => p.userId === currentUserData.uid
+						);
+						console.log("OrderConfirmationScreen: Found myPipData:", myPipData);
+
+						const paymentStatus = myPipData?.paymentStatus || "processing";
+						setStatus(paymentStatus);
+						if (paymentStatus === "paid") {
+							setDetails("Your portion of the bill has been paid. Thank you!");
+						} else if (paymentStatus === "failed") {
+							setError("Your payment could not be processed.");
+						}
+					}
+				} else {
+					console.error(
+						`OrderConfirmationScreen: Document not found at path: ${docRef.path}`
+					);
+					setError("Could not find order details.");
+					setStatus("failed");
+				}
+			},
+			(err) => {
+				console.error(
+					`OrderConfirmationScreen: Error listening to document ${docRef.path}:`,
+					err
+				);
+				setError("Error fetching real-time order status.");
+				setStatus("failed");
+			}
+		);
+
+		return () => unsubscribe();
+	}, [orderDocId, partyId, mode, currentUserData?.uid]);
+
+	return (
+		<SafeAreaView style={styles.safeArea}>
+			<View style={styles.container}>
+				<StatusIndicator status={status} message={details} error={error} />
+			</View>
+			<View style={styles.footer}>
+				<Button mode="contained" onPress={handleDone} style={styles.doneButton}>
+					Done
+				</Button>
+			</View>
+		</SafeAreaView>
+	);
+};
+
 const styles = StyleSheet.create({
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	container: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 		padding: 20,
-		backgroundColor: colors.background || "#f8f9fa",
 	},
-	statusText: {
-		marginTop: 15,
+	contentContainer: { alignItems: "center", justifyContent: "center" },
+	statusTitle: {
+		fontSize: 26,
+		fontWeight: "bold",
+		textAlign: "center",
+		marginBottom: 12,
+	},
+	statusMessage: {
 		fontSize: 16,
-		color: colors.text || "#495057",
+		color: colors.textMedium,
 		textAlign: "center",
 	},
-	iconSpacing: { marginBottom: 15 },
-	successTitle: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.success || "green",
-		marginBottom: 10,
-		marginTop: 10,
-	},
-	errorTitle: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.danger || "red",
-		marginBottom: 10,
-		marginTop: 10,
-	},
-	detailText: {
+	detailsText: {
 		fontSize: 16,
-		marginBottom: 8,
-		color: colors.textDark || "#343a40",
+		color: colors.textMedium,
 		textAlign: "center",
+		marginTop: 8,
 	},
 	errorText: {
 		fontSize: 16,
-		color: colors.danger || "red",
+		color: colors.statusDanger,
 		textAlign: "center",
-		marginBottom: 20,
+		marginTop: 8,
+		fontWeight: "500",
 	},
-	doneButtonContainer: { marginTop: 40, width: "60%" }, // Container for Done/Close button
+	footer: {
+		padding: 20,
+		paddingBottom: 30,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+	},
+	doneButton: {
+		paddingVertical: 8,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+	},
+	doneButtonText: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: colors.textOnPrimaryBrand,
+	},
 });
 
 export default OrderConfirmationScreen;

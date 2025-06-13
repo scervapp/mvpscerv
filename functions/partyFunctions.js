@@ -74,6 +74,19 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		const restaurantName = restaurantData.restaurantName;
 		const restaurantTaxRate = restaurantData.taxRate; // Ensure this field exists on your restaurant documents
 
+		// Fetch the restaurant's Stripe Connect account ID
+		const restaurantStripeAccountId = restaurantData.stripeAccountId;
+		if (!restaurantStripeAccountId) {
+			// This is an important check to ensure the restaurant is properly configured for payments
+			console.error(
+				`Restaurant ${restaurantId} is missing its Stripe Account ID.`
+			);
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This restaurant is not configured to accept payments."
+			);
+		}
+
 		// Validate fetched restaurant data
 		if (typeof restaurantName !== "string" || restaurantName.trim() === "") {
 			console.error(
@@ -110,6 +123,8 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			restaurantId: restaurantId,
 			restaurantName: restaurantName,
 			restaurantTaxRate: restaurantTaxRate,
+			restaurantStripeAccountId: restaurantStripeAccountId,
+			
 			hostUserId: hostUserId,
 			hostName: hostName,
 			guestUserIds: [hostUserId],

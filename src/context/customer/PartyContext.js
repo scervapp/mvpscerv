@@ -93,6 +93,11 @@ export const PartyProvider = ({ children }) => {
 		"removeSharedBasketItem"
 	);
 
+	const sendItemsToChefsQFunction = httpsCallable(
+		functions,
+		"sendItemsToChefsQ"
+	);
+
 	// --- Clear State ---
 	const clearPartyState = useCallback(() => {
 		console.log("PartyContext: Clearing party state.");
@@ -900,6 +905,58 @@ export const PartyProvider = ({ children }) => {
 		]
 	);
 
+	const sendMyItemsToKitchen = useCallback(async () => {
+		const partyId = partyDetails?.id;
+		const partyStatus = partyDetails?.status;
+
+		if (partyStatus !== "active" || !partyId) {
+			Alert.alert(
+				"Cannot Send Order",
+				"The party must be active and seated to send items to the kitchen."
+			);
+			return false;
+		}
+
+		setIsLoadingAction(true);
+		setPartyError(null);
+		try {
+			console.log(
+				`PartyContext: Calling sendItemsToChefsQ CF for party ${partyId}`
+			);
+			const result = await sendItemsToChefsQFunction({ partyId });
+
+			if (result.data.success) {
+				console.log(
+					`PartyContext: Successfully sent ${result.data.itemsSent} item(s). Listener will update UI.`
+				);
+				if (result.data.itemsSent === 0) {
+					Alert.alert(
+						"No New Items",
+						"All your current items have already been sent to the kitchen."
+					);
+				}
+				return true;
+			} else {
+				throw new Error(
+					result.data.error || "Cloud function failed to send items."
+				);
+			}
+		} catch (error) {
+			console.error("PartyContext: Error calling sendItemsToChefsQ CF:", error);
+			const message = error.message || "Could not send items to the kitchen.";
+			setPartyError(message);
+			Alert.alert("Order Send Failed", message);
+			return false;
+		} finally {
+			setIsLoadingAction(false);
+		}
+	}, [
+		partyDetails,
+		setIsLoadingAction,
+		setPartyError,
+		sendItemsToChefsQFunction,
+	]);
+
 	// --- Context Value ---
 	const value = {
 		currentPartyId,
@@ -920,6 +977,7 @@ export const PartyProvider = ({ children }) => {
 		addLocalPIPToParty,
 		addItemToPartyBasket,
 		handlePartyItemQuantityChange,
+		sendMyItemsToKitchen,
 	};
 
 	return (

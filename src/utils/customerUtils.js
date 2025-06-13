@@ -197,7 +197,7 @@ const checkIn = async (
 
 			numberOfPeople: parseInt(partySize, 10),
 			customerName,
-			status: "REQUESTING",
+			status: "REQUESTED",
 			timestamp: new Date(),
 			...(partyId && { partyId: partyId }),
 		};

@@ -100,7 +100,8 @@ const PartySessionScreen = () => {
 		activatePartyCheckIn, // (checkInDocId) => Promise<void>
 		addLocalPIPToParty,
 		inviteToParty,
-		// sendMyItemsToKitchen, // (itemsToSend) => Promise<void>
+		sendMyItemsToKitchen,
+
 		handlePartyItemQuantityChange,
 	} = useParty();
 
@@ -120,6 +121,7 @@ const PartySessionScreen = () => {
 		useState(false);
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 	const [uiJoinLoading, setUiJoinLoading] = useState(false);
+	const [isSendingItems, setIsSendingItems] = useState(false);
 
 	const partyCheckInValidationSchema = Yup.object().shape({
 		partySize: Yup.number()
@@ -128,6 +130,14 @@ const PartySessionScreen = () => {
 			.required("Party size is required.")
 			.typeError("Must be a valid number."),
 	});
+
+	const myPartyStatus = useMemo(() => {
+		if (!partyDetails?.guestPips || !currentUserData?.uid) {
+			return null;
+		}
+		// Find the current user in the party's guest list
+		return partyDetails.guestPips.find((p) => p.userId === currentUserData.uid);
+	}, [partyDetails?.guestPips, currentUserData?.uid]);
 
 	useEffect(() => {
 		if (currentUserData?.uid && currentUserData.role !== "guest") {
@@ -510,6 +520,13 @@ const PartySessionScreen = () => {
 	}, [sharedBasketItems, currentUserData?.uid, partyDetails?.guestPips]);
 
 	const handleAddMyItems = () => {
+		if (myPartyStatus?.paymentStatus === "paid") {
+			Alert.alert(
+				"Already Paid",
+				"You have already paid your portion of the bill and cannot add more items."
+			);
+			return;
+		}
 		if (!partyDetails?.restaurantId || !currentPartyId || !currentUserData) {
 			Alert.alert("Error", "Party, restaurant, or user details are missing.");
 			return;
@@ -528,49 +545,86 @@ const PartySessionScreen = () => {
 		});
 	};
 
-	const handleSendUserItemsToChefsQ = async (userId) => {
-		if (partyDetails?.status !== "active") {
-			Alert.alert(
-				"Party Not Active",
-				"The party must be checked in and active to send items."
-			);
+	// Handler for the button press
+	const handleSendMyItems = () => {
+		if (!sendMyItemsToKitchen) {
+			Alert.alert("Error", "Action not available.");
 			return;
 		}
-		const itemsToSend = sharedBasketItems.filter(
-			(item) =>
-				item.orderedByUserId === userId &&
-				(item.status === "new" || !item.status)
-		);
-		if (itemsToSend.length === 0) {
-			Alert.alert("No New Items", "You have no new items to send.");
-			return;
-		}
-		const itemIds = itemsToSend.map((item) => item.id); // Make sure item.id is the unique ID of the basket item
 		Alert.alert(
-			"Confirm Send",
-			`Send ${itemsToSend.length} of your item(s) to the kitchen?`,
+			"Confirm Order",
+			"Are you sure you want to send your new items to the kitchen? You won't be able to edit them after.",
 			[
-				{ text: "Cancel" },
+				{ text: "Cancel", style: "cancel" },
 				{
-					text: "Send",
+					text: "Yes, Send",
 					onPress: async () => {
-						setUiLoading(true); // Use a specific loading state if preferred
-						console.log(
-							`Simulating send to kitchen for user ${userId}, items:`,
-							itemIds
-						);
-						// TODO: await sendPartyItemsToKitchen(currentPartyId, userId, itemIds);
-						setTimeout(() => {
-							Alert.alert(
-								"Items Sent!",
-								`${itemsToSend.length} item(s) would be sent to the kitchen.`
+						setIsSendingItems(true); // <<< Set local loading state immediately
+						try {
+							await sendMyItemsToKitchen();
+							// Success/Error Alerts are handled within the context function
+						} catch (error) {
+							// This catch is for unexpected errors during the call itself
+							console.error(
+								"PartySessionScreen: Error calling sendMyItemsToKitchen:",
+								error
 							);
-							setUiLoading(false);
-						}, 1500);
+						} finally {
+							setIsSendingItems(false); // <<< Reset local loading state
+						}
 					},
 				},
 			]
 		);
+	};
+
+	// --- NEW: Memoized calculation to determine checkout readiness ---
+	const canCurrentUserCheckout = useMemo(() => {
+		if (
+			!partyDetails ||
+			partyDetails.status !== "active" ||
+			!currentUserData?.uid ||
+			!sharedBasketItems
+		) {
+			return false;
+		}
+
+		// User cannot checkout if they have already paid.
+		if (myPartyStatus?.paymentStatus === "paid") {
+			return false;
+		}
+		// Find items belonging to the current user
+		const myItems = sharedBasketItems.filter(
+			(item) => item.orderedByUserId === currentUserData.uid
+		);
+		// User must have at least one item to check out
+		if (myItems.length === 0) {
+			return false;
+		}
+		// Check if there are ANY items that have NOT been sent to the kitchen
+		const hasUnsentItems = myItems.some(
+			(item) => item.status === "new" || !item.status
+		);
+		// The user can checkout only if they have items and none of them are new/unsent.
+		return !hasUnsentItems;
+	}, [partyDetails, sharedBasketItems, currentUserData?.uid]);
+
+	// --- NEW: Handler to navigate to the checkout screen ---
+	const handleGoToCheckout = () => {
+		if (!canCurrentUserCheckout) {
+			Alert.alert(
+				"Not Ready",
+				"You can only checkout when the party is active and all your items have been sent to the kitchen."
+			);
+			return;
+		}
+		console.log(
+			`PartySessionScreen: Navigating to checkout for partyId: ${currentPartyId}`
+		);
+		navigation.navigate("PartyCheckout", {
+			// This should be the route name for PartyCheckoutScreen
+			partyId: currentPartyId,
+		});
 	};
 
 	// --- Render Logic ---
@@ -604,6 +658,7 @@ const PartySessionScreen = () => {
 	if (currentPartyId && partyDetails) {
 		const partyIsPending = partyDetails.status === "pending";
 		const partyIsActive = partyDetails.status === "active";
+		const userHasPaid = myPartyStatus?.paymentStatus === "paid";
 
 		if (
 			groupedBasket &&
@@ -622,14 +677,6 @@ const PartySessionScreen = () => {
 		} else {
 			console.log("PartySessionScreen: groupedBasket is empty or undefined.");
 		}
-		// --- END LOGS ---
-		const canCurrentUserSendItems =
-			partyIsActive &&
-			sharedBasketItems.some(
-				(item) =>
-					item.orderedByUserId === currentUserData?.uid &&
-					(item.status === "new" || !item.status)
-			);
 
 		return (
 			<SafeAreaView style={styles.screen}>
@@ -675,6 +722,12 @@ const PartySessionScreen = () => {
 					renderItem={({ item: group }) => (
 						<View style={styles.userBasketSection}>
 							<Text style={styles.userNameHeader}>{group.userName}</Text>
+							{partyDetails.guestPips.find((p) => p.userId === group.userId)
+								?.paymentStatus === "paid" && (
+								<View style={styles.paidBadge}>
+									<Text style={styles.paidBadgeText}>PAID</Text>
+								</View>
+							)}
 							{group.items.length > 0 ? (
 								group.items.map((basketItem, index) => {
 									if (!basketItem || typeof basketItem.dishName !== "string") {
@@ -686,16 +739,17 @@ const PartySessionScreen = () => {
 									// --- END LOG ---
 									return (
 										<OrderItemCard
-											key={basketItem.id} // Use the unique ID of the item in the shared basket
-											item={basketItem} // Pass the full item from sharedBasketItems
-											onQuantityChange={onItemQuantityChangeInParty} // Use the new handler
+											key={basketItem.id || `basket-item-${index}`}
+											item={basketItem}
+											onQuantityChange={handlePartyItemQuantityChange}
+											// --- CORRECTED isSentToKitchen LOGIC ---
+											isSentToKitchen={basketItem.status === "sent"} // Check for 'sent' status
 											allowEdit={
 												basketItem.orderedByUserId === currentUserData.uid &&
-												(basketItem.status === "new" || !basketItem.status) // Only current user can edit their new items
+												basketItem.status === "new" && // Only allow editing new items
+												!userHasPaid
 											}
-											restaurantId={basketItem.restaurantId}
-											isSentToKitchen={basketItem.status === "sentToChefQ"}
-											isUpdating={updatingItemId === basketItem.id}
+											isUpdating={updatingItemId === basketItem.id} // For per-item loading
 										/>
 									);
 								})
@@ -706,32 +760,51 @@ const PartySessionScreen = () => {
 							)}
 
 							{/* "Send My New Items" button at the bottom of the current user's section */}
-							{group.userId === currentUserData?.uid &&
-								group.items.some((i) => !i.status || i.status === "new") && (
-									<TouchableOpacity
-										style={[
-											styles.sendAllUserItemsButton,
-											!partyIsActive && styles.disabledButtonVisual,
-										]}
-										onPress={() =>
-											handleSendUserItemsToChefsQ(currentUserData.uid)
-										}
-										disabled={!partyIsActive || uiLoading}
-									>
-										<Text style={styles.sendAllUserItemsButtonText}>
-											{partyIsActive
-												? "Send My New Items"
-												: "Party Not Active to Send"}
-										</Text>
-										{uiLoading && (
-											<ActivityIndicator
-												size="small"
-												color={colors.textOnPrimaryBrand}
-												style={{ marginLeft: 10 }}
+							{group.userId === currentUserData.uid && (
+								<View style={styles.userActionContainer}>
+									{/* Conditionally render "Send Items" button */}
+									{group.items.some((i) => i.status === "new" || !i.status) && (
+										<TouchableOpacity
+											style={[
+												styles.actionButton,
+												styles.sendButton,
+												!partyIsActive && styles.disabledButtonVisual,
+											]}
+											onPress={handleSendMyItems}
+											disabled={!partyIsActive || isSendingItems}
+										>
+											{isSendingItems ? (
+												<ActivityIndicator
+													size="small"
+													color={colors.textOnPrimaryBrand}
+												/>
+											) : (
+												<Text style={styles.actionButtonText}>
+													Send My New Items
+												</Text>
+											)}
+										</TouchableOpacity>
+									)}
+
+									{/* Conditionally render "Checkout" button */}
+									{canCurrentUserCheckout && (
+										<TouchableOpacity
+											style={[styles.actionButton, styles.checkoutButton]}
+											onPress={handleGoToCheckout}
+										>
+											<MaterialCommunityIcons
+												name="credit-card-check-outline"
+												size={20}
+												color={colors.surfaceWhite}
+												style={{ marginRight: 8 }}
 											/>
-										)}
-									</TouchableOpacity>
-								)}
+											<Text style={styles.actionButtonText}>
+												Checkout My Items
+											</Text>
+										</TouchableOpacity>
+									)}
+								</View>
+							)}
 						</View>
 					)}
 					ListEmptyComponent={
@@ -751,7 +824,7 @@ const PartySessionScreen = () => {
 				/>
 
 				{/* Add My Items FAB: Available if party is pending or active */}
-				{(partyIsPending || partyIsActive) && (
+				{!userHasPaid && (partyIsPending || partyIsActive) && (
 					<TouchableOpacity
 						style={styles.addItemFab}
 						onPress={handleAddMyItems}
@@ -1025,6 +1098,18 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
+	paidBadge: {
+		backgroundColor: colors.statusSuccess,
+		borderRadius: 5,
+		paddingHorizontal: 8,
+		paddingVertical: 3,
+	},
+	paidBadgeText: {
+		color: colors.surfaceWhite,
+		fontSize: 10,
+		fontWeight: "bold",
+	},
+
 	itemCard: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -1292,6 +1377,57 @@ const styles = StyleSheet.create({
 	addMemberButton: {
 		marginTop: 20,
 		backgroundColor: colors.brandOrange,
+	},
+	disabledButtonVisual: {
+		opacity: 0.7,
+		backgroundColor: colors.textMedium, // Example disabled color
+	},
+	sendAllUserItemsButton: {
+		backgroundColor: colors.primary,
+		paddingVertical: 12,
+		borderRadius: 8,
+		alignItems: "center",
+		marginTop: 15,
+		flexDirection: "row",
+		justifyContent: "center",
+		marginHorizontal: 15,
+		minHeight: 48, // Ensure consistent height when spinner is showing
+	},
+	sendAllUserItemsButtonText: {
+		color: colors.textOnPrimaryBrand,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+
+	userActionContainer: {
+		marginTop: 15,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 15,
+	},
+	actionButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		borderRadius: 8,
+		marginHorizontal: 15,
+		marginBottom: 10, // Space between buttons if both are visible
+	},
+	sendButton: {
+		backgroundColor: colors.primary,
+	},
+	checkoutButton: {
+		backgroundColor: colors.statusSuccess, // Use a success/green color for checkout
+	},
+	actionButtonText: {
+		color: colors.textOnPrimaryBrand,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	disabledButtonVisual: {
+		opacity: 0.7,
+		backgroundColor: colors.textMedium,
 	},
 });
 

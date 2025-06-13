@@ -273,20 +273,33 @@ const BasketScreen = ({ route, navigation }) => {
 	const renderPipSection = ({ item: personData }) => (
 		<View key={personData.personId} style={styles.pipSection}>
 			<Text style={styles.pipName}>{personData.pipName}</Text>
-			<FlatList
-				data={personData.items}
-				renderItem={({ item }) => (
+			{personData.items.map((basketItem) => {
+				// --- THE FIX IS HERE ---
+				// We create a new, "flattened" item object to pass as a prop.
+				// This matches the data structure that OrderItemCard expects.
+				const itemForCard = {
+					id: basketItem.id,
+					dishName: basketItem.dish?.name, // From nested dish object
+					price: basketItem.dish?.price, // From nested dish object
+					quantity: basketItem.quantity,
+					specialInstructions: basketItem.specialInstructions,
+					orderedByPipName: basketItem.pip?.name, // For display within the card
+					status: basketItem.sentToChefQ ? "sent" : "new", // Convert boolean to status string
+				};
+
+				return (
 					<OrderItemCard
-						item={item}
-						onQuantityChange={handleQuantityChange}
-						allowEdit={!item.sentToChefQ}
-						isSentToKitchen={item.sentToChefQ}
-						restaurantId={restaurant.id}
+						key={basketItem.id}
+						item={itemForCard} // Pass the newly structured object
+						onQuantityChange={(itemId, newQuantity) =>
+							handleQuantityChange(restaurant.id, itemId, newQuantity)
+						}
+						allowEdit={!basketItem.sentToChefQ}
+						isSentToKitchen={basketItem.sentToChefQ}
 					/>
-				)}
-				keyExtractor={(item) => item.id}
-				scrollEnabled={false} // Disable scroll for inner list
-			/>
+				);
+			})}
+
 			<View style={styles.pipTotalContainer}>
 				<Text style={styles.pipTotalLabel}>
 					Subtotal for {personData.pipName}:

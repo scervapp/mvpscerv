@@ -371,6 +371,111 @@ async function sendToChefsQ(data, context) {
 }
 
 /**
+ * Finds all 'new' items for a specific user within a party's shared basket
+ * and updates their status to 'sent', adding a timestamp.
+ *
+ * @param {object} data - The data object.
+ * @param {string} data.partyId - The ID of the party.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, itemsSent: number, error?: string}>}
+ */
+exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+	const requestingUserId = context.auth.uid;
+	const { partyId } = data;
+
+	if (!partyId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID is required."
+		);
+	}
+
+	const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+	const partyRef = db.collection("parties").doc(partyId);
+
+	try {
+		return await db.runTransaction(async (transaction) => {
+			const partyDoc = await transaction.get(partyRef);
+			if (!partyDoc.exists || partyDoc.data().status !== "active") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Party must be active to send items to the kitchen."
+				);
+			}
+
+			const basketDoc = await transaction.get(sharedBasketRef);
+			if (!basketDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Party basket not found."
+				);
+			}
+
+			const basketData = basketDoc.data();
+			const itemsArray = basketData.items || [];
+			let itemsSentCount = 0;
+
+			const updatedItemsArray = itemsArray.map((item) => {
+				// Find items that belong to the requesting user and are still 'new'
+				if (
+					item.orderedByUserId === requestingUserId &&
+					item.status === "new"
+				) {
+					itemsSentCount++;
+					return {
+						...item,
+						status: "sent", // Update the status
+						sentToKitchenAt: new Date(), // Add a timestamp for when it was sent
+					};
+				}
+				return item; // Return all other items unchanged
+			});
+
+			if (itemsSentCount === 0) {
+				// This can happen if the user's client is out of sync.
+				// It's not an error, just an informational result.
+				console.log(
+					`sendItemsToChefsQ: User ${requestingUserId} had no new items to send for party ${partyId}.`
+				);
+				return {
+					success: true,
+					itemsSent: 0,
+					message: "No new items to send.",
+				};
+			}
+
+			// Update the document with the modified items array
+			transaction.update(sharedBasketRef, {
+				items: updatedItemsArray,
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			console.log(
+				`sendItemsToChefsQ: Successfully sent ${itemsSentCount} item(s) to kitchen for user ${requestingUserId} in party ${partyId}.`
+			);
+			return { success: true, itemsSent: itemsSentCount };
+		});
+	} catch (error) {
+		console.error(
+			`Error sending items to kitchen for party ${partyId}:`,
+			error
+		);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not send items to kitchen.",
+			error.message
+		);
+	}
+});
+
+/**
  * Adds a menu item to a shared party basket.
  *
  * @param {object} data - The data object.
