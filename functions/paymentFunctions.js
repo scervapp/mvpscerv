@@ -51,44 +51,56 @@ const getStripeKeys = async (restaurantId) => {
  * @param {FirebaseFirestore.DocumentReference} partyRef Reference to the party document.
  * @param {FirebaseFirestore.Transaction} transaction The transaction to run the check within.
  */
-const checkAndCloseParty = async (partyRef, transaction) => {
-	const partyDoc = await transaction.get(partyRef);
-	if (!partyDoc.exists) {
-		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} does not exist. No action taken.`
-		);
-		return;
-	}
-
-	const partyData = partyDoc.data();
+const checkAndCloseParty = async (partyRef, partyData, transaction) => {
+	// The partyData object is now a combination of the original data and the newly updated guestPips list
 	const guestPips = partyData.guestPips || [];
 
 	if (guestPips.length === 0) {
 		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} has no guests, setting to completed.`
+			`checkAndCloseParty: Party ${partyRef.id} has no guests, queueing for deletion.`
 		);
-		transaction.update(partyRef, {
-			status: "completed",
-			lastUpdated: FieldValue.serverTimestamp(),
-		});
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
+		transaction.delete(partyRef);
+		transaction.delete(sharedBasketRef);
+		// Also delete the check-in if it exists
+		if (partyData.activeCheckInId) {
+			const checkInRef = db
+				.collection("checkIns")
+				.doc(partyData.activeCheckInId);
+			transaction.delete(checkInRef);
+		}
 		return;
 	}
 
-	// Check if every member has a paymentStatus of 'paid'.
 	const allMembersPaid = guestPips.every((pip) => pip.paymentStatus === "paid");
 
 	if (allMembersPaid) {
 		console.log(
-			`checkAndCloseParty: All members of party ${partyRef.id} have paid. Closing party.`
+			`checkAndCloseParty: All members of party ${partyRef.id} have paid. Deleting party, basket, and check-in.`
 		);
-		// All members have paid, so we can update the main party status.
-		transaction.update(partyRef, {
-			status: "completed",
-			lastUpdated: FieldValue.serverTimestamp(),
-		});
+
+		// 1. Delete the party document itself.
+		transaction.delete(partyRef);
+
+		// 2. Delete the associated shared basket document.
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
+		transaction.delete(sharedBasketRef);
+
+		// 3. Delete the associated check-in document.
+		if (partyData.activeCheckInId) {
+			const checkInRef = db
+				.collection("checkIns")
+				.doc(partyData.activeCheckInId);
+			transaction.delete(checkInRef);
+			console.log(
+				`checkAndCloseParty: Queued deletion for party, basket, and check-in ${partyData.activeCheckInId}.`
+			);
+		} else {
+			console.log(`checkAndCloseParty: Queued deletion for party and basket.`);
+		}
 	} else {
 		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} is not yet fully paid. No status change.`
+			`checkAndCloseParty: Party ${partyRef.id} is not yet fully paid. No final cleanup action taken.`
 		);
 	}
 };
@@ -190,11 +202,15 @@ const handleStripeEvent = async (event, stripeInstance) => {
 						});
 
 						if (userFound) {
+							const updatedPartyData = {
+								...partyData,
+								guestPips: updatedGuestPips,
+							};
 							transaction.update(partyRef, { guestPips: updatedGuestPips });
 							console.log(
-								`✅ Successfully updated payment status for user ${metadata.userId} in party ${metadata.partyId}.`
+								`✅ Updated payment status for user ${metadata.userId} in party ${metadata.partyId}.`
 							);
-							await checkAndCloseParty(partyRef, transaction);
+							await checkAndCloseParty(partyRef, updatedPartyData, transaction);
 						}
 					});
 				} catch (error) {
@@ -241,7 +257,37 @@ const handleStripeEvent = async (event, stripeInstance) => {
 							.doc(orderData.restaurantId)
 							.collection("tables")
 							.doc(orderData.table.id);
-						await tableRef.update({ status: "checkedOut" });
+						await tableRef.update({
+							status: "checkedOut",
+							currentCheckInId: null,
+							currentCustomerId: null,
+						});
+
+						if (orderData.userId) {
+							const customerRef = db
+								.collection("customers")
+								.doc(orderData.userId);
+							console.log(
+								`Webhook: Clearing activeCheckIn for customer ${orderData.userId}.`
+							);
+							await customerRef.update({
+								activeCheckIn: null, // Clear the check-in object
+							});
+							console.log(`✅ Successfully cleared customer's activeCheckIn.`);
+						}
+						// 3. Mark the original check-in as 'COMPLETED'.
+						if (orderData.checkInId) {
+							const checkInRef = db
+								.collection("checkIns")
+								.doc(orderData.checkInId);
+							await checkInRef.update({
+								status: "COMPLETED", // Mark as completed to remove from restaurant's active queue
+								updatedAt: FieldValue.serverTimestamp(),
+							});
+							console.log(
+								`✅ Successfully updated checkIn ${orderData.checkInId} status to COMPLETED.`
+							);
+						}
 					}
 				} catch (error) {
 					console.error(

@@ -20,13 +20,10 @@ exports.handleCheckIn = functions.firestore
 			// await snapshot.ref.update({ status: "REQUESTED" });
 
 			// --- VALIDATE DATA BEFORE CREATING NOTIFICATION ---
-			const {
-				restaurantId,
-				customerId: userId,
-				customerName,
-				numberOfPeople,
-			} = checkInData;
-			if (!restaurantId || !userId || !customerName) {
+
+			const { restaurantId, customerName, numberOfPeople, customerId } =
+				checkInData;
+			if (!restaurantId || !customerId || !customerName) {
 				console.error(
 					`handleCheckIn trigger: Missing critical data (restaurantId, userId, or customerName) for check-in ${checkInId}.`
 				);
@@ -37,7 +34,7 @@ exports.handleCheckIn = functions.firestore
 			// Create notification for the restaurant
 			const notificationData = {
 				restaurantId: restaurantId,
-				customerId: userId, // <<< CORRECTED: Use 'userId' from checkInData
+				customerId: customerId,
 				checkInId: checkInId,
 				type: "checkIn",
 				isRead: false,

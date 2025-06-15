@@ -111,111 +111,99 @@ export const PartyProvider = ({ children }) => {
 	}, []);
 
 	// Effect to reset checking state when user changes (e.g., login/logout)
+	// useEffect(() => {
+	// 	console.log(
+	// 		"PartyContext: User changed or initial load. UID:",
+	// 		currentUserData?.uid
+	// 	);
+	// 	if (currentUserData?.uid) {
+	// 		// If there's a user but no current party ID from a previous session/action,
+	// 		// ensure we are in a state to check for existing parties.
+	// 		if (!currentPartyId) {
+	// 			console.log(
+	// 				"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true."
+	// 			);
+	// 			setIsCheckingExistingParty(true);
+	// 		}
+	// 	} else {
+	// 		// No user, clear any existing party state and stop checks.
+	// 		console.log(
+	// 			"PartyContext: No user. Clearing party state and resetting check flags."
+	// 		);
+	// 		clearPartyState();
+	// 		setIsCheckingExistingParty(false); // No user, so no check needed.
+	// 		setIsPartyDetailsListenerLoading(false);
+	// 		setIsLoadingBasket(false);
+	// 	}
+	// }, [currentUserData?.uid, clearPartyState]); // currentPartyId removed from here to avoid loop with below effect
+
+	// --- EFFECT 1: Find the user's active party and listen for changes (like deletion) ---
 	useEffect(() => {
 		console.log(
-			"PartyContext: User changed or initial load. UID:",
-			currentUserData?.uid
+			`PartyContext: Main party listener effect running. User ID: ${currentUserData?.uid}`
 		);
-		if (currentUserData?.uid) {
-			// If there's a user but no current party ID from a previous session/action,
-			// ensure we are in a state to check for existing parties.
-			if (!currentPartyId) {
-				console.log(
-					"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true."
-				);
-				setIsCheckingExistingParty(true);
-			}
-		} else {
-			// No user, clear any existing party state and stop checks.
-			console.log(
-				"PartyContext: No user. Clearing party state and resetting check flags."
-			);
-			clearPartyState();
-			setIsCheckingExistingParty(false); // No user, so no check needed.
-			setIsPartyDetailsListenerLoading(false);
-			setIsLoadingBasket(false);
+
+		// If there's no user, clear everything and stop.
+		if (!currentUserData?.uid) {
+			setCurrentPartyId(null); // This will cause other listeners to clean up
+			setIsLoading(false); // No user, so loading is finished.
+			return;
 		}
-	}, [currentUserData?.uid, clearPartyState]); // currentPartyId removed from here to avoid loop with below effect
 
-	// --- NEW: Effect to check for existing party on load ---
-	// Effect to check for existing party on load or when isCheckingExistingParty is true
+		setIsLoading(true); // Start loading when we begin the check for a valid user
 
-	useEffect(() => {
-		// This effect will find an existing party when the app loads or the user changes.
-		// It will NOT set up a continuous listener itself, but rather find the ID to pass
-		// to the other effects which DO set up listeners.
+		// This query finds any party where the user is listed as a guest (the host is also a guest).
+		// It only looks for parties that are not yet completed or cancelled.
+		const userPartiesQuery = query(
+			collection(db, "parties"),
+			where("guestUserIds", "array-contains", currentUserData.uid),
+			where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
+			limit(1)
+		);
 
-		const findAndSetInitialParty = async (userId) => {
-			setIsLoading(true);
-			console.log(
-				`PartyContext: Running findAndSetInitialParty for user: ${userId}`
-			);
-
-			// Query 1: Find a party where the user is the host
-			const hostQuery = query(
-				collection(db, "parties"),
-				where("hostUserId", "==", userId),
-				where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
-				limit(1)
-			);
-
-			// Query 2: Find a party where the user is a guest
-			const guestQuery = query(
-				collection(db, "parties"),
-				where("guestUserIds", "array-contains", userId),
-				where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
-				limit(1)
-			);
-
-			try {
-				const [hostSnapshot, guestSnapshot] = await Promise.all([
-					getDocs(hostQuery),
-					getDocs(guestQuery),
-				]);
-
-				let foundPartyDoc = null;
-				if (!hostSnapshot.empty) {
-					foundPartyDoc = hostSnapshot.docs[0];
+		// --- THE FIX: Use onSnapshot for real-time updates ---
+		// This listener will fire when the app loads, AND when the document it finds is modified or deleted.
+		const unsubscribeUserParty = onSnapshot(
+			userPartiesQuery,
+			(snapshot) => {
+				if (!snapshot.empty) {
+					// Found an active party for the user
+					const partyDoc = snapshot.docs[0];
 					console.log(
-						`PartyContext: Found user as HOST of party: ${foundPartyDoc.id}`
+						`PartyContext: Listener found active party for user: ${partyDoc.id}`
 					);
-				} else if (!guestSnapshot.empty) {
-					foundPartyDoc = guestSnapshot.docs[0];
-					console.log(
-						`PartyContext: Found user as GUEST in party: ${foundPartyDoc.id}`
-					);
-				}
-
-				if (foundPartyDoc) {
-					setCurrentPartyId(foundPartyDoc.id);
+					// Set the currentPartyId. This will trigger the other listeners below.
+					setCurrentPartyId(partyDoc.id);
 				} else {
-					console.log("PartyContext: No active party found for user.");
+					// No active party was found, or the party was just deleted/completed.
+					console.log(
+						"PartyContext: Listener found no active party for user. Clearing state."
+					);
 					setCurrentPartyId(null);
 				}
-			} catch (error) {
-				console.error("PartyContext: Error finding initial party:", error);
-				setPartyError("Could not check for an existing party.");
-				setCurrentPartyId(null);
-			} finally {
-				setIsLoading(false); // Finished checking
+				// The initial check is now complete, so we can stop the main loading indicator.
+				setIsLoading(false);
+			},
+			(error) => {
+				console.error(
+					"PartyContext: Error listening for user's active party:",
+					error
+				);
+				setPartyError("Could not check for an active party.");
+				setIsLoading(false); // Stop loading on error too.
 			}
-		};
+		);
 
-		if (currentUserData?.uid) {
-			findAndSetInitialParty(currentUserData.uid);
-		} else {
-			// No user, clear everything and stop loading.
-			setCurrentPartyId(null);
-			setPartyDetails(null);
-			setSharedBasketItems([]);
-			setIsLoading(false);
-		}
-	}, [currentUserData?.uid]); // This effect runs only when the user changes.
+		// Cleanup this main listener when the user logs out
+		return () => unsubscribeUserParty();
+	}, [currentUserData?.uid]);
 
-	// This effect listens to the SPECIFIC party document once its ID is known.
+	// --- EFFECT 2: Listen to the SPECIFIC party document once its ID is known ---
 	useEffect(() => {
-		if (!currentPartyId) return; // Do nothing if there's no party ID
-
+		if (!currentPartyId) {
+			setPartyDetails(null);
+			return;
+		}
 		console.log(
 			`PartyContext: Attaching listener to party document: ${currentPartyId}`
 		);
@@ -224,23 +212,22 @@ export const PartyProvider = ({ children }) => {
 			if (docSnap.exists()) {
 				setPartyDetails({ id: docSnap.id, ...docSnap.data() });
 			} else {
-				// The party was deleted, the main listener above will handle clearing the state.
+				// If the doc is deleted, the main listener above will set currentPartyId to null,
+				// which will cause this listener to clean up and state to be cleared.
 				console.log(
 					`PartyContext: Party document ${currentPartyId} was deleted.`
 				);
 			}
 		});
-
 		return () => unsubscribePartyDetails();
-	}, [currentPartyId]); // Re-run only when the party ID changes
+	}, [currentPartyId]);
 
-	// Listener for Shared Basket
+	// --- EFFECT 3: Listen to the SHARED BASKET of the specific party ---
 	useEffect(() => {
 		if (!currentPartyId) {
-			setSharedBasketItems([]); // Clear basket if no party
+			setSharedBasketItems([]);
 			return;
 		}
-
 		console.log(
 			`PartyContext: Attaching listener to shared basket: ${currentPartyId}`
 		);
@@ -254,12 +241,9 @@ export const PartyProvider = ({ children }) => {
 				);
 				setSharedBasketItems([]);
 			}
-			setIsLoading(false); // Consider loading complete after basket is fetched/checked
 		});
-
 		return () => unsubscribeBasket();
-	}, [currentPartyId]); // Re-run only when the party ID changes
-	// --- END NEW Shared Basket Listener ---
+	}, [currentPartyId]);
 
 	// --- Action: Create Party ---
 	const createParty = async (restaurantId) => {
@@ -776,111 +760,63 @@ export const PartyProvider = ({ children }) => {
 		newQuantity,
 		userId
 	) => {
-		console.log("HandleParty Pressed quantity is", newQuantity);
-		if (!currentPartyId || !currentUserData?.uid) {
-			Alert.alert(
-				"Error",
-				"Cannot update item: Party or user information missing."
-			);
-			return;
-		}
-
+		// This log should now be the first thing you see when the function is successfully called.
 		console.log(
-			`PartySessionScreen: Updating item ${itemId} in party ${currentPartyId} to quantity ${newQuantity} by user ${currentUserData.uid}`
+			`PartyContext: handlePartyItemQuantityChange INVOKED with qty: ${newQuantity}`
 		);
-		let numericQuantity = Number(newQuantity);
-		if (isNaN(numericQuantity)) {
-			Alert.alert("Error", "Invalid quantity provided to context.");
-			return false;
-		}
-		numericQuantity = Math.max(0, Math.min(10, numericQuantity)); // Clamp
+
+		let numericQuantity = Math.max(0, Number(newQuantity));
+		if (isNaN(numericQuantity)) return false;
 
 		if (numericQuantity === 0) {
-			console.log(
-				`PartyContext: Quantity is 0 for item ${itemId}. Calling removePartyBasketItem.`
-			);
 			return await removePartyBasketItem(partyId, itemId, userId);
 		}
-		const payload = {
-			partyId: partyId,
-			itemId: itemId,
-			newQuantity: numericQuantity,
-			userId: userId, // This is the calling user, for permissions in CF
-		};
 
-		setUiItemUpdateLoading(true); // Optional: local loading state for this action
 		try {
-			// The updatePartyBasketItemQuantity in PartyContext will handle calling
-			// removePartyBasketItem if newQuantity is 0.
-			const success = await updatePartyBasketItemQuantityFunction(payload);
-			if (success) {
-				console.log(
-					"PartySessionScreen: Item quantity/removal processed by context."
-				);
-			} else {
-				// Context likely showed an alert
-				console.log(
-					"PartySessionScreen: Context reported issue processing item quantity/removal."
-				);
-			}
+			const payload = { partyId, itemId, newQuantity: numericQuantity, userId };
+			await updatePartyBasketItemQuantityFunction(payload);
+			return true;
 		} catch (error) {
-			console.error(
-				"PartySessionScreen: Error calling updatePartyBasketItemQuantity from context:",
-				error
+			Alert.alert(
+				"Update Failed",
+				error.message || "Could not update item quantity."
 			);
-			Alert.alert("Error", "Failed to update item in party basket.");
-		} finally {
-			setUiItemUpdateLoading(false);
+			return false;
 		}
 	};
 	const removePartyBasketItem = useCallback(
-		async (partyId, itemId, userIdPerformingAction) => {
-			// userIdPerformingAction is context.auth.uid from the CF, but good to pass for clarity or if CF needs it in `data`
-			// For the CF we defined, it uses context.auth.uid primarily for the requesting user.
-			// The `userId` in the CF's `data` payload is used for checking item ownership if not host.
-
-			if (!currentUserData?.uid) {
-				// Check against the logged-in user from AuthContext
-				Alert.alert("Error", "You must be logged in to remove items.");
-				return false;
-			}
-			if (!partyId || !itemId) {
-				Alert.alert("Error", "Missing information to remove item.");
-				console.error(
-					"PartyContext.removePartyBasketItem: Missing partyId or itemId",
-					{ partyId, itemId }
-				);
+		async (partyId, itemId, userId) => {
+			console.log("Triggered", userId, partyId, itemId);
+			if (!userId || !partyId || !itemId) {
+				Alert.alert("Error", "Missing information to remove item from party.");
 				return false;
 			}
 
-			// The userId to check against for ownership in the Cloud Function should be the item's orderedByUserId.
-			// However, the Cloud Function will fetch the item and check its orderedByUserId itself.
-			// The userId passed here is more about who is *requesting* the action for logging/CF-side checks.
-			// For simplicity, we pass the current user's ID as the 'userId' in the data payload,
-			// and the CF will use context.auth.uid for the actual permission checks against item owner or host.
-
-			setIsLoadingPartyAction(true);
+			setIsLoadingAction(true);
 			setPartyError(null);
-			try {
-				console.log(
-					`PartyContext: Calling removeSharedBasketItem CF for party ${partyId}, item ${itemId}, by user ${currentUserData.uid}`
-				);
-				const result = await removePartyBasketItemFunction({
-					partyId,
-					itemId,
-					userId: currentUserData.uid, // User initiating the request
-				});
 
+			// Construct a single payload object for the Cloud Function.
+			const payload = {
+				partyId: partyId,
+				itemId: itemId,
+				userId: userId, // The user performing the action
+			};
+
+			console.log(
+				"PartyContext: Calling removeSharedBasketItem CF with payload:",
+				payload
+			);
+
+			try {
+				const result = await removePartyBasketItemFunction(payload);
 				if (result.data.success) {
 					console.log(
-						`PartyContext: Item ${itemId} reported as removed successfully by CF.`
+						`PartyContext: Item ${itemId} reported as removed by CF.`
 					);
-					// Listener for sharedBasketItems will update the UI.
 					return true;
 				} else {
 					throw new Error(
-						result.data.error ||
-							"Cloud function failed to remove item but returned success:false."
+						result.data.error || "Cloud function failed to remove item."
 					);
 				}
 			} catch (error) {
@@ -888,13 +824,12 @@ export const PartyProvider = ({ children }) => {
 					"PartyContext: Error calling removeSharedBasketItem CF:",
 					error
 				);
-				const message =
-					error.message || "Could not remove item from party basket.";
+				const message = error.message || "Could not remove the item.";
 				setPartyError(message);
-				Alert.alert("Remove Item Failed", message);
+				Alert.alert("Remove Failed", message);
 				return false;
 			} finally {
-				setIsLoadingPartyAction(false);
+				setIsLoadingAction(false);
 			}
 		},
 		[

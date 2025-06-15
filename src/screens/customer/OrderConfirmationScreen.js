@@ -91,9 +91,10 @@ const OrderConfirmationScreen = () => {
 		mode = "individual", // 'individual' or 'party'
 		orderDocId, // For 'individual' mode
 		partyId, // For 'party' mode
+		initialStatus = "processing",
 	} = route.params;
 
-	const [status, setStatus] = useState("processing");
+	const [status, setStatus] = useState(initialStatus);
 	const [error, setError] = useState(null);
 	const [details, setDetails] = useState(null);
 
@@ -123,15 +124,10 @@ const OrderConfirmationScreen = () => {
 		let unsubscribe = () => {};
 		let docRef;
 
+		// Determine which document to listen to based on the mode
 		if (mode === "individual" && orderDocId) {
-			console.log(
-				`OrderConfirmationScreen: Setting up listener for INDIVIDUAL order at "orders/${orderDocId}"`
-			);
 			docRef = doc(db, "orders", orderDocId);
 		} else if (mode === "party" && partyId && currentUserData?.uid) {
-			console.log(
-				`OrderConfirmationScreen: Setting up listener for PARTY order at "parties/${partyId}"`
-			);
 			docRef = doc(db, "parties", partyId);
 		} else {
 			console.error(
@@ -143,21 +139,19 @@ const OrderConfirmationScreen = () => {
 			return;
 		}
 
+		console.log(
+			`OrderConfirmationScreen: Setting up listener for document: ${docRef.path}`
+		);
 		unsubscribe = onSnapshot(
 			docRef,
 			(docSnap) => {
-				// --- LOG 2: Log every time the listener fires with new data ---
 				console.log(
 					`OrderConfirmationScreen: SNAPSHOT RECEIVED for document: ${docRef.path}`
 				);
 
 				if (docSnap.exists()) {
 					const data = docSnap.data();
-					console.log(
-						"OrderConfirmationScreen: Document data:",
-						JSON.stringify(data, null, 2)
-					);
-
+					// Document still exists, update status based on its fields
 					if (mode === "individual") {
 						const paymentStatus = data.paymentStatus || "processing";
 						setStatus(paymentStatus);
@@ -177,22 +171,16 @@ const OrderConfirmationScreen = () => {
 						const myPipData = (data.guestPips || []).find(
 							(p) => p.userId === currentUserData.uid
 						);
-						console.log("OrderConfirmationScreen: Found myPipData:", myPipData);
-
 						const paymentStatus = myPipData?.paymentStatus || "processing";
 						setStatus(paymentStatus);
-						if (paymentStatus === "paid") {
-							setDetails("Your portion of the bill has been paid. Thank you!");
-						} else if (paymentStatus === "failed") {
-							setError("Your payment could not be processed.");
-						}
 					}
 				} else {
-					console.error(
-						`OrderConfirmationScreen: Document not found at path: ${docRef.path}`
+					// --- THIS IS THE FIX for the race condition ---
+					// If the document doesn't exist, it's because the party was successfully closed.
+					// We keep the 'paid' status that was set initially and do nothing further.
+					console.log(
+						`OrderConfirmationScreen: Document at ${docRef.path} was deleted. Assuming successful completion.`
 					);
-					setError("Could not find order details.");
-					setStatus("failed");
 				}
 			},
 			(err) => {

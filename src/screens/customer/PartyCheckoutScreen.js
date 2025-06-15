@@ -217,6 +217,9 @@ const PartyCheckoutScreen = () => {
 				);
 			}
 			setIsPaying(false);
+			console.log(
+				"PartyCheckoutScreen: Payment Sheet completed successfully! Navigating to confirmation."
+			);
 		} else {
 			navigation.dispatch(
 				CommonActions.reset({
@@ -227,6 +230,7 @@ const PartyCheckoutScreen = () => {
 							params: {
 								mode: "party", // <<< Specify the mode
 								partyId: partyDetails.id, // Pass the partyId
+								initialStatus: "paid",
 							},
 						},
 					],

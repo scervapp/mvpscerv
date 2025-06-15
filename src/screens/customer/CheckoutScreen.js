@@ -314,6 +314,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					totalDiscount: totalDiscount, // Use value from useMemo
 					restaurantName: restaurant.restaurantName,
 					checkInTimestamp: checkInTimestamp,
+					checkInId: checkInObj.id,
 				};
 
 				const { data: orderResult } = await createPendingOrderFunction(
@@ -469,6 +470,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		currentUserData?.uid,
 		restaurant?.uid,
 		restaurant?.stripeAccountId,
+		checkInObj,
 		subtotal,
 		gratuity,
 		platformFee,
@@ -558,8 +560,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 		}
 		setIsPaying(false);
 	};
-
-
 
 	// Function to toggle PIP section expansion
 	const toggleExpandPIP = (personId) => {

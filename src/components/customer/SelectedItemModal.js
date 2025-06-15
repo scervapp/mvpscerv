@@ -237,7 +237,6 @@ const SelectedItemModal = ({
 			dataToConfirm.chosenPartyTargetName = partyTarget.name;
 			dataToConfirm.specialInstructions = partyTarget.specialInstructions;
 			// Call the onConfirm prop with the data object
-			onConfirm(dataToConfirm);
 		}
 
 		onConfirm(dataToConfirm);

@@ -416,7 +416,7 @@ const requestPartyTableCheckIn = async (
 ) => {
 	console.log("requestPartyTableCheckIn utility called with:", {
 		restaurantId,
-		hostUserId,
+		customerId: hostUserId,
 		hostName,
 		partySize,
 		partyId,
@@ -440,7 +440,7 @@ const requestPartyTableCheckIn = async (
 		const checkInRef = doc(collection(db, "checkIns")); // Create a new document reference with auto-generated ID
 		const checkInData = {
 			restaurantId: restaurantId,
-			userId: hostUserId, // The user performing the check-in (the host)
+			customerId: hostUserId, // The user performing the check-in (the host)
 			customerName: hostName, // Name of the host
 			numberOfPeople: parseInt(partySize, 10),
 			status: "REQUESTED", // Initial status for a new check-in

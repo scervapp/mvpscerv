@@ -124,7 +124,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			restaurantName: restaurantName,
 			restaurantTaxRate: restaurantTaxRate,
 			restaurantStripeAccountId: restaurantStripeAccountId,
-			
+
 			hostUserId: hostUserId,
 			hostName: hostName,
 			guestUserIds: [hostUserId],
@@ -629,7 +629,7 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 			}
 			if (
 				checkInData.associatedPartyId !== partyId ||
-				checkInData.userId !== hostUserId
+				checkInData.customerId !== hostUserId
 			) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",

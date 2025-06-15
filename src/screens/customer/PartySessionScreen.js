@@ -1,4 +1,10 @@
-import React, { useContext, useState, useEffect, useMemo } from "react";
+import React, {
+	useContext,
+	useState,
+	useEffect,
+	useMemo,
+	useCallback,
+} from "react";
 import {
 	View,
 	Text,
@@ -31,6 +37,7 @@ import * as Yup from "yup";
 import { requestPartyTableCheckIn } from "../../utils/customerUtils";
 import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { Button } from "react-native-paper";
+import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
 
 /**
  * A reusable button component featuring an icon and text underneath.
@@ -38,13 +45,10 @@ import { Button } from "react-native-paper";
 
 const IconTextButton = ({
 	iconName,
-	iconSet = "Ionicons", // Default to Ionicons
+	iconSet = "Ionicons",
 	text,
 	onPress,
-	color, // Optional: color for icon and text
-	iconSize = 32,
-	fontSize = 13,
-	style, // Optional: additional style for the touchable container
+	color,
 	disabled = false,
 }) => {
 	let IconComponent;
@@ -52,30 +56,21 @@ const IconTextButton = ({
 		case "MaterialCommunityIcons":
 			IconComponent = MaterialCommunityIcons;
 			break;
-		case "FontAwesome5":
-			IconComponent = FontAwesome5;
-			break;
-		case "Ionicons":
 		default:
 			IconComponent = Ionicons;
 			break;
 	}
-
-	const activeColor = disabled ? colors.textLight : color || colors.primary;
+	const textColor = disabled ? colors.textLight : color || colors.textDark;
+	const iconColor = disabled ? colors.textLight : color || colors.primary;
 
 	return (
 		<TouchableOpacity
+			style={styles.modalActionButton}
 			onPress={onPress}
-			style={[styles.iconTextButtonContainer, style]}
 			disabled={disabled}
 		>
-			<IconComponent name={iconName} size={iconSize} color={activeColor} />
-			<Text
-				style={[
-					styles.iconTextButtonText,
-					{ color: activeColor, fontSize: fontSize },
-				]}
-			>
+			<IconComponent name={iconName} size={26} color={iconColor} />
+			<Text style={[styles.modalActionButtonText, { color: textColor }]}>
 				{text}
 			</Text>
 		</TouchableOpacity>
@@ -122,6 +117,7 @@ const PartySessionScreen = () => {
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 	const [uiJoinLoading, setUiJoinLoading] = useState(false);
 	const [isSendingItems, setIsSendingItems] = useState(false);
+	const [isLoadingAction, setIsLoadingAction] = useState(false);
 
 	const partyCheckInValidationSchema = Yup.object().shape({
 		partySize: Yup.number()
@@ -233,6 +229,16 @@ const PartySessionScreen = () => {
 			},
 		]);
 	};
+	const handleLeavePartyAction = useCallback(() => {
+		Alert.alert("Leave Party", "Are you sure?", [
+			{ text: "Cancel", style: "cancel" },
+			{
+				text: "Leave",
+				style: "destructive",
+				onPress: async () => await leaveParty(),
+			},
+		]);
+	}, [leaveParty]);
 
 	const handleCancelPartyAction = async () => {
 		// Host only
@@ -271,8 +277,8 @@ const PartySessionScreen = () => {
 		}
 	};
 
-	const handleCancelCheckInRequest = () => {
-		setIsActionsModalVisible(false); // Close the actions modal first
+	const handleCancelCheckInRequest = useCallback(() => {
+		setIsActionsModalVisible(false); // Close the modal first
 		Alert.alert(
 			"Cancel Check-In Request",
 			"Are you sure you want to cancel your request for a table? This will revert the party to a 'pending' state.",
@@ -282,13 +288,31 @@ const PartySessionScreen = () => {
 					text: "Yes, Cancel",
 					style: "destructive",
 					onPress: async () => {
-						// Call the context function. It already handles loading states and alerts.
+						// The context function handles loading states and alerts
 						await cancelPartyCheckIn();
 					},
 				},
 			]
 		);
-	};
+	}, [cancelPartyCheckIn]);
+
+	const handleCancelParty = useCallback(() => {
+		setIsActionsModalVisible(false);
+		Alert.alert(
+			"Cancel Entire Party",
+			"Are you sure you want to permanently cancel this party? This action cannot be undone.",
+			[
+				{ text: "Keep Party", style: "cancel" },
+				{
+					text: "Cancel Party",
+					style: "destructive",
+					onPress: async () => {
+						await cancelParty();
+					},
+				},
+			]
+		);
+	}, [cancelParty]);
 
 	const handleSubmitPartyCheckIn = async (values) => {
 		// values will contain { partySize } from the PartyCheckInModal's Formik
@@ -372,73 +396,6 @@ const PartySessionScreen = () => {
 		// Errors are handled by the context function's alerts
 	};
 
-	const onItemQuantityChangeInParty = async (
-		restaurantId,
-		itemId,
-		newQuantity
-	) => {
-		if (!currentPartyId || !currentUserData?.uid) {
-			Alert.alert(
-				"Error",
-				"Cannot update item: Party or user information missing."
-			);
-			return;
-		}
-		console.log(
-			"PartySessionScreen: About to call context function. Type of 'handlePartyItemQuantityChange' from useParty():",
-			typeof handlePartyItemQuantityChange
-		);
-
-		if (typeof handlePartyItemQuantityChange !== "function") {
-			Alert.alert(
-				"Error",
-				"Cannot update item: Update function not available."
-			);
-			console.error(
-				"PartySessionScreen: updatePartyBasketItemQuantity is not a function from context!"
-			);
-			return;
-		}
-
-		console.log(
-			`PartySessionScreen: Updating item ${itemId} in party ${currentPartyId} to quantity ${newQuantity} by user ${currentUserData.uid}`
-		);
-		setUpdatingItemId(itemId);
-		try {
-			// The updatePartyBasketItemQuantity in PartyContext will handle calling
-			// removePartyBasketItem if newQuantity is 0.
-			const success = await handlePartyItemQuantityChange(
-				currentPartyId,
-				itemId,
-				newQuantity,
-				currentUserData.uid
-			);
-
-			console.log(
-				"PartySessionScreen: Call to PartyContext.handlePartyItemQuantityChange has COMPLETED (either successfully or context handled its error)."
-			);
-
-			if (success) {
-				console.log(
-					"PartySessionScreen: Item quantity/removal processed by context."
-				);
-			} else {
-				// Error alert likely shown by context, or you can show a generic one here
-				console.log(
-					"PartySessionScreen: Context reported issue processing item quantity/removal."
-				);
-			}
-		} catch (error) {
-			console.error(
-				"PartySessionScreen: Error calling updatePartyBasketItemQuantity from context:",
-				error
-			);
-			Alert.alert("Error", "Failed to update item in party basket.");
-		} finally {
-			setUpdatingItemId(null);
-		}
-	};
-
 	const handleAddMembersToParty = async (pipsToAdd) => {
 		if (!currentPartyId || pipsToAdd.length === 0) return;
 
@@ -469,6 +426,62 @@ const PartySessionScreen = () => {
 			setIsLoadingMembers(false);
 		}
 	};
+
+	const onItemQuantityChangeCallbackForParty = useCallback(
+		async (
+			restaurantId,
+			itemId, // OrderItemCard now only sends itemId and newQuantity
+			newQuantity
+		) => {
+			// Use partyDetails.id as the most reliable source of the partyId for this screen
+			const partyIdToUse = partyDetails?.id;
+
+			// --- Add a strong guard clause ---
+			if (!partyIdToUse || !currentUserData?.uid) {
+				console.error(
+					"PartySessionScreen: Cannot update item. Party ID or User ID is missing.",
+					{ partyIdToUse, uid: currentUserData?.uid }
+				);
+				Alert.alert(
+					"Error",
+					"There was a problem updating your item. Please try again."
+				);
+				return;
+			}
+
+			if (typeof handlePartyItemQuantityChange !== "function") {
+				console.error(
+					"PartySessionScreen: The handlePartyItemQuantityChange function from context is not available!"
+				);
+				Alert.alert("Error", "Action is currently unavailable.");
+				return;
+			}
+
+			console.log(
+				`PartySessionScreen: Calling context to update item "${itemId}" in party "${partyIdToUse}" to quantity ${newQuantity}`
+			);
+			//setUiItemUpdateLoading(true);
+			try {
+				console.log("Entering ");
+				// Call the context function with the correct arguments
+				await handlePartyItemQuantityChange(
+					partyIdToUse,
+					itemId,
+					newQuantity,
+					currentUserData.uid
+				);
+			} catch (error) {
+				console.error(
+					"PartySessionScreen: Error calling context function:",
+					error
+				);
+				// Alert is likely handled by the context, but we log the error here.
+			} finally {
+				setUiItemUpdateLoading(false);
+			}
+		},
+		[partyDetails?.id, currentUserData?.uid, handlePartyItemQuantityChange]
+	); // Add dependencies
 
 	// --- END OF FUNCTION DEFINITION ---
 
@@ -685,34 +698,124 @@ const PartySessionScreen = () => {
 						<Text style={styles.headerRestaurantName} numberOfLines={1}>
 							{partyDetails.restaurantName}
 						</Text>
-						<Text style={styles.headerPartyStatus}>
-							Status:{" "}
-							<Text
-								style={
-									partyIsActive ? styles.statusActive : styles.statusPending
-								}
-							>
-								{partyDetails.status}
-							</Text>
-						</Text>
+						{partyIsActive && partyDetails.tableName ? (
+							<View style={styles.statusContainer}>
+								<Ionicons
+									name="checkmark-circle"
+									size={16}
+									color={colors.statusSuccess}
+								/>
+								<Text style={[styles.headerPartyStatus, styles.statusActive]}>
+									Seated at {partyDetails.tableName}
+								</Text>
+							</View>
+						) : (
+							<View style={styles.statusContainer}>
+								<Ionicons
+									name="time-outline"
+									size={16}
+									color={colors.statusWarning}
+								/>
+								<Text style={[styles.headerPartyStatus, styles.statusPending]}>
+									{partyDetails.status === "AWAITING_TABLE"
+										? "Waiting for Table"
+										: `Status: ${partyDetails.status}`}
+								</Text>
+							</View>
+						)}
 					</View>
 					<View style={styles.headerActions}>
-						<IconTextButton
-							iconName="people-outline"
-							text={null}
+						{/* Host: Invite Button */}
+						{isHost &&
+							(partyDetails.status === "pending" ||
+								partyDetails.status === "active" ||
+								partyDetails.status === "AWAITING_TABLE") && (
+								<TouchableOpacity
+									style={styles.headerIconButton}
+									onPress={handleInviteAction}
+									disabled={isLoadingAction}
+								>
+									<Ionicons
+										name="person-add-outline"
+										size={26}
+										color={isLoadingAction ? colors.textLight : colors.primary}
+									/>
+								</TouchableOpacity>
+							)}
+						{/* Host: Activate Check-In Button */}
+						{isHost && partyDetails.status === "pending" && (
+							<TouchableOpacity
+								style={styles.headerIconButton}
+								onPress={handleOpenPartyCheckInModal}
+								disabled={isLoadingAction}
+							>
+								<MaterialCommunityIcons
+									name="location-enter"
+									size={26}
+									color={isLoadingAction ? colors.textLight : colors.primary}
+								/>
+							</TouchableOpacity>
+						)}
+						{/* Host: Cancel Check-In Request Button */}
+						{isHost && partyDetails.status === "AWAITING_TABLE" && (
+							<TouchableOpacity
+								style={styles.headerIconButton}
+								onPress={handleCancelCheckInRequest}
+								disabled={isLoadingAction}
+							>
+								<MaterialCommunityIcons
+									name="close-circle-outline"
+									size={26}
+									color={
+										isLoadingAction ? colors.textLight : colors.statusDanger
+									}
+								/>
+							</TouchableOpacity>
+						)}
+
+						{/* All Members: View Members Button */}
+						<TouchableOpacity
+							style={styles.headerIconButton}
 							onPress={() => setIsMembersModalVisible(true)}
-							iconSize={28}
-							color={colors.primary}
-							style={styles.headerIconButton}
-						/>
-						<IconTextButton
-							iconName="ellipsis-vertical"
-							text={null}
-							onPress={() => setIsActionsModalVisible(true)}
-							iconSize={26}
-							color={colors.primary}
-							style={styles.headerIconButton}
-						/>
+							disabled={isLoadingAction}
+						>
+							<Ionicons
+								name="people-outline"
+								size={28}
+								color={isLoadingAction ? colors.textLight : colors.primary}
+							/>
+						</TouchableOpacity>
+
+						{/* Destructive Actions: Cancel or Leave */}
+						{isHost && partyDetails.status === "pending" ? (
+							<TouchableOpacity
+								style={styles.headerIconButton}
+								onPress={handleCancelParty}
+								disabled={isLoadingAction}
+							>
+								<MaterialCommunityIcons
+									name="trash-can-outline"
+									size={26}
+									color={
+										isLoadingAction ? colors.textLight : colors.statusDanger
+									}
+								/>
+							</TouchableOpacity>
+						) : (
+							<TouchableOpacity
+								style={styles.headerIconButton}
+								onPress={handleLeavePartyAction}
+								disabled={isLoadingAction}
+							>
+								<Ionicons
+									name="exit-outline"
+									size={28}
+									color={
+										isLoadingAction ? colors.textLight : colors.statusDanger
+									}
+								/>
+							</TouchableOpacity>
+						)}
 					</View>
 				</View>
 
@@ -741,7 +844,7 @@ const PartySessionScreen = () => {
 										<OrderItemCard
 											key={basketItem.id || `basket-item-${index}`}
 											item={basketItem}
-											onQuantityChange={handlePartyItemQuantityChange}
+											onQuantityChange={onItemQuantityChangeCallbackForParty}
 											// --- CORRECTED isSentToKitchen LOGIC ---
 											isSentToKitchen={basketItem.status === "sent"} // Check for 'sent' status
 											allowEdit={
@@ -807,19 +910,7 @@ const PartySessionScreen = () => {
 							)}
 						</View>
 					)}
-					ListEmptyComponent={
-						<View style={styles.emptyBasketContainer}>
-							<FontAwesome5
-								name="shopping-basket"
-								size={48}
-								color={colors.textLight}
-							/>
-							<Text style={styles.emptyBasketText}>Party basket is empty.</Text>
-							<Text style={styles.emptyBasketSubText}>
-								Tap the '+' button to add your items!
-							</Text>
-						</View>
-					}
+					ListEmptyComponent={<PartyBasketGuide isHost={isHost} />}
 					contentContainerStyle={styles.flatListContentContainer}
 				/>
 
@@ -1063,6 +1154,11 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
+	},
+	statusContainer: {
+		// New container for status icon and text
+		flexDirection: "row",
+		alignItems: "center",
 	},
 	headerInfo: { flex: 1, marginRight: 10 },
 	headerRestaurantName: {
