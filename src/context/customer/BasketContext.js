@@ -1,5 +1,11 @@
 import { collection, onSnapshot, where, query } from "firebase/firestore";
-import React, { createContext, useState, useEffect, useContext } from "react";
+import React, {
+	createContext,
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+} from "react";
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../authContext";
 import { Alert } from "react-native";
@@ -32,6 +38,15 @@ export const BasketProvider = ({ children }) => {
 	const [basketItems, setBasketItems] = useState([]);
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
+
+	const sendOrderToKitchenFunction = httpsCallable(
+		functions,
+		"sendOrderToKitchen"
+	);
+	const linkBasketToCheckInFunction = httpsCallable(
+		functions,
+		"linkBasketToCheckIn"
+	);
 
 	// Fetch the basket for the logged in user when the component mounts
 	// Fetch basket data when the component mounts or current user changes
@@ -253,6 +268,69 @@ export const BasketProvider = ({ children }) => {
 		}
 	};
 
+	const sendIndividualOrderToKitchen = useCallback(
+		async (checkInId, table, server) => {
+			if (!checkInId || !table || !server) {
+				Alert.alert("Error", "Missing check-in details to send order.");
+				return false;
+			}
+
+			setIsSendingToChefsQ(true); // Assuming you have a loading state like this
+			try {
+				const result = await sendOrderToKitchenFunction({
+					type: "individual",
+					sourceId: checkInId,
+					table,
+					server,
+				});
+
+				if (result.data.success) {
+					console.log(
+						`BasketContext: Successfully sent individual order to kitchen.`
+					);
+					return true;
+				} else {
+					throw new Error(
+						result.data.error || "Cloud function failed to send order."
+					);
+				}
+			} catch (error) {
+				console.error("BasketContext: Error sending individual order:", error);
+				Alert.alert(
+					"Order Send Failed",
+					error.message || "Could not send order."
+				);
+				return false;
+			} finally {
+				setIsSendingToChefsQ(false);
+			}
+		},
+		[sendOrderToKitchenFunction /*, other dependencies */]
+	);
+
+	const linkBasketToCheckIn = useCallback(
+		async (restaurantId, checkInId) => {
+			try {
+				const result = await linkBasketToCheckInFunction({
+					restaurantId,
+					checkInId,
+				});
+				if (result.data.success) {
+					console.log(
+						`BasketContext: Successfully linked ${result.data.linkedItems} items.`
+					);
+					return { success: true };
+				}
+				throw new Error(result.data.error || "Failed to link items.");
+			} catch (error) {
+				console.error("BasketContext: Error linking items to check-in:", error);
+				Alert.alert("Error", "Could not prepare your items. Please try again.");
+				return { success: false };
+			}
+		},
+		[linkBasketToCheckInFunction]
+	);
+
 	return (
 		<BasketContext.Provider
 			value={{
@@ -262,6 +340,8 @@ export const BasketProvider = ({ children }) => {
 				addItemToBasket,
 				removeItemFromBasket,
 				handleQuantityChange,
+				sendIndividualOrderToKitchen,
+				linkBasketToCheckIn,
 				clearBasket,
 				basketItems,
 				baskets,

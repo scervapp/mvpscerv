@@ -5,6 +5,7 @@ import {
 	FlatList,
 	TouchableOpacity,
 	SafeAreaView,
+	Alert,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import {

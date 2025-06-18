@@ -476,6 +476,194 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * Consolidates items from a user or party and creates a single order document
+ * for the kitchen to view. It also updates the source items' status.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.type - The type of order, either 'individual' or 'party'.
+ * @param {string} data.sourceId - The ID of the document to get items from
+ * (either the checkInId for an individual order or the partyId for a party order).
+ * @param {string} data.table - The table object {id, name} for the order.
+ * @param {string} data.server - The server object {id, name} for the order.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, orderId?: string, error?: string}>}
+ */
+exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+	const { type, sourceId, table, server } = data;
+	const userId = context.auth.uid;
+
+	if (!type || !sourceId || !table || !server) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required data."
+		);
+	}
+
+	try {
+		let itemsFromSource = [];
+		let orderSourceRef;
+		let updatePayload = {};
+		let restaurantIdForOrder;
+		const batch = db.batch();
+
+		if (type === "party") {
+			orderSourceRef = db.collection("shared_baskets").doc(sourceId);
+			const basketDoc = await orderSourceRef.get();
+			if (!basketDoc.exists) throw new Error("Shared basket not found.");
+
+			const allItems = basketDoc.data().items || [];
+			itemsFromSource = allItems.filter(
+				(item) => item.orderedByUserId === userId && item.status === "new"
+			);
+
+			const updatedSourceItems = allItems.map((item) =>
+				item.orderedByUserId === userId && item.status === "new"
+					? { ...item, status: "sent", sentAt: new Date() }
+					: item
+			);
+			updatePayload = { items: updatedSourceItems, lastUpdated: new Date() };
+			if (itemsFromSource.length > 0)
+				restaurantIdForOrder = itemsFromSource[0].restaurantId;
+			batch.update(orderSourceRef, updatePayload);
+		} else if (type === "individual") {
+			const basketQuery = db
+				.collection("baskets")
+				.where("checkInId", "==", sourceId)
+				.where("sentToChefQ", "==", false);
+			const basketSnapshot = await basketQuery.get();
+			itemsFromSource = basketSnapshot.docs.map((doc) => ({
+				id: doc.id,
+				...doc.data(),
+			}));
+			if (itemsFromSource.length > 0)
+				restaurantIdForOrder = itemsFromSource[0].restaurantId;
+			basketSnapshot.docs.forEach((doc) =>
+				batch.update(doc.ref, { sentToChefQ: true })
+			);
+		}
+
+		if (itemsFromSource.length === 0) {
+			return { success: true, message: "No new items to send.", itemsSent: 0 };
+		}
+
+		// --- DATA NORMALIZATION STEP ---
+		// Create a clean, consistent item structure for the kitchen.
+		const kitchenItems = itemsFromSource.map((item) => {
+			return {
+				id: item.id, // The unique ID of the original basket item
+				dishName: item.dish.name || item.dishName, // Handles both nested and flat structures
+				quantity: item.quantity,
+				specialInstructions: item.specialInstructions || "",
+				// Use a single, consistent field for who the item is for
+				orderedFor:
+					item.orderedByPipName || item.pipName || item.customerName || "Host",
+			};
+		});
+		// --- END NORMALIZATION ---
+
+		const kitchenOrderRef = db.collection("kitchen_orders").doc();
+		const kitchenOrderData = {
+			restaurantId: restaurantIdForOrder,
+			orderId: kitchenOrderRef.id,
+			table: table,
+			server: server,
+			items: kitchenItems, // <<< Use the new, clean kitchenItems array
+			status: "new",
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		};
+
+		batch.set(kitchenOrderRef, kitchenOrderData);
+		await batch.commit();
+
+		return {
+			success: true,
+			orderId: kitchenOrderRef.id,
+			itemsSent: kitchenItems.length,
+		};
+	} catch (error) {
+		console.error(
+			`Error sending order to kitchen for source ${sourceId}:`,
+			error
+		);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not send order to kitchen.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Links all of a user's current basket items for a specific restaurant
+ * to their active check-in ID. This prepares them to be sent to the kitchen.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.restaurantId - The ID of the restaurant.
+ * @param {string} data.checkInId - The ID of the active check-in to link to.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, linkedItems: number}>}
+ */
+exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+	const userId = context.auth.uid;
+	const { restaurantId, checkInId } = data;
+
+	if (!restaurantId || !checkInId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID and Check-In ID are required."
+		);
+	}
+
+	try {
+		const basketItemsQuery = db
+			.collection("baskets")
+			.where("userId", "==", userId)
+			.where("restaurantId", "==", restaurantId)
+			.where("sentToChefQ", "==", false); // Only link unsent items
+
+		const snapshot = await basketItemsQuery.get();
+
+		if (snapshot.empty) {
+			console.log(
+				`linkBasketToCheckIn: No basket items found for user ${userId} at restaurant ${restaurantId} to link.`
+			);
+			return { success: true, linkedItems: 0 };
+		}
+
+		// Use a batch to update all found documents
+		const batch = db.batch();
+		snapshot.docs.forEach((doc) => {
+			batch.update(doc.ref, { checkInId: checkInId });
+		});
+		await batch.commit();
+
+		console.log(
+			`linkBasketToCheckIn: Successfully linked ${snapshot.size} items to checkInId ${checkInId}.`
+		);
+		return { success: true, linkedItems: snapshot.size };
+	} catch (error) {
+		console.error(`Error in linkBasketToCheckIn for user ${userId}:`, error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not link items to check-in.",
+			error.message
+		);
+	}
+});
+
+/**
  * Adds a menu item to a shared party basket.
  *
  * @param {object} data - The data object.

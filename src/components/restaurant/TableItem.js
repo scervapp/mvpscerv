@@ -1,52 +1,74 @@
+// src/components/restaurant/TableItem.js
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-
 import colors from "../../utils/styles/appStyles";
 
 const TableItem = ({ item, onPress, isSelected }) => {
-	const isAvailable = item.status === "available";
+	// --- Determine table status and corresponding styles ---
+	let statusText = "Unknown";
+	let statusColor = colors.textLight;
+	let iconName = "help-circle-outline";
+	let canBePressed = false;
+
+	switch (item.status) {
+		case "available":
+			statusText = "Available";
+			statusColor = colors.statusSuccess;
+			iconName = "checkmark-circle-outline";
+			canBePressed = true;
+			break;
+		case "OCCUPIED": // Handle both cases for robustness
+		case "occupied":
+			statusText = "Occupied";
+			statusColor = colors.statusDanger;
+			iconName = "person";
+			break;
+		case "checkedOut":
+			statusText = "Needs Cleaning";
+			statusColor = colors.statusWarning;
+			iconName = "alert-circle-outline";
+			break;
+	}
 
 	const cardStyle = [
 		styles.cardContainer,
-		!isAvailable && styles.cardDisabled, // Dim the card if not available
-		isSelected && styles.cardSelected, // Highlight if selected
+		!canBePressed && styles.cardDisabled,
+		isSelected && styles.cardSelected,
 	];
 
-	const textStyle = [
-		styles.tableName,
-		!isAvailable && styles.textDisabled,
-		isSelected && styles.textSelected,
-	];
+	const textStyle = [styles.tableName, isSelected && styles.textSelected];
 
 	return (
 		<TouchableOpacity
 			style={cardStyle}
 			onPress={() => onPress(item)}
-			disabled={!isAvailable} // Only available tables can be selected
+			// A table can be tapped to view details even if occupied, but seating is only for available tables.
+			// The parent modal will decide what actions are available based on status.
+			// disabled={!canBePressed}
 		>
-			<Ionicons
-				name={isAvailable ? "checkmark-circle" : "close-circle"}
-				size={24}
-				color={
-					isSelected
-						? colors.surfaceWhite
-						: isAvailable
-						? colors.statusSuccess
-						: colors.statusDanger
-				}
-				style={styles.statusIcon}
-			/>
-			<Text style={textStyle}>{item.name}</Text>
-			<Text
-				style={[
-					styles.capacityText,
-					!isAvailable && styles.textDisabled,
-					isSelected && styles.textSelected,
-				]}
-			>
-				Seats: {item.capacity}
-			</Text>
+			<View style={styles.header}>
+				<Text style={textStyle}>{item.name}</Text>
+				<Ionicons
+					name={iconName}
+					size={24}
+					color={isSelected ? colors.surfaceWhite : statusColor}
+				/>
+			</View>
+
+			<View style={styles.body}>
+				<Text
+					style={[
+						styles.statusText,
+						{ color: isSelected ? colors.surfaceWhite + "90" : statusColor },
+					]}
+				>
+					{statusText}
+				</Text>
+				<Text style={[styles.capacityText, isSelected && styles.textSelected]}>
+					Seats: {item.capacity}
+				</Text>
+			</View>
 		</TouchableOpacity>
 	);
 };
@@ -55,48 +77,51 @@ const styles = StyleSheet.create({
 	cardContainer: {
 		flex: 1,
 		margin: 8,
-		minHeight: 100,
+		height: 110, // Consistent height
 		borderRadius: 12,
 		backgroundColor: colors.surfaceWhite,
-		justifyContent: "center",
-		alignItems: "center",
-		// Shadow for a professional look
+		justifyContent: "space-between", // Space out header and body
+		padding: 12,
+		// Professional shadow
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.1,
 		shadowRadius: 3.84,
-		elevation: 5,
+		elevation: 4,
 		borderWidth: 2,
-		borderColor: "transparent", // Default transparent border
+		borderColor: "transparent",
 	},
 	cardDisabled: {
 		backgroundColor: colors.backgroundLight,
-		opacity: 0.7,
 	},
 	cardSelected: {
-		backgroundColor: colors.primary, // Use your primary brand color for selection
-		borderColor: colors.brandOrange, // Use accent for border
+		backgroundColor: colors.primary,
+		borderColor: colors.brandOrange, // Use your accent color for selection border
 	},
-	statusIcon: {
-		position: "absolute",
-		top: 8,
-		right: 8,
+	header: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "flex-start",
+	},
+	body: {
+		alignItems: "flex-start",
 	},
 	tableName: {
-		fontSize: 20,
+		fontSize: 18,
 		fontWeight: "bold",
 		color: colors.textDark,
+	},
+	statusText: {
+		fontSize: 15,
+		fontWeight: "600",
+		marginBottom: 4,
 	},
 	capacityText: {
 		fontSize: 14,
 		color: colors.textMedium,
-		marginTop: 4,
 	},
 	textSelected: {
-		color: colors.surfaceWhite, // White text on selected background
-	},
-	textDisabled: {
-		color: colors.textLight,
+		color: colors.surfaceWhite,
 	},
 });
 

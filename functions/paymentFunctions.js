@@ -52,32 +52,51 @@ const getStripeKeys = async (restaurantId) => {
  * @param {FirebaseFirestore.Transaction} transaction The transaction to run the check within.
  */
 const checkAndCloseParty = async (partyRef, partyData, transaction) => {
-	// The partyData object is now a combination of the original data and the newly updated guestPips list
+	// The partyData object contains the most up-to-date guestPips array
 	const guestPips = partyData.guestPips || [];
 
-	if (guestPips.length === 0) {
+	// --- THE FIX IS HERE ---
+	// First, filter the guest list to only include members who can actually pay (i.e., have a userId).
+	const payingMembers = guestPips.filter((pip) => pip.userId);
+
+	if (payingMembers.length === 0) {
+		// This case can happen if a host created a party for only local PIPs and never added themselves
+		// or if the last paying member just left. We can consider it complete.
 		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} has no guests, queueing for deletion.`
+			`checkAndCloseParty: Party ${partyRef.id} has no paying members left. Closing party.`
 		);
-		const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
-		transaction.delete(partyRef);
-		transaction.delete(sharedBasketRef);
-		// Also delete the check-in if it exists
-		if (partyData.activeCheckInId) {
-			const checkInRef = db
-				.collection("checkIns")
-				.doc(partyData.activeCheckInId);
-			transaction.delete(checkInRef);
-		}
-		return;
+		// Fall-through to the deletion logic below.
 	}
 
-	const allMembersPaid = guestPips.every((pip) => pip.paymentStatus === "paid");
+	// Now, check if every single one of the PAYING members has a paymentStatus of 'paid'.
+	const allPayingMembersHavePaid = payingMembers.every(
+		(pip) => pip.paymentStatus === "paid"
+	);
 
-	if (allMembersPaid) {
+	if (allPayingMembersHavePaid) {
 		console.log(
-			`checkAndCloseParty: All members of party ${partyRef.id} have paid. Deleting party, basket, and check-in.`
+			`checkAndCloseParty: All paying members of party ${partyRef.id} have paid. Deleting party, basket, and check-in.`
 		);
+
+		if (partyData.table.id && partyData.restaurantId) {
+			const tableRef = db
+				.collection("restaurants")
+				.doc(partyData.restaurantId)
+				.collection("tables")
+				.doc(partyData.table.id);
+			transaction.update(tableRef, {
+				status: "checkedOut",
+				currentCheckInId: null,
+				currentCustomerId: null,
+			});
+			console.log(
+				`checkAndCloseParty: Queued update for table ${partyData.table.id} to status 'checkedOut'.`
+			);
+		} else {
+			console.warn(
+				`checkAndCloseParty: Could not update table status because table.id or restaurantId was missing from party doc ${partyRef.id}`
+			);
+		}
 
 		// 1. Delete the party document itself.
 		transaction.delete(partyRef);
@@ -86,7 +105,7 @@ const checkAndCloseParty = async (partyRef, partyData, transaction) => {
 		const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
 		transaction.delete(sharedBasketRef);
 
-		// 3. Delete the associated check-in document.
+		// 3. Delete the associated check-in document, if it exists.
 		if (partyData.activeCheckInId) {
 			const checkInRef = db
 				.collection("checkIns")
@@ -257,6 +276,7 @@ const handleStripeEvent = async (event, stripeInstance) => {
 							.doc(orderData.restaurantId)
 							.collection("tables")
 							.doc(orderData.table.id);
+
 						await tableRef.update({
 							status: "checkedOut",
 							currentCheckInId: null,

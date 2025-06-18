@@ -79,12 +79,30 @@ export const generateTables = async (restaurantId) => {
 	}
 };
 
+/**
+ * Clears a table's status after it has been cleaned, making it available again.
+ *
+ * @param {string} tableId The ID of the table document to clear.
+ * @param {string} restaurantId The ID of the restaurant.
+ * @returns {Promise<void>}
+ */
 export const clearTable = async (tableId, restaurantId) => {
-	const tableRef = doc(db, `restaurants/${restaurantId}/tables`, tableId);
+	if (!tableId || !restaurantId) {
+		console.error("clearTable: Missing tableId or restaurantId.");
+		throw new Error("Missing required information to clear the table.");
+	}
+
+	// Path to the specific table document in the subcollection
+	const tableRef = doc(db, "restaurants", restaurantId, "tables", tableId);
+
+	console.log(`clearTable: Resetting table ${tableId} to 'available'.`);
+
+	// Resets the status and clears any active session data
 	await updateDoc(tableRef, {
 		status: "available",
-		capacity: null,
-		numInParty: null,
+		currentCheckInId: null,
+		currentCustomerId: null,
+		// We DO NOT nullify 'capacity' or 'name' as those are permanent properties of the table.
 	});
 };
 

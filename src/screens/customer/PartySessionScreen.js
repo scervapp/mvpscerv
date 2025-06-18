@@ -698,7 +698,7 @@ const PartySessionScreen = () => {
 						<Text style={styles.headerRestaurantName} numberOfLines={1}>
 							{partyDetails.restaurantName}
 						</Text>
-						{partyIsActive && partyDetails.tableName ? (
+						{partyIsActive && partyDetails.table.name ? (
 							<View style={styles.statusContainer}>
 								<Ionicons
 									name="checkmark-circle"
@@ -706,7 +706,7 @@ const PartySessionScreen = () => {
 									color={colors.statusSuccess}
 								/>
 								<Text style={[styles.headerPartyStatus, styles.statusActive]}>
-									Seated at {partyDetails.tableName}
+									Seated at {partyDetails.table.name}
 								</Text>
 							</View>
 						) : (

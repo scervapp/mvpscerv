@@ -233,6 +233,7 @@ exports.handleCheckInResponse = functions.https.onCall(
 					status: "OCCUPIED",
 					currentCheckInId: checkInId,
 					currentCustomerId: customerId,
+					seatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				});
 
 				// Update the customer's activeCheckIn status
@@ -252,7 +253,9 @@ exports.handleCheckInResponse = functions.https.onCall(
 						.doc(checkInData.associatedPartyId);
 					transaction.update(partyRef, {
 						status: "active", // The party is now officially active
-						tableName: table.name, // Denormalize table name onto party
+						table: { id: table.id, name: table.name },
+						server: { id: server.id, name: server.name },
+
 						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 					});
 					console.log(

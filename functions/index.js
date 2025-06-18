@@ -28,7 +28,8 @@ exports.clearBasket = require("./basketFunctions").clearBasket;
 
 exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket;
 exports.sendItemsToChefsQ = basketFunctions.sendItemsToChefsQ;
-
+exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
+exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
 exports.handleCheckInResponse = checkInFunctions.handleCheckInResponse;

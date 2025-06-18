@@ -145,23 +145,21 @@ const OrderConfirmationScreen = () => {
 		unsubscribe = onSnapshot(
 			docRef,
 			(docSnap) => {
-				console.log(
-					`OrderConfirmationScreen: SNAPSHOT RECEIVED for document: ${docRef.path}`
-				);
-
 				if (docSnap.exists()) {
 					const data = docSnap.data();
+					let newPaymentStatus = "processing";
+
 					// Document still exists, update status based on its fields
 					if (mode === "individual") {
-						const paymentStatus = data.paymentStatus || "processing";
-						setStatus(paymentStatus);
-						if (paymentStatus === "paid") {
+						newPaymentStatus = data.paymentStatus || "processing";
+						setStatus(newPaymentStatus);
+						if (newPaymentStatus === "paid") {
 							setDetails(
 								`Order ID: ${data.orderId}\nTotal: ${formatCurrency(
 									data.totalPrice
 								)}`
 							);
-						} else if (paymentStatus === "failed") {
+						} else if (newPaymentStatus === "failed") {
 							setError(
 								data.paymentFailureReason ||
 									"Please try another payment method."
@@ -171,8 +169,13 @@ const OrderConfirmationScreen = () => {
 						const myPipData = (data.guestPips || []).find(
 							(p) => p.userId === currentUserData.uid
 						);
-						const paymentStatus = myPipData?.paymentStatus || "processing";
-						setStatus(paymentStatus);
+						newPaymentStatus = myPipData?.paymentStatus || "processing";
+					}
+					if (newPaymentStatus === "paid" || newPaymentStatus === "failed") {
+						setStatus(newPaymentStatus);
+						if (newPaymentStatus === "failed") {
+							setError("Your payment could not be processed.");
+						}
 					}
 				} else {
 					// --- THIS IS THE FIX for the race condition ---

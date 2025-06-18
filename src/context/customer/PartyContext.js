@@ -98,6 +98,11 @@ export const PartyProvider = ({ children }) => {
 		"sendItemsToChefsQ"
 	);
 
+	const sendOrderToKitchenFunction = httpsCallable(
+		functions,
+		"sendOrderToKitchen"
+	);
+
 	// --- Clear State ---
 	const clearPartyState = useCallback(() => {
 		console.log("PartyContext: Clearing party state.");
@@ -841,14 +846,35 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	const sendMyItemsToKitchen = useCallback(async () => {
-		const partyId = partyDetails?.id;
-		const partyStatus = partyDetails?.status;
+		const {
+			id: partyId,
+			status,
+			table,
+			server,
+			restaurantId,
+		} = partyDetails || {};
+		const { uid: userId } = currentUserData || {};
 
-		if (partyStatus !== "active" || !partyId) {
+		// --- Validation on the client side ---
+		if (status !== "active") {
 			Alert.alert(
 				"Cannot Send Order",
 				"The party must be active and seated to send items to the kitchen."
 			);
+			return false;
+		}
+		if (!partyId || !table.id || !server?.id || !userId || !restaurantId) {
+			Alert.alert(
+				"Error",
+				"Missing critical party information (like table or server) to send the order."
+			);
+			console.error("sendMyItemsToKitchen: Missing data", {
+				partyId,
+				table,
+				server,
+				userId,
+				restaurantId,
+			});
 			return false;
 		}
 
@@ -856,28 +882,40 @@ export const PartyProvider = ({ children }) => {
 		setPartyError(null);
 		try {
 			console.log(
-				`PartyContext: Calling sendItemsToChefsQ CF for party ${partyId}`
+				`PartyContext: Calling sendOrderToKitchen CF for party ${partyId}`
 			);
-			const result = await sendItemsToChefsQFunction({ partyId });
+
+			// --- Call the new Cloud Function with the correct payload ---
+			const result = await sendOrderToKitchenFunction({
+				type: "party", // Specify the type of order
+				sourceId: partyId, // The partyId is the source of the items
+				table: { id: table.id, name: table.name }, // Pass table object
+				server: { id: server.id, name: server.name }, // Pass server object
+				// The Cloud Function will filter for this user's 'new' items on the backend
+			});
 
 			if (result.data.success) {
+				const itemsSent = result.data.itemsSent;
 				console.log(
-					`PartyContext: Successfully sent ${result.data.itemsSent} item(s). Listener will update UI.`
+					`PartyContext: Successfully sent ${itemsSent} item(s) to the kitchen.`
 				);
-				if (result.data.itemsSent === 0) {
+				if (itemsSent === 0) {
 					Alert.alert(
 						"No New Items",
-						"All your current items have already been sent to the kitchen."
+						"All of your current items have already been sent to the kitchen."
 					);
 				}
 				return true;
 			} else {
 				throw new Error(
-					result.data.error || "Cloud function failed to send items."
+					result.data.error || "Cloud function failed to send order."
 				);
 			}
 		} catch (error) {
-			console.error("PartyContext: Error calling sendItemsToChefsQ CF:", error);
+			console.error(
+				"PartyContext: Error calling sendOrderToKitchen CF:",
+				error
+			);
 			const message = error.message || "Could not send items to the kitchen.";
 			setPartyError(message);
 			Alert.alert("Order Send Failed", message);
@@ -887,9 +925,10 @@ export const PartyProvider = ({ children }) => {
 		}
 	}, [
 		partyDetails,
+		currentUserData,
 		setIsLoadingAction,
 		setPartyError,
-		sendItemsToChefsQFunction,
+		sendOrderToKitchenFunction,
 	]);
 
 	// --- Context Value ---

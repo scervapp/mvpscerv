@@ -48,8 +48,14 @@ import OrderItemCard from "../../components/customer/OrderItemCard";
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { restaurant } = route.params;
-	const { baskets, basketError, handleQuantityChange, updateItemStatus } =
-		useBasket(); // Ensure updateItemStatus exists in context
+	const {
+		baskets,
+		basketError,
+		handleQuantityChange,
+		updateItemStatus,
+		sendIndividualOrderToKitchen,
+		linkBasketToCheckIn,
+	} = useBasket(); // Ensure updateItemStatus exists in context
 
 	const { partyDetails, partyStatus } = useParty();
 
@@ -169,78 +175,54 @@ const BasketScreen = ({ route, navigation }) => {
 
 	// --- Actions ---
 	const handleSendToChefsQ = async () => {
-		if (checkInStatus !== "ACCEPTED") {
-			Alert.alert("Not Checked In", "Please check in to place an order.");
-			return;
-		}
-
-		// Filter based on displayItems AND current user ID if needed
-		const unsentItems = displayItems
-			.filter(
-				(item) => !item.sentToChefQ && item.userId === currentUserData.uid
-			)
-			.map((item) => ({
-				// Map to format needed by cloud function
-				dish: item.dish, // Pass full dish object or just needed IDs/info
-				quantity: item.quantity,
-				specialInstructions: item.specialInstructions,
-				pips: [item.pip], // Assuming structure expects array
-				id: item.id, // The unique ID for this basket item instance
-			}));
-
-		if (unsentItems.length === 0) {
+		if (checkInStatus !== "ACCEPTED" || !checkInObj?.id) {
 			Alert.alert(
-				"No New Items",
-				"All current basket items have already been sent."
+				"Not Seated",
+				"You must be seated at a table to place an order."
 			);
 			return;
 		}
 
-		setIsProcessing(true);
-		setSnackbarMessage("");
-
-		try {
-			const sendToChefsQFunction = httpsCallable(functions, "sendToChefsQ");
-			const result = await sendToChefsQFunction({
-				userId: currentUserData.uid,
-				restaurantId: restaurant.id, // Use correct restaurant ID field
-				items: unsentItems,
-				server: checkInObj?.server || null,
-				table: checkInObj?.table || null,
-			});
-
-			if (result.data.success) {
-				// Update local state to mark items as sent
-				// This depends on how your useBasket context works
-				// Ideally, context handles updating the 'sentToChefQ' flag
-
-				setSnackbarMessage("Order sent to kitchen!");
-				setShowSnackbar(true);
-			} else {
-				throw new Error(result.data.error || "Failed to send order.");
-			}
-		} catch (error) {
-			console.error("Failed to send Order", error);
-			setSnackbarMessage(`Error: ${error.message || "Could not send order."}`);
-			setShowSnackbar(true);
-		} finally {
-			setIsProcessing(false);
-		}
-	};
-
-	const confirmRemoveItem = (item) => {
-		Alert.alert(
-			"Confirm Remove",
-			`Remove ${item.dish.name} for ${item.pip.name}?`,
-			[
-				{ text: "Cancel", style: "cancel" },
-				{
-					text: "Remove",
-					onPress: () => handleQuantityChange(restaurant.id, item.id, 0), // Assumes qty 0 removes
-					style: "destructive",
-				},
-			]
+		// Optional: Check for unsent items before starting
+		const hasUnsentItems = (baskets[restaurant.id]?.items || []).some(
+			(item) => !item.sentToChefQ
 		);
+		if (!hasUnsentItems) {
+			Alert.alert("No New Items", "All your items have already been sent.");
+			return;
+		}
+
+		setIsProcessing(true); // Start loading indicator
+		try {
+			// --- STEP 1: Link the items to the check-in ---
+			console.log(
+				`BasketScreen: Linking basket items to checkInId: ${checkInObj.id}`
+			);
+			const linkResult = await linkBasketToCheckIn(
+				restaurant.id,
+				checkInObj.id
+			);
+
+			if (!linkResult.success) {
+				// The context function will show an alert on failure
+				throw new Error("Failed to prepare items for the kitchen.");
+			}
+
+			// --- STEP 2: Send the (now linked) items to the kitchen ---
+			console.log(
+				"BasketScreen: Items linked. Now sending order to kitchen..."
+			);
+			await sendIndividualOrderToKitchen(
+				checkInObj.id,
+				checkInObj.table,
+				checkInObj.server
+			);
+		} catch (error) {
+			console.error("BasketScreen: Error during send to kitchen flow:", error);
+			// Alerts are handled by the context functions, so we just log here.
+		} finally {
+			setIsProcessing(false); // Stop loading indicator
+		}
 	};
 
 	// Memoize the check for unsent items

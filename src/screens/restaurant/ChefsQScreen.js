@@ -1,343 +1,309 @@
-import React, { useEffect, useState, useContext, useRef } from "react";
+// screens/restaurant/ChefsQScreen.js
+import React, {
+	useEffect,
+	useState,
+	useContext,
+	useCallback,
+	useRef,
+} from "react";
 import {
 	View,
 	Text,
 	FlatList,
 	StyleSheet,
 	TouchableOpacity,
-	LayoutAnimation,
-	Animated,
-	Dimensions,
-	Modal,
-	Button,
-	TextInput,
-	SectionList,
+	SafeAreaView,
+	ActivityIndicator,
+	RefreshControl,
 } from "react-native";
 import {
-	collectionGroup,
-	query,
+	collection,
 	where,
+	query,
 	onSnapshot,
-	updateDoc,
+	orderBy,
 	doc,
-	getDoc,
+	updateDoc,
 } from "firebase/firestore";
+
+import moment from "moment";
+import { Audio } from "expo-av";
+import { Ionicons } from "@expo/vector-icons";
+import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
-import { ActivityIndicator } from "react-native-paper";
-import colors from "../../utils/styles/appStyles";
-import OrderItem from "../../components/restaurant/OrderItem";
-import { Audio } from "expo-av";
+
+// --- Kitchen Ticket Component ---
+const KitchenTicket = ({ order, onUpdateStatus }) => {
+	const timeSince = moment(order.createdAt?.toDate()).fromNow();
+
+	const getStatusStyle = () => {
+		if (order.status === "preparing")
+			return {
+				backgroundColor: colors.statusWarning + "30",
+				borderColor: colors.statusWarning,
+			};
+		if (order.status === "ready")
+			return {
+				backgroundColor: colors.statusSuccess + "30",
+				borderColor: colors.statusSuccess,
+			};
+		return {
+			backgroundColor: colors.surfaceWhite,
+			borderColor: colors.borderLight,
+		};
+	};
+
+	return (
+		<View style={[styles.ticketContainer, getStatusStyle()]}>
+			<View style={styles.ticketHeader}>
+				<View>
+					<Text style={styles.ticketTable}>{order.table.name}</Text>
+					<Text style={styles.ticketServer}>Server: {order.server.name}</Text>
+				</View>
+				<Text style={styles.ticketTime}>{timeSince}</Text>
+			</View>
+			<View style={styles.ticketItems}>
+				{order.items.map((item) => (
+					<View key={item.id} style={styles.ticketItemRow}>
+						<Text style={styles.itemQuantity}>{item.quantity}x</Text>
+						<View style={styles.itemDetails}>
+							<Text style={styles.itemName}>{item.dishName}</Text>
+							{item.orderedByPipName && (
+								<Text style={styles.itemFor}>For: {item.orderedByPipName}</Text>
+							)}
+							{item.specialInstructions && (
+								<Text style={styles.itemInstructions}>
+									"{item.specialInstructions}"
+								</Text>
+							)}
+						</View>
+					</View>
+				))}
+			</View>
+			<View style={styles.ticketActions}>
+				{order.status === "new" && (
+					<TouchableOpacity
+						style={[styles.actionButton, styles.preparingButton]}
+						onPress={() => onUpdateStatus(order.id, "preparing")}
+					>
+						<Text
+							style={[styles.actionButtonText, { color: colors.statusWarning }]}
+						>
+							Start Preparing
+						</Text>
+					</TouchableOpacity>
+				)}
+				{order.status === "preparing" && (
+					<TouchableOpacity
+						style={[styles.actionButton, styles.readyButton]}
+						onPress={() => onUpdateStatus(order.id, "ready")}
+					>
+						<Text
+							style={[styles.actionButtonText, { color: colors.statusSuccess }]}
+						>
+							Mark as Ready
+						</Text>
+					</TouchableOpacity>
+				)}
+			</View>
+		</View>
+	);
+};
 
 const ChefsQScreen = () => {
-	const [orders, setOrders] = useState([]);
 	const { currentUserData } = useContext(AuthContext);
+	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
-	const [expandTables, setExpandTables] = useState({});
-	const [newItemsCount, setNewItemsCount] = useState({});
+	const previousOrderCount = useRef(0);
 	const [sound, setSound] = useState();
 
-	const [isSectionExpanded, setIsSectionExpanded] = useState({});
-
-	// Ref to store the previous orders count
-	const previousOrderCount = useRef(0);
-
-	const handleToggleSection = (tableName) => {
-		setIsSectionExpanded((prevExpanded) => ({
-			...prevExpanded,
-			[tableName]: !prevExpanded[tableName],
-		}));
-	};
-
-	const handleApplyDiscount = async (itemId, discount) => {
-		// itemId and discount are passed as arguments
-		try {
-			const basketItemRef = doc(db, "baskets", itemId);
-			const basketItemSnapshot = await getDoc(basketItemRef);
-
-			if (basketItemSnapshot.exists()) {
-				const itemData = basketItemSnapshot.data();
-
-				await updateDoc(basketItemRef, {
-					discount,
-					discountedPrice: (itemData.dish.price - discount).toFixed(2),
-				});
-
-				// ... (Optional: Update the UI to reflect the discount) ...
-			} else {
-				console.error("Basket item not found:", itemId);
-			}
-		} catch (error) {
-			console.error("Error applying discount:", error);
-		}
-	};
-
-	const removeCompletedItems = () => {
-		const now = new Date();
-		const cutoffTime = new Date(now.getTime() - 3 * 60 * 1000); // 3 minutes ago
-
-		setOrders((prevOrders) =>
-			prevOrders.filter(
-				(order) =>
-					order.itemStatus !== "completed" ||
-					order.timestamp.toDate() > cutoffTime
-			)
-		);
-	};
-
-	// Play notification sound
-	const playSound = async () => {
+	async function playSound() {
 		const { sound } = await Audio.Sound.createAsync(
 			require("../../../assets/bell.mp3")
 		);
 		setSound(sound);
 		await sound.playAsync();
-	};
+	}
 
 	useEffect(() => {
-		return sound ? () => sound.unloadAsync() : undefined;
+		return sound
+			? () => {
+					sound.unloadAsync();
+			  }
+			: undefined;
 	}, [sound]);
 
-	// Fetch orders
 	useEffect(() => {
-		const fetchOrders = async () => {
-			setIsLoading(true);
-			try {
-				const chefsQueueRef = collectionGroup(db, "baskets");
-				const q = query(
-					chefsQueueRef,
-					where("restaurantId", "==", currentUserData.uid),
-					where("sentToChefQ", "==", true)
-				);
+		const restaurantId = currentUserData?.uid;
 
-				const unsubscribe = onSnapshot(q, (querySnapshot) => {
-					const ordersData = [];
-					querySnapshot.forEach((doc) => {
-						const orderData = doc.data();
-
-						const orderId = doc.id;
-
-						// Group by orderId within each table
-						const existingOrderIndex = ordersData.findIndex(
-							(order) => order.orderId === orderData.orderId
-						);
-
-						if (existingOrderIndex !== -1) {
-							// Add the new item to the existing order
-							ordersData[existingOrderIndex].items.push({
-								id: doc.id,
-								...orderData,
-							});
-						} else {
-							// Create a new order entry
-							ordersData.push({
-								orderId: orderId,
-								table: orderData.table,
-								items: [{ id: doc.id, ...orderData }],
-								server: orderData.server,
-							});
-						}
-					});
-
-					setOrders(ordersData);
-
-					setIsLoading(false);
-				});
-
-				return () => unsubscribe();
-			} catch (error) {
-				console.log("Error fetching orders:", error);
-			} finally {
-				setIsLoading(false);
-			}
-		};
-		fetchOrders();
-	}, []);
-
-	// Play sound when a new order is added
-	useEffect(() => {
-		if (orders.length > previousOrderCount.current) {
-			playSound();
+		if (!restaurantId) {
+			console.warn(
+				"ChefsQScreen: No restaurantId found on currentUserData. Cannot fetch orders."
+			);
+			setError("Your user profile is not linked to a restaurant.");
+			setIsLoading(false);
+			return;
 		}
-		previousOrderCount.current = orders.length;
-	}, [orders]);
 
-	// Group orders by table
-	const groupOrdersByTable = (orders) => {
-		const groupedOrders = {};
-		orders.forEach((order) => {
-			const tableNumber = order.table.name;
-			if (!groupedOrders[tableNumber]) {
-				groupedOrders[tableNumber] = [];
+		console.log(
+			`ChefsQScreen: Setting up listener for kitchen_orders at restaurant: ${restaurantId}`
+		);
+
+		const q = query(
+			collection(db, "kitchen_orders"),
+			where("restaurantId", "==", restaurantId),
+			where("status", "in", ["new", "preparing", "ready"]), // Only show active orders
+			orderBy("createdAt", "desc")
+		);
+
+		const unsubscribe = onSnapshot(q, (querySnapshot) => {
+			const ordersData = querySnapshot.docs.map((doc) => ({
+				id: doc.id,
+				...doc.data(),
+			}));
+
+			// Check if there's a new order to play a sound
+			if (ordersData.length > previousOrderCount.current && !isLoading) {
+				const newOrders = ordersData.filter((o) => o.status === "new");
+				if (newOrders.length > 0) playSound();
 			}
-			groupedOrders[tableNumber].push(order);
+			previousOrderCount.current = ordersData.length;
+
+			setOrders(ordersData);
+			setIsLoading(false);
 		});
 
-		// Return an array of objects suitable for SectionList
-		return Object.entries(groupedOrders).map(([table, orders]) => ({
-			table, // The table name as the key
-			server: orders[0].server, // Flatten the server array for this table))
-			data: orders.flatMap((order) => order.items), // Flatten the items array for this table
-		}));
-	};
+		return () => unsubscribe();
+	}, [currentUserData?.restaurantId, isLoading]);
 
-	const handleOpenModal = (item) => {
-		setSelectedItem(item);
-		setModalVisible(true);
-	};
-
-	const handleToggleTableSection = (tableId) => {
-		LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-		setExpandTables((prevExpandTables) => ({
-			...prevExpandTables,
-			[tableId]: !prevExpandTables[tableId],
-		}));
-	};
-
-	// Mark item as preparing
-	const handleMarkItemInProgress = async (itemId) => {
+	const handleUpdateOrderStatus = async (orderId, newStatus) => {
 		try {
-			const basketItemDocRef = doc(db, "baskets", itemId);
-			await updateDoc(basketItemDocRef, { itemStatus: "preparing" });
+			const orderRef = doc(db, "kitchen_orders", orderId);
+			await updateDoc(orderRef, { status: newStatus });
+			// The listener will automatically update the UI
 		} catch (error) {
-			console.error("Error marking item as in progress:", error);
+			console.error(`Error updating order ${orderId} to ${newStatus}:`, error);
+			Alert.alert("Error", "Could not update order status.");
 		}
 	};
 
-	// Mark item as completed
-	const handleMarkItemComplete = async (itemId) => {
-		try {
-			const basketItemDocRef = doc(db, "baskets", itemId);
-			await updateDoc(basketItemDocRef, { itemStatus: "completed" });
-		} catch (error) {
-			console.error("Error marking item as completed:", error);
-		}
-	};
-
-	// Call removeCompletedItems periodically (e.g., every 15 seconds)
-	useEffect(() => {
-		const interval = setInterval(removeCompletedItems, 15 * 1000); // 15 seconds
-		return () => clearInterval(interval);
-	}, []);
+	if (isLoading) {
+		return (
+			<View style={styles.centeredContainer}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
 
 	return (
-		<View style={styles.container}>
-			<Text style={styles.heading}>Chef's Queue</Text>
-
-			{isLoading ? (
-				<ActivityIndicator />
-			) : orders.length === 0 ? (
-				<View style={styles.emptyQueueContainer}>
-					<Text style={styles.emptyQueueText}>No items in the queue.</Text>
-				</View>
-			) : (
-				<SectionList // Use SectionList to display grouped items
-					sections={groupOrdersByTable(orders)}
-					keyExtractor={(item, index) => item.id.toString() + index}
-					renderItem={({ item, section }) => (
-						<View>
-							{isSectionExpanded[section.table] && (
-								<OrderItem
-									item={item}
-									onMarkComplete={handleMarkItemComplete}
-									onMarkInProgress={handleMarkItemInProgress}
-									onApplyDiscount={handleApplyDiscount}
-									onPress={() => handleOpenModal(item)}
-								/>
-							)}
-						</View>
-					)}
-					renderSectionHeader={({ section: { table, server } }) => {
-						return (
-							<TouchableOpacity onPress={() => handleToggleSection(table)}>
-								<View style={styles.tableHeaderContainer}>
-									<Text style={styles.tableHeaderText}>
-										{table.replace("Table ", "")} -{" "}
-										{/* Display table number only */}
-										{server.firstName}
-									</Text>
-								</View>
-							</TouchableOpacity>
-						);
-					}}
-				/>
-			)}
-		</View>
+		<SafeAreaView style={styles.safeArea}>
+			<View style={styles.container}>
+				<Text style={styles.heading}>Chef's Queue</Text>
+				{orders.length === 0 ? (
+					<View style={styles.centeredContainer}>
+						<Ionicons
+							name="receipt-outline"
+							size={60}
+							color={colors.textLight}
+						/>
+						<Text style={styles.emptyQueueText}>
+							The kitchen queue is clear!
+						</Text>
+					</View>
+				) : (
+					<FlatList
+						data={orders}
+						renderItem={({ item }) => (
+							<KitchenTicket
+								order={item}
+								onUpdateStatus={handleUpdateOrderStatus}
+							/>
+						)}
+						keyExtractor={(item) => item.id}
+						contentContainerStyle={styles.listContainer}
+					/>
+				)}
+			</View>
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		padding: 16,
-		backgroundColor: colors.background,
-	},
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	container: { flex: 1, padding: 10, backgroundColor: colors.backgroundLight },
 	heading: {
-		textAlign: "center",
-		fontSize: 24,
+		fontSize: 28,
 		fontWeight: "bold",
-		color: "#333",
-		marginBottom: 20,
+		color: colors.textDark,
+		marginBottom: 10,
+		paddingHorizontal: 10,
 	},
-	orderSection: {
-		marginBottom: 20,
-		borderWidth: 1,
-		borderColor: "#ddd",
-		borderRadius: 8,
-		overflow: "hidden",
-	},
-	tableHeader: {
-		backgroundColor: "#f0f0f0",
-		padding: 10,
-		fontWeight: "bold",
-		display: "flex",
-		alignItems: "center",
-	},
-	tableHeaderText: {
-		fontSize: 24, // Use a larger font size for better readability
-		fontWeight: "bold", // Make the text bold
-		color: colors.primary, // Use your primary color for the text
-		marginRight: 10, // Add some space between the text and other elements
-		textAlign: "center",
-	},
-	tableNumber: {
-		fontSize: 18,
-		marginRight: 10,
-	},
-	orderItem: {
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		padding: 10,
-		borderBottomWidth: 1,
-		borderBottomColor: "#eee",
-	},
-	itemName: {
-		fontSize: 16,
-		flex: 1,
-	},
-	specialInstructions: {
-		fontSize: 14,
-		color: "#d9534f",
-		marginTop: 5,
-	},
-	itemPrice: {
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	orderTime: {
-		fontSize: 12,
-		color: "#888",
-	},
-	tableHeaderContainer: {
-		backgroundColor: colors.secondary,
-		padding: 10,
-	},
-	emptyQueueContainer: {
+	centeredContainer: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 	},
+	emptyQueueText: { fontSize: 18, color: colors.textMedium, marginTop: 15 },
+	listContainer: { paddingVertical: 10 },
+	// Ticket Styles
+	ticketContainer: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		padding: 15,
+		marginHorizontal: 5,
+		marginBottom: 15,
+		borderLeftWidth: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 3,
+		elevation: 4,
+	},
+	ticketHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "flex-start",
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+		paddingBottom: 10,
+		marginBottom: 10,
+	},
+	ticketTable: { fontSize: 22, fontWeight: "bold", color: colors.primary },
+	ticketServer: { fontSize: 14, color: colors.textMedium },
+	ticketTime: { fontSize: 14, fontWeight: "500", color: colors.textMedium },
+	ticketItems: { marginBottom: 15 },
+	ticketItemRow: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		marginVertical: 5,
+	},
+	itemQuantity: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginRight: 10,
+	},
+	itemDetails: { flex: 1 },
+	itemName: { fontSize: 17, fontWeight: "500", color: colors.textDark },
+	itemFor: { fontSize: 14, color: colors.textMedium, fontStyle: "italic" },
+	itemInstructions: {
+		fontSize: 14,
+		color: colors.statusDanger,
+		fontWeight: "500",
+		marginTop: 3,
+	},
+	ticketActions: {
+		flexDirection: "row",
+		justifyContent: "flex-end",
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 10,
+	},
+	actionButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
+	preparingButton: { backgroundColor: colors.statusWarning + "20" },
+	readyButton: { backgroundColor: colors.statusSuccess + "20" },
+	actionButtonText: { fontSize: 16, fontWeight: "bold" },
 });
 
 export default ChefsQScreen;
