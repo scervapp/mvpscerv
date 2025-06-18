@@ -206,3 +206,133 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+/**
+ * Adds a new table to a restaurant's subcollection.
+ */
+exports.addTable = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authorized."
+		);
+	}
+	const { restaurantId, name, capacity } = data;
+	if (!restaurantId || !name || !capacity) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID, table name, and capacity are required."
+		);
+	}
+
+	try {
+		const newTableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc();
+		await newTableRef.set({
+			name: name,
+			capacity: Number(capacity),
+			status: "available", // Always available when created
+			restaurantId: restaurantId,
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+		return { success: true, tableId: newTableRef.id };
+	} catch (error) {
+		console.error("Error adding table:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not add new table.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Updates an existing table's name and/or capacity.
+ */
+exports.updateTable = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authorized."
+		);
+	}
+	const { restaurantId, tableId, name, capacity } = data;
+	if (!restaurantId || !tableId || !name || !capacity) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID, table ID, name, and capacity are required."
+		);
+	}
+
+	try {
+		const tableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(tableId);
+		await tableRef.update({
+			name: name,
+			capacity: Number(capacity),
+		});
+		return { success: true };
+	} catch (error) {
+		console.error("Error updating table:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not update table.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Deletes a table. Fails if the table is currently occupied.
+ */
+exports.deleteTable = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authorized."
+		);
+	}
+	const { restaurantId, tableId } = data;
+	if (!restaurantId || !tableId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID and Table ID are required."
+		);
+	}
+
+	try {
+		const tableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(tableId);
+		const tableDoc = await tableRef.get();
+
+		if (!tableDoc.exists) {
+			return { success: true, message: "Table already deleted." };
+		}
+		if (tableDoc.data().status === "OCCUPIED") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Cannot delete a table that is currently occupied."
+			);
+		}
+
+		await tableRef.delete();
+		return { success: true };
+	} catch (error) {
+		console.error("Error deleting table:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not delete table.",
+			error.message
+		);
+	}
+});
