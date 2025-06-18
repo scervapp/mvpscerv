@@ -18,49 +18,44 @@ import DailySalesDetailsScreen from "../screens/restaurant/DailySalesDetailsScre
 import BackOfficeAccess from "../screens/restaurant/BackOfficeAccessScreen";
 import colors from "../utils/styles/appStyles";
 import { StyleSheet } from "react-native";
+import RestaurantDashboardScreen from "../screens/restaurant/RestaurantDashboardScreen";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const BackOfficeStackNavigator = () => {
 	return (
-		<Stack.Navigator>
-			<Stack.Screen
-				name="BackOfficeAccess"
-				component={BackOfficeAccess}
-				options={{ headerShown: false }}
-			/>
+		<Stack.Navigator screenOptions={defaultHeaderOptions}>
 			<Stack.Screen
 				name="BackOffice"
 				component={BackOfficeScreen}
-				options={{ headerShown: false }}
+				options={{ headerShown: false }} // The grid screen doesn't need a header
 			/>
-
 			<Stack.Screen
 				name="EmployeeScreen"
 				component={EmployeeScreen}
-				options={{ headerShown: true, headerTitle: "Employee Managment" }}
+				options={{ headerTitle: "Employee Management" }}
 			/>
-
 			<Stack.Screen
 				name="SalesReportScreen"
 				component={SalesReportScreen}
-				options={{ headerShown: true, headerTitle: "Daily Sales Summary" }}
+				options={{ headerTitle: "Daily Sales Summary" }}
 			/>
-			<Tab.Screen
-				options={{ headerShown: true, headerTitle: "Restaurant Profile" }}
-				name="RestaurantProfile"
-				component={RestaurantProfile}
-			/>
-			<Tab.Screen
-				options={{ headerShown: true, headerTitle: "Daily Sales Details" }}
+			<Stack.Screen
 				name="DailySalesDetails"
 				component={DailySalesDetailsScreen}
+				options={{ headerTitle: "Daily Sales Details" }}
 			/>
-			<Tab.Screen
-				options={{ headerShown: true, headerTitle: "Menu Management" }}
+			<Stack.Screen
+				name="RestaurantProfile"
+				component={RestaurantProfile}
+				options={{ headerTitle: "Restaurant Profile" }}
+			/>
+			<Stack.Screen
 				name="RestaurantMenu"
 				component={MenuManagementScreen}
+				options={{ headerTitle: "Menu Management" }}
 			/>
+			{/* Note: BackOfficeAccess might be part of a separate login/auth flow now */}
 		</Stack.Navigator>
 	);
 };
@@ -69,88 +64,80 @@ const RestaurantBottomNavigation = () => {
 	return (
 		<Tab.Navigator
 			screenOptions={({ route }) => ({
+				headerShown: false, // Headers are handled by individual stack navigators
 				tabBarIcon: ({ focused, color, size }) => {
 					let iconName;
+					size = focused ? 30 : 26; // Make focused icon slightly larger
 
-					if (route.name === "RestaurantCheckin") {
-						iconName = focused ? "people" : "people-outline"; // People icon for check-in requests
-					} else if (route.name === "Tables") {
-						iconName = focused ? "grid" : "grid-outline"; // Table icon for table management
+					if (route.name === "Dashboard") {
+						iconName = focused ? "view-dashboard" : "view-dashboard-outline";
+					} else if (route.name === "RestaurantCheckin") {
+						iconName = focused ? "account-clock" : "account-clock-outline";
+					} else if (route.name === "TableManagement") {
+						iconName = focused ? "grid" : "view-grid-outline";
 					} else if (route.name === "ChefsQ") {
-						iconName = focused ? "restaurant" : "restaurant-outline"; // Chef's hat icon for ChefsQ
+						iconName = focused
+							? "silverware-fork-knife"
+							: "silverware-fork-knife";
 					} else if (route.name === "BackOfficeNavigator") {
 						iconName = focused ? "briefcase" : "briefcase-outline";
 					}
 
+					// Use MaterialCommunityIcons for a consistent icon set
 					return (
-						<View
-							style={[
-								styles.iconContainer, // Apply the container style
-								focused && styles.activeIconContainer, // Apply active style if focused
-							]}
-						>
-							<Ionicons
-								name={iconName}
-								size={size}
-								color={focused ? "white" : colors.primary}
-							/>
-							{/* Increased size */}
-						</View>
+						<MaterialCommunityIcons name={iconName} size={size} color={color} />
 					);
 				},
 				tabBarActiveTintColor: colors.primary,
-				tabBarInactiveTintColor: "gray",
-
-				tabBarShowLabel: false,
-				tabBarStyle: {
-					backgroundColor: "#fff",
-					borderTopWidth: 0,
-					elevation: Platform.OS === "android" ? 4 : 0,
-					height: 60,
-					paddingBottom: Platform.OS === "ios" ? 10 : 0,
-				},
+				tabBarInactiveTintColor: colors.textMedium,
+				tabBarShowLabel: true, // Labels are helpful for staff
+				tabBarStyle: styles.tabBar,
 			})}
 		>
+			{/* Tab 1: The New Dashboard (Home Base) */}
+			<Tab.Screen name="Dashboard" component={RestaurantDashboardScreen} />
+
+			{/* Tab 2: Customers Waiting */}
 			<Tab.Screen
-				options={{ headerShown: false }}
 				name="RestaurantCheckin"
 				component={RestaurantCheckin}
-			/>
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="Tables"
-				component={TableManagementScreen}
-			/>
-			<Tab.Screen
-				options={{ headerShown: false }}
-				name="ChefsQ"
-				component={ChefsQScreen}
+				options={{ title: "Check-ins" }}
 			/>
 
+			{/* Tab 3: Chef's Queue */}
+			<Tab.Screen
+				name="ChefsQ"
+				component={ChefsQScreen}
+				options={{ title: "Chef's Q" }}
+			/>
+
+			{/* Tab 4: Table Management */}
+			<Tab.Screen
+				name="TableManagement"
+				options={{ title: "Table Management" }}
+				component={TableManagementScreen}
+			/>
+
+			{/* Tab 5: Back Office Settings */}
 			<Tab.Screen
 				name="BackOfficeNavigator"
 				component={BackOfficeStackNavigator}
-				options={{ headerShown: false }}
+				options={{ title: "Back Office" }}
 			/>
 		</Tab.Navigator>
 	);
 };
 
-const styles = StyleSheet.create({
-	// ... your other styles ...
+// ... your other styles ...
 
-	iconContainer: {
-		backgroundColor: "white", // White background for inactive state
-		//padding: 8, // Add padding around the icon
-		borderRadius: 5, // Make it circular
-		width: "50",
-		height: "50",
-		alignItems: "center",
-		justifyContent: "center",
-		alignContent: "center",
-	},
-	activeIconContainer: {
-		backgroundColor: colors.primary, // Primary color background for active state
+const styles = StyleSheet.create({
+	tabBar: {
+		height: Platform.OS === "ios" ? 90 : 65,
+		paddingBottom: Platform.OS === "ios" ? 30 : 5,
+		paddingTop: 5,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
 	},
 });
 

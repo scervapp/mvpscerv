@@ -134,20 +134,6 @@ const BackOfficeScreen = ({ navigation }) => {
 		await Linking.openURL(response.data.url);
 	};
 
-	// // Conditionally add the Connect Account Screen if no stripe account is found
-	// if (!currentUserData?.stripeAccountId) {
-	// 	screens.push({
-	// 		name: "CreateStripeAccount",
-	// 		label: "Setup Account",
-	// 	});
-	// }
-
-	// if (currentUserData?.stripeAccountId) {
-	// 	screens.push({
-	// 		name: "ConnectAccount",
-	// 		label: "Connect Account",
-	// 	});
-	// }
 
 	const handleScreenPress = (screenName) => {
 		navigation.navigate(screenName); // Navigate to the selected screen

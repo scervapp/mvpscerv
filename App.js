@@ -4,17 +4,20 @@ import { BasketProvider } from "./src/context/customer/BasketContext";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { PartyProvider } from "./src/context/customer/PartyContext";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { WorkDayProvider } from "./src/context/restaurant/WorkDayContext";
 
 export default function App() {
 	return (
 		<SafeAreaProvider>
 			<ActionSheetProvider>
 				<AuthProvider>
-					<PartyProvider>
-						<BasketProvider>
-							<AppNavigator />
-						</BasketProvider>
-					</PartyProvider>
+					<WorkDayProvider>
+						<PartyProvider>
+							<BasketProvider>
+								<AppNavigator />
+							</BasketProvider>
+						</PartyProvider>
+					</WorkDayProvider>
 				</AuthProvider>
 			</ActionSheetProvider>
 		</SafeAreaProvider>

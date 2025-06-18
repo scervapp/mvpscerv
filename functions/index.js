@@ -14,6 +14,7 @@ const dishRatingFunction = require("./dishRatingFunction");
 const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
 const basketFunctions = require("./basketFunctions");
+const restaurantFunctions = require("./restaurantFunctions");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -77,3 +78,7 @@ exports.removeSharedBasketItem = partyFunctions.removeSharedBasketItem;
 
 // User Search Functions
 exports.searchPIPs = userSearchFunctions.searchPIPs;
+
+// Restaurant Functions
+exports.startWorkDay = restaurantFunctions.startWorkDay;
+exports.endWorkDay = restaurantFunctions.endWorkDay;
