@@ -552,20 +552,18 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			return { success: true, message: "No new items to send.", itemsSent: 0 };
 		}
 
-		// --- DATA NORMALIZATION STEP ---
-		// Create a clean, consistent item structure for the kitchen.
+		// --- DATA NORMALIZATION FIX ---
+		// This now correctly handles items from both individual baskets (nested) and party baskets (flat).
 		const kitchenItems = itemsFromSource.map((item) => {
 			return {
-				id: item.id, // The unique ID of the original basket item
-				dishName: item.dish.name || item.dishName, // Handles both nested and flat structures
+				id: item.id,
+				dishName: (item.dish && item.dish.name) || item.dishName,
 				quantity: item.quantity,
 				specialInstructions: item.specialInstructions || "",
-				// Use a single, consistent field for who the item is for
-				orderedFor:
-					item.orderedByPipName || item.pipName || item.customerName || "Host",
+				orderedFor: item.orderedByPipName || item.pipName || item.customerName,
 			};
 		});
-		// --- END NORMALIZATION ---
+		// --- END OF FIX ---
 
 		const kitchenOrderRef = db.collection("kitchen_orders").doc();
 		const kitchenOrderData = {
@@ -573,7 +571,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			orderId: kitchenOrderRef.id,
 			table: table,
 			server: server,
-			items: kitchenItems, // <<< Use the new, clean kitchenItems array
+			items: kitchenItems, // Use the new, clean kitchenItems array
 			status: "new",
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		};
