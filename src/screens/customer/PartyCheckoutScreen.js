@@ -91,14 +91,18 @@ const PartyCheckoutScreen = () => {
 	const {
 		myItems,
 		subtotal,
+		originalSubtotal,
+		totalDiscount,
 		gratuity,
 		platformFee,
-		totalForPayment, // Subtotal + Gratuity + Platform Fee (used for Payment Intent)
+		totalForPayment,
 	} = useMemo(() => {
 		if (!sharedBasketItems || !currentUserData?.uid) {
 			return {
 				myItems: [],
 				subtotal: 0,
+				originalSubtotal: 0,
+				totalDiscount: 0,
 				gratuity: 0,
 				platformFee: 0,
 				totalForPayment: 0,
@@ -112,17 +116,36 @@ const PartyCheckoutScreen = () => {
 		);
 
 		// 2. Calculate user's subtotal
-		const userSubtotal = userItems.reduce((total, item) => {
-			const price = (Number(item.price) || 0) * 100; // Work in cents
-			const quantity = Number(item.quantity) || 1;
-			return total + price * quantity;
-		}, 0);
 
-		// 3. Calculate gratuity and fees based on the user's subtotal
+		const initialTotals = { originalSubtotal: 0, finalSubtotal: 0 };
+
+		const calculatedTotals = userItems.reduce((acc, item) => {
+			const quantity = Number(item.quantity) || 1;
+			const originalPrice = (Number(item.price) || 0) * 100; // Original price in cents
+
+			acc.originalSubtotal += originalPrice * quantity;
+
+			// --- THIS IS THE FIX ---
+			// Check if a discount exists and use the discountedPrice if available
+			const finalPrice =
+				item.discount > 0 && typeof item.discountedPrice === "number"
+					? Math.round(item.discountedPrice * 100) // Use discounted price in cents
+					: originalPrice;
+			// --- END OF FIX ---
+
+			acc.finalSubtotal += finalPrice * quantity;
+			return acc;
+		}, initialTotals);
+
+		const userSubtotal = calculatedTotals.finalSubtotal;
+		const userOriginalSubtotal = calculatedTotals.originalSubtotal;
+		const userTotalDiscount = userOriginalSubtotal - userSubtotal;
+
+		// 3. Calculate gratuity and fees based on the user's FINAL subtotal
 		const userGratuity = Math.round(
 			userSubtotal * (parseFloat(gratuityPercentage) / 100)
 		);
-		const userPlatformFee = Math.round(userSubtotal * fees); // Fee on pre-tax subtotal
+		const userPlatformFee = Math.round(userSubtotal * fees);
 
 		// 4. Calculate total amount for payment processing
 		const userTotalForPayment = userSubtotal + userGratuity + userPlatformFee;
@@ -130,6 +153,8 @@ const PartyCheckoutScreen = () => {
 		return {
 			myItems: userItems,
 			subtotal: userSubtotal,
+			originalSubtotal: userOriginalSubtotal,
+			totalDiscount: userTotalDiscount,
 			gratuity: userGratuity,
 			platformFee: userPlatformFee,
 			totalForPayment: userTotalForPayment,
@@ -300,6 +325,23 @@ const PartyCheckoutScreen = () => {
 					{/* Order Summary */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>Your Bill Summary</Text>
+						{/* Conditionally show original price and discount if a discount exists */}
+						{totalDiscount > 0 && (
+							<>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>Original Subtotal:</Text>
+									<Text style={styles.originalPriceText}>
+										{formatCurrency(originalSubtotal)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>Discounts:</Text>
+									<Text style={styles.discountText}>
+										-{formatCurrency(totalDiscount)}
+									</Text>
+								</View>
+							</>
+						)}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>Subtotal:</Text>
 							<Text style={styles.amount}>{formatCurrency(subtotal)}</Text>
@@ -439,6 +481,16 @@ const styles = StyleSheet.create({
 	},
 	payButton: { paddingVertical: 8, borderRadius: 8 },
 	payButtonText: { fontSize: 16, fontWeight: "bold" },
+	originalPriceText: {
+		fontSize: 16,
+		color: colors.textLight,
+		textDecorationLine: "line-through",
+	},
+	discountText: {
+		fontSize: 16,
+		fontWeight: "500",
+		color: colors.statusSuccess, // Or a nice green color
+	},
 });
 
 export default PartyCheckoutScreen;

@@ -242,7 +242,9 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				{/* The new container that acts as the centered "card" */}
 				<View style={styles.modalContainer}>
 					<View style={styles.header}>
-						<Text style={styles.modalTitle}>Order Details for {table?.name}</Text>
+						<Text style={styles.modalTitle}>
+							Order Details for {table?.name}
+						</Text>
 					</View>
 
 					<View style={styles.content}>
@@ -251,16 +253,23 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 						) : error ? (
 							<Text style={styles.errorText}>{error}</Text>
 						) : (
-							<FlatList
-								data={orderedItems}
-								renderItem={renderOrderItem}
-								keyExtractor={(item) => item.id}
-								ListEmptyComponent={
-									<Text style={styles.noDataText}>
-										No items sent to the kitchen yet.
+							<>
+								<FlatList
+									data={orderedItems}
+									renderItem={renderOrderItem}
+									keyExtractor={(item) => item.id}
+									ListEmptyComponent={
+										<Text style={styles.noDataText}>
+											No items sent to the kitchen yet.
+										</Text>
+									}
+								/>
+								{orderedItems.length > 0 && (
+									<Text style={styles.tooltipText}>
+										Long-press an item to apply a discount.
 									</Text>
-								}
-							/>
+								)}
+							</>
 						)}
 					</View>
 
@@ -373,6 +382,13 @@ const styles = StyleSheet.create({
 		fontWeight: "500",
 	},
 	itemPrice: { fontSize: 16, fontWeight: "bold", color: colors.textDark },
+	tooltipText: {
+		textAlign: "center",
+		fontSize: 13,
+		color: colors.textMedium,
+		fontStyle: "italic",
+		paddingVertical: 10,
+	},
 });
 
 export default OrderDetailsModal;
