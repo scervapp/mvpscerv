@@ -28,6 +28,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "../../config/firebase";
 import * as Yup from "yup";
 import { Formik } from "formik";
+import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 
 const AddEditTableModal = ({
 	isVisible,
@@ -199,6 +200,12 @@ const TableManagementScreen = () => {
 		setIsModalVisible(true);
 	};
 
+	const closeModal = () => {
+		setIsModalVisible(false);
+		// Resetting state on close is good practice to avoid flashes of old data
+		setSelectedTable(null);
+	};
+
 	const handleClearTable = async () => {
 		if (!selectedTable) return;
 		setIsActionLoading(true);
@@ -351,118 +358,64 @@ const TableManagementScreen = () => {
 					</Button>
 				)}
 
-				{selectedTable && !isEditMode && (
-					<Modal
-						visible={isModalVisible}
-						transparent={true}
-						animationType="fade"
-						onRequestClose={() => setIsModalVisible(false)}
-					>
-						<TouchableOpacity
-							style={styles.modalOverlay}
-							activeOpacity={1}
-							onPressOut={() => setIsModalVisible(false)}
-						>
-							<TouchableOpacity
-								style={styles.statusModalContent}
-								activeOpacity={1}
-							>
-								<Text style={styles.modalTitle}>{selectedTable?.name}</Text>
-								<View style={styles.modalDetailRow}>
-									<Text style={styles.modalDetailLabel}>Status:</Text>
-									<Text
-										style={[
-											styles.modalDetailValue,
-											{ color: getStatusColor(selectedTable?.status) },
-										]}
-									>
-										{(selectedTable?.status || "UNKNOWN").toUpperCase()}
-									</Text>
-								</View>
-								<View style={styles.modalDetailRow}>
-									<Text style={styles.modalDetailLabel}>Capacity:</Text>
-									<Text style={styles.modalDetailValue}>
-										{selectedTable?.capacity} guests
-									</Text>
-								</View>
-
-								<View style={styles.modalActions}>
-									{selectedTable?.status === "checkedOut" && (
-										<Button
-											icon="broom"
-											mode="contained"
-											onPress={handleClearTable}
-											loading={isActionLoading}
-											disabled={isActionLoading}
-											style={{ backgroundColor: colors.primary }}
-										>
-											Clear & Make Available
-										</Button>
-									)}
-									<Button
-										onPress={() => setIsModalVisible(false)}
-										mode="outlined"
-										style={{ marginTop: 10 }}
-									>
-										Close
-									</Button>
-								</View>
-							</TouchableOpacity>
-						</TouchableOpacity>
-					</Modal>
-				)}
-
-				{isModalVisible &&
-					(isEditMode ? (
-						<AddEditTableModal
-							isVisible={isModalVisible}
-							onClose={() => {
-								setIsModalVisible(false);
-								setSelectedTable(null);
-							}}
-							onSubmit={handleAddEditSubmit}
-							onDelete={handleDeleteTable}
-							initialData={selectedTable}
-							isLoading={isActionLoading}
+				{selectedTable && (
+					<>
+						{/* Renders the Order Details modal for occupied tables */}
+						<OrderDetailsModal
+							isVisible={
+								isModalVisible &&
+								(selectedTable.status === "OCCUPIED" ||
+									selectedTable.status === "occupied") &&
+								!isEditMode
+							}
+							onClose={closeModal}
+							table={selectedTable}
 						/>
-					) : (
-						// This is the status/action modal for when NOT in Edit Mode
+
+						{/* Renders the simple Status/Action modal for available or needs-cleaning tables */}
 						<Modal
-							visible={isModalVisible}
+							visible={
+								isModalVisible &&
+								selectedTable.status !== "OCCUPIED" &&
+								selectedTable.status !== "occupied" &&
+								!isEditMode
+							}
 							transparent={true}
 							animationType="fade"
-							onRequestClose={() => setIsModalVisible(false)}
+							onRequestClose={closeModal}
 						>
+							{/* Your existing Status Modal JSX goes here */}
 							<TouchableOpacity
 								style={styles.modalOverlay}
 								activeOpacity={1}
-								onPressOut={() => setIsModalVisible(false)}
+								onPressOut={closeModal}
 							>
 								<TouchableOpacity
 									style={styles.statusModalContent}
 									activeOpacity={1}
 								>
-									<Text style={styles.modalTitle}>{selectedTable?.name}</Text>
+									{/* --- THIS IS THE MISSING CONTENT FOR THE STATUS/ACTION MODAL --- */}
+									<Text style={styles.modalTitle}>{selectedTable.name}</Text>
 									<View style={styles.modalDetailRow}>
 										<Text style={styles.modalDetailLabel}>Status:</Text>
 										<Text
 											style={[
 												styles.modalDetailValue,
-												{ color: getStatusColor(selectedTable?.status) },
+												{ color: getStatusColor(selectedTable.status) },
 											]}
 										>
-											{selectedTable?.status?.toUpperCase()}
+											{(selectedTable.status || "UNKNOWN").toUpperCase()}
 										</Text>
 									</View>
 									<View style={styles.modalDetailRow}>
 										<Text style={styles.modalDetailLabel}>Capacity:</Text>
 										<Text style={styles.modalDetailValue}>
-											{selectedTable?.capacity} guests
+											{selectedTable.capacity} guests
 										</Text>
 									</View>
-
 									<View style={styles.modalActions}>
-										{selectedTable?.status === "checkedOut" && (
+										{/* This button handles the "Clear Table" action */}
+										{selectedTable.status === "checkedOut" && (
 											<Button
 												icon="broom"
 												mode="contained"
@@ -474,14 +427,8 @@ const TableManagementScreen = () => {
 												Clear & Make Available
 											</Button>
 										)}
-										{selectedTable?.status === "OCCUPIED" && (
-											<Text style={styles.modalInfoText}>
-												This table is currently seated. View order details in
-												the Chef's Q.
-											</Text>
-										)}
 										<Button
-											onPress={() => setIsModalVisible(false)}
+											onPress={closeModal}
 											mode="outlined"
 											style={{ marginTop: 10 }}
 										>
@@ -491,7 +438,16 @@ const TableManagementScreen = () => {
 								</TouchableOpacity>
 							</TouchableOpacity>
 						</Modal>
-					))}
+					</>
+				)}
+				<AddEditTableModal
+					isVisible={isModalVisible && isEditMode}
+					onClose={closeModal}
+					onSubmit={handleAddEditSubmit}
+					onDelete={handleDeleteTable}
+					initialData={selectedTable}
+					isLoading={isActionLoading}
+				/>
 			</View>
 		</SafeAreaView>
 	);

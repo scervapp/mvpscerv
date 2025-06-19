@@ -336,3 +336,127 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+/**
+ * Applies a discount to a specific item within a shared_basket or individual basket.
+ * It records the discount amount, reason, and the manager who applied it.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.partyId - The ID of the party (if it's a party order).
+ * @param {string} data.checkInId - The ID of the check-in (for individual orders).
+ * @param {string} data.itemId - The unique ID of the basket item instance to discount.
+ * @param {number} data.discountAmount - The amount to discount, in dollars (e.g., 5.50 for $5.50).
+ * @param {string} data.reason - The reason for the discount.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+exports.discountOrderItem = functions.https.onCall(async (data, context) => {
+	// Authentication & Authorization (TODO: Add role check for manager/supervisor)
+	// Authentication & Authorization (TODO: Add role check for manager/supervisor)
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authorized."
+		);
+	}
+	const manager = {
+		uid: context.auth.uid,
+		name: context.auth.token.name || "Manager",
+	};
+
+	const { partyId, checkInId, itemId, discountAmount, reason } = data;
+
+	if (!itemId || typeof discountAmount !== "number" || !reason) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Item ID, discount amount, and reason are required."
+		);
+	}
+	if (!partyId && !checkInId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Either a partyId or checkInId is required."
+		);
+	}
+
+	const isPartyOrder = !!partyId;
+
+	try {
+		if (isPartyOrder) {
+			// --- HANDLE PARTY ORDER ---
+			const docRef = db.collection("shared_baskets").doc(partyId);
+			await db.runTransaction(async (transaction) => {
+				const docSnap = await transaction.get(docRef);
+				if (!docSnap.exists)
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Party basket not found."
+					);
+
+				const data = docSnap.data();
+				let items = data.items || [];
+				let itemUpdated = false;
+
+				const updatedItems = items.map((item) => {
+					if (item.id === itemId) {
+						itemUpdated = true;
+						const originalPrice = parseFloat(item.price || 0);
+						const finalDiscount = Math.min(originalPrice, discountAmount);
+						const discountedPrice = originalPrice - finalDiscount;
+						return {
+							...item,
+							discount: finalDiscount,
+							discountedPrice,
+							discountReason: reason,
+							discountedBy: manager,
+						};
+					}
+					return item;
+				});
+
+				if (!itemUpdated)
+					throw new functions.https.HttpsError(
+						"not-found",
+						"The specific item to discount was not found in the party order."
+					);
+
+				transaction.update(docRef, { items: updatedItems });
+			});
+		} else {
+			// --- HANDLE INDIVIDUAL ORDER ---
+			// For an individual order, the 'itemId' is the document ID in the 'baskets' collection.
+			const docRef = db.collection("baskets").doc(itemId);
+			const docSnap = await docRef.get();
+
+			if (!docSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"The specific item to discount was not found."
+				);
+			}
+
+			const item = docSnap.data();
+			const originalPrice = parseFloat(item.dish.price || 0);
+			const finalDiscount = Math.min(originalPrice, discountAmount);
+			const discountedPrice = originalPrice - finalDiscount;
+
+			await docRef.update({
+				discount: finalDiscount,
+				discountedPrice: discountedPrice,
+				discountReason: reason,
+				discountedBy: manager,
+			});
+		}
+
+		console.log(`Successfully applied discount to item ${itemId}.`);
+		return { success: true };
+	} catch (error) {
+		console.error("Error applying discount:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not apply discount.",
+			error.message
+		);
+	}
+});

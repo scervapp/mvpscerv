@@ -199,8 +199,12 @@ const checkIn = async (
 			customerName,
 			status: "REQUESTED",
 			timestamp: new Date(),
-			...(partyId && { partyId: partyId }),
+			type: partyId ? "party" : "individual",
 		};
+
+		if (partyId) {
+			checkInData.associatedPartyId = partyId;
+		}
 
 		await setDoc(checkInRef, checkInData);
 

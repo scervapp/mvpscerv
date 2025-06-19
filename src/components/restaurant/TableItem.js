@@ -5,6 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
 const TableItem = ({ item, onPress, isSelected }) => {
+	if (!item || !item.name || !item.status) {
+		return null; // Render nothing to prevent the crash
+	}
 	// --- Determine table status and corresponding styles ---
 	let statusText = "Unknown";
 	let statusColor = colors.textLight;

@@ -43,6 +43,7 @@ exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.createEphemeralKey = paymentFunctions.createEphemeralKey;
 exports.preparePaymentSheetData = paymentFunctions.preparePaymentSheetData;
 exports.preparePartyPaymentSheet = paymentFunctions.preparePartyPaymentSheet;
+exports.discountOrderItem = restaurantFunctions.discountOrderItem;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
 exports.stripeWebhookLive = paymentFunctions.stripeWebhookLive;

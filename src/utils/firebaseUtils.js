@@ -141,10 +141,12 @@ export const fetchTables = (restaurantId, callback, onError) => {
 		const unsubscribe = onSnapshot(
 			tablesQuery,
 			(snapshot) => {
-				const allTables = snapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
+				const allTables = snapshot.docs
+					.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}))
+					.filter(Boolean);
 				console.log(
 					`firebaseUtils.fetchTables: Snapshot received. Found ${allTables.length} tables for restaurant ${restaurantId}.`
 				);
