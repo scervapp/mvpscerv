@@ -170,17 +170,16 @@ export const fetchTables = (restaurantId, callback, onError) => {
 	}
 };
 /**
- * Fetches employees for a given restaurant, optionally filtering by role.
- * Correctly queries the 'employees' subcollection under a specific restaurant document.
+ * Fetches employees for a given restaurant, optionally filtering by a single role or an array of roles.
  *
  * @param {string} restaurantId The ID of the restaurant.
- * @param {string} [role] Optional. The role to filter by (e.g., "server").
+ * @param {string|Array<string>} [roles] Optional. A single role string or an array of role strings to filter by.
  * @returns {Promise<Array>} A promise that resolves with an array of employee objects.
  */
-export const fetchEmployees = async (restaurantId, role) => {
+export const fetchEmployees = async (restaurantId, roles) => {
 	console.log(
-		`firebaseUtils.fetchEmployees: Fetching employees for subcollection at "restaurants/${restaurantId}/employees" with role: "${
-			role || "any"
+		`firebaseUtils.fetchEmployees: Fetching for restaurant "${restaurantId}" with roles: "${
+			roles || "any"
 		}"`
 	);
 
@@ -190,7 +189,6 @@ export const fetchEmployees = async (restaurantId, role) => {
 	}
 
 	try {
-		// --- CORRECTED PATH TO SUBCOLLECTION ---
 		const employeesSubcollectionRef = collection(
 			db,
 			"restaurants",
@@ -199,16 +197,28 @@ export const fetchEmployees = async (restaurantId, role) => {
 		);
 		let employeesQuery;
 
-		if (role) {
-			// The 'where("restaurantId", "==",...)' clause is no longer needed.
+		// --- THIS IS THE NEW ROBUST LOGIC ---
+		if (Array.isArray(roles) && roles.length > 0) {
+			// If 'roles' is a non-empty array, use the 'in' operator for the query.
+			// This is needed for fetching managers and owners together.
+			console.log("... using 'in' query for multiple roles.");
 			employeesQuery = query(
 				employeesSubcollectionRef,
-				where("role", "==", role)
+				where("role", "in", roles)
+			);
+		} else if (typeof roles === "string" && roles) {
+			// If 'roles' is a single string, use the '==' operator for backward compatibility.
+			console.log("... using '==' query for a single role.");
+			employeesQuery = query(
+				employeesSubcollectionRef,
+				where("role", "==", roles)
 			);
 		} else {
-			// Query for all employees in the subcollection
+			// If no roles are specified, fetch all employees for the restaurant.
+			console.log("... no role filter, fetching all employees.");
 			employeesQuery = query(employeesSubcollectionRef);
 		}
+		// --- END OF NEW LOGIC ---
 
 		const snapshot = await getDocs(employeesQuery);
 		const employeesList = snapshot.docs.map((doc) => ({
@@ -225,7 +235,9 @@ export const fetchEmployees = async (restaurantId, role) => {
 			"firebaseUtils.fetchEmployees: Error fetching employees:",
 			error
 		);
-		return [];
+		// This could be a missing index error. The error message in the console
+		// will provide a direct link to create the necessary Firestore index.
+		return []; // Return empty array on error
 	}
 };
 

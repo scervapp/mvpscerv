@@ -1,34 +1,62 @@
+// navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { Platform, View, StyleSheet } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
-import RestaurantDashboard from "../screens/restaurant/RestaurantDashboard";
-import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
+
+// --- Import all your screens ---
+// 1. Import your NEW operational dashboard and auth gate
+import RestaurantDashboardScreen from "../screens/restaurant/RestaurantDashboardScreen";
+
+// 2. Import the screens for your other operational tabs
 import RestaurantCheckin from "../screens/restaurant/RestaurantCheckin";
 import TableManagementScreen from "../screens/restaurant/TableManagementScreen";
 import ChefsQScreen from "../screens/restaurant/ChefsQScreen";
+
+// 3. Import your existing Back Office and its related screens
 import BackOfficeScreen from "../screens/restaurant/BackOfficeScreen";
 import EmployeeScreen from "../screens/restaurant/EmployeeScreen";
-
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
-import { Platform, View } from "react-native";
 import DailySalesDetailsScreen from "../screens/restaurant/DailySalesDetailsScreen";
-import BackOfficeAccess from "../screens/restaurant/BackOfficeAccessScreen";
+import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
+import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
+
 import colors from "../utils/styles/appStyles";
-import { StyleSheet } from "react-native";
-import RestaurantDashboardScreen from "../screens/restaurant/RestaurantDashboardScreen";
+import BackOfficeAuthGate from "../screens/restaurant/BackOfficeAuthGate.";
+
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+// This is defined once at the top level to be accessible by any stack navigator that needs it.
+const defaultHeaderOptions = {
+	headerShown: true,
+	headerStyle: {
+		backgroundColor: colors.surfaceWhite,
+	},
+	headerTintColor: colors.textDark,
+	headerTitleStyle: {
+		fontWeight: "bold",
+	},
+};
+
+// --- This stack is for all the "Back Office" related management screens ---
+// It is now protected by the BackOfficeAuthGate as its initial route.
 const BackOfficeStackNavigator = () => {
 	return (
-		<Stack.Navigator screenOptions={defaultHeaderOptions}>
+		<Stack.Navigator
+			screenOptions={defaultHeaderOptions}
+			initialRouteName="BackOfficeAuthGate"
+		>
+			<Stack.Screen
+				name="BackOfficeAuthGate"
+				component={BackOfficeAuthGate}
+				options={{ headerShown: false }} // The gate screen is seamless
+			/>
 			<Stack.Screen
 				name="BackOffice"
 				component={BackOfficeScreen}
-				options={{ headerShown: false }} // The grid screen doesn't need a header
+				options={{ headerTitle: "Back Office" }}
 			/>
 			<Stack.Screen
 				name="EmployeeScreen"
@@ -55,80 +83,80 @@ const BackOfficeStackNavigator = () => {
 				component={MenuManagementScreen}
 				options={{ headerTitle: "Menu Management" }}
 			/>
-			{/* Note: BackOfficeAccess might be part of a separate login/auth flow now */}
 		</Stack.Navigator>
 	);
 };
 
+// --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
 	return (
 		<Tab.Navigator
 			screenOptions={({ route }) => ({
-				headerShown: false, // Headers are handled by individual stack navigators
+				headerShown: false, // Headers are handled by the inner stack navigators
 				tabBarIcon: ({ focused, color, size }) => {
 					let iconName;
-					size = focused ? 30 : 26; // Make focused icon slightly larger
+					size = focused ? 30 : 26;
 
 					if (route.name === "Dashboard") {
 						iconName = focused ? "view-dashboard" : "view-dashboard-outline";
-					} else if (route.name === "RestaurantCheckin") {
+					} else if (route.name === "Checkins") {
 						iconName = focused ? "account-clock" : "account-clock-outline";
-					} else if (route.name === "TableManagement") {
-						iconName = focused ? "grid" : "view-grid-outline";
+					} else if (route.name === "Tables") {
+						iconName = focused ? "table-chair" : "table-chair";
 					} else if (route.name === "ChefsQ") {
 						iconName = focused
 							? "silverware-fork-knife"
 							: "silverware-fork-knife";
-					} else if (route.name === "BackOfficeNavigator") {
-						iconName = focused ? "briefcase" : "briefcase-outline";
 					}
 
-					// Use MaterialCommunityIcons for a consistent icon set
 					return (
 						<MaterialCommunityIcons name={iconName} size={size} color={color} />
 					);
 				},
 				tabBarActiveTintColor: colors.primary,
 				tabBarInactiveTintColor: colors.textMedium,
-				tabBarShowLabel: true, // Labels are helpful for staff
+				tabBarShowLabel: true,
 				tabBarStyle: styles.tabBar,
 			})}
 		>
 			{/* Tab 1: The New Dashboard (Home Base) */}
-			<Tab.Screen name="Dashboard" component={RestaurantDashboardScreen} />
-
+			<Tab.Screen
+				name="Dashboard"
+				// The Dashboard will have its own StackNavigator to contain itself and the BackOffice stack
+				component={RestaurantDashboardStack}
+			/>
 			{/* Tab 2: Customers Waiting */}
 			<Tab.Screen
-				name="RestaurantCheckin"
+				name="Checkins" // Renamed for clarity if needed
 				component={RestaurantCheckin}
-				options={{ title: "Check-ins" }}
 			/>
-
 			{/* Tab 3: Chef's Queue */}
 			<Tab.Screen
 				name="ChefsQ"
 				component={ChefsQScreen}
 				options={{ title: "Chef's Q" }}
 			/>
-
 			{/* Tab 4: Table Management */}
 			<Tab.Screen
-				name="TableManagement"
-				options={{ title: "Table Management" }}
+				name="Tables"
 				component={TableManagementScreen}
-			/>
-
-			{/* Tab 5: Back Office Settings */}
-			<Tab.Screen
-				name="BackOfficeNavigator"
-				component={BackOfficeStackNavigator}
-				options={{ title: "Back Office" }}
+				options={{ title: "Tables" }}
 			/>
 		</Tab.Navigator>
 	);
 };
 
-// ... your other styles ...
+// --- This new stack navigator will be the component for the "Dashboard" tab ---
+// This allows you to navigate from the Dashboard to the Back Office while staying in the same tab.
+const RestaurantDashboardStack = () => (
+	<Stack.Navigator screenOptions={{ headerShown: false }}>
+		<Stack.Screen name="DashboardHome" component={RestaurantDashboardScreen} />
+		<Stack.Screen
+			name="BackOfficeNavigator"
+			component={BackOfficeStackNavigator}
+		/>
+	</Stack.Navigator>
+);
 
 const styles = StyleSheet.create({
 	tabBar: {

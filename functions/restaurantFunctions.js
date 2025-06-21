@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
+const bcrypt = require("bcrypt");
 
 /**
  * Starts a new work day for a restaurant.
@@ -456,6 +457,342 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not apply discount.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Sets or updates a manager's PIN. This should only be callable by an owner.
+ * It takes a plain-text PIN, hashes it, and saves the hash to the employee's document.
+ *
+ * @param {object} data
+ * @param {string} data.targetUserId The UID of the manager/employee to set the PIN for.
+ * @param {string} data.pin The 4 to 6-digit PIN as a string.
+ */
+exports.setManagerPin = functions.https.onCall(async (data, context) => {
+	// Authentication & Authorization: Ensure the person setting the PIN is an owner
+	if (!context.auth || context.auth.token.role !== "owner") {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"Only the owner can set manager PINs."
+		);
+	}
+	const { targetUserId, pin } = data;
+	if (!targetUserId || !pin || pin.length < 4) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A target user ID and a valid PIN are required."
+		);
+	}
+
+	try {
+		// Hash the PIN with a salt. 10 rounds is a standard, secure number.
+		const salt = await bcrypt.genSalt(10);
+		const pinHash = await bcrypt.hash(pin, salt);
+
+		// Store the HASH, not the plain-text PIN
+		const employeeRef = db.collection("employees").doc(targetUserId); // Or restaurants/{uid} if that's where managers are
+		await employeeRef.update({ pinHash: pinHash });
+
+		console.log(`Successfully set PIN for manager ${targetUserId}.`);
+		return { success: true };
+	} catch (error) {
+		console.error("Error setting manager PIN:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not set PIN.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Verifies an entered PIN against the stored hash for a given employee.
+ * This is called by the client-side PIN pad.
+ *
+ * @param {object} data
+ * @param {string} data.employeeId The ID of the employee whose PIN is being verified.
+ * @param {string} data.pin The plain-text PIN entered by the user.
+ */
+/**
+ * Verifies an entered PIN against the stored hash for a given employee.
+ * This version includes detailed logging for debugging.
+ */
+exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
+	if (!context.auth) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Authentication is required."
+		);
+	}
+
+	// --- THE FIX IS HERE ---
+	// We now get the restaurantId from the data payload sent by the client.
+	const { restaurantId, employeeId, pin } = data;
+
+	console.log(
+		`verifyEmployeePin: Received request for restaurantId: "${restaurantId}", employeeId: "${employeeId}"`
+	);
+
+	if (!restaurantId || !employeeId || !pin) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID, Employee ID, and PIN are required."
+		);
+	}
+
+	try {
+		// Build the correct path using the restaurantId from the payload.
+		const employeeRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(employeeId);
+		const employeeDoc = await employeeRef.get();
+
+		if (!employeeDoc.exists || !employeeDoc.data().pinHash) {
+			console.error(
+				`verifyEmployeePin: Document not found at path: ${employeeRef.path} or PIN hash is missing.`
+			);
+			return { success: false, message: "Invalid credentials." };
+		}
+
+		const pinHash = employeeDoc.data().pinHash;
+		const pinMatches = await bcrypt.compare(String(pin), pinHash);
+
+		if (pinMatches) {
+			console.log(`PIN verification successful for employee ${employeeId}.`);
+			return {
+				success: true,
+				employee: {
+					id: employeeDoc.id,
+					name: `${employeeDoc.data().firstName} ${
+						employeeDoc.data().lastName
+					}`,
+					role: employeeDoc.data().role,
+				},
+			};
+		} else {
+			console.log(`PIN verification FAILED for employee ${employeeId}.`);
+			return { success: false, message: "Invalid PIN." };
+		}
+	} catch (error) {
+		console.error("Error verifying PIN:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"An error occurred during PIN verification.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Creates a new employee document and a corresponding Firebase Auth user.
+ * Allows the very first employee to be created by any authenticated user for that restaurant,
+ * after which only managers/owners can add more.
+ */
+exports.addEmployee = functions.https.onCall(async (data, context) => {
+	// 1. Basic Authentication Check
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated."
+		);
+	}
+
+	const { restaurantId, firstName, lastName, email, role, pin } = data;
+	if (!restaurantId || !firstName || !lastName || !email || !role) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required employee details."
+		);
+	}
+
+	const employeesRef = db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("employees");
+	const snapshot = await employeesRef.limit(1).get();
+	const isFirstEmployee = snapshot.empty;
+
+	// 2. Authorization Check
+	const requesterRole = context.auth.token.role;
+	const isRequesterAuthorized = ["owner", "manager"].includes(requesterRole);
+
+	// Allow action if requester is a manager OR if this is the very first employee.
+	if (!isRequesterAuthorized && !isFirstEmployee) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"You must be a manager or owner to add new employees."
+		);
+	}
+
+	// --- NEW: Security rule for assigning 'owner' role ---
+	if (role === "owner" && !isFirstEmployee) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"The 'owner' role can only be assigned to the first employee."
+		);
+	}
+	// --- END NEW RULE ---
+
+	let userRecord; // Define here to access in catch block
+	try {
+		// Create a Firebase Auth user for the employee
+		userRecord = await admin.auth().createUser({
+			email: email,
+			emailVerified: false,
+			password: `temp-password-${Math.random().toString(36).slice(-8)}`,
+			displayName: `${firstName} ${lastName}`,
+			disabled: false,
+		});
+
+		// Set custom claims based on the role passed from the client
+		await admin
+			.auth()
+			.setCustomUserClaims(userRecord.uid, { role, restaurantId });
+
+		let pinHash = null;
+		if (pin && (role === "manager" || role === "owner")) {
+			const salt = await bcrypt.genSalt(10);
+			pinHash = await bcrypt.hash(pin, salt);
+		}
+
+		// Create the employee document in Firestore
+		const employeeDocRef = employeesRef.doc(userRecord.uid);
+		await employeeDocRef.set({
+			firstName,
+			lastName,
+			email,
+			role, // Use the role provided by the client
+			pinHash,
+			restaurantId,
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+
+		return { success: true, employeeId: userRecord.uid };
+	} catch (error) {
+		console.error("Error adding employee:", error);
+		// Clean up orphaned auth user if Firestore write fails
+		if (userRecord && userRecord.uid) {
+			await admin.auth().deleteUser(userRecord.uid);
+		}
+		throw new functions.https.HttpsError(
+			"internal",
+			error.message || "Could not add new employee."
+		);
+	}
+});
+
+/**
+ * Deletes an employee's Firestore document and their Firebase Auth account.
+ */
+exports.deleteEmployee = functions.https.onCall(async (data, context) => {
+	if (
+		!context.auth ||
+		!["owner", "manager"].includes(context.auth.token.role)
+	) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"You must be a manager or owner to delete employees."
+		);
+	}
+	const { restaurantId, employeeId } = data;
+	if (!restaurantId || !employeeId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant and Employee IDs are required."
+		);
+	}
+
+	try {
+		const employeeRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(employeeId);
+
+		// Use a batch to delete both records atomically
+		const batch = db.batch();
+		batch.delete(employeeRef);
+
+		// Also delete the Firebase Auth user
+		await admin.auth().deleteUser(employeeId);
+
+		await batch.commit();
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error deleting employee:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not delete employee.",
+			error.message
+		);
+	}
+});
+
+/**
+ * Sets a custom claim for a user's role at a specific restaurant.
+ * Only authenticated users with a 'manager' or 'owner' role can call this.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.targetUserId - The UID of the employee whose role is being set.
+ * @param {string} data.role - The new role to assign (e.g., 'owner', 'manager', 'worker').
+ * @param {string} data.restaurantId - The ID of the restaurant they belong to.
+ */
+exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
+	// Check if the user making the request is authorized
+	if (
+		!context.auth ||
+		!["manager", "owner"].includes(context.auth.token.role)
+	) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"You must be a manager or owner to set employee roles."
+		);
+	}
+
+	const { targetUserId, role, restaurantId } = data;
+	const validRoles = ["owner", "manager", "worker"];
+
+	if (!validRoles.includes(role) || !targetUserId || !restaurantId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Invalid data provided."
+		);
+	}
+
+	try {
+		console.log(
+			`Setting custom claims for user ${targetUserId} to role: ${role}, restaurantId: ${restaurantId}`
+		);
+		// --- THIS IS THE FIX ---
+		// 1. Set the custom claims on the target user's Firebase Auth account.
+		// This embeds the role and restaurantId directly into their auth token.
+		await admin.auth().setCustomUserClaims(targetUserId, {
+			role: role,
+			restaurantId: restaurantId,
+		});
+
+		// 2. For consistency, also update their role in their Firestore document.
+		const userDocRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(targetUserId);
+		await userDocRef.update({
+			role: role,
+		});
+
+		console.log(`Successfully set role '${role}' for user ${targetUserId}.`);
+		return { success: true, message: `Role has been updated to ${role}.` };
+	} catch (error) {
+		console.error("Error setting custom claims:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"An error occurred while setting the user role.",
 			error.message
 		);
 	}

@@ -83,6 +83,12 @@ exports.searchPIPs = userSearchFunctions.searchPIPs;
 // Restaurant Functions
 exports.startWorkDay = restaurantFunctions.startWorkDay;
 exports.endWorkDay = restaurantFunctions.endWorkDay;
+exports.setManagerPin = restaurantFunctions.setManagerPin;
+exports.verifyEmployeePin = restaurantFunctions.verifyEmployeePin;
+exports.addEmployee = restaurantFunctions.addEmployee;
+exports.deleteEmployee = restaurantFunctions.deleteEmployee;
+exports.setEmployeeRole = restaurantFunctions.setEmployeeRole;
+//exports.updateEmployee = restaurantFunctions.updateEmployee;
 
 // Table functions
 exports.addTable = restaurantFunctions.addTable;

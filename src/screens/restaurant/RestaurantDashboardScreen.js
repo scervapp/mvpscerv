@@ -9,6 +9,8 @@ import {
 	Alert,
 	ScrollView,
 	TouchableOpacity,
+	Modal,
+	FlatList,
 } from "react-native";
 import { Button } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -16,6 +18,9 @@ import moment from "moment";
 import { useWorkDay } from "../../context/restaurant/WorkDayContext";
 import colors from "../../utils/styles/appStyles";
 import { AuthContext } from "../../context/authContext";
+import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
+import { fetchEmployees } from "../../utils/firebaseUtils";
+import { useNavigation } from "expo-router";
 
 const DashboardCard = ({ label, iconName, onPress }) => (
 	<TouchableOpacity style={styles.card} onPress={onPress}>
@@ -29,13 +34,137 @@ const DashboardCard = ({ label, iconName, onPress }) => (
 		<Text style={styles.cardLabel}>{label}</Text>
 	</TouchableOpacity>
 );
+// A simple modal to select which manager is present
+const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
+	<Modal
+		visible={isVisible}
+		transparent={true}
+		animationType="fade"
+		onRequestClose={onClose}
+	>
+		<View style={styles.modalOverlay}>
+			<View style={styles.modalContent}>
+				<Text style={styles.modalTitle}>Manager Authorization</Text>
+				<Text style={styles.modalSubtitle}>
+					Please select which manager is present to authorize this action.
+				</Text>
+				<FlatList
+					data={managers}
+					keyExtractor={(item) => item.id}
+					renderItem={({ item }) => (
+						<TouchableOpacity
+							style={styles.managerRow}
+							onPress={() => onSelect(item)}
+						>
+							<Text style={styles.managerName}>
+								{item.firstName} {item.lastName}
+							</Text>
+						</TouchableOpacity>
+					)}
+				/>
+				<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
+					Cancel
+				</Button>
+			</View>
+		</View>
+	</Modal>
+);
 
-const RestaurantDashboardScreen = ({ navigation }) => {
+const RestaurantDashboardScreen = () => {
+	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
 		useWorkDay();
 	const [isActionLoading, setIsActionLoading] = useState(false);
 
+	const [isManagerListVisible, setIsManagerListVisible] = useState(false);
+	const [managers, setManagers] = useState([]);
+	const [isPinModalVisible, setIsPinModalVisible] = useState(false);
+	const [managerToVerify, setManagerToVerify] = useState(null);
+	const [isFetchingManagers, setIsFetchingManagers] = useState(false);
+	const [actionToPerform, setActionToPerform] = useState(null);
+
+	const restaurantId = currentUserData?.uid;
+	if (!restaurantId) {
+		Alert.alert(
+			"Error",
+			"Could not identify your restaurant. Please ensure you are properly logged in."
+		);
+		return;
+	}
+
+	const handleBackOfficePress = async () => {
+		// First, check the user's role from their token.
+		// The AuthContext provides the up-to-date role.
+		const userRole = currentUserData?.role;
+
+		// If the user is already a manager or owner, they don't need a PIN.
+		if (userRole === "manager" || userRole === "owner") {
+			console.log(
+				"Manager/Owner detected. Navigating directly to Back Office."
+			);
+			navigation.navigate("BackOfficeNavigator");
+			return;
+		}
+
+		// If the user is a worker, start the PIN override flow.
+		setIsFetchingManagers(true);
+		try {
+			const managerList = await fetchEmployees(currentUserData.uid, [
+				"manager",
+				"owner",
+			]);
+
+			// --- THIS IS THE FIX ---
+			if (managerList.length === 0) {
+				// If NO managers exist, guide the owner to the setup screen.
+				Alert.alert(
+					"Manager Setup Required",
+					"No managers have been set up for this restaurant yet. Go to the Employee screen to add the first owner/manager account.",
+					[
+						{ text: "Cancel", style: "cancel" },
+						{
+							text: "Go to Employee Setup",
+							// This navigation action directly pushes the EmployeeScreen onto the stack,
+							// bypassing the PIN gate for this one-time setup.
+							onPress: () =>
+								navigation.navigate("BackOfficeNavigator", {
+									screen: "EmployeeScreen",
+								}),
+						},
+					]
+				);
+				return; // Stop the PIN flow
+			}
+			// --- END OF FIX ---
+
+			// If managers DO exist, proceed with the normal PIN verification flow.
+			setManagers(managerList);
+			setIsManagerListVisible(true);
+		} catch (error) {
+			Alert.alert(
+				"Error",
+				"Could not fetch the manager list. Please try again."
+			);
+			console.error("Error in handleBackOfficePress:", error);
+		} finally {
+			setIsFetchingManagers(false);
+		}
+	};
+
+	const onSelectManagerForVerification = (manager) => {
+		setIsManagerListVisible(false);
+		setManagerToVerify(manager);
+		setIsPinModalVisible(true);
+	};
+
+	// This is the 'onSuccess' callback for the PIN modal
+	const onPinSuccess = () => {
+		setIsPinModalVisible(false);
+		setManagerToVerify(null);
+		// On successful PIN override, navigate to the Back Office.
+		navigation.navigate("BackOfficeNavigator");
+	};
 	const handleStartDay = async () => {
 		setIsActionLoading(true);
 		const success = await startWorkDay();
@@ -63,6 +192,8 @@ const RestaurantDashboardScreen = ({ navigation }) => {
 			]
 		);
 	};
+
+	console.log("RestaurantID", currentUserData.uid);
 
 	const renderStatusContent = () => {
 		if (isLoading) {
@@ -148,15 +279,38 @@ const RestaurantDashboardScreen = ({ navigation }) => {
 					<DashboardCard
 						label="Table Management"
 						iconName="view-grid-outline"
-						onPress={() => navigation.navigate("TableManagement")}
+						onPress={() => navigation.navigate("Tables")}
 					/>
 					<DashboardCard
 						label="Back Office"
 						iconName="briefcase-outline"
-						onPress={() => navigation.navigate("BackOffice")} // Navigates to your existing screen
+						onPress={handleBackOfficePress}
 					/>
 				</View>
 			</ScrollView>
+			<ManagerSelectionModal
+				isVisible={isManagerListVisible}
+				onClose={() => setIsManagerListVisible(false)}
+				managers={managers}
+				onSelect={onSelectManagerForVerification}
+			/>
+
+			{managerToVerify && (
+				<ManagerPinModal
+					isVisible={isPinModalVisible}
+					onClose={() => setIsPinModalVisible(false)}
+					onSuccess={onPinSuccess}
+					employeeToVerify={managerToVerify}
+					restaurantId={currentUserData?.uid}
+				/>
+			)}
+
+			{/* Overlay for fetching managers */}
+			{isFetchingManagers && (
+				<View style={styles.loadingOverlay}>
+					<ActivityIndicator size="large" color={colors.surfaceWhite} />
+				</View>
+			)}
 		</SafeAreaView>
 	);
 };
@@ -228,6 +382,45 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		color: colors.textDark,
 	},
+	loadingOverlay: {
+		...StyleSheet.absoluteFillObject,
+		backgroundColor: "rgba(0,0,0,0.6)",
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.7)",
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
+	},
+	modalContent: {
+		backgroundColor: colors.surfaceWhite,
+		padding: 20,
+		borderRadius: 12,
+		width: "100%",
+		maxWidth: 400,
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginBottom: 10,
+		textAlign: "center",
+	},
+	modalSubtitle: {
+		fontSize: 15,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 20,
+	},
+	managerRow: {
+		paddingVertical: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	managerName: { fontSize: 18, textAlign: "center", color: colors.primary },
 });
 
 export default RestaurantDashboardScreen;
