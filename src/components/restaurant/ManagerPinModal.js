@@ -60,7 +60,7 @@ const ManagerPinModal = ({
 			return;
 		}
 
-		const employeeIdToVerify = employeeToVerify?.uid || employeeToVerify?.id;
+		const employeeIdToVerify = employeeToVerify?.id;
 		// Add a guard clause to ensure restaurantId was passed as a prop.
 		if (!restaurantId) {
 			setError("Restaurant information is missing. Cannot verify PIN.");

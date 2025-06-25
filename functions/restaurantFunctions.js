@@ -478,46 +478,60 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 			"Only the owner can set manager PINs."
 		);
 	}
-	const { targetUserId, pin } = data;
-	if (!targetUserId || !pin || pin.length < 4) {
+
+	const { restaurantId, employeeId, pin } = data;
+	if (!restaurantId || !employeeId || !pin || pin.length < 4) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"A target user ID and a valid PIN are required."
+			"A restaurant ID, target employee ID, and a valid PIN are required."
 		);
 	}
 
 	try {
-		// Hash the PIN with a salt. 10 rounds is a standard, secure number.
-		const salt = await bcrypt.genSalt(10);
-		const pinHash = await bcrypt.hash(pin, salt);
-
-		const employeesQuery = db
+		// --- THIS IS THE FIX ---
+		// Directly reference the employee document by its ID instead of querying.
+		const employeeDocRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
 			.collection("employees")
-			.where("uid", "==", employeeId)
-			.limit(1);
+			.doc(employeeId);
 
-		const snapshot = await employeesQuery.get();
+		const employeeDoc = await employeeDocRef.get();
 
-		if (snapshot.empty) {
+		if (!employeeDoc.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
 				"The manager/owner employee profile could not be found."
 			);
 		}
 
+		// Ensure we are only setting PINs for managers or owners.
+		const employeeData = employeeDoc.data();
+		if (employeeData.role !== "manager" && employeeData.role !== "owner") {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"PINs can only be set for managers or owners."
+			);
+		}
+
+		// Hash the PIN with a salt. 10 rounds is a standard, secure number.
+		const salt = await bcrypt.genSalt(10);
+		const pinHash = await bcrypt.hash(pin, salt);
+
 		// Store the HASH, not the plain-text PIN
-		const employeeDocRef = snapshot.docs[0].ref;
 		await employeeDocRef.update({ pinHash: pinHash });
-		console.log(`Successfully set PIN for manager ${targetUserId}.`);
+
+		console.log(`Successfully set PIN for employee ${employeeId}.`);
 		return { success: true };
 	} catch (error) {
 		console.error("Error setting manager PIN:", error);
+		// Avoid propagating internal error details unless it's an HttpsError
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not set PIN.",
-			error.message
+			"An unexpected error occurred while setting the PIN."
 		);
 	}
 });
@@ -540,6 +554,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
  * @param {string} data.pin The plain-text PIN entered by the user.
  */
 exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
+	// This function can be called by any authenticated user on a restaurant device
 	if (!context.auth) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
@@ -556,8 +571,6 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
-		// --- THE FIX IS HERE ---
-		// We now directly reference the employee document using its unique ID, which is faster and more reliable than a query.
 		const employeeRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
@@ -567,13 +580,12 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 
 		if (!employeeDoc.exists) {
 			console.error(
-				`verifyEmployeePin: Employee document not found at path: ${employeeRef.path}`
+				`verifyEmployeePin: Employee doc not found at path: ${employeeRef.path}`
 			);
 			return { success: false, message: "Invalid credentials." };
 		}
 
 		const employeeData = employeeDoc.data();
-
 		if (!employeeData.pinHash) {
 			console.error(
 				`verifyEmployeePin: PIN hash does not exist for employee ${employeeId}.`
@@ -585,7 +597,6 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 
 		if (pinMatches) {
 			console.log(`PIN verification successful for employee ${employeeId}.`);
-			// On success, return the employee's profile data
 			return {
 				success: true,
 				employee: {
@@ -660,15 +671,16 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 		}
 
 		// 3. Create the employee document in the subcollection.
-		const newEmployeeRef = employeesRef.doc();
+		const newEmployeeRef = employeesRef.doc(); // Auto-generate a unique ID
 		await newEmployeeRef.set({
 			firstName,
 			lastName,
 			role: roleToSet,
-			jobTitle: roleToSet === "worker" ? jobTitle : null, // Only store jobTitle for workers
-			pinHash,
+			jobTitle: roleToSet === "worker" ? jobTitle : null,
+			pinHash, // Set the hash at creation time if provided
 			restaurantId,
 			isActive: true,
+			// Assign auth uid only to the first employee (the owner)
 			uid: isFirstEmployee ? context.auth.uid : null,
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
@@ -676,6 +688,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 		console.log(
 			`Successfully added employee ${newEmployeeRef.id} with role ${roleToSet}.`
 		);
+		// Return the unique Firestore document ID
 		return { success: true, employeeId: newEmployeeRef.id };
 	} catch (error) {
 		console.error("Error adding employee:", error);
