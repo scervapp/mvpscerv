@@ -1,427 +1,460 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import {
 	StyleSheet,
 	Text,
 	View,
 	TextInput,
-	Button,
-	Switch,
 	ScrollView,
 	TouchableOpacity,
 	Image,
+	Switch,
+	ActivityIndicator,
+	Alert,
+	KeyboardAvoidingView,
+	Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 import { AuthContext } from "../../context/authContext";
-import { stateOptions } from "../../utils/data/states";
-import colors from "../../utils/styles/appStyles";
 import { uploadImage, pickImage } from "../../utils/firebaseUtils";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
-import app from "../../config/firebase";
+import colors from "../../utils/styles/appStyles";
+import { stateOptions } from "../../utils/data/states"; // Assuming you have this
+import { Picker } from "@react-native-picker/picker";
+import { db } from "../../config/firebase";
 
-const RestaurantProfile = ({ navigation }) => {
-	const [restaurantData, setRestaurantData] = useState(null);
-	const { isLoading, currentUserData } = useContext(AuthContext);
+// A reusable card component for sectioning the form
+const InfoCard = ({ title, children }) => (
+	<View style={styles.card}>
+		<Text style={styles.cardTitle}>{title}</Text>
+		{children}
+	</View>
+);
 
-	const [restaurantName, setRestaurantName] = useState(
-		currentUserData.restaurantName || ""
-	);
-	const [address, setAddress] = useState(currentUserData.address || "");
-	const [city, setCity] = useState(currentUserData.city || "");
-	const [selectedState, setSelectedState] = useState(
-		currentUserData.state || ""
-	); // Assuming you use the full state name
-	const [zipcode, setZipcode] = useState(currentUserData.zipcode || "");
-	const [geoLat, setGeoLat] = useState(currentUserData.geoLat || "");
-	const [geoLong, setGeoLong] = useState(currentUserData.geoLong || "");
-	const [cuisineType, setCuisineType] = useState(
-		currentUserData.cuisineType || ""
-	);
-	const [website, setWebsite] = useState("");
-	const [phone, setPhone] = useState(currentUserData.phoneNumber || "");
-	const [isActive, setIsActive] = useState(currentUserData.isActive || false);
-	const [isHoursExtended, setIsHoursExtended] = useState(false);
-	const [description, setDescription] = useState(
-		currentUserData.description || ""
-	);
-	const [imageUri, setImageUri] = useState(null);
-	const [uploadedImageUri, setUploadedImageUri] = useState(null);
-	const [isUploading, setIsUploading] = useState(false);
+// A reusable input component
+const LabeledInput = ({
+	label,
+	value,
+	onChangeText,
+	placeholder,
+	...props
+}) => (
+	<View style={styles.inputGroup}>
+		<Text style={styles.inputLabel}>{label}</Text>
+		<TextInput
+			style={styles.inputField}
+			value={value}
+			onChangeText={onChangeText}
+			placeholder={placeholder}
+			placeholderTextColor={colors.textLight}
+			{...props}
+		/>
+	</View>
+);
 
-	const db = getFirestore(app);
+const RestaurantProfile = () => {
+	const { currentUserData } = useContext(AuthContext);
+	const insets = useSafeAreaInsets();
 
-	//Hours of Operation
-	const [hours, setHours] = useState({
-		Monday: { open: "", close: "" },
-		Tuesday: { open: "", close: "" },
-		Wednesday: { open: "", close: "" },
-		Thursday: { open: "", close: "" },
-		Friday: { open: "", close: "" },
-		Saturday: { open: "", close: "" },
-		Sunday: { open: "", close: "" },
+	const [isLoading, setIsLoading] = useState(true);
+	const [isSaving, setIsSaving] = useState(false);
+	const [formData, setFormData] = useState({
+		restaurantName: "",
+		description: "",
+		cuisineType: "",
+		phone: "",
+		website: "",
+		address: "",
+		city: "",
+		state: "California",
+		zipcode: "",
+		hours: {
+			Monday: { open: "9:00 AM", close: "10:00 PM", active: true },
+			Tuesday: { open: "9:00 AM", close: "10:00 PM", active: true },
+			Wednesday: { open: "9:00 AM", close: "10:00 PM", active: true },
+			Thursday: { open: "9:00 AM", close: "10:00 PM", active: true },
+			Friday: { open: "9:00 AM", close: "11:00 PM", active: true },
+			Saturday: { open: "10:00 AM", close: "11:00 PM", active: true },
+			Sunday: { open: "10:00 AM", close: "9:00 PM", active: false },
+		},
+		imageUri: null,
 	});
 
-	const timeRegex = /^([0-1]?[0-9]):([0-5][0-9]) (AM|PM)$/;
-	const handleTimeInputChange = (day, newTime) => {
-		setHours({
-			...hours,
-			[day]: { ...hours[day], open: newTime },
-		});
+	// Fetch existing profile data when the screen loads
+	useEffect(() => {
+		const fetchProfile = async () => {
+			if (!currentUserData?.uid) return;
+			const docRef = doc(db, "restaurants", currentUserData.uid);
+			try {
+				const docSnap = await getDoc(docRef);
+				if (docSnap.exists()) {
+					setFormData((prev) => ({ ...prev, ...docSnap.data() }));
+				} else {
+					// Pre-fill with any data from the auth context if no profile exists
+					setFormData((prev) => ({ ...prev, ...currentUserData }));
+				}
+			} catch (error) {
+				console.error("Error fetching restaurant profile:", error);
+				Alert.alert("Error", "Could not load your profile.");
+			} finally {
+				setIsLoading(false);
+			}
+		};
 
-		// Perform validation here if needed:
-		if (!timeRegex.test(newTime)) {
-			// Handle invalid input
-		}
+		fetchProfile();
+	}, [currentUserData?.uid]);
+
+	// Generic handler for text input changes
+	const handleInputChange = (field, value) => {
+		setFormData((prev) => ({ ...prev, [field]: value }));
+	};
+
+	// Specific handler for hours changes
+	const handleHoursChange = (day, field, value) => {
+		setFormData((prev) => ({
+			...prev,
+			hours: { ...prev.hours, [day]: { ...prev.hours[day], [field]: value } },
+		}));
 	};
 
 	const handleImageUpload = async () => {
-		setIsUploading(true);
-		try {
-			const { success, imageUri } = await pickImage();
-			console.log("Image URI before uploaded", imageUri);
-			if (success) {
-				const downloadUrl = await uploadImage(
-					imageUri,
-					"restaurantProfileImages"
-				);
-				setImageUri(downloadUrl);
-			} else {
-				console.log("Image upload failed");
-			}
-		} catch (error) {
-			console.log("Error uploading image:", error);
-			Alert.alert("Upload error", "There was an issue uploading your image.");
-		} finally {
-			setIsUploading(false);
+		const result = await pickImage();
+		if (result.success) {
+			handleInputChange("imageUri", result.uri); // Store local URI temporarily
 		}
 	};
 
 	const saveRestaurantProfile = async () => {
-		const profileData = {
-			restaurantName,
-			address,
-			city,
-			state: selectedState,
-			zipcode,
-			geoLat,
-			geoLong,
-			cuisineType,
-			website,
-			phone,
-			isActive,
-			description,
-			hours,
-			imageUri: uploadedImageUri,
-		};
+		if (!formData.restaurantName) {
+			Alert.alert("Missing Name", "Please enter your restaurant's name.");
+			return;
+		}
+		setIsSaving(true);
+		let finalData = { ...formData };
+
 		try {
-			console.log("Before Image Upload", imageUri);
-			if (imageUri) {
+			// Check if the imageUri is a local file (starts with 'file://')
+			if (finalData.imageUri && finalData.imageUri.startsWith("file://")) {
 				const downloadUrl = await uploadImage(
-					imageUri,
+					finalData.imageUri,
 					"restaurantProfileImages"
 				);
-				profileData.imageUri = downloadUrl;
+				finalData.imageUri = downloadUrl;
 			}
-			console.log("After Image Upload", imageUri);
+
 			const docRef = doc(db, "restaurants", currentUserData.uid);
-			await setDoc(docRef, {
-				...currentUserData,
-				...profileData,
-				completedProfile: true,
-			});
-			console.log("Restaurant profile saved successfully");
-			navigation.navigate("BackOffice");
+			await setDoc(docRef, finalData, { merge: true }); // Use merge to avoid overwriting other fields
+
+			Alert.alert("Success", "Your profile has been saved.");
 		} catch (error) {
-			console.log("Error saving restaurant profile:", error);
+			console.error("Error saving restaurant profile:", error);
+			Alert.alert("Error", "There was an issue saving your profile.");
+		} finally {
+			setIsSaving(false);
 		}
 	};
 
+	if (isLoading) {
+		return (
+			<View style={styles.centered}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
+
 	return (
-		<View style={styles.formContainer}>
-			{/* Use formContainer as the main container */}
-			<ScrollView showsVerticalScrollIndicator={false}>
-				{/* Restaurant Name */}
-				<View style={styles.inputGroup}>
-					<Text style={styles.inputLabel}>Restaurant Name:</Text>
-					<TextInput
-						style={styles.inputField}
-						value={restaurantName}
-						onChangeText={setRestaurantName}
-						placeholder="Restaurant Name"
-					/>
-				</View>
-
-				{/* Description */}
-				<View style={styles.inputGroup}>
-					<Text style={styles.inputLabel}>Description</Text>
-					<TextInput
-						style={styles.inputField}
-						value={description}
-						onChangeText={setDescription}
-						placeholder="Restaurant description / tagline"
-					/>
-				</View>
-
-				{/* Cuisine */}
-				<View style={styles.inputGroup}>
-					<Text style={styles.inputLabel}>Cuisine</Text>
-					<TextInput
-						style={styles.inputField}
-						value={cuisineType}
-						onChangeText={setCuisineType}
-						placeholder="Cuisine"
-					/>
-				</View>
-
-				{/* Hours of Operation */}
-				<TouchableOpacity
-					style={styles.hoursHeader}
-					onPress={() => setIsHoursExtended(!isHoursExtended)}
+		<KeyboardAvoidingView
+			style={{ flex: 1 }}
+			behavior={Platform.OS === "ios" ? "padding" : "height"}
+		>
+			<View style={[styles.container, { paddingTop: insets.top }]}>
+				<ScrollView
+					contentContainerStyle={styles.scrollContent}
+					showsVerticalScrollIndicator={false}
 				>
-					<Text style={styles.hoursTitle}>Hours of Operation</Text>
-				</TouchableOpacity>
-
-				{isHoursExtended && (
-					<View style={styles.hoursOfOperation}>
-						{Object.keys(hours).map((day) => (
-							<View key={day} style={styles.inputRow}>
-								<Text style={styles.dayLabel}>{day}</Text>
-								<TextInput
-									style={styles.timeInput}
-									value={hours[day].open}
-									keyboardType="numeric"
-									onChangeText={(text) => handleTimeInputChange(day, text)}
-									placeholder="Open"
+					<InfoCard title="Profile Image">
+						<View style={styles.imagePickerContainer}>
+							{formData.imageUri ? (
+								<Image
+									source={{ uri: formData.imageUri }}
+									style={styles.imagePreview}
 								/>
+							) : (
+								<View style={[styles.imagePreview, styles.imagePlaceholder]}>
+									<Ionicons
+										name="business-outline"
+										size={60}
+										color={colors.textLight}
+									/>
+								</View>
+							)}
+							<TouchableOpacity
+								style={styles.imageButton}
+								onPress={handleImageUpload}
+							>
+								<Ionicons name="camera" size={20} color={colors.primary} />
+								<Text style={styles.imageButtonText}>Change Image</Text>
+							</TouchableOpacity>
+						</View>
+					</InfoCard>
+
+					<InfoCard title="Basic Info">
+						<LabeledInput
+							label="Restaurant Name"
+							value={formData.restaurantName}
+							onChangeText={(val) => handleInputChange("restaurantName", val)}
+							placeholder="Your Restaurant's Name"
+						/>
+						<LabeledInput
+							label="Cuisine Type"
+							value={formData.cuisineType}
+							onChangeText={(val) => handleInputChange("cuisineType", val)}
+							placeholder="e.g., Italian, Mexican, etc."
+						/>
+						<LabeledInput
+							label="Short Description"
+							value={formData.description}
+							onChangeText={(val) => handleInputChange("description", val)}
+							placeholder="A short, catchy tagline"
+							multiline
+						/>
+					</InfoCard>
+
+					<InfoCard title="Contact & Location">
+						<LabeledInput
+							label="Phone Number"
+							value={formData.phone}
+							onChangeText={(val) => handleInputChange("phone", val)}
+							placeholder="(555) 123-4567"
+							keyboardType="phone-pad"
+						/>
+						<LabeledInput
+							label="Website"
+							value={formData.website}
+							onChangeText={(val) => handleInputChange("website", val)}
+							placeholder="www.your-restaurant.com"
+							keyboardType="url"
+						/>
+						<LabeledInput
+							label="Address"
+							value={formData.address}
+							onChangeText={(val) => handleInputChange("address", val)}
+							placeholder="123 Main St"
+						/>
+						<View style={styles.row}>
+							<LabeledInput
+								label="City"
+								value={formData.city}
+								onChangeText={(val) => handleInputChange("city", val)}
+								containerStyle={{ flex: 1, marginRight: 10 }}
+							/>
+							<LabeledInput
+								label="Zip"
+								value={formData.zipcode}
+								onChangeText={(val) => handleInputChange("zipcode", val)}
+								keyboardType="number-pad"
+								containerStyle={{ flex: 0.5 }}
+							/>
+						</View>
+						<Text style={styles.inputLabel}>State</Text>
+						<View style={styles.pickerContainer}>
+							<Picker
+								selectedValue={formData.state}
+								onValueChange={(val) => handleInputChange("state", val)}
+								style={styles.picker}
+							>
+								{stateOptions.map((state) => (
+									<Picker.Item
+										label={state.label}
+										value={state.value}
+										key={state.value}
+									/>
+								))}
+							</Picker>
+						</View>
+					</InfoCard>
+
+					<InfoCard title="Hours of Operation">
+						{Object.keys(formData.hours).map((day) => (
+							<View key={day} style={styles.dayRow}>
+								<Switch
+									value={formData.hours[day].active}
+									onValueChange={(val) => handleHoursChange(day, "active", val)}
+									trackColor={{ false: "#767577", true: colors.primary }}
+									thumbColor={"#f4f3f4"}
+								/>
+								<Text
+									style={[
+										styles.dayLabel,
+										!formData.hours[day].active && styles.dayLabelInactive,
+									]}
+								>
+									{day}
+								</Text>
 								<TextInput
-									style={styles.timeInput}
-									value={hours[day].close}
-									onChangeText={(text) =>
-										setHours({
-											...hours,
-											[day]: { ...hours[day], close: text },
-										})
-									}
+									value={formData.hours[day].open}
+									onChangeText={(val) => handleHoursChange(day, "open", val)}
+									style={[
+										styles.timeInput,
+										!formData.hours[day].active && styles.timeInputInactive,
+									]}
+									placeholder="Open"
+									editable={formData.hours[day].active}
+								/>
+								<Text
+									style={!formData.hours[day].active && styles.dayLabelInactive}
+								>
+									to
+								</Text>
+								<TextInput
+									value={formData.hours[day].close}
+									onChangeText={(val) => handleHoursChange(day, "close", val)}
+									style={[
+										styles.timeInput,
+										!formData.hours[day].active && styles.timeInputInactive,
+									]}
 									placeholder="Close"
+									editable={formData.hours[day].active}
 								/>
 							</View>
 						))}
-					</View>
-				)}
+					</InfoCard>
+				</ScrollView>
 
-				{/* Address */}
-				<View style={styles.inputGroup}>
-					<Text style={styles.inputLabel}>Address</Text>
-					<TextInput
-						style={styles.inputField}
-						value={address}
-						onChangeText={setAddress}
-						placeholder="Address"
-					/>
-				</View>
-
-				{/* City, State, Zip Code */}
-				<View style={styles.addressRow}>
-					<TextInput
-						style={[styles.cityInput, styles.inputField]}
-						value={city}
-						onChangeText={setCity}
-						placeholder="City"
-					/>
-					<Picker
-						style={styles.stateInput}
-						selectedValue={selectedState}
-						onValueChange={setSelectedState}
-					>
-						{stateOptions.map((state) => (
-							<Picker.Item
-								label={state.label}
-								value={state.label}
-								key={state.label}
-							/>
-						))}
-					</Picker>
-					<TextInput
-						style={[styles.zipInput, styles.inputField]}
-						value={zipcode}
-						onChangeText={setZipcode}
-						placeholder="Zipcode"
-						keyboardType="number-pad"
-					/>
-				</View>
-
-				{/* Phone */}
-				<View style={styles.inputGroup}>
-					<Text style={styles.inputLabel}>Phone</Text>
-					<TextInput
-						style={styles.inputField}
-						value={phone}
-						onChangeText={setPhone}
-						placeholder="Phone"
-						keyboardType="phone-pad"
-					/>
-				</View>
-
-				{/* Image Upload */}
-				<View style={styles.imageContainer}>
-					{imageUri && (
-						<Image source={{ uri: imageUri }} style={styles.previewImage} />
-					)}
+				<View style={[styles.footer, { paddingBottom: insets.bottom || 15 }]}>
 					<TouchableOpacity
-						onPress={handleImageUpload}
-						style={styles.uploadButton}
-						disabled={isUploading}
+						style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
+						onPress={saveRestaurantProfile}
+						disabled={isSaving}
 					>
-						<Text style={styles.uploadButtonText}>
-							{isUploading ? "Uploading..." : "Upload Image"}
-						</Text>
+						{isSaving ? (
+							<ActivityIndicator color="#FFFFFF" />
+						) : (
+							<Text style={styles.saveButtonText}>Save Changes</Text>
+						)}
 					</TouchableOpacity>
 				</View>
-
-				{/* Save Button */}
-				<TouchableOpacity
-					style={styles.saveButton}
-					onPress={saveRestaurantProfile}
-				>
-					<Text style={styles.saveButtonText}>Save</Text>
-				</TouchableOpacity>
-			</ScrollView>
-		</View>
+			</View>
+		</KeyboardAvoidingView>
 	);
 };
 
 const styles = StyleSheet.create({
-	formContainer: {
+	centered: {
 		flex: 1,
-		backgroundColor: colors.background, // Use your background color
-		padding: 20,
-	},
-	header: {
-		fontSize: 28,
-		fontWeight: "bold",
-		marginBottom: 20,
-		color: colors.primary,
-		textAlign: "center",
-	},
-	inputGroup: {
-		marginBottom: 20, // Increased margin for better spacing
-	},
-	inputLabel: {
-		fontSize: 16,
-		marginBottom: 5,
-		color: colors.text,
-	},
-	inputField: {
-		borderWidth: 0.5,
-		borderColor: "gray",
-		borderRadius: 8, // Use a more modern rounded corner
-		padding: 12, // Increased padding
-		fontSize: 16,
-		backgroundColor: colors.inputBackground, // Use a subtle background color for input fields
-	},
-	hoursHeader: {
-		backgroundColor: colors.lightGray,
-		padding: 15,
-		flexDirection: "row",
+		justifyContent: "center",
 		alignItems: "center",
-		marginBottom: 15,
-		borderRadius: 8,
+		backgroundColor: colors.background,
 	},
-	hoursTitle: {
+	container: { flex: 1, backgroundColor: colors.background },
+	scrollContent: { paddingHorizontal: 15, paddingBottom: 100 },
+	card: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		padding: 20,
+		marginBottom: 20,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.05,
+		shadowRadius: 5,
+		elevation: 2,
+	},
+	cardTitle: {
 		fontSize: 18,
 		fontWeight: "bold",
-		color: colors.text,
-		flex: 1,
+		color: colors.textDark,
+		marginBottom: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+		paddingBottom: 10,
 	},
-	hoursOfOperation: {
-		marginBottom: 20,
+	inputGroup: { marginBottom: 15 },
+	inputLabel: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: colors.textMedium,
+		marginBottom: 8,
+	},
+	inputField: {
+		backgroundColor: colors.backgroundLight,
 		borderWidth: 1,
-		borderColor: colors.lightGray,
-		padding: 15,
+		borderColor: colors.borderLight,
 		borderRadius: 8,
+		paddingHorizontal: 15,
+		paddingVertical: 12,
+		fontSize: 16,
+		color: colors.textDark,
 	},
-	inputRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		marginBottom: 10,
+	row: { flexDirection: "row", justifyContent: "space-between" },
+	pickerContainer: {
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		justifyContent: "center",
 	},
+	picker: { height: 50 },
+	dayRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
 	dayLabel: {
 		fontSize: 16,
-		fontWeight: "bold",
-		marginRight: 10,
-		width: 80,
+		fontWeight: "500",
+		color: colors.textDark,
+		width: 95,
+		marginLeft: 10,
 	},
+	dayLabelInactive: { color: colors.textLight },
 	timeInput: {
 		flex: 1,
+		backgroundColor: colors.backgroundLight,
 		borderWidth: 1,
-		borderColor: colors.lightGray,
-		padding: 8,
-		marginRight: 8,
-		borderRadius: 5,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		padding: 10,
+		marginHorizontal: 5,
+		textAlign: "center",
 	},
-	addressRow: {
+	timeInputInactive: {
+		backgroundColor: colors.background,
+		color: colors.textLight,
+	},
+	imagePickerContainer: { alignItems: "center" },
+	imagePreview: {
+		width: 120,
+		height: 120,
+		borderRadius: 60,
+		marginBottom: 15,
+		backgroundColor: colors.backgroundMedium,
+		// Add these two lines
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	imageButton: {
 		flexDirection: "row",
-		justifyContent: "space-between",
 		alignItems: "center",
-		marginBottom: 20, // Increased margin
+		backgroundColor: colors.primary + "20",
+		paddingHorizontal: 15,
+		paddingVertical: 8,
+		borderRadius: 20,
 	},
-	cityInput: {
-		flex: 2.5,
-		borderWidth: 1,
-		borderColor: colors.lightGray,
-		padding: 10,
-		borderRadius: 8,
-		marginRight: 10,
-	},
-	stateInput: {
-		flex: 1.5,
-		borderWidth: 1,
-		borderColor: colors.lightGray,
-		padding: 10,
-		borderRadius: 8,
-		marginRight: 10,
-	},
-	zipInput: {
-		flex: 1,
-		borderWidth: 1,
-		borderColor: colors.lightGray,
-		padding: 10,
-		borderRadius: 8,
-	},
-	imageContainer: {
-		alignItems: "center",
-		marginVertical: 20,
-	},
-	previewImage: {
-		width: 200,
-		height: 200,
-		borderRadius: 10,
-		marginBottom: 10,
-	},
-	uploadButton: {
-		backgroundColor: colors.primary,
-		padding: 12, // Increased padding
-		borderRadius: 8, // More rounded corners
-		alignItems: "center",
-	},
-	uploadButtonText: {
-		color: "white",
-		fontSize: 16, // Increased font size
-		fontWeight: "bold",
+	imageButtonText: { color: colors.primary, fontWeight: "bold", marginLeft: 8 },
+	footer: {
+		position: "absolute",
+		bottom: 0,
+		left: 0,
+		right: 0,
+		backgroundColor: colors.surfaceWhite,
+		padding: 15,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
 	},
 	saveButton: {
 		backgroundColor: colors.primary,
 		padding: 15,
-		borderRadius: 8,
+		borderRadius: 12,
 		alignItems: "center",
-		marginTop: 20,
 	},
-	saveButtonText: {
-		// Added style for the button text
-		color: "white",
-		fontSize: 18,
-		fontWeight: "bold",
-	},
+	saveButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 });
 
 export default RestaurantProfile;
