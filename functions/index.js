@@ -59,6 +59,7 @@ exports.createConnectedAccount =
 exports.createLoginLink = stripeOnboardingFunctions.createLoginLink;
 exports.checkOnboardingStatus = stripeOnboardingFunctions.checkOnboardingStatus;
 exports.getDailySalesReport = reportingFunctions.getDailySalesReport;
+exports.getAggregatedSalesReport = reportingFunctions.getAggregatedSalesReport;
 exports.generateCustomToken = generateCustomToken.generateCustomToken;
 exports.sendInvite = sendInvite.sendInvite;
 exports.setAdminClaim = setAdminClaim.setAdminClaim;

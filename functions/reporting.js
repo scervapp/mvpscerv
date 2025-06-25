@@ -238,3 +238,149 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+// --- IMPORTANT ---
+// Define all of your menu item categories that should be grouped under "Bar" sales.
+// Make sure these names exactly match the 'category' field on your dish items.
+const BAR_CATEGORIES = [
+	"Beer",
+	"Wine",
+	"Cocktails",
+	"Spirits",
+	"Sodas",
+	"Juices",
+	"Non-Alcoholic Drinks",
+	"Beverages",
+];
+
+exports.getAggregatedSalesReport = functions.https.onCall(
+	async (data, context) => {
+		// 1. Authentication and Validation
+		if (!context.auth) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const { restaurantId, period } = data; // period can be 'today', 'week', 'month'
+		if (!restaurantId || !period) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID and a period are required."
+			);
+		}
+
+		// 2. Determine Date Range for the Query
+		const now = new Date();
+		let startDate;
+
+		// Set timezone to avoid UTC day-end issues. Adjust to your restaurant's timezone.
+		// Example: 'America/New_York'. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+		const timeZone = "America/New_York";
+		const today = new Date(now.toLocaleString("en-US", { timeZone }));
+		today.setHours(0, 0, 0, 0);
+
+		switch (period) {
+			case "today":
+				startDate = today;
+				break;
+			case "week":
+				startDate = new Date(today);
+				startDate.setDate(startDate.getDate() - today.getDay()); // Start of the current week (Sunday)
+				break;
+			case "month":
+				startDate = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the current month
+				break;
+			default:
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Invalid period specified."
+				);
+		}
+
+		console.log(
+			`Generating report for restaurant ${restaurantId} for period: ${period} (from ${startDate.toISOString()})`
+		);
+
+		try {
+			// 3. Firestore Query
+			const ordersQuery = db
+				.collection("orders")
+				.where("restaurantId", "==", restaurantId)
+				.where(
+					"timestamp",
+					">=",
+					admin.firestore.Timestamp.fromDate(startDate)
+				);
+
+			const ordersSnapshot = await ordersQuery.get();
+
+			if (ordersSnapshot.empty) {
+				return null; // Return null to indicate no data, which the client will handle
+			}
+
+			// 4. Data Aggregation
+			let totalRevenue = 0;
+			let totalOrders = 0;
+			const salesByCategory = { Food: 0, Bar: 0, Other: 0 };
+			const topSellingItems = {};
+
+			ordersSnapshot.forEach((doc) => {
+				const order = doc.data();
+
+				// Aggregate KPIs
+				totalOrders += 1;
+				totalRevenue += Number(order.subtotal) || 0; // Use subtotal for net sales
+
+				// Aggregate Sales by Category and Top Selling Items
+				if (Array.isArray(order.items)) {
+					order.items.forEach((item) => {
+						const category = item.dish.category || "Other";
+						const revenue =
+							(Number(item.discountedPrice) || Number(item.dish.price) || 0) *
+							(item.quantity || 1);
+
+						// Sales by Category
+						if (BAR_CATEGORIES.includes(category)) {
+							salesByCategory.Bar += revenue;
+						} else {
+							salesByCategory.Food += revenue;
+						}
+
+						// Top Selling Items
+						const itemName = item.dish.name || "Unknown Item";
+						if (!topSellingItems[itemName]) {
+							topSellingItems[itemName] = { name: itemName, quantity: 0 };
+						}
+						topSellingItems[itemName].quantity += item.quantity || 1;
+					});
+				}
+			});
+
+			// 5. Format and Return the Final Report Object
+			const formattedTopItems = Object.values(topSellingItems)
+				.sort((a, b) => b.quantity - a.quantity)
+				.slice(0, 5); // Return only the top 5 items
+
+			const avgCheckSize = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+			return {
+				totalRevenue: totalRevenue,
+				totalOrders: totalOrders,
+				avgCheckSize: avgCheckSize,
+				salesByCategory: {
+					// Convert to cents for consistency
+					Food: Math.round(salesByCategory.Food),
+					Bar: Math.round(salesByCategory.Bar),
+				},
+				topSellingItems: formattedTopItems,
+			};
+		} catch (error) {
+			console.error("Error generating aggregated sales report:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Failed to generate sales report."
+			);
+		}
+	}
+);

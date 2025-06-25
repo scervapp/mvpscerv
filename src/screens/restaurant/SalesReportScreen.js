@@ -1,232 +1,325 @@
+// screens/restaurant/SalesReportScreen.js
 import React, { useEffect, useState, useContext } from "react";
 import {
 	View,
 	Text,
 	StyleSheet,
 	ScrollView,
-	Dimensions,
 	ActivityIndicator,
-	FlatList,
+	TouchableOpacity,
+	Dimensions,
 } from "react-native";
 import { httpsCallable } from "firebase/functions";
 import {
-	VictoryChart,
+	VictoryPie,
 	VictoryBar,
-	VictoryTheme,
+	VictoryChart,
 	VictoryAxis,
+	VictoryLabel,
 } from "victory-native";
-import { db, functions } from "../../config/firebase";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
-import { TouchableOpacity } from "react-native";
+
+const { width } = Dimensions.get("window");
+
+// --- Reusable Helper Components ---
+const KPICard = ({ title, value, iconName }) => (
+	<View style={styles.kpiCard}>
+		<Ionicons name={iconName} size={24} color={colors.primary} />
+		<Text style={styles.kpiValue}>{value}</Text>
+		<Text style={styles.kpiTitle}>{title}</Text>
+	</View>
+);
+
+const ChartCard = ({ title, children }) => (
+	<View style={styles.chartCard}>
+		<Text style={styles.chartTitle}>{title}</Text>
+		{children}
+	</View>
+);
+
+const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
+	<View style={styles.periodSelectorContainer}>
+		{["Today", "Week", "Month"].map((period) => (
+			<TouchableOpacity
+				key={period}
+				style={[
+					styles.periodButton,
+					selectedPeriod === period && styles.periodButtonActive,
+				]}
+				onPress={() => onSelectPeriod(period)}
+			>
+				<Text
+					style={[
+						styles.periodButtonText,
+						selectedPeriod === period && styles.periodButtonTextActive,
+					]}
+				>
+					{period}
+				</Text>
+			</TouchableOpacity>
+		))}
+	</View>
+);
 
 const SalesReportScreen = ({ navigation }) => {
-	const [salesData, setSalesData] = useState([]);
+	const { currentUserData, isLoading: isAuthLoading } = useContext(AuthContext);
+	const [reportData, setReportData] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
-	const { currentUserData } = useContext(AuthContext);
+	const [selectedPeriod, setSelectedPeriod] = useState("Week");
+	const [isFetching, setIsFetching] = useState(true);
 
-	// Helper function for formatting cents to dollars (Make sure this is accessible)
+	const insets = useSafeAreaInsets();
+
 	const formatCurrency = (cents) => {
-		if (typeof cents !== "number" || isNaN(cents)) {
-			console.warn("Invalid input to formatCurrency:", cents);
-			return "$0.00";
-		}
-		const value = cents / 100;
-		return `${value < 0 ? "-" : ""}$${Math.abs(value).toFixed(2)}`;
+		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
+		return `$${(cents / 100).toFixed(2)}`;
 	};
 
-	const fetchDailySalesReport = async () => {
-		setIsLoading(true);
-		try {
-			const getSalesReport = httpsCallable(functions, "getDailySalesReport");
-			const response = await getSalesReport({
-				restaurantId: currentUserData.uid,
-			});
-
-			setSalesData(response.data || []);
-		} catch (error) {
-			console.error("Error fetching sales report:", error);
-			setSalesData([]);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
+	// This function will fetch our new, aggregated report data
 	useEffect(() => {
-		fetchDailySalesReport();
-	}, []);
+		// This guard clause prevents the function from running if auth is still loading or user data isn't available.
+		if (isAuthLoading || !currentUserData?.uid) {
+			return;
+		}
 
-	// --- RENDER LIST ITEM (UPDATED) ---
-	const renderItem = (
-		{ item } // item is a dayReport object with cents
-	) => (
-		<TouchableOpacity
-			style={styles.dayCard} // Use the detailed card style
-			onPress={() =>
-				navigation.navigate("DailySalesDetails", { dayReport: item })
+		const fetchSalesReport = async () => {
+			setIsFetching(true);
+			if (!currentUserData?.uid) return;
+			setIsLoading(true);
+			try {
+				// We will create this new, more powerful Cloud Function next
+				const getAggregatedSalesReport = httpsCallable(
+					functions,
+					"getAggregatedSalesReport"
+				);
+				const response = await getAggregatedSalesReport({
+					restaurantId: currentUserData.uid,
+					period: selectedPeriod.toLowerCase(), // 'today', 'week', 'month'
+				});
+
+				setReportData(response.data);
+			} catch (error) {
+				console.error("Error fetching sales report:", error);
+				setReportData(null); // Clear data on error
+				Alert.alert("Error", "Could not fetch sales data. Please try again.");
+			} finally {
+				setIsFetching(false);
 			}
-		>
-			{/* Row 1: Date and Net Payout */}
-			<View style={styles.row}>
-				<Text style={styles.dateText}>{item.date}</Text>
-				<View style={styles.netPayoutContainer}>
-					<Text style={styles.netLabelSmall}>Est. Net Payout:</Text>
-					<Text style={styles.netAmountSmall}>
-						{formatCurrency(item.estimatedNetPayout)}
-					</Text>
-				</View>
-			</View>
+		};
 
-			{/* Row 2: Sales and Order Count */}
-			<View style={styles.row}>
-				<Text style={styles.detailLabel}>Net Sales:</Text>
-				<Text style={styles.detailAmount}>{formatCurrency(item.netSales)}</Text>
-				<Text style={styles.orderCountText}>({item.orderCount} Orders)</Text>
-			</View>
+		fetchSalesReport();
+	}, [selectedPeriod, currentUserData?.uid, isAuthLoading]);
 
-			{/* Row 3: Fee Information */}
-			<View style={styles.row}>
-				<Text style={styles.feeLabel}>Platform Fee Charged:</Text>
-				<View style={{ flexDirection: "row", alignItems: "center" }}>
-					<Text style={styles.feeAmount}>
-						{formatCurrency(
-							item.potentialPlatformFee - item.estimatedProcessingFeesDeducted
-						)}{" "}
-						{/* Show what platform netted */}
-					</Text>
-					{/* Show waiver indicator */}
-					{item.wasAnyFeeWaived && (
-						<View style={styles.waiverIndicator}>
-							<MaterialCommunityIcons
-								name="tag-off-outline"
-								size={14}
-								color={colors.success || "green"}
-							/>
-							<Text style={styles.waiverText}>Waived</Text>
-						</View>
-					)}
-					{/* Or show processing fee if not waived */}
-					{!item.wasAnyFeeWaived &&
-						item.estimatedProcessingFeesDeducted > 0 && (
-							<Text style={styles.processingFeeText}>
-								{" "}
-								(Less Est. Proc. Fees: -
-								{formatCurrency(item.estimatedProcessingFeesDeducted)})
-							</Text>
-						)}
-				</View>
+	if (isAuthLoading || isFetching) {
+		return (
+			<View style={styles.centered}>
+				<ActivityIndicator size="large" color={colors.primary} />
 			</View>
-		</TouchableOpacity>
-	);
-	// --- END RENDER LIST ITEM ---
+		);
+	}
+
+	if (!reportData) {
+		return (
+			<View style={styles.centered}>
+				<Ionicons
+					name="alert-circle-outline"
+					size={60}
+					color={colors.textLight}
+				/>
+				<Text style={styles.noDataText}>
+					No sales data available for this period.
+				</Text>
+				<PeriodSelector
+					selectedPeriod={selectedPeriod}
+					onSelectPeriod={setSelectedPeriod}
+				/>
+			</View>
+		);
+	}
+
+	// Data for charts, derived from the reportData object
+	const categoryChartData = reportData.salesByCategory
+		? Object.entries(reportData.salesByCategory).map(([key, value]) => ({
+				x: key,
+				y: value / 100,
+		  }))
+		: [];
+
+	const topItemsChartData = reportData.topSellingItems
+		? reportData.topSellingItems.map((item) => ({
+				x: item.name,
+				y: item.quantity,
+		  }))
+		: [];
 
 	return (
-		<View style={styles.container}>
-			<Text style={styles.header}>Daily Sales Summary</Text>
-			{isLoading ? (
-				<ActivityIndicator
-					size="large"
-					color={colors.primary}
-					style={styles.loader}
+		<View style={[styles.container, { paddingTop: insets.top }]}>
+			<View style={styles.header}>
+				<Text style={styles.headerTitle}>Business Pulse</Text>
+				<PeriodSelector
+					selectedPeriod={selectedPeriod}
+					onSelectPeriod={setSelectedPeriod}
 				/>
-			) : salesData.length === 0 ? (
-				<Text style={styles.noDataText}>No sales data available yet.</Text>
-			) : (
-				<FlatList
-					data={salesData}
-					renderItem={renderItem}
-					keyExtractor={(item) => item.date}
-					contentContainerStyle={{ paddingBottom: 20 }}
-				/>
-			)}
+			</View>
+			<ScrollView contentContainerStyle={styles.scrollContent}>
+				<View style={styles.kpiContainer}>
+					<KPICard
+						title="Total Revenue"
+						value={formatCurrency(reportData.totalRevenue)}
+						iconName="cash-outline"
+					/>
+					<KPICard
+						title="Total Orders"
+						value={reportData.totalOrders}
+						iconName="receipt-outline"
+					/>
+					<KPICard
+						title="Avg. Check Size"
+						value={formatCurrency(reportData.avgCheckSize)}
+						iconName="stats-chart-outline"
+					/>
+				</View>
+
+				<ChartCard title="Sales by Category">
+					<VictoryPie
+						data={categoryChartData}
+						colorScale={["#4CAF50", "#FFC107", "#2196F3", "#F44336"]}
+						innerRadius={50}
+						padAngle={2}
+						labelRadius={({ innerRadius }) => innerRadius + 15}
+						style={{
+							labels: { fill: "white", fontSize: 12, fontWeight: "bold" },
+						}}
+						labels={({ datum }) =>
+							`${datum.x}: ${formatCurrency(datum.y * 100)}`
+						}
+						width={width - 60}
+						height={220}
+					/>
+				</ChartCard>
+
+				<ChartCard title="Top Selling Items (by Quantity)">
+					<VictoryChart
+						theme={VictoryTheme.material}
+						domainPadding={{ x: 20 }}
+						width={width - 60}
+						height={topItemsChartData.length * 50 + 50} // Dynamic height
+					>
+						<VictoryBar
+							horizontal
+							style={{ data: { fill: colors.primary } }}
+							data={topItemsChartData}
+							barWidth={25}
+							labels={({ datum }) => `${datum.x} (${datum.y})`}
+							labelComponent={
+								<VictoryLabel
+									dx={5}
+									textAnchor="start"
+									style={{ fill: colors.textDark, fontSize: 12 }}
+								/>
+							}
+						/>
+						<VictoryAxis
+							style={{
+								ticks: { stroke: "transparent" },
+								tickLabels: { fill: "transparent" },
+							}}
+						/>
+					</VictoryChart>
+				</ChartCard>
+			</ScrollView>
 		</View>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		paddingVertical: 20,
-		paddingHorizontal: 15,
-		backgroundColor: colors.background || "#f8f9fa",
-	},
-	header: {
-		fontSize: 26,
-		fontWeight: "bold",
-		marginBottom: 25,
-		color: colors.primary || "#007bff",
-		textAlign: "center",
-	},
-	loader: {
+	container: { flex: 1, backgroundColor: colors.backgroundLight },
+	centered: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		marginTop: 50,
+		padding: 20,
 	},
-	noDataText: {
-		textAlign: "center",
-		marginTop: 40,
-		fontSize: 16,
-		color: colors.textLight || "#6c757d",
+	header: { paddingHorizontal: 15, paddingTop: 10 },
+	headerTitle: {
+		fontSize: 28,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginBottom: 15,
 	},
-	dayCard: {
-		backgroundColor: "#fff",
-		borderRadius: 8,
-		padding: 15,
-		marginBottom: 12,
+	periodSelectorContainer: {
+		flexDirection: "row",
+		backgroundColor: colors.backgroundMedium,
+		borderRadius: 20,
+		padding: 4,
+		alignSelf: "center",
+		marginBottom: 15,
+	},
+	periodButton: { paddingVertical: 8, paddingHorizontal: 25, borderRadius: 16 },
+	periodButtonActive: {
+		backgroundColor: colors.surfaceWhite,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 1 },
 		shadowOpacity: 0.1,
 		shadowRadius: 2,
 		elevation: 3,
 	},
-	row: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
-		marginBottom: 8,
-	}, // General row style
-	dateText: {
-		fontSize: 18,
-		fontWeight: "bold",
-		color: colors.primary || "#0056b3",
+	periodButtonText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: colors.textMedium,
 	},
-	netPayoutContainer: { alignItems: "flex-end" },
-	netLabelSmall: { fontSize: 13, color: colors.textLight || "#6c757d" },
-	netAmountSmall: {
+	periodButtonTextActive: { color: colors.primary },
+	scrollContent: { paddingHorizontal: 15, paddingBottom: 30 },
+	kpiContainer: {
+		flexDirection: "row",
+		justifyContent: "space-around",
+		marginBottom: 15,
+	},
+	kpiCard: {
+		flex: 1,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		padding: 15,
+		alignItems: "center",
+		marginHorizontal: 5,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.05,
+		shadowRadius: 5,
+		elevation: 2,
+	},
+	kpiValue: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginVertical: 5,
+	},
+	kpiTitle: { fontSize: 12, color: colors.textMedium },
+	chartCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		padding: 15,
+		marginBottom: 20,
+		alignItems: "center",
+	},
+	chartTitle: {
 		fontSize: 16,
 		fontWeight: "bold",
-		color: colors.primary || "#0056b3",
+		color: colors.textDark,
+		alignSelf: "flex-start",
+		marginBottom: 10,
 	},
-	detailLabel: { fontSize: 14, color: colors.text || "#495057" },
-	detailAmount: { fontSize: 14, fontWeight: "500" },
-	orderCountText: {
-		fontSize: 13,
-		color: colors.textLight || "#6c757d",
-		marginLeft: 10,
-	}, // Added style
-	feeLabel: { fontSize: 14, color: colors.text || "#495057" },
-	feeAmount: { fontSize: 14, fontWeight: "500" },
-	waiverIndicator: {
-		flexDirection: "row",
-		alignItems: "center",
-		backgroundColor: "#e6f9e6",
-		paddingHorizontal: 5,
-		paddingVertical: 1,
-		borderRadius: 8,
-		marginLeft: 8,
-	},
-	waiverText: {
-		fontSize: 11,
-		color: colors.success || "green",
-		marginLeft: 3,
-		fontWeight: "500",
-	},
-	processingFeeText: {
-		fontSize: 12,
-		color: colors.textLight || "#6c757d",
-		marginLeft: 5,
-		fontStyle: "italic",
+	noDataText: {
+		textAlign: "center",
+		marginTop: 20,
+		fontSize: 16,
+		color: colors.textLight,
 	},
 });
 
