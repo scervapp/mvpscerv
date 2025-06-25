@@ -21,61 +21,94 @@ import {
 import { doc } from "firebase/firestore";
 
 const storage = getStorage(app);
-export const uploadImage = async (imageUri, storagePath = "default") => {
-	if (!imageUri) return null; // check for valid image
+/**
+ * Uploads an image file to a specified path in Firebase Storage.
+ * @param {string} localUri The local URI of the file to upload.
+ * @param {string} path The path in Firebase Storage (e.g., 'menuItemImages').
+ * @returns {Promise<string>} The public download URL of the uploaded image.
+ */
+export const uploadImage = async (localUri, path) => {
 	try {
-		const response = await fetch(imageUri);
+		const response = await fetch(localUri);
 		const blob = await response.blob();
-		const filename = imageUri.substring(imageUri.lastIndexOf("/") + 1);
-		const storageRef = ref(storage, `${storagePath}/${filename}`);
-		//onst imageRef = storageRef.child(`${storagePath}/${filename}`);
+		const fileRef = ref(
+			storage,
+			`${path}/${Date.now()}-${Math.random().toString(36).substring(7)}`
+		);
 
-		await uploadBytes(storageRef, blob);
-		const downloadURL = await getDownloadURL(storageRef);
+		await uploadBytes(fileRef, blob);
+
+		// We're done with the blob, close and release it
+		blob.close();
+
+		const downloadURL = await getDownloadURL(fileRef);
 		return downloadURL;
 	} catch (error) {
-		console.log("Image upload error", error);
-		throw error; // Re throw the error to allow error handling
+		console.error("Error uploading image to Firebase Storage:", error);
+		Alert.alert(
+			"Upload Failed",
+			"There was a problem uploading your image. Please try again."
+		);
+		throw error; // Re-throw the error to be caught by the caller
 	}
 };
 
+/**
+ * Opens the user's image library to select an image.
+ * This version is more robust and handles different response structures from ImagePicker.
+ * @returns {Promise<{success: boolean, uri: string|null}>}
+ */
 export const pickImage = async () => {
-	// Request camera roll permission if needed
-	const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-	if (status !== "granted") {
-		alert("Permission to access camera roll is required");
-		return;
-	}
+	console.log("Pick Image"); // This confirms the function is called
 
-	let result = await ImagePicker.launchImageLibraryAsync({
-		mediaTypes: ImagePicker.MediaTypeOptions.Images,
-		allowsEditing: false,
-		aspect: [4, 3],
-		quality: 1,
-	});
+	try {
+		const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+		if (status !== "granted") {
+			Alert.alert(
+				"Permission Denied",
+				"Sorry, we need camera roll permissions to make this work!"
+			);
+			return { success: false, uri: null };
+		}
 
-	if (!result.canceled) {
-		return { success: true, imageUri: result.assets[0].uri };
-	} else {
-		return {
-			success: false,
-			imageUri: null,
-		};
-	}
-};
+		let result = await ImagePicker.launchImageLibraryAsync({
+			mediaTypes: ImagePicker.Images,
+			allowsEditing: true,
+			aspect: [1, 1],
+			quality: 0.8,
+		});
 
-// Generates a table for the restaurant if their are none
-// This is only for demo purposes
-export const generateTables = async (restaurantId) => {
-	const tablesRef = collection(db, "restaurants", restaurantId, "tables");
-	for (let i = 1; i <= 50; i++) {
-		const tableData = {
-			name: `Table ${i}`,
-			status: "available",
-			capacity: 4,
-			restaurantId: restaurantId,
-		};
-		await addDoc(tablesRef, tableData);
+		if (result.canceled) {
+			return { success: false, uri: null };
+		}
+
+		// --- THIS IS THE FIX ---
+		// Older versions of expo-image-picker return the uri directly on the result object.
+		// Newer versions return it in an `assets` array. We will safely check for both.
+		const uri =
+			result.assets && result.assets.length > 0
+				? result.assets[0].uri
+				: result.uri;
+
+		if (!uri) {
+			console.warn("Image picker did not return a valid URI.", result);
+			Alert.alert(
+				"Error",
+				"Could not get the selected image. Please try another one."
+			);
+			return { success: false, uri: null };
+		}
+
+		return { success: true, uri: uri };
+	} catch (error) {
+		// This will catch any unexpected errors during the picking process.
+		console.error("Error inside pickImage function:", error);
+		Alert.alert(
+			"Error",
+			"An unexpected error occurred while picking the image."
+		);
+		// We throw the error so the calling function's catch block is triggered
+		throw error;
 	}
 };
 

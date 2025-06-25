@@ -5,6 +5,7 @@ import React, {
 	useContext,
 	useCallback,
 	useRef,
+	useMemo,
 } from "react";
 import {
 	View,
@@ -15,6 +16,7 @@ import {
 	SafeAreaView,
 	ActivityIndicator,
 	RefreshControl,
+	Alert,
 } from "react-native";
 import {
 	collection,
@@ -28,14 +30,26 @@ import {
 
 import moment from "moment";
 import { Audio } from "expo-av";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // --- Kitchen Ticket Component ---
-const KitchenTicket = ({ order, onUpdateStatus }) => {
+const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 	const timeSince = moment(order.createdAt?.toDate()).fromNow();
+
+	// Filter items based on the current view mode ('kitchen' or 'bar')
+	const itemsToDisplay = order.items.filter(
+		(item) => item.destination === viewMode
+	);
+
+	// If there are no items for the current view, don't render the ticket at all
+	// This is a double-check; the main filtering happens in ChefsQScreen
+	if (itemsToDisplay.length === 0) {
+		return null;
+	}
 
 	const getStatusStyle = () => {
 		if (order.status === "preparing")
@@ -64,8 +78,9 @@ const KitchenTicket = ({ order, onUpdateStatus }) => {
 				<Text style={styles.ticketTime}>{timeSince}</Text>
 			</View>
 			<View style={styles.ticketItems}>
-				{order.items.map((item) => (
-					<View key={item.id} style={styles.ticketItemRow}>
+				{/* Map over the FILTERED items */}
+				{itemsToDisplay.map((item, index) => (
+					<View key={`${item.id}-${index}`} style={styles.ticketItemRow}>
 						<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 						<View style={styles.itemDetails}>
 							<Text style={styles.itemName}>{item.dishName}</Text>
@@ -111,19 +126,75 @@ const KitchenTicket = ({ order, onUpdateStatus }) => {
 	);
 };
 
+// This component renders the 'Kitchen' and 'Bar' toggle buttons.
+const ViewModeToggle = ({ viewMode, setViewMode }) => (
+	<View style={styles.toggleContainer}>
+		<TouchableOpacity
+			style={[
+				styles.toggleButton,
+				viewMode === "kitchen" && styles.toggleButtonActive,
+			]}
+			onPress={() => setViewMode("kitchen")}
+		>
+			<MaterialCommunityIcons
+				name="chef-hat"
+				size={20}
+				color={viewMode === "kitchen" ? colors.primary : colors.textMedium}
+			/>
+			<Text
+				style={[
+					styles.toggleButtonText,
+					viewMode === "kitchen" && styles.toggleButtonTextActive,
+				]}
+			>
+				Kitchen
+			</Text>
+		</TouchableOpacity>
+		<TouchableOpacity
+			style={[
+				styles.toggleButton,
+				viewMode === "bar" && styles.toggleButtonActive,
+			]}
+			onPress={() => setViewMode("bar")}
+		>
+			<MaterialCommunityIcons
+				name="glass-cocktail"
+				size={20}
+				color={viewMode === "bar" ? colors.primary : colors.textMedium}
+			/>
+			<Text
+				style={[
+					styles.toggleButtonText,
+					viewMode === "bar" && styles.toggleButtonTextActive,
+				]}
+			>
+				Bar
+			</Text>
+		</TouchableOpacity>
+	</View>
+);
+
 const ChefsQScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const previousOrderCount = useRef(0);
 	const [sound, setSound] = useState();
+	const [error, setError] = useState(null);
+	const insets = useSafeAreaInsets();
+
+	const [viewMode, setViewMode] = useState("kitchen"); // 'kitchen' or 'bar'
 
 	async function playSound() {
-		const { sound } = await Audio.Sound.createAsync(
-			require("../../../assets/bell.mp3")
-		);
-		setSound(sound);
-		await sound.playAsync();
+		try {
+			const { sound } = await Audio.Sound.createAsync(
+				require("../../../assets/bell.mp3")
+			);
+			setSound(sound);
+			await sound.playAsync();
+		} catch (e) {
+			console.warn("Could not play sound:", e);
+		}
 	}
 
 	useEffect(() => {
@@ -135,9 +206,11 @@ const ChefsQScreen = () => {
 	}, [sound]);
 
 	useEffect(() => {
+		// --- FIX: Use currentUserData.restaurantId for consistency ---
 		const restaurantId = currentUserData?.uid;
 
 		if (!restaurantId) {
+			if (!currentUserData) return; // Don't show error while user data is loading
 			console.warn(
 				"ChefsQScreen: No restaurantId found on currentUserData. Cannot fetch orders."
 			);
@@ -146,36 +219,72 @@ const ChefsQScreen = () => {
 			return;
 		}
 
-		console.log(
-			`ChefsQScreen: Setting up listener for kitchen_orders at restaurant: ${restaurantId}`
-		);
-
 		const q = query(
 			collection(db, "kitchen_orders"),
 			where("restaurantId", "==", restaurantId),
-			where("status", "in", ["new", "preparing", "ready"]), // Only show active orders
+			where("status", "in", ["new", "preparing", "ready"]),
 			orderBy("createdAt", "desc")
 		);
 
-		const unsubscribe = onSnapshot(q, (querySnapshot) => {
-			const ordersData = querySnapshot.docs.map((doc) => ({
-				id: doc.id,
-				...doc.data(),
-			}));
+		const unsubscribe = onSnapshot(
+			q,
+			(querySnapshot) => {
+				const ordersData = querySnapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
 
-			// Check if there's a new order to play a sound
-			if (ordersData.length > previousOrderCount.current && !isLoading) {
 				const newOrders = ordersData.filter((o) => o.status === "new");
-				if (newOrders.length > 0) playSound();
-			}
-			previousOrderCount.current = ordersData.length;
+				if (
+					isLoading === false &&
+					newOrders.length > previousOrderCount.current
+				) {
+					playSound();
+				}
+				previousOrderCount.current = newOrders.length;
 
-			setOrders(ordersData);
-			setIsLoading(false);
-		});
+				setOrders(ordersData);
+				setIsLoading(false);
+			},
+			(err) => {
+				console.error("ChefsQScreen snapshot error:", err);
+				setError("Could not fetch orders.");
+				setIsLoading(false);
+			}
+		);
 
 		return () => unsubscribe();
-	}, [currentUserData?.restaurantId, isLoading]);
+	}, [currentUserData?.uid]); // Dependency on restaurantId
+
+	const filteredOrders = useMemo(() => {
+		if (!orders) return [];
+		// An order should be shown if it contains at least one item for the current view
+		return orders.filter(
+			(order) =>
+				order.items && order.items.some((item) => item.destination === viewMode)
+		);
+	}, [orders, viewMode]);
+
+	const headingText = viewMode === "kitchen" ? "Chefs Q" : "Bar Q";
+	const emptyQueueText =
+		viewMode === "kitchen"
+			? "The kitchen queue is clear!"
+			: "The bar queue is clear!";
+
+	if (isLoading) {
+		return (
+			<View style={styles.centeredContainer}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
+	if (error) {
+		return (
+			<View style={styles.centeredContainer}>
+				<Text style={styles.emptyQueueText}>{error}</Text>
+			</View>
+		);
+	}
 
 	const handleUpdateOrderStatus = async (orderId, newStatus) => {
 		try {
@@ -197,61 +306,98 @@ const ChefsQScreen = () => {
 	}
 
 	return (
-		<SafeAreaView style={styles.safeArea}>
-			<View style={styles.container}>
-				<Text style={styles.heading}>Chef's Queue</Text>
-				{orders.length === 0 ? (
-					<View style={styles.centeredContainer}>
-						<Ionicons
-							name="receipt-outline"
-							size={60}
-							color={colors.textLight}
-						/>
-						<Text style={styles.emptyQueueText}>
-							The kitchen queue is clear!
-						</Text>
-					</View>
-				) : (
-					<FlatList
-						data={orders}
-						renderItem={({ item }) => (
-							<KitchenTicket
-								order={item}
-								onUpdateStatus={handleUpdateOrderStatus}
-							/>
-						)}
-						keyExtractor={(item) => item.id}
-						contentContainerStyle={styles.listContainer}
-					/>
-				)}
+		<View style={[styles.container, { paddingTop: insets.top }]}>
+			<View style={styles.headerRow}>
+				<Text style={styles.heading}>{headingText}</Text>
+				<ViewModeToggle viewMode={viewMode} setViewMode={setViewMode} />
 			</View>
-		</SafeAreaView>
+
+			{filteredOrders.length === 0 ? (
+				<View style={styles.centeredContainer}>
+					<Ionicons name="receipt-outline" size={60} color={colors.textLight} />
+					<Text style={styles.emptyQueueText}>{emptyQueueText}</Text>
+				</View>
+			) : (
+				<FlatList
+					data={filteredOrders}
+					renderItem={({ item }) => (
+						<KitchenTicket
+							order={item}
+							onUpdateStatus={handleUpdateOrderStatus}
+							viewMode={viewMode}
+						/>
+					)}
+					keyExtractor={(item) => item.id}
+					contentContainerStyle={styles.listContainer}
+				/>
+			)}
+		</View>
 	);
 };
 
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
-	container: { flex: 1, padding: 10, backgroundColor: colors.backgroundLight },
+	container: { flex: 1, backgroundColor: colors.backgroundLight },
+	headerRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingHorizontal: 15,
+		marginBottom: 10,
+	},
 	heading: {
 		fontSize: 28,
 		fontWeight: "bold",
 		color: colors.textDark,
-		marginBottom: 10,
-		paddingHorizontal: 10,
+	},
+	toggleContainer: {
+		flexDirection: "row",
+		backgroundColor: colors.backgroundMedium,
+		borderRadius: 20,
+		padding: 4,
+		paddingTop: 10,
+	},
+	toggleButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 6,
+		paddingHorizontal: 16,
+		borderRadius: 16,
+	},
+	toggleButtonActive: {
+		backgroundColor: colors.surfaceWhite,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.1,
+		shadowRadius: 2,
+		elevation: 3,
+	},
+	toggleButtonText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: colors.textMedium,
+		marginLeft: 6,
+	},
+	toggleButtonTextActive: {
+		color: colors.primary,
 	},
 	centeredContainer: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
+		padding: 20,
 	},
-	emptyQueueText: { fontSize: 18, color: colors.textMedium, marginTop: 15 },
-	listContainer: { paddingVertical: 10 },
-	// Ticket Styles
+	emptyQueueText: {
+		fontSize: 18,
+		color: colors.textMedium,
+		marginTop: 15,
+		textAlign: "center",
+	},
+	listContainer: { paddingHorizontal: 10, paddingBottom: 10 },
 	ticketContainer: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 8,
 		padding: 15,
-		marginHorizontal: 5,
 		marginBottom: 15,
 		borderLeftWidth: 8,
 		shadowColor: "#000",
@@ -276,22 +422,34 @@ const styles = StyleSheet.create({
 	ticketItemRow: {
 		flexDirection: "row",
 		alignItems: "flex-start",
-		marginVertical: 5,
+		marginVertical: 6,
 	},
 	itemQuantity: {
 		fontSize: 18,
 		fontWeight: "bold",
 		color: colors.textDark,
 		marginRight: 10,
+		width: 30,
 	},
 	itemDetails: { flex: 1 },
-	itemName: { fontSize: 17, fontWeight: "500", color: colors.textDark },
-	itemFor: { fontSize: 14, color: colors.textMedium, fontStyle: "italic" },
+	itemName: {
+		fontSize: 17,
+		fontWeight: "500",
+		color: colors.textDark,
+		lineHeight: 22,
+	},
+	itemFor: {
+		fontSize: 14,
+		color: colors.textMedium,
+		fontStyle: "italic",
+		lineHeight: 18,
+	},
 	itemInstructions: {
 		fontSize: 14,
 		color: colors.statusDanger,
 		fontWeight: "500",
 		marginTop: 3,
+		lineHeight: 18,
 	},
 	ticketActions: {
 		flexDirection: "row",
@@ -299,6 +457,7 @@ const styles = StyleSheet.create({
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
 		paddingTop: 10,
+		marginTop: 5,
 	},
 	actionButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
 	preparingButton: { backgroundColor: colors.statusWarning + "20" },

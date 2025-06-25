@@ -1,168 +1,345 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useMemo } from "react";
 import {
 	Text,
 	View,
 	StyleSheet,
 	TouchableOpacity,
-	FlatList,
-	Image,
-	Alert,
 	SectionList,
+	ActivityIndicator,
+	TextInput,
+	Keyboard,
+	TouchableWithoutFeedback,
 } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
-import app from "../../config/firebase";
-import {
-	getFirestore,
-	doc,
-	getDoc,
-	setDoc,
-	addDoc,
-	collection,
-	updateDoc,
-	getDocs,
-	onSnapshot,
-	where,
-	query,
-} from "firebase/firestore";
+import app, { db } from "../../config/firebase";
+import { collection, onSnapshot, where, query } from "firebase/firestore";
 import { AuthContext } from "../../context/authContext";
 import MenuItem from "../../components/restaurant/MenuItem";
 import colors from "../../utils/styles/appStyles";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const MenuSectionHeader = ({ title }) => (
+	<View style={styles.sectionHeaderContainer}>
+		<Text style={styles.sectionHeaderText}>{title}</Text>
+	</View>
+);
+
+// A better empty state component
+const EmptyMenu = ({ onAddItem }) => (
+	<View style={styles.emptyContainer}>
+		<Ionicons name="document-text-outline" size={80} color={colors.textLight} />
+		<Text style={styles.emptyTitle}>Your Menu is Empty</Text>
+		<Text style={styles.emptySubtitle}>
+			Tap the button below to add your first appetizer, entree, or drink.
+		</Text>
+		<TouchableOpacity style={styles.emptyButton} onPress={onAddItem}>
+			<Text style={styles.emptyButtonText}>Add First Item</Text>
+		</TouchableOpacity>
+	</View>
+);
 
 const MenuManagementScreen = () => {
+	const { currentUserData } = useContext(AuthContext);
+	const insets = useSafeAreaInsets();
+
 	const [showModal, setShowModal] = useState(false);
+	const [selectedItem, setSelectedItem] = useState(null); // For editing
+	const [isLoading, setIsLoading] = useState(true);
+	const [error, setError] = useState(null);
 	const [menuItems, setMenuItems] = useState([]);
+	const [searchTerm, setSearchTerm] = useState("");
 
-	const { isLoading, currentUserData } = useContext(AuthContext);
-	const db = getFirestore(app);
-
+	// --- Robust Data Fetching ---
 	useEffect(() => {
-		const fetchMenuItems = async () => {
-			try {
-				const menuItemsRef = collection(db, "menuItems");
-				const queryRest = query(
-					menuItemsRef,
-					where("restaurantId", "==", currentUserData.uid)
-				);
-				const unsubscribe = onSnapshot(queryRest, (snapshot) => {
-					let menuItemsData = [];
-					snapshot.forEach((doc) => {
-						menuItemsData.push({ id: doc.id, ...doc.data() });
-					});
-					// set the menuItemsData array as the state
-					setMenuItems(menuItemsData);
-				});
+		if (!currentUserData?.uid) {
+			setIsLoading(false);
+			setError("Could not identify the restaurant. Please try again.");
+			return;
+		}
 
-				// Clean up the listener when the component unmounts
-				return () => unsubscribe();
-			} catch (error) {
-				console.log("Error fetching menu items:", error);
-				Alert.alert("Error", "There was an error fetching the menu items.");
+		const menuItemsRef = collection(db, "menuItems");
+		const q = query(
+			menuItemsRef,
+			where("restaurantId", "==", currentUserData.uid)
+		);
+
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot) => {
+				const items = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setMenuItems(items);
+				setIsLoading(false);
+				setError(null);
+			},
+			(err) => {
+				console.error("MenuManagementScreen snapshot error:", err);
+				setError("Failed to load menu. Please check your connection.");
+				setIsLoading(false);
 			}
-		};
-		fetchMenuItems();
-	}, []);
+		);
 
-	const sortMenuItems = (menuItems) => {
-		const categories = {};
+		return () => unsubscribe(); // Cleanup on unmount
+	}, [currentUserData?.uid]);
 
-		menuItems.forEach((item) => {
-			const category = item.category;
-			if (!categories[category]) {
-				categories[category] = [];
-			}
-			categories[category].push(item);
-		});
-
-		const sortedMenu = [
-			{
-				category: "Daily Special",
-				data: menuItems.filter((item) => item.isDailySpecial),
-			},
-			{ category: "Appetizer", data: categories["Appetizer"] || [] },
-			{ category: "Entree", data: categories["Entree"] || [] },
-			{ category: "Dessert", data: categories["Dessert"] || [] },
-			{ category: "Drinks", data: categories["Drinks"] || [] },
-			{
-				category: "Alcoholic Drinks",
-				data: categories["Alcoholic Drinks"] || [], // Note: Adjust category name if needed
-			},
-			{
-				category: "Alcoholic Drinks",
-				data: categories["Non-Alcoholic Drinks"] || [], // Note: Adjust category name if needed
-			},
-		];
-
-		return sortedMenu.filter((category) => category.data.length > 0);
+	const handleEditItem = (item) => {
+		setSelectedItem(item);
+		setShowModal(true);
 	};
 
+	const handleAddItem = () => {
+		setSelectedItem(null); // Ensure we are in "add" mode, not "edit"
+		setShowModal(true);
+	};
+
+	const processedMenu = useMemo(() => {
+		// Filter based on search term first
+		const filteredItems = searchTerm
+			? menuItems.filter((item) =>
+					item.name.toLowerCase().includes(searchTerm.toLowerCase())
+			  )
+			: menuItems;
+
+		if (filteredItems.length === 0) return [];
+
+		// Group items by category
+		const grouped = filteredItems.reduce((acc, item) => {
+			const category = item.category || "Uncategorized";
+			if (!acc[category]) {
+				acc[category] = [];
+			}
+			acc[category].push(item);
+			return acc;
+		}, {});
+
+		// Define a preferred order for categories
+		const categoryOrder = [
+			"Daily Special",
+			"Appetizers",
+			"Entrees",
+			"Desserts",
+			"Drinks",
+			"Beer",
+			"Wine",
+			"Cocktails",
+			"Spirits",
+			"Non-Alcoholic Drinks",
+		];
+
+		// Create the final structure for the SectionList
+		return Object.keys(grouped)
+			.sort((a, b) => {
+				const indexA = categoryOrder.indexOf(a);
+				const indexB = categoryOrder.indexOf(b);
+				if (indexA > -1 && indexB > -1) return indexA - indexB; // Both are in the preferred list
+				if (indexA > -1) return -1; // A is preferred, B is not
+				if (indexB > -1) return 1; // B is preferred, A is not
+				return a.localeCompare(b); // Neither is preferred, sort alphabetically
+			})
+			.map((category) => ({
+				title: category,
+				data: grouped[category],
+			}));
+	}, [menuItems, searchTerm]);
+
 	const renderMenuItem = ({ item }) => (
-		<MenuItem item={item} restaurantId={currentUserData.uid} />
+		// Pass the handleEditItem function to the MenuItem component
+		<MenuItem
+			item={item}
+			restaurantId={currentUserData.uid}
+			onPress={() => handleEditItem(item)}
+		/>
 	);
+	if (isLoading) {
+		return (
+			<View style={styles.centered}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
+
+	if (error) {
+		return (
+			<View style={styles.centered}>
+				<Text style={styles.errorText}>{error}</Text>
+			</View>
+		);
+	}
 
 	return (
-		<View style={styles.container}>
-			{isLoading ? (
-				<ActivityIndicator size="large" color={colors.primary} /> // Loading indicator
-			) : (
-				<SectionList // Use SectionList to render grouped menu items
-					sections={sortMenuItems(menuItems)}
-					renderItem={renderMenuItem}
-					keyExtractor={(item, index) => item.id.toString() + index}
-					renderSectionHeader={({ section: { category } }) => (
-						<Text style={styles.sectionHeader}>{category}</Text>
-					)}
-					contentContainerStyle={styles.menuList}
-				/>
-			)}
+		<TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+			<View style={[styles.container, { paddingTop: insets.top }]}>
+				{/* --- Header --- */}
+				<View style={styles.header}>
+					<Text style={styles.headerTitle}>Manage Menu</Text>
+					<TouchableOpacity style={styles.headerButton} onPress={handleAddItem}>
+						<Ionicons name="add" size={24} color={colors.primary} />
+						<Text style={styles.headerButtonText}>Add Item</Text>
+					</TouchableOpacity>
+				</View>
 
-			{/* Add Item Button */}
-			<TouchableOpacity
-				style={styles.addButton}
-				onPress={() => setShowModal(true)}
-			>
-				<MaterialCommunityIcons
-					name="plus-thick"
-					size={40}
-					color={colors.primary}
-				/>
-			</TouchableOpacity>
+				{/* --- Search Bar --- */}
+				<View style={styles.searchContainer}>
+					<Ionicons
+						name="search"
+						size={20}
+						color={colors.textLight}
+						style={styles.searchIcon}
+					/>
+					<TextInput
+						style={styles.searchInput}
+						placeholder="Search for a dish..."
+						placeholderTextColor={colors.textLight}
+						value={searchTerm}
+						onChangeText={setSearchTerm}
+					/>
+				</View>
 
-			{/* Add Item Modal */}
-			<AddItemModal isVisible={showModal} onClose={() => setShowModal(false)} />
-		</View>
+				{/* --- Content --- */}
+				{menuItems.length === 0 ? (
+					<EmptyMenu onAddItem={handleAddItem} />
+				) : processedMenu.length === 0 ? (
+					<View style={styles.emptyContainer}>
+						<Text style={styles.emptyTitle}>No Results Found</Text>
+						<Text style={styles.emptySubtitle}>
+							No menu items match your search for "{searchTerm}".
+						</Text>
+					</View>
+				) : (
+					<SectionList
+						sections={processedMenu}
+						renderItem={renderMenuItem}
+						keyExtractor={(item) => item.id}
+						renderSectionHeader={({ section: { title } }) => (
+							<MenuSectionHeader title={title} />
+						)}
+						contentContainerStyle={styles.menuList}
+						stickySectionHeadersEnabled={false}
+					/>
+				)}
+
+				{/* --- Add/Edit Item Modal --- */}
+				<AddItemModal
+					isVisible={showModal}
+					onClose={() => setShowModal(false)}
+					itemToEdit={selectedItem} // Pass the selected item to the modal
+				/>
+			</View>
+		</TouchableWithoutFeedback>
 	);
 };
 
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: colors.background, // Use your background color
-		padding: 20,
+		backgroundColor: colors.backgroundLight,
+	},
+	centered: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: colors.backgroundLight,
+	},
+	errorText: {
+		fontSize: 16,
+		color: colors.statusDanger,
+	},
+	header: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingHorizontal: 20,
+		paddingVertical: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	headerTitle: {
+		fontSize: 24,
+		fontWeight: "bold",
+		color: colors.textDark,
+	},
+	headerButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.primary + "20", // Light primary color
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: 20,
+	},
+	headerButtonText: {
+		color: colors.primary,
+		fontWeight: "bold",
+		fontSize: 14,
+		marginLeft: 4,
+	},
+	searchContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		marginHorizontal: 20,
+		marginTop: 15,
+		paddingHorizontal: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	searchIcon: {
+		marginRight: 10,
+	},
+	searchInput: {
+		flex: 1,
+		height: 45,
+		fontSize: 16,
+		color: colors.textDark,
 	},
 	menuList: {
-		paddingBottom: 80, // Add padding to avoid overlap with the button
+		paddingHorizontal: 20,
+		paddingBottom: 40,
 	},
-	addButton: {
-		position: "absolute",
-		bottom: 20,
-		right: 20,
-		backgroundColor: "white",
-		borderRadius: 50,
-		padding: 10,
-		shadowColor: "#000", // Add shadow (iOS)
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.2,
-		shadowRadius: 4,
-		elevation: 3, // Add shadow (Android)
+	sectionHeaderContainer: {
+		paddingTop: 25,
+		paddingBottom: 10,
+		backgroundColor: colors.backgroundLight,
 	},
-	sectionHeader: {
-		backgroundColor: "#f0f0f0", // Light gray background for the header
-		padding: 10,
+	sectionHeaderText: {
 		fontSize: 18,
 		fontWeight: "bold",
-		borderTopWidth: 1,
-		borderTopColor: "#ddd",
+		color: colors.textDark,
+	},
+	emptyContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 40,
+		marginTop: -50, // Adjust to better center vertically
+	},
+	emptyTitle: {
+		fontSize: 22,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginTop: 15,
+		textAlign: "center",
+	},
+	emptySubtitle: {
+		fontSize: 16,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginTop: 8,
+	},
+	emptyButton: {
+		backgroundColor: colors.primary,
+		paddingVertical: 12,
+		paddingHorizontal: 30,
+		borderRadius: 25,
+		marginTop: 25,
+	},
+	emptyButtonText: {
+		color: "#FFFFFF",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 export default MenuManagementScreen;
