@@ -1,5 +1,5 @@
 // screens/restaurant/RestaurantDashboardScreen.js
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useCallback } from "react";
 import {
 	View,
 	Text,
@@ -13,15 +13,17 @@ import {
 	FlatList,
 } from "react-native";
 import { Button } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import moment from "moment";
+
 import { useWorkDay } from "../../context/restaurant/WorkDayContext";
-import colors from "../../utils/styles/appStyles";
 import { AuthContext } from "../../context/authContext";
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import { fetchEmployees } from "../../utils/firebaseUtils";
-import { useNavigation } from "expo-router";
+import colors from "../../utils/styles/appStyles";
 
+// Reusable card component for the navigation grid
 const DashboardCard = ({ label, iconName, onPress }) => (
 	<TouchableOpacity style={styles.card} onPress={onPress}>
 		<View style={styles.iconContainer}>
@@ -34,7 +36,8 @@ const DashboardCard = ({ label, iconName, onPress }) => (
 		<Text style={styles.cardLabel}>{label}</Text>
 	</TouchableOpacity>
 );
-// A simple modal to select which manager is present
+
+// A simple modal to let the user select which manager is present
 const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
 	<Modal
 		visible={isVisible}
@@ -42,8 +45,12 @@ const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
 		animationType="fade"
 		onRequestClose={onClose}
 	>
-		<View style={styles.modalOverlay}>
-			<View style={styles.modalContent}>
+		<TouchableOpacity
+			style={styles.modalOverlay}
+			activeOpacity={1}
+			onPressOut={onClose}
+		>
+			<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 				<Text style={styles.modalTitle}>Manager Authorization</Text>
 				<Text style={styles.modalSubtitle}>
 					Please select which manager is present to authorize this action.
@@ -65,8 +72,8 @@ const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
 				<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
 					Cancel
 				</Button>
-			</View>
-		</View>
+			</TouchableOpacity>
+		</TouchableOpacity>
 	</Modal>
 );
 
@@ -75,82 +82,69 @@ const RestaurantDashboardScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
 		useWorkDay();
-	const [isActionLoading, setIsActionLoading] = useState(false);
 
 	const [isManagerListVisible, setIsManagerListVisible] = useState(false);
 	const [managers, setManagers] = useState([]);
 	const [isPinModalVisible, setIsPinModalVisible] = useState(false);
 	const [managerToVerify, setManagerToVerify] = useState(null);
 	const [isFetchingManagers, setIsFetchingManagers] = useState(false);
-	const [actionToPerform, setActionToPerform] = useState(null);
+	const [isActionLoading, setIsActionLoading] = useState(false);
 
-	const restaurantId = currentUserData?.uid;
-	if (!restaurantId) {
-		Alert.alert(
-			"Error",
-			"Could not identify your restaurant. Please ensure you are properly logged in."
-		);
-		return;
-	}
-
-	const handleBackOfficePress = async () => {
-		// First, check the user's role from their token.
-		// The AuthContext provides the up-to-date role.
+	const handleBackOfficePress = useCallback(async () => {
 		const userRole = currentUserData?.role;
+		const needsOnboarding = currentUserData?.hasSetupEmployees === false;
+		const restaurantId = currentUserData?.uid;
 
-		// If the user is already a manager or owner, they don't need a PIN.
-		if (userRole === "manager" || userRole === "owner") {
-			console.log(
-				"Manager/Owner detected. Navigating directly to Back Office."
+		if (!restaurantId) {
+			Alert.alert(
+				"Error",
+				"Could not identify your restaurant. Please log in again."
 			);
-			navigation.navigate("BackOfficeNavigator");
 			return;
 		}
 
-		// If the user is a worker, start the PIN override flow.
+		// 1. One-time pass for new owners to complete setup
+		if (userRole === "owner" && needsOnboarding) {
+			Alert.alert(
+				"Welcome, Owner!",
+				"To secure your Back Office, please start by creating your own 'Owner' profile on the Employee screen and setting a PIN.",
+				[
+					{
+						text: "Continue to Setup",
+						onPress: () =>
+							navigation.navigate("BackOfficeNavigator", {
+								screen: "EmployeeScreen",
+							}),
+					},
+				]
+			);
+			return;
+		}
+
+		// 2. For everyone else, start the standard PIN verification flow.
 		setIsFetchingManagers(true);
 		try {
-			const managerList = await fetchEmployees(currentUserData.uid, [
+			const managerList = await fetchEmployees(restaurantId, [
 				"manager",
 				"owner",
 			]);
-
-			// --- THIS IS THE FIX ---
 			if (managerList.length === 0) {
-				// If NO managers exist, guide the owner to the setup screen.
 				Alert.alert(
-					"Manager Setup Required",
-					"No managers have been set up for this restaurant yet. Go to the Employee screen to add the first owner/manager account.",
-					[
-						{ text: "Cancel", style: "cancel" },
-						{
-							text: "Go to Employee Setup",
-							// This navigation action directly pushes the EmployeeScreen onto the stack,
-							// bypassing the PIN gate for this one-time setup.
-							onPress: () =>
-								navigation.navigate("BackOfficeNavigator", {
-									screen: "EmployeeScreen",
-								}),
-						},
-					]
+					"Access Denied",
+					"No managers are configured for this restaurant.",
+					[{ text: "OK" }]
 				);
-				return; // Stop the PIN flow
+				return;
 			}
-			// --- END OF FIX ---
-
-			// If managers DO exist, proceed with the normal PIN verification flow.
 			setManagers(managerList);
 			setIsManagerListVisible(true);
 		} catch (error) {
-			Alert.alert(
-				"Error",
-				"Could not fetch the manager list. Please try again."
-			);
+			Alert.alert("Error", "Could not fetch manager list.");
 			console.error("Error in handleBackOfficePress:", error);
 		} finally {
 			setIsFetchingManagers(false);
 		}
-	};
+	}, [currentUserData, navigation]);
 
 	const onSelectManagerForVerification = (manager) => {
 		setIsManagerListVisible(false);
@@ -158,19 +152,23 @@ const RestaurantDashboardScreen = () => {
 		setIsPinModalVisible(true);
 	};
 
-	// This is the 'onSuccess' callback for the PIN modal
 	const onPinSuccess = () => {
+		console.log("PIN Success! Navigating to Back Office.");
 		setIsPinModalVisible(false);
 		setManagerToVerify(null);
-		// On successful PIN override, navigate to the Back Office.
-		navigation.navigate("BackOfficeNavigator");
+		navigation.navigate("BackOfficeNavigator", {
+			screen: "BackOffice",
+		});
 	};
+
+	const onModalClose = () => {
+		setIsManagerListVisible(false);
+		setIsPinModalVisible(false);
+	};
+
 	const handleStartDay = async () => {
 		setIsActionLoading(true);
-		const success = await startWorkDay();
-		if (success) {
-			Alert.alert("Work Day Started", "The restaurant is now open.");
-		}
+		await startWorkDay();
 		setIsActionLoading(false);
 	};
 
@@ -193,20 +191,23 @@ const RestaurantDashboardScreen = () => {
 		);
 	};
 
-	console.log("RestaurantID", currentUserData.uid);
-
 	const renderStatusContent = () => {
 		if (isLoading) {
 			return <ActivityIndicator size="large" color={colors.primary} />;
 		}
-
 		if (workDayStatus === "OPEN" && currentWorkDay) {
 			const startTime = moment(currentWorkDay.startTime?.toDate()).format("LT");
 			return (
 				<View style={styles.statusContent}>
-					<Ionicons name="sunny" size={60} color={colors.statusSuccess} />
+					<Ionicons
+						name="sunny-outline"
+						size={60}
+						color={colors.statusSuccess}
+					/>
 					<Text style={styles.statusTitle}>Restaurant is OPEN</Text>
-					<Text style={styles.statusSubtitle}>Day started at {startTime}</Text>
+					<Text style={styles.statusSubtitle}>
+						Work day started at {startTime}
+					</Text>
 					<Button
 						mode="contained"
 						onPress={handleEndDay}
@@ -216,44 +217,38 @@ const RestaurantDashboardScreen = () => {
 							styles.actionButton,
 							{ backgroundColor: colors.statusDanger },
 						]}
-						labelStyle={styles.actionButtonLabel}
-						icon="weather-night"
 					>
 						End Work Day
 					</Button>
 				</View>
 			);
-		} else {
-			// CLOSED
-			return (
-				<View style={styles.statusContent}>
-					<Ionicons name="moon" size={60} color={colors.textMedium} />
-					<Text style={styles.statusTitle}>Restaurant is CLOSED</Text>
-					<Text style={styles.statusSubtitle}>
-						Tap below to begin a new work day.
-					</Text>
-					<Button
-						mode="contained"
-						onPress={handleStartDay}
-						loading={isActionLoading}
-						disabled={isActionLoading}
-						style={[
-							styles.actionButton,
-							{ backgroundColor: colors.statusSuccess },
-						]}
-						labelStyle={styles.actionButtonLabel}
-						icon="weather-sunny"
-					>
-						Start Work Day
-					</Button>
-				</View>
-			);
 		}
+		return (
+			<View style={styles.statusContent}>
+				<Ionicons name="moon-outline" size={60} color={colors.textMedium} />
+				<Text style={styles.statusTitle}>Restaurant is CLOSED</Text>
+				<Text style={styles.statusSubtitle}>
+					Tap below to begin a new work day.
+				</Text>
+				<Button
+					mode="contained"
+					onPress={handleStartDay}
+					loading={isActionLoading}
+					disabled={isActionLoading}
+					style={[
+						styles.actionButton,
+						{ backgroundColor: colors.statusSuccess },
+					]}
+				>
+					Start Work Day
+				</Button>
+			</View>
+		);
 	};
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView style={styles.container}>
+			<ScrollView>
 				<View style={styles.header}>
 					<Text style={styles.welcomeText}>
 						Welcome, {currentUserData?.firstName || "Manager"}
@@ -269,7 +264,7 @@ const RestaurantDashboardScreen = () => {
 					<DashboardCard
 						label="Customers Waiting"
 						iconName="account-clock-outline"
-						onPress={() => navigation.navigate("RestaurantCheckin")}
+						onPress={() => navigation.navigate("Checkins")}
 					/>
 					<DashboardCard
 						label="Chef's Q"
@@ -277,8 +272,8 @@ const RestaurantDashboardScreen = () => {
 						onPress={() => navigation.navigate("ChefsQ")}
 					/>
 					<DashboardCard
-						label="Table Management"
-						iconName="view-grid-outline"
+						label="Table View"
+						iconName="table-chair"
 						onPress={() => navigation.navigate("Tables")}
 					/>
 					<DashboardCard
@@ -288,9 +283,10 @@ const RestaurantDashboardScreen = () => {
 					/>
 				</View>
 			</ScrollView>
+
 			<ManagerSelectionModal
 				isVisible={isManagerListVisible}
-				onClose={() => setIsManagerListVisible(false)}
+				onClose={onModalClose}
 				managers={managers}
 				onSelect={onSelectManagerForVerification}
 			/>
@@ -298,14 +294,13 @@ const RestaurantDashboardScreen = () => {
 			{managerToVerify && (
 				<ManagerPinModal
 					isVisible={isPinModalVisible}
-					onClose={() => setIsPinModalVisible(false)}
+					onClose={onModalClose}
 					onSuccess={onPinSuccess}
 					employeeToVerify={managerToVerify}
 					restaurantId={currentUserData?.uid}
 				/>
 			)}
 
-			{/* Overlay for fetching managers */}
 			{isFetchingManagers && (
 				<View style={styles.loadingOverlay}>
 					<ActivityIndicator size="large" color={colors.surfaceWhite} />
@@ -318,19 +313,21 @@ const RestaurantDashboardScreen = () => {
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	container: { flex: 1 },
-	header: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10 },
-	welcomeText: { fontSize: 18, color: colors.textMedium },
-	title: { fontSize: 28, fontWeight: "bold", color: colors.textDark },
+	header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
+	welcomeText: { fontSize: 18, color: colors.textMedium, textAlign: "center" },
+	title: {
+		fontSize: 28,
+		fontWeight: "bold",
+		color: colors.textDark,
+		textAlign: "center",
+		marginTop: 4,
+	},
 	statusContainer: {
 		padding: 20,
 		margin: 15,
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 16,
 		elevation: 5,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.1,
-		shadowRadius: 5,
 	},
 	statusContent: {
 		justifyContent: "center",
@@ -342,7 +339,6 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginTop: 15,
 		marginBottom: 8,
-		color: colors.textDark,
 	},
 	statusSubtitle: {
 		fontSize: 16,
@@ -352,7 +348,6 @@ const styles = StyleSheet.create({
 		maxWidth: "85%",
 	},
 	actionButton: { borderRadius: 8, paddingVertical: 10, width: "90%" },
-	actionButtonLabel: { fontSize: 16, fontWeight: "bold" },
 	navigationGrid: {
 		flexDirection: "row",
 		flexWrap: "wrap",
@@ -362,7 +357,7 @@ const styles = StyleSheet.create({
 	},
 	card: {
 		width: "45%",
-		aspectRatio: 1,
+		aspectRatio: 1.1,
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 12,
 		padding: 15,
@@ -370,10 +365,6 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "center",
 		elevation: 3,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.08,
-		shadowRadius: 3,
 	},
 	iconContainer: { marginBottom: 12 },
 	cardLabel: {
@@ -393,34 +384,31 @@ const styles = StyleSheet.create({
 		backgroundColor: "rgba(0,0,0,0.7)",
 		justifyContent: "center",
 		alignItems: "center",
-		padding: 20,
 	},
 	modalContent: {
 		backgroundColor: colors.surfaceWhite,
 		padding: 20,
 		borderRadius: 12,
-		width: "100%",
-		maxWidth: 400,
+		width: "90%",
 	},
 	modalTitle: {
 		fontSize: 20,
 		fontWeight: "bold",
-		color: colors.textDark,
 		marginBottom: 10,
 		textAlign: "center",
 	},
-	modalSubtitle: {
-		fontSize: 15,
-		color: colors.textMedium,
-		textAlign: "center",
-		marginBottom: 20,
-	},
+	modalSubtitle: { fontSize: 15, textAlign: "center", marginBottom: 20 },
 	managerRow: {
-		paddingVertical: 15,
+		paddingVertical: 18,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
-	managerName: { fontSize: 18, textAlign: "center", color: colors.primary },
+	managerName: {
+		fontSize: 18,
+		textAlign: "center",
+		color: colors.primary,
+		fontWeight: "500",
+	},
 });
 
 export default RestaurantDashboardScreen;

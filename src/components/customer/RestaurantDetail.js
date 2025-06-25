@@ -38,13 +38,14 @@ import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
 import { collection, onSnapshot } from "firebase/firestore";
+import AuthPromptModal from "../global/AuthPromptModal";
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
 	const { restaurant, initialView } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
 
-	const { currentUserData } = useContext(AuthContext);
+	const { currentUserData, logout } = useContext(AuthContext);
 	const { baskets, addItemToBasket: addItemToIndividualBasketFromContext } =
 		useBasket(); // For individual basket count
 
@@ -65,6 +66,7 @@ const RestaurantDetailScreen = () => {
 		useState(false);
 	const [isStartingPartyProcess, setIsStartingPartyProcess] = useState(false);
 	const [userPips, setUserPips] = useState([]);
+	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
 	const {
@@ -170,6 +172,10 @@ const RestaurantDetailScreen = () => {
 
 	// Function to handle individual check-in request
 	const handlePersonalCheckinSubmit = async (values) => {
+		if (currentUserData?.role === "guest") {
+			setIsAuthModalVisible(true); // If so, show the auth prompt and stop.
+			return;
+		}
 		if (
 			isLoadingCheckInStatus ||
 			isProcessingCheckInAction ||
@@ -219,6 +225,8 @@ const RestaurantDetailScreen = () => {
 		}
 	};
 
+	console.log("Current", currentUserData);
+
 	const handleCancelIndividualCheckIn = async () => {
 		if (!checkInObj?.id || isProcessingCheckInAction) return;
 		setIsProcessingCheckInAction(true);
@@ -246,6 +254,10 @@ const RestaurantDetailScreen = () => {
 
 	// --- Function to handle starting a party ---
 	const handleStartParty = async () => {
+		if (currentUserData?.role === "guest") {
+			setIsAuthModalVisible(true); // If so, show the auth prompt and stop.
+			return;
+		}
 		if (!currentUserData) {
 			Alert.alert("Login Required", "Please log in to start a party.");
 			return;
@@ -606,18 +618,20 @@ const RestaurantDetailScreen = () => {
 						</View>
 
 						{/* --- Action Icons Row --- */}
-						{currentUserData?.role === "customer" ? (
-							renderActionButtons()
+						{currentUserData?.role === "customer" ||
+						currentUserData?.role === "guest" ? (
+							renderActionButtons() // Assuming this function renders your "Check In" and "Start Party" buttons
 						) : (
+							// This block will now only show if there's no user at all,
+							// or if the user is a restaurant employee viewing a customer screen (which shouldn't happen).
 							<View style={styles.guestMessageContainer}>
 								<PaperButton
 									icon="login"
 									mode="contained"
-									onPress={() => navigation.navigate("Login")} // Or your Welcome/Login flow
+									onPress={() => navigation.navigate("Welcome")}
 									style={styles.guestLoginButton}
-									labelStyle={styles.guestLoginButtonText}
 								>
-									Login or Sign Up to Order/Check-In
+									Login or Sign Up to Continue
 								</PaperButton>
 							</View>
 						)}
@@ -750,6 +764,18 @@ const RestaurantDetailScreen = () => {
 					</View>
 				</TouchableOpacity>
 			)}
+			<AuthPromptModal
+				isVisible={isAuthModalVisible}
+				onClose={() => setIsAuthModalVisible(false)}
+				onLoginPress={() => {
+					setIsAuthModalVisible(false);
+					logout("Login"); // Navigate to your existing Login screen
+				}}
+				onSignupPress={() => {
+					setIsAuthModalVisible(false);
+					logout("CustomerSignup"); // Navigate to your existing Customer Signup screen
+				}}
+			/>
 		</SafeAreaView>
 	);
 };

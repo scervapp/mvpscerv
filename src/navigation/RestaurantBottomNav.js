@@ -1,5 +1,5 @@
 // navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
-import React from "react";
+import React, { use } from "react";
 import { Platform, View, StyleSheet } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -24,6 +24,7 @@ import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
 
 import colors from "../utils/styles/appStyles";
 import BackOfficeAuthGate from "../screens/restaurant/BackOfficeAuthGate.";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -89,6 +90,8 @@ const BackOfficeStackNavigator = () => {
 
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
+	const insets = useSafeAreaInsets();
+
 	return (
 		<Tab.Navigator
 			screenOptions={({ route }) => ({
@@ -116,7 +119,14 @@ const RestaurantBottomNavigation = () => {
 				tabBarActiveTintColor: colors.primary,
 				tabBarInactiveTintColor: colors.textMedium,
 				tabBarShowLabel: true,
-				tabBarStyle: styles.tabBar,
+				tabBarStyle: {
+					backgroundColor: colors.surfaceWhite,
+					borderTopWidth: 1,
+					borderTopColor: colors.borderLight,
+					paddingTop: 10,
+					paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
+					height: 60 + insets.bottom, // total height adjusts based on device
+				},
 			})}
 		>
 			{/* Tab 1: The New Dashboard (Home Base) */}
@@ -160,12 +170,18 @@ const RestaurantDashboardStack = () => (
 
 const styles = StyleSheet.create({
 	tabBar: {
-		height: Platform.OS === "ios" ? 90 : 65,
-		paddingBottom: Platform.OS === "ios" ? 30 : 5,
-		paddingTop: 5,
+		paddingBottom: Platform.OS === "ios" ? 30 : 10,
+		paddingTop: 10,
+
+		// Keep existing styles
 		backgroundColor: colors.surfaceWhite,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
+
+		// Setting an explicit height is still possible if needed after testing,
+		// but often dynamic padding is better.
+		// If you need a fixed height, you can try increasing the Android value:
+		height: Platform.OS === "ios" ? 90 : 70,
 	},
 });
 

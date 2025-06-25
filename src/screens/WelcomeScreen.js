@@ -1,129 +1,179 @@
-import React, { useEffect, useContext } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Button } from "react-native";
+// screens/WelcomeScreen.js
+import React, { useContext } from "react";
+import {
+	View,
+	Text,
+	StyleSheet,
+	TouchableOpacity,
+	SafeAreaView,
+	Image,
+	ActivityIndicator,
+} from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import { LinearGradient } from "expo-linear-gradient";
-import { Image } from "react-native";
+import { Button } from "react-native-paper";
+import { Ionicons } from "@expo/vector-icons";
 
 const WelcomeScreen = ({ navigation }) => {
-	const { continueAsGuest, currentUser } = useContext(AuthContext);
+	const { continueAsGuest, isLoading } = useContext(AuthContext);
 
 	const handleContinueAsGuest = async () => {
 		try {
 			await continueAsGuest(navigation);
 		} catch (error) {
 			console.error("Error continuing as guest", error);
+			// Optionally, show an alert to the user
 		}
 	};
 
 	return (
-		<View style={styles.container}>
-			{/* Use a regular View as the outer container */}
+		<LinearGradient
+			colors={[colors.backgroundLight, colors.primary + "20"]} // A subtle gradient from light to a hint of your primary color
+			style={styles.gradientContainer}
+		>
+			<SafeAreaView style={styles.safeArea}>
+				<View style={styles.contentContainer}>
+					<View style={styles.header}>
+						<Image
+							source={require("../../assets/scerv_logo.png")} // Make sure this path is correct
+							style={styles.logo}
+						/>
+						<Text style={styles.title}>Welcome to Scerv</Text>
+						<Text style={styles.subtitle}>
+							Your seamless dining experience starts here.
+						</Text>
+					</View>
 
-			<Image
-				source={require("../../assets/scerv_logo.png")}
-				style={styles.logo}
-			/>
-			<Text style={styles.title}>Welcome to Scerv</Text>
-			{/* Customer Signup Section */}
-			<TouchableOpacity
-				style={styles.customerButton}
-				onPress={() => navigation.navigate("CustomerSignup")}
-			>
-				<Text style={styles.customerButtonText}>Sign Up</Text>
-			</TouchableOpacity>
-			<View style={styles.loginContainer}>
-				<Text style={styles.existingAccount}>Already have an account? </Text>
-				<TouchableOpacity onPress={() => navigation.navigate("Login")}>
-					<Text style={styles.loginLink}>Log In</Text>
-				</TouchableOpacity>
-			</View>
-			<TouchableOpacity
-				onPress={() => handleContinueAsGuest()}
-				style={styles.guestButton}
-			>
-				{/* Call the function */}
-				<Text style={styles.guestButtonText}>Continue as Guest</Text>
-			</TouchableOpacity>
-			{/* Restaurants Section */}
-			<TouchableOpacity
-				style={styles.restaurantPromptContainer}
-				onPress={() => navigation.navigate("RestaurantSignup")}
-			>
-				<Text style={styles.restaurantPrompt}>Restaurants? Go Here</Text>
-			</TouchableOpacity>
-		</View>
+					{isLoading ? (
+						<ActivityIndicator size="large" color={colors.primary} />
+					) : (
+						<View style={styles.actionsContainer}>
+							<Button
+								mode="contained"
+								onPress={() => navigation.navigate("CustomerSignup")}
+								style={styles.button}
+								labelStyle={styles.buttonText}
+								icon="account-plus-outline"
+							>
+								Create Account
+							</Button>
+
+							<Button
+								mode="outlined"
+								onPress={() => navigation.navigate("Login")}
+								style={[styles.button, styles.loginButton]}
+								labelStyle={styles.loginButtonText}
+								icon="login"
+							>
+								Log In
+							</Button>
+
+							<TouchableOpacity onPress={handleContinueAsGuest}>
+								<Text style={styles.guestLink}>Continue as Guest</Text>
+							</TouchableOpacity>
+						</View>
+					)}
+				</View>
+
+				<View style={styles.footer}>
+					<TouchableOpacity
+						style={styles.restaurantPromptContainer}
+						onPress={() => navigation.navigate("RestaurantSignup")}
+					>
+						<Text style={styles.restaurantPrompt}>Are you a restaurant?</Text>
+						<Text style={styles.restaurantLink}>Sign up here</Text>
+					</TouchableOpacity>
+				</View>
+			</SafeAreaView>
+		</LinearGradient>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
+	gradientContainer: {
+		flex: 1,
+	},
+	safeArea: {
+		flex: 1,
+		justifyContent: "space-between",
+	},
+	contentContainer: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		padding: 20,
-		backgroundColor: colors.background, // Use your background color here
+		paddingHorizontal: 20,
+	},
+	header: {
+		alignItems: "center",
+		marginBottom: 60,
 	},
 	logo: {
-		width: 125,
-		height: 125,
+		width: 120,
+		height: 120,
 		resizeMode: "contain",
-		marginBottom: 40,
+		marginBottom: 20,
 	},
 	title: {
 		fontSize: 32,
 		fontWeight: "bold",
-		marginBottom: 40,
-		color: colors.primary, // Use your primary color for the title
+		color: colors.textDark,
+		textAlign: "center",
 	},
-	customerButton: {
-		backgroundColor: colors.primary, // Primary color for the button background
-		padding: 15,
-		borderRadius: 8,
-		width: "80%",
-		alignItems: "center",
-	},
-	customerButtonText: {
+	subtitle: {
 		fontSize: 18,
-		fontWeight: "bold",
-		color: "white", // White text for contrast
+		color: colors.textMedium,
+		textAlign: "center",
+		marginTop: 8,
 	},
-	loginContainer: {
-		flexDirection: "row",
-		marginTop: 20,
+	actionsContainer: {
+		width: "90%",
+		maxWidth: 400,
 	},
-	existingAccount: {
+	button: {
+		paddingVertical: 8,
+		borderRadius: 8,
+		marginBottom: 15,
+		backgroundColor: colors.primary,
+	},
+	buttonText: {
 		fontSize: 16,
-		color: colors.text, // Use a color from your colors object
-	},
-	loginLink: {
-		fontSize: 16,
-		color: colors.primary, // Use your primary color for the link
 		fontWeight: "bold",
+		color: colors.textOnPrimaryBrand,
+	},
+	loginButton: {
+		backgroundColor: "transparent",
+		borderColor: colors.primary,
+		borderWidth: 1.5,
+	},
+	loginButtonText: {
+		color: colors.primary,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	guestLink: {
+		fontSize: 15,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginTop: 15,
 		textDecorationLine: "underline",
+	},
+	footer: {
+		paddingBottom: 40,
+		alignItems: "center",
 	},
 	restaurantPromptContainer: {
-		position: "absolute",
-		bottom: 20,
-		alignSelf: "center",
+		alignItems: "center",
 	},
 	restaurantPrompt: {
-		fontSize: 16,
+		fontSize: 15,
+		color: colors.textDark,
+	},
+	restaurantLink: {
+		fontSize: 15,
 		color: colors.primary,
-		textDecorationLine: "underline",
-	},
-	guestButton: {
-		backgroundColor: colors.secondary, // Or any suitable color that contrasts with the background
-		padding: 15,
-		borderRadius: 8,
-		marginTop: 20,
-		alignItems: "center",
-		width: "60%", // Adjust width as needed
-	},
-	guestButtonText: {
-		color: "black",
-		fontSize: 16,
 		fontWeight: "bold",
+		marginTop: 4,
 	},
 });
 

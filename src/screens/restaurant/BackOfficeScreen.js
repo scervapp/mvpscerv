@@ -134,7 +134,6 @@ const BackOfficeScreen = ({ navigation }) => {
 		await Linking.openURL(response.data.url);
 	};
 
-
 	const handleScreenPress = (screenName) => {
 		navigation.navigate(screenName); // Navigate to the selected screen
 	};

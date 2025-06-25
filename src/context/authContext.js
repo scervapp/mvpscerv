@@ -1,269 +1,188 @@
-import React, { createContext, useState, useEffect } from "react";
-import { app, auth } from "../config/firebase";
+// src/context/authContext.js
+import React, {
+	createContext,
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+} from "react";
 import {
 	getAuth,
-	signInWithEmailAndPassword,
-	createUserWithEmailAndPassword,
-	signOut,
 	onAuthStateChanged,
-	sendPasswordResetEmail,
-	deleteUser,
+	signInWithEmailAndPassword,
+	signOut,
 	signInAnonymously,
+	sendPasswordResetEmail,
 } from "firebase/auth";
-import {
-	getFirestore,
-	collection,
-	setDoc,
-	doc,
-	getDoc,
-	deleteDoc,
-} from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db, functions } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
 
-const AuthContext = createContext({
-	currentUser: null,
-	isLoading: false,
-});
+export const AuthContext = createContext();
 
-const AuthProvider = ({ children }) => {
-	const [user, setUser] = useState(null);
+export const AuthProvider = ({ children }) => {
 	const [currentUser, setCurrentUser] = useState(null);
-	const [isLoading, setIsLoading] = useState(false);
-	const [loginError, setLoginError] = useState(null);
 	const [currentUserData, setCurrentUserData] = useState(null);
+	const [isLoading, setIsLoading] = useState(true);
+	const [authError, setAuthError] = useState(null);
+	const [redirectPath, setRedirectPath] = useState(null);
 
-	const db = getFirestore(app);
+	const auth = getAuth();
 
-	// Useeffect hook to listen to auth state changes
-
+	// This single listener is now the source of truth for the user's auth state.
 	useEffect(() => {
 		const unsubscribe = onAuthStateChanged(auth, async (user) => {
 			setIsLoading(true);
-
 			if (user) {
-				try {
-					let userData;
-					if (user) {
-						setCurrentUser(user);
-						const customerDoc = await getDoc(doc(db, "customers", user.uid));
-						const restaurantDoc = await getDoc(
-							doc(db, "restaurants", user.uid)
-						);
+				// --- Logic to determine user's role and data ---
+				let collectionName;
+				let userRole;
+				let restId;
 
-						if (customerDoc.exists()) {
-							userData = { ...customerDoc.data(), uid: user.uid };
-							setCurrentUserData(userData);
-						} else if (restaurantDoc.exists()) {
-							userData = { ...restaurantDoc.data(), uid: user.uid };
-							setCurrentUserData(userData);
-						}
-					}
-
-					setCurrentUserData(userData);
-				} catch (error) {
-					console.log("Error fetching user data", error);
+				// 1. Check if user is anonymous (a guest).
+				if (user.isAnonymous) {
+					userRole = "guest";
+					console.log(`AuthContext: Guest user detected. UID: ${user.uid}`);
+					setCurrentUserData({ uid: user.uid, role: userRole });
+					setCurrentUser(user);
+					setIsLoading(false);
+					return; // Stop here for guests.
 				}
+
+				// 2. For non-guest users, get their auth token to read their custom role.
+				const tokenResult = await user.getIdTokenResult(true);
+				userRole = tokenResult.claims.role || "customer"; // Default to 'customer'
+				restId =
+					tokenResult.claims.restaurantId ||
+					(userRole !== "customer" ? user.uid : null);
+
+				console.log(
+					`AuthContext: Full user authenticated. Role: "${userRole}", RestaurantID: "${restId}"`
+				);
+
+				// 3. Listen to the correct Firestore document based on the role.
+				collectionName = ["owner", "manager", "worker"].includes(userRole)
+					? "restaurants"
+					: "customers";
+				const docRef = doc(db, collectionName, user.uid);
+
+				const unsubDoc = onSnapshot(docRef, (docSnap) => {
+					if (docSnap.exists()) {
+						setCurrentUserData({
+							uid: user.uid,
+							role: userRole,
+							restaurantId: restId,
+							...docSnap.data(),
+						});
+					} else {
+						// This can happen briefly during signup before the onUserCreate trigger runs.
+						// We set a temporary user data object so the app knows the user is logged in.
+						console.warn(
+							`AuthContext: No Firestore document yet for user ${user.uid}. Awaiting creation...`
+						);
+						setCurrentUserData({
+							uid: user.uid,
+							role: userRole,
+							restaurantId: restId,
+						});
+					}
+					setIsLoading(false);
+				});
+				setCurrentUser(user);
+				return () => unsubDoc(); // Cleanup document listener
 			} else {
+				// No user is signed in.
 				setCurrentUser(null);
 				setCurrentUserData(null);
+				setIsLoading(false);
 			}
-			setIsLoading(false);
 		});
-
-		return unsubscribe;
+		return () => unsubscribe(); // Cleanup auth state listener on component unmount
 	}, []);
 
-	const login = async (email, password, navigation) => {
-		setIsLoading(true);
-		setLoginError(null);
-		try {
-			await signInWithEmailAndPassword(auth, email, password).then();
+	// --- Action Functions ---
 
-			// Parallel checks
-			const customerDocRef = doc(db, "customers", auth.currentUser.uid);
-			const restaurantDocRef = doc(db, "restaurants", auth.currentUser.uid);
-			const [customerDoc, restaurantDoc] = await Promise.all([
-				getDoc(customerDocRef),
-				getDoc(restaurantDocRef),
-			]);
-
-			let userData;
-
-			if (customerDoc.exists()) {
-				userData = { ...customerDoc.data(), uid: auth.currentUser.uid };
-			} else if (restaurantDoc.exists()) {
-				userData = { ...restaurantDoc.data(), uid: auth.currentUser.uid };
+	const login = useCallback(
+		async (email, password) => {
+			setAuthError(null);
+			try {
+				await signInWithEmailAndPassword(auth, email, password);
+				// The onAuthStateChanged listener handles the rest.
+			} catch (error) {
+				console.error("Login Error:", error.code);
+				setAuthError(error.message || "Invalid email or password.");
+				throw error;
 			}
+		},
+		[auth]
+	);
 
-			setCurrentUserData(userData);
-
-			// Navigation Logic
-			if (userData.role === "customer") {
-				navigation.navigate("CustomerHome");
-			} else if (userData.role === "restaurant") {
-				navigation.navigate("RestaurantHome");
-			}
-		} catch (error) {
-			if (
-				error.code === "auth/invalid-email" ||
-				error.code === "auth/invalid-password"
-			) {
-				setLoginError("Invalid Credentials");
-			} else if (error.code === "auth/user-not-found") {
-				setLoginError("User not found");
-			} else {
-				setLoginError("An error occurred during login. Please try again.");
-				console.log(" Error logging in ", error);
-			}
-
-			//console.error("Error logging in:", error); // Log the error for debugging
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
-	const signup = async (
-		email,
-		password,
-		additionalUserData,
-		role,
-		navigation
-	) => {
-		setIsLoading(true);
+	// Calls a Cloud Function to securely create the auth user and set their role.
+	const signup = useCallback(async (email, password, role, additionalData) => {
+		setAuthError(null);
 		try {
-			const { user } = await createUserWithEmailAndPassword(
-				auth,
-				email,
-				password
-			);
+			const createUserAccount = httpsCallable(functions, "createUserAccount");
 
-			console.log("Signup Successful");
-			const collectionName =
-				role === "restaurant" ? "restaurants" : "customers";
-			await setDoc(doc(db, collectionName, user.uid), {
-				email,
-				role,
-				...additionalUserData,
-			});
+			// Step 1: Create user via Cloud Function
+			await createUserAccount({ email, password, role, additionalData });
 
-			if (role === "customer") {
-				console.log("Customer Dashboard");
-				navigation.navigate("CustomerHome");
-			} else if (role === "restaurant") {
-				console.log("Restaurant Home");
-				navigation.navigate("RestaurantHome");
+			// ✅ Step 2: Immediately sign in the user on the client
+			await signInWithEmailAndPassword(auth, email, password);
+
+			// The onAuthStateChanged listener will now trigger and hydrate user state
+		} catch (error) {
+			console.error("Signup Error:", error);
+			setAuthError(error.message);
+			throw error;
+		}
+	}, []);
+
+	const continueAsGuest = useCallback(async () => {
+		setAuthError(null);
+		try {
+			await signInAnonymously(auth);
+			// The listener will automatically handle setting the guest state.
+		} catch (error) {
+			console.error("Error signing in as guest:", error);
+			setAuthError("Could not start a guest session.");
+			throw error;
+		}
+	}, [auth]);
+
+	const logout = useCallback(
+		async (redirectTo = null) => {
+			if (redirectTo) setRedirectPath(redirectTo);
+			try {
+				await signOut(auth);
+			} catch (error) {
+				console.error("Logout Error:", error);
 			}
-		} catch (error) {
-			if (error.code === "auth/email-already-in-use") {
-				throw new Error("Email is already in use");
-			} else if (error.code === "auth/invalid-email") {
-				throw new Error("Invalid email address");
-			} else if (error.code === "auth/weak-password") {
-				throw new Error("Password should be at least 6 characters");
-			} else {
-				console.log("Error During Signup", error);
-				throw new Error("An error occurred during signup. Please try again."); // General error
-			}
-		} finally {
-			setIsLoading(false);
-		}
+		},
+		[auth]
+	);
+
+	const clearRedirectPath = useCallback(() => setRedirectPath(null), []);
+
+	const value = {
+		currentUser,
+		currentUserData,
+		isLoading,
+		authError,
+		login,
+		signup,
+		logout,
+		continueAsGuest,
+		redirectPath,
+		clearRedirectPath,
+		sendPasswordResetEmail, // Keep your password reset function if needed
+		// No signInWithGoogle here as requested
 	};
 
-	const continueAsGuest = (navigation) => {
-		signInAnonymously(auth)
-			.then(async (userCredential) => {
-				const user = userCredential.user;
-				setCurrentUser(user);
-				setCurrentUserData({ role: "guest" });
-
-				// Create a guest user document inn the firestore
-				const guestUserRef = doc(db, "guestUsers", user.uid);
-				await setDoc(guestUserRef, { role: "guest" });
-				navigation.navigate("CustomerHome");
-			})
-			.catch((error) => {
-				console.error("Error signing is anonymously: ", error);
-			});
-	};
-
-	const sendPasswordResetEmail = async (email) => {
-		try {
-			setIsLoading(true);
-			await sendPasswordResetEmail(auth, email);
-			console.log("Password reset email sent successfully");
-		} catch (error) {
-			console.log("Error sending password reset email", error);
-			// Handle errors appropriately, providing user-friendly messages
-			if (error.code === "auth/invalid-email") {
-				setLoginError("Invalid email address");
-			} else if (error.code === "auth/user-not-found") {
-				setLoginError("User not found");
-			} else {
-				setLoginError("An error occurred. Please try again later.");
-			}
-		} finally {
-			setIsLoading(false); // Hide loading indicator (if used)
-		}
-	};
-
-	const updateUserProfile = async (userId, profileData) => {
-		setIsLoading(true);
-		try {
-			await firebase
-				.firestore()
-				.collection("users")
-				.doc(userId)
-				.update(profileData);
-			console.log("Profile updated successfully");
-		} catch (error) {
-			console.log("Could not update profile", error);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
-	const logout = async (navigation) => {
-		try {
-			setIsLoading(true);
-			await signOut(auth).then(() => {
-				setCurrentUser(null);
-				navigation.navigate("Login");
-			});
-		} catch (error) {
-			console.log("Logout Error", error);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
-	const deleteUserFunction = async () => {
-		try {
-			deleteUser(auth.currentUser);
-			// 2. Delete the user from the db
-			const userDocRef = doc(db, "customers", auth.currentUser.uid);
-			await deleteDoc(userDocRef);
-		} catch (error) {
-			console.error("Error deleting user:", error);
-			throw new Error("Failed to delete user.");
-		}
-	};
 	return (
-		<AuthContext.Provider
-			value={{
-				currentUser,
-				isLoading,
-				login,
-				signup,
-				logout,
-				currentUserData,
-				loginError,
-				sendPasswordResetEmail,
-				deleteUserFunction,
-				continueAsGuest,
-			}}
-		>
-			{children}
+		<AuthContext.Provider value={value}>
+			{!isLoading && children}
 		</AuthContext.Provider>
 	);
 };
-export { AuthContext, AuthProvider };
+
+export const useAuth = () => useContext(AuthContext);

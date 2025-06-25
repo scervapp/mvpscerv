@@ -1,5 +1,5 @@
 // screens/restaurant/BackOfficeAuthGate.js
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import {
 	View,
 	Text,
@@ -28,6 +28,9 @@ const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
 		<View style={styles.modalOverlay}>
 			<View style={styles.modalContent}>
 				<Text style={styles.modalTitle}>Manager Authorization Required</Text>
+				<Text style={styles.modalSubtitle}>
+					Please select which manager is present to authorize this action.
+				</Text>
 				<FlatList
 					data={managers}
 					keyExtractor={(item) => item.id}
@@ -60,82 +63,89 @@ const BackOfficeAuthGate = () => {
 	const [managerToVerify, setManagerToVerify] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 
+	const hasVerifiedRef = useRef(false);
+	// useFocusEffect runs every time the screen comes into view, ensuring the check is always fresh.
 	useFocusEffect(
 		React.useCallback(() => {
-			const checkPermissions = async () => {
-				const userRole = currentUserData?.role;
-				console.log(
-					`BackOfficeAuthGate: Checking permissions for role: ${userRole}`
-				);
+			if (hasVerifiedRef.current) return;
+			if (!currentUserData?.uid) {
+				// If for some reason user data isn't loaded, wait.
+				setIsLoading(true);
+				return;
+			}
 
-				if (userRole === "manager" || userRole === "owner") {
-					// If user is already a manager, navigate them directly to the Back Office.
+			const checkPermissions = async () => {
+				const userRole = currentUserData.role;
+				const needsOnboarding = currentUserData.hasSetupEmployees === false;
+
+				// --- THIS IS THE NEW ONBOARDING LOGIC ---
+				// If the user is the owner AND they haven't set up employees yet,
+				// give them a one-time pass to the back office.
+				if (userRole === "owner" && needsOnboarding) {
 					console.log(
-						"BackOfficeAuthGate: Manager/Owner detected. Navigating to Back Office."
+						"BackOfficeAuthGate: New owner detected. Granting one-time access to Back Office."
 					);
-					navigation.replace("BackOffice"); // Use replace to avoid a back button
-				} else {
-					// If user is a worker, fetch the list of managers for PIN verification.
-					console.log(
-						"BackOfficeAuthGate: Worker detected. Fetching manager list for PIN override."
+					Alert.alert(
+						"Welcome, Owner!",
+						"To secure your Back Office, please start by creating your own 'Owner' profile on the Employee screen and setting a PIN.",
+						[{ text: "OK", onPress: () => navigation.replace("BackOffice") }] // Use replace to prevent going back to the gate
 					);
-					setIsLoading(true);
-					try {
-						const managerList = await fetchEmployees(currentUserData.uid, [
-							"manager",
-							"owner",
-						]);
-						if (managerList.length === 0) {
-							Alert.alert(
-								"Access Denied",
-								"No managers are configured for this restaurant. Please contact the owner.",
-								[
-									{
-										text: "OK",
-										onPress: () => navigation.navigate("Dashboard"),
-									},
-								]
-							);
-						} else {
-							setManagers(managerList);
-							setIsManagerListVisible(true);
-						}
-					} catch (error) {
-						Alert.alert("Error", "Could not fetch manager list.", [
-							{ text: "OK", onPress: () => navigation.navigate("Dashboard") },
-						]);
-					} finally {
-						setIsLoading(false);
+					return;
+				}
+				// --- END OF NEW LOGIC ---
+
+				// For all other cases, start the standard PIN verification flow.
+				setIsLoading(true);
+				try {
+					const managerList = await fetchEmployees(currentUserData.uid, [
+						"manager",
+						"owner",
+					]);
+					if (managerList.length === 0) {
+						// This case is a fallback if an owner has somehow deleted all managers including themselves.
+						Alert.alert(
+							"Access Denied",
+							"No managers are configured for this restaurant. Please contact support.",
+							[{ text: "OK", onPress: () => navigation.goBack() }]
+						);
+					} else {
+						setManagers(managerList);
+						setIsManagerListVisible(true);
 					}
+				} catch (error) {
+					Alert.alert("Error", "Could not fetch manager list.", [
+						{ text: "OK", onPress: () => navigation.goBack() },
+					]);
+				} finally {
+					setIsLoading(false);
 				}
 			};
 
 			checkPermissions();
-		}, [currentUserData])
+		}, [currentUserData?.uid, hasVerifiedRef.current]) // Rerun this check if currentUserData changes
 	);
 
-	// Called when a manager is selected from the first modal
 	const onSelectManagerForVerification = (manager) => {
 		setIsManagerListVisible(false);
 		setManagerToVerify(manager);
 		setIsPinModalVisible(true);
 	};
 
-	// This is the 'onSuccess' callback for the PIN modal
 	const onPinSuccess = (verifiedEmployee) => {
 		console.log(`${verifiedEmployee.name} successfully verified!`);
-		setIsPinModalVisible(false);
-		setManagerToVerify(null);
-		// On success, navigate to the Back Office
+		hasVerifiedRef.current = true;
 		navigation.replace("BackOffice");
 	};
 
 	const onModalClose = () => {
 		setIsManagerListVisible(false);
 		setIsPinModalVisible(false);
-		navigation.navigate("Dashboard"); // Go back to dashboard if they cancel
+		if (navigation.canGoBack()) {
+			navigation.goBack();
+		}
 	};
 
+	// This screen just shows a loading indicator while it performs its permission checks.
 	return (
 		<View style={styles.container}>
 			<ActivityIndicator size="large" color={colors.primary} />
@@ -188,15 +198,26 @@ const styles = StyleSheet.create({
 		fontSize: 20,
 		fontWeight: "bold",
 		color: colors.textDark,
-		marginBottom: 20,
+		marginBottom: 10,
 		textAlign: "center",
+	},
+	modalSubtitle: {
+		fontSize: 15,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 20,
 	},
 	managerRow: {
 		paddingVertical: 18,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
-	managerName: { fontSize: 18, textAlign: "center", color: colors.primary },
+	managerName: {
+		fontSize: 18,
+		textAlign: "center",
+		color: colors.primary,
+		fontWeight: "500",
+	},
 });
 
 export default BackOfficeAuthGate;

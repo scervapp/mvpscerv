@@ -12,17 +12,28 @@ import {
 	Modal,
 	TextInput,
 	ScrollView,
+	Platform,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import {
+	collection,
+	onSnapshot,
+	query,
+	orderBy,
+	doc,
+	updateDoc,
+} from "firebase/firestore";
 import { db, functions } from "../../config/firebase";
 import { httpsCallable } from "firebase/functions";
 import { Button, Card, Avatar, IconButton } from "react-native-paper";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Formik } from "formik";
 import * as Yup from "yup";
-import { Picker } from "@react-native-picker/picker";
+
 import colors from "../../utils/styles/appStyles";
+import { Picker } from "@react-native-picker/picker";
+
+MaterialCommunityIcons;
 
 // --- Reusable Add/Edit Employee Modal ---
 const AddEditEmployeeModal = ({
@@ -32,15 +43,20 @@ const AddEditEmployeeModal = ({
 	isLoading,
 	isFirstEmployee,
 }) => {
+	console.log(
+		`AddEditEmployeeModal: Rendering. isFirstEmployee prop is: ${isFirstEmployee}`
+	);
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required("First name is required."),
 		lastName: Yup.string().required("Last name is required."),
-		email: Yup.string()
-			.email("Invalid email format.")
-			.required("Email is required."),
 		role: Yup.string()
 			.oneOf(["owner", "manager", "worker"])
 			.required("Role is required."),
+		jobTitle: Yup.string().when("role", {
+			is: "worker",
+			then: (schema) => schema.required("Please select a job title."),
+			otherwise: (schema) => schema.nullable(),
+		}),
 		pin: Yup.string().when("role", {
 			is: (role) => role === "manager" || role === "owner",
 			then: (schema) =>
@@ -48,9 +64,21 @@ const AddEditEmployeeModal = ({
 					.min(4, "PIN must be 4-6 digits")
 					.max(6, "PIN must be 4-6 digits")
 					.required("A PIN is required for this role."),
-			otherwise: (schema) => schema.optional(),
 		}),
 	});
+
+	const initialFormValues = {
+		firstName: "",
+		lastName: "",
+		role: isFirstEmployee ? "owner" : "worker",
+		pin: "",
+	};
+
+	// --- LOG 3: Log the initial values for Formik ---
+	console.log(
+		"AddEditEmployeeModal: Formik initialValues are:",
+		initialFormValues
+	);
 
 	return (
 		<Modal
@@ -73,96 +101,131 @@ const AddEditEmployeeModal = ({
 							initialValues={{
 								firstName: "",
 								lastName: "",
-								email: "",
 								role: isFirstEmployee ? "owner" : "worker",
 								pin: "",
 							}}
-							enableReinitialize // Ensures form resets when opened again
+							enableReinitialize
 							validationSchema={validationSchema}
 							onSubmit={onSubmit}
 						>
-							{(
-								{
-									handleChange,
-									handleBlur,
-									handleSubmit,
-									values,
-									errors,
-									touched,
-									setFieldValue,
-								} // <<< Destructure setFieldValue
-							) => (
+							{({
+								handleChange,
+								handleBlur,
+								handleSubmit,
+								values,
+								errors,
+								touched,
+								setFieldValue,
+							}) => (
 								<>
 									<TextInput
 										style={styles.input}
 										placeholder="First Name"
 										value={values.firstName}
 										onChangeText={handleChange("firstName")}
-										onBlur={handleBlur("firstName")}
 									/>
 									{touched.firstName && errors.firstName && (
 										<Text style={styles.errorText}>{errors.firstName}</Text>
 									)}
-
 									<TextInput
 										style={styles.input}
 										placeholder="Last Name"
 										value={values.lastName}
 										onChangeText={handleChange("lastName")}
-										onBlur={handleBlur("lastName")}
 									/>
 									{touched.lastName && errors.lastName && (
 										<Text style={styles.errorText}>{errors.lastName}</Text>
 									)}
 
-									<TextInput
-										style={styles.input}
-										placeholder="Email"
-										value={values.email}
-										onChangeText={handleChange("email")}
-										onBlur={handleBlur("email")}
-										keyboardType="email-address"
-										autoCapitalize="none"
-									/>
-									{touched.email && errors.email && (
-										<Text style={styles.errorText}>{errors.email}</Text>
+									<Text style={styles.inputLabel}>Permission Role</Text>
+									<View style={styles.roleSelectorContainer}>
+										{isFirstEmployee ? (
+											<View style={styles.roleOption}>
+												<MaterialCommunityIcons
+													name="radiobox-marked"
+													size={24}
+													color={colors.primary}
+												/>
+												<Text
+													style={[styles.roleLabel, styles.roleLabelSelected]}
+												>
+													Owner (Full Access)
+												</Text>
+											</View>
+										) : (
+											<>
+												<TouchableOpacity
+													style={styles.roleOption}
+													onPress={() => setFieldValue("role", "worker")}
+												>
+													<MaterialCommunityIcons
+														name={
+															values.role === "worker"
+																? "radiobox-marked"
+																: "radiobox-blank"
+														}
+														size={24}
+														color={colors.primary}
+													/>
+													<Text style={styles.roleLabel}>Worker</Text>
+												</TouchableOpacity>
+												<TouchableOpacity
+													style={styles.roleOption}
+													onPress={() => setFieldValue("role", "manager")}
+												>
+													<MaterialCommunityIcons
+														name={
+															values.role === "manager"
+																? "radiobox-marked"
+																: "radiobox-blank"
+														}
+														size={24}
+														color={colors.primary}
+													/>
+													<Text style={styles.roleLabel}>Manager</Text>
+												</TouchableOpacity>
+											</>
+										)}
+									</View>
+									{touched.role && errors.role && (
+										<Text style={styles.errorText}>{errors.role}</Text>
 									)}
 
-									<Text style={styles.inputLabel}>Role</Text>
-									<View style={styles.pickerContainer}>
-										<Picker
-											selectedValue={values.role}
-											// --- THE FIX IS HERE ---
-											// Use setFieldValue for more reliable updates from pickers.
-											onValueChange={(itemValue) =>
-												setFieldValue("role", itemValue)
-											}
-											style={styles.picker}
-											enabled={!isFirstEmployee}
-										>
-											{isFirstEmployee ? (
-												<Picker.Item
-													label="Owner (Cannot be changed)"
-													value="owner"
-												/>
-											) : (
-												<>
+									{/* --- NEW CONDITIONAL JOB TITLE SELECTOR --- */}
+									{values.role === "worker" && (
+										<>
+											<Text style={styles.inputLabel}>Job Title</Text>
+											<View style={styles.pickerContainer}>
+												<Picker
+													selectedValue={values.jobTitle}
+													onValueChange={(itemValue) =>
+														setFieldValue("jobTitle", itemValue)
+													}
+												>
+													<Picker.Item label="Server" value="server" />
+													<Picker.Item label="Host / Hostess" value="host" />
 													<Picker.Item
-														label="Worker (Server, Host, etc.)"
-														value="worker"
+														label="Chef / Kitchen Staff"
+														value="chef"
 													/>
-													<Picker.Item label="Manager" value="manager" />
-												</>
+													<Picker.Item
+														label="Busser / Support"
+														value="support"
+													/>
+												</Picker>
+											</View>
+											{touched.jobTitle && errors.jobTitle && (
+												<Text style={styles.errorText}>{errors.jobTitle}</Text>
 											)}
-										</Picker>
-									</View>
+										</>
+									)}
 
 									{(values.role === "manager" || values.role === "owner") && (
 										<>
 											<Text style={styles.inputLabel}>Set 4-6 Digit PIN</Text>
 											<TextInput
 												style={styles.input}
-												placeholder="PIN"
+												placeholder="Manager PIN"
 												value={values.pin}
 												onChangeText={handleChange("pin")}
 												keyboardType="number-pad"
@@ -248,11 +311,35 @@ const EmployeeScreen = () => {
 
 	const handleAddEmployee = async (values) => {
 		setIsActionLoading(true);
+
+		const restaurantId = currentUserData?.uid;
+
+		// Add a guard clause for safety.
+		if (!restaurantId) {
+			Alert.alert(
+				"Error",
+				"Could not identify your restaurant. Please log in again."
+			);
+			setIsActionLoading(false);
+			return;
+		}
 		try {
-			await addEmployeeFunction({
+			const result = await addEmployeeFunction({
 				restaurantId: currentUserData.uid,
 				...values,
 			});
+			if (employees.length === 0 && result.data.success) {
+				console.log(
+					"EmployeeScreen: First employee created. Updating restaurant setup status."
+				);
+				const restaurantDocRef = doc(db, "restaurants", restaurantId);
+				await updateDoc(restaurantDocRef, {
+					hasSetupEmployees: true,
+				});
+				console.log(
+					"EmployeeScreen: Restaurant hasSetupEmployees flag set to true."
+				);
+			}
 			Alert.alert("Success", "Employee added successfully.");
 			setIsModalVisible(false);
 		} catch (error) {
@@ -335,6 +422,11 @@ const EmployeeScreen = () => {
 			</View>
 		);
 	}
+	const isFirstEmployee = employees.length === 0;
+	// --- LOG 1: Check the flag in the parent screen ---
+	console.log(
+		`EmployeeScreen: Rendering modal. isFirstEmployee is: ${isFirstEmployee}`
+	);
 
 	return (
 		<SafeAreaView style={styles.container}>
@@ -403,10 +495,16 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		lineHeight: 24,
 	},
-	card: { marginVertical: 8, marginHorizontal: 10, elevation: 2 },
+	card: {
+		marginVertical: 8,
+		marginHorizontal: 10,
+		elevation: 2,
+		backgroundColor: colors.surfaceWhite,
+	},
 	employeeName: { fontWeight: "bold" },
 	employeeRole: { textTransform: "capitalize", color: colors.textMedium },
 	managerRole: { color: colors.primary, fontWeight: "600" },
+	cardActions: { justifyContent: "flex-end" },
 	fab: {
 		position: "absolute",
 		margin: 16,
@@ -445,7 +543,7 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		borderRadius: 8,
 		paddingHorizontal: 15,
-		marginBottom: 10,
+		marginBottom: 15,
 		fontSize: 16,
 		backgroundColor: colors.backgroundLight,
 	},
@@ -458,6 +556,7 @@ const styles = StyleSheet.create({
 	},
 	errorText: {
 		color: colors.statusDanger,
+		marginTop: -10,
 		marginBottom: 10,
 		marginLeft: 5,
 		fontSize: 13,
@@ -477,6 +576,35 @@ const styles = StyleSheet.create({
 		marginTop: 20,
 	},
 	modalButton: { flex: 1, marginHorizontal: 5, paddingVertical: 5 },
+	inputLabel: {
+		fontSize: 14,
+		color: colors.textMedium,
+		fontWeight: "500",
+		marginBottom: 8,
+		marginLeft: 5,
+	},
+	roleSelectorContainer: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		paddingVertical: 5,
+		marginBottom: 20,
+	},
+	roleOption: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 12,
+	},
+	roleLabel: {
+		fontSize: 16,
+		marginLeft: 15,
+		color: colors.textDark,
+	},
+	roleLabelSelected: {
+		fontWeight: "bold",
+		color: colors.primary,
+	},
 });
 
 export default EmployeeScreen;

@@ -1,199 +1,310 @@
+// screens/auth/RestaurantSignupScreen.js
 import React, { useState, useContext } from "react";
 import {
 	View,
-	StyleSheet,
 	Text,
+	StyleSheet,
 	TextInput,
-	Button,
-	Label,
-	ScrollView,
 	TouchableOpacity,
+	Alert,
+	ActivityIndicator,
+	SafeAreaView,
+	ScrollView,
+	KeyboardAvoidingView, // <<< Import KeyboardAvoidingView
+	Platform,
 } from "react-native";
-import colors from "../../utils/styles/appStyles";
-import { AuthContext } from "../../context/authContext";
-import { ActivityIndicator } from "react-native-paper";
+import { Formik } from "formik";
+import * as Yup from "yup";
+import { AuthContext } from "../../context/authContext"; // Adjust path
+import { Button } from "react-native-paper";
+import colors from "../../utils/styles/appStyles"; // Adjust path
 
-const RestaurantSignup = ({ navigation }) => {
-	// State variables for all attributes
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
-	const [phoneNumber, setPhoneNumber] = useState("");
-	const [restaurantName, setRestaurantName] = useState("");
-	const [birthdate, setBirthdate] = useState("");
-	const [firstName, setFirstName] = useState("");
-	const [lastName, setLastName] = useState("");
-	const [signupError, setSignupError] = useState("");
-	const [isLoading, setIsLoading] = useState(false);
+const RestaurantSignupScreen = ({ navigation }) => {
+	const { signup, isLoading, authError } = useContext(AuthContext);
+	const [isSubmitting, setIsSubmitting] = useState(false);
 
-	// ... State variables for your custom attributes
-	const { signup } = useContext(AuthContext);
-
-	const handleSignupSubmit = async () => {
-		setIsLoading(true);
+	const handleSignupSubmit = async (values) => {
+		if (isLoading) return;
+		setIsSubmitting(true);
 		try {
-			setSignupError("");
-			await signup(
-				email,
-				password,
-				{
-					restaurantName: restaurantName,
-					firstName: firstName,
-					lastName: lastName,
-					phoneNumber: phoneNumber,
-				},
-				"restaurant",
-				navigation
-			);
+			await signup(values.email, values.password, "owner", {
+				restaurantName: values.restaurantName,
+				firstName: values.firstName,
+				lastName: values.lastName,
+				phoneNumber: values.phoneNumber,
+				address: values.address,
+				city: values.city,
+				state: values.state,
+				zipcode: values.zipcode,
+			});
 		} catch (error) {
-			setSignupError(error.message);
+			console.log("Restaurant signup failed on screen:", error.message);
 		} finally {
-			setIsLoading(false);
+			setIsSubmitting(false);
 		}
 	};
 
+	const validationSchema = Yup.object().shape({
+		restaurantName: Yup.string().required("Restaurant name is required"),
+		firstName: Yup.string().required("Owner's first name is required"),
+		lastName: Yup.string().required("Owner's last name is required"),
+		email: Yup.string()
+			.email("Please enter a valid email")
+			.required("Email is required"),
+		phoneNumber: Yup.string()
+			.matches(/^[0-9]{10}$/, "Must be a valid 10-digit phone number")
+			.required("Phone number is required"),
+		password: Yup.string()
+			.min(6, "Password must be at least 6 characters")
+			.required("Password is required"),
+		address: Yup.string().required("Street address is required"),
+		city: Yup.string().required("City is required"),
+		state: Yup.string().required("State is required"),
+		zipcode: Yup.string()
+			.matches(/^[0-9]{5}$/, "Must be a valid 5-digit zip code")
+			.required("Zip code is required"),
+	});
+
 	return (
-		<ScrollView style={styles.container}>
-			<Text style={styles.title}>Restaurant Signup</Text>
-
-			<View style={styles.form}>
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Email</Text>
-					<TextInput
-						style={styles.input}
-						value={email}
-						onChangeText={setEmail}
-						placeholder="youremail@example.com"
-						keyboardType="email-address"
-						autoCapitalize="none"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Restaurant Name</Text>
-					<TextInput
-						style={styles.input}
-						value={restaurantName}
-						onChangeText={setRestaurantName}
-						placeholder="Joe's Crabshack"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>First Name</Text>
-					<TextInput
-						style={styles.input}
-						value={firstName}
-						onChangeText={setFirstName}
-						placeholder="John"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Last Name</Text>
-					<TextInput
-						style={styles.input}
-						value={lastName}
-						onChangeText={setLastName}
-						placeholder="Johnson"
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Phone Number</Text>
-					<TextInput
-						style={styles.input}
-						value={phoneNumber}
-						onChangeText={setPhoneNumber}
-						placeholder="Enter your phone number"
-						keyboardType="phone-pad"
-						maxLength={10}
-					/>
-				</View>
-
-				<View style={styles.inputGroup}>
-					<Text style={styles.label}>Password</Text>
-					<TextInput
-						style={styles.input}
-						value={password}
-						onChangeText={setPassword}
-						placeholder="Enter your password"
-						secureTextEntry
-					/>
-				</View>
-
-				{isLoading && <ActivityIndicator size="large" color={colors.primary} />}
-				{signupError && (
-					<View style={styles.errorArea}>
-						<Text style={styles.errorText}>{signupError}</Text>
+		// --- THIS IS THE FIX for the keyboard ---
+		<KeyboardAvoidingView
+			behavior={Platform.OS === "ios" ? "padding" : "height"}
+			style={styles.keyboardAvoidingContainer}
+		>
+			<SafeAreaView style={styles.safeArea}>
+				<ScrollView contentContainerStyle={styles.container}>
+					<View style={styles.header}>
+						<Text style={styles.title}>Join as a Partner</Text>
+						<Text style={styles.subtitle}>
+							Create your restaurant's account
+						</Text>
 					</View>
-				)}
 
-				<TouchableOpacity
-					style={styles.signupButton}
-					onPress={handleSignupSubmit}
-					disabled={isLoading}
-				>
-					<Text style={styles.signupButtonText}>Sign Up</Text>
-				</TouchableOpacity>
-			</View>
-		</ScrollView>
+					<Formik
+						initialValues={{
+							restaurantName: "",
+							firstName: "",
+							lastName: "",
+							email: "",
+							password: "",
+							phoneNumber: "",
+							address: "",
+							city: "",
+							state: "",
+							zipcode: "",
+						}}
+						validationSchema={validationSchema}
+						onSubmit={handleSignupSubmit}
+					>
+						{({
+							handleChange,
+							handleBlur,
+							handleSubmit,
+							values,
+							errors,
+							touched,
+						}) => (
+							<View style={styles.form}>
+								<TextInput
+									style={styles.input}
+									placeholder="Restaurant Name"
+									value={values.restaurantName}
+									onChangeText={handleChange("restaurantName")}
+									onBlur={handleBlur("restaurantName")}
+								/>
+								{touched.restaurantName && errors.restaurantName && (
+									<Text style={styles.errorText}>{errors.restaurantName}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Owner's First Name"
+									value={values.firstName}
+									onChangeText={handleChange("firstName")}
+									onBlur={handleBlur("firstName")}
+								/>
+								{touched.firstName && errors.firstName && (
+									<Text style={styles.errorText}>{errors.firstName}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Owner's Last Name"
+									value={values.lastName}
+									onChangeText={handleChange("lastName")}
+									onBlur={handleBlur("lastName")}
+								/>
+								{touched.lastName && errors.lastName && (
+									<Text style={styles.errorText}>{errors.lastName}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Business Email"
+									value={values.email}
+									onChangeText={handleChange("email")}
+									keyboardType="email-address"
+									autoCapitalize="none"
+								/>
+								{touched.email && errors.email && (
+									<Text style={styles.errorText}>{errors.email}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Business Phone"
+									value={values.phoneNumber}
+									onChangeText={handleChange("phoneNumber")}
+									keyboardType="phone-pad"
+									maxLength={10}
+								/>
+								{touched.phoneNumber && errors.phoneNumber && (
+									<Text style={styles.errorText}>{errors.phoneNumber}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Password"
+									value={values.password}
+									onChangeText={handleChange("password")}
+									secureTextEntry
+								/>
+								{touched.password && errors.password && (
+									<Text style={styles.errorText}>{errors.password}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder="Street Address"
+									value={values.address}
+									onChangeText={handleChange("address")}
+								/>
+								{touched.address && errors.address && (
+									<Text style={styles.errorText}>{errors.address}</Text>
+								)}
+
+								{/* --- ADDED MISSING FIELDS --- */}
+								<View style={styles.row}>
+									<View style={styles.cityInput}>
+										<TextInput
+											style={styles.input}
+											placeholder="City"
+											value={values.city}
+											onChangeText={handleChange("city")}
+										/>
+										{touched.city && errors.city && (
+											<Text style={styles.errorText}>{errors.city}</Text>
+										)}
+									</View>
+									<View style={styles.stateInput}>
+										<TextInput
+											style={styles.input}
+											placeholder="State"
+											value={values.state}
+											onChangeText={handleChange("state")}
+											maxLength={2}
+											autoCapitalize="characters"
+										/>
+										{touched.state && errors.state && (
+											<Text style={styles.errorText}>{errors.state}</Text>
+										)}
+									</View>
+								</View>
+
+								<TextInput
+									style={styles.input}
+									placeholder="Zip Code"
+									value={values.zipcode}
+									onChangeText={handleChange("zipcode")}
+									keyboardType="number-pad"
+									maxLength={5}
+								/>
+								{touched.zipcode && errors.zipcode && (
+									<Text style={styles.errorText}>{errors.zipcode}</Text>
+								)}
+								{/* --- END ADDED FIELDS --- */}
+
+								{authError && <Text style={styles.errorText}>{authError}</Text>}
+
+								<Button
+									mode="contained"
+									onPress={handleSubmit}
+									disabled={isLoading || isSubmitting}
+									loading={isLoading || isSubmitting}
+									style={styles.button}
+									labelStyle={styles.buttonText}
+								>
+									Create Restaurant Account
+								</Button>
+							</View>
+						)}
+					</Formik>
+
+					<View style={styles.footer}>
+						<Text style={styles.footerText}>Already have an account?</Text>
+						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
+							<Text style={styles.linkTextFooter}> Log In</Text>
+						</TouchableOpacity>
+					</View>
+				</ScrollView>
+			</SafeAreaView>
+		</KeyboardAvoidingView>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		backgroundColor: colors.background,
-		padding: 30,
-	},
+	keyboardAvoidingContainer: { flex: 1 },
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	container: { flexGrow: 1, justifyContent: "center", padding: 25 },
+	header: { alignItems: "center", marginBottom: 30 },
 	title: {
-		fontSize: 28,
+		fontSize: 32,
 		fontWeight: "bold",
-		color: colors.primary,
+		color: colors.textDark,
 		textAlign: "center",
-		marginBottom: 30,
+		marginBottom: 8,
 	},
-	form: {
-		backgroundColor: colors.white,
-		padding: 20,
-		borderRadius: 10,
+	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
+	form: { width: "100%" },
+	input: {
+		height: 55,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 15,
+		fontSize: 16,
+		backgroundColor: colors.surfaceWhite,
 	},
-	inputGroup: {
+	inputGroup: { marginBottom: 15 },
+	row: {
+		flexDirection: "row",
+		justifyContent: "space-between",
 		marginBottom: 15,
 	},
-	label: {
-		fontSize: 16,
-		color: colors.text,
-		marginBottom: 5,
+	cityInput: {
+		flex: 0.6, // Takes up more space
+		marginRight: 10,
 	},
-	input: {
-		borderWidth: 1,
-		borderColor: colors.gray,
-		borderRadius: 8,
-		padding: 10,
-		backgroundColor: colors.inputBackground,
-		fontSize: 16,
+	stateInput: {
+		flex: 0.35, // Takes up less space
 	},
-	signupButton: {
-		backgroundColor: colors.primary,
-		padding: 15,
-		borderRadius: 8,
-		alignItems: "center",
-		marginTop: 20,
-	},
-	signupButtonText: {
-		color: "white",
-		fontSize: 18,
-		fontWeight: "bold",
-	},
-	errorArea: {
-		marginTop: 10,
-	},
+	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
+	buttonText: { fontSize: 16, fontWeight: "bold" },
 	errorText: {
-		color: "red",
-		fontWeight: "bold",
-		textAlign: "center",
+		color: colors.statusDanger,
+		marginTop: -5,
+		marginBottom: 10,
+		marginLeft: 5,
+		fontSize: 13,
 	},
+	footer: {
+		flexDirection: "row",
+		justifyContent: "center",
+		alignItems: "center",
+		marginTop: 30,
+	},
+	footerText: { fontSize: 15, color: colors.textMedium },
+	linkTextFooter: { color: colors.primary, fontSize: 15, fontWeight: "bold" },
 });
 
-export default RestaurantSignup;
+export default RestaurantSignupScreen;

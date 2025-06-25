@@ -19,6 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.scerv.app"
+     
     },
     "android": {
       "versionCode": 4,
@@ -33,7 +34,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {

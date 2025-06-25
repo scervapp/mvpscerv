@@ -51,6 +51,9 @@ exports.stripeWebhookLive = paymentFunctions.stripeWebhookLive;
 exports.handleStripeEvent = paymentFunctions.handleStripeEvent;
 
 exports.createStripeCustomer = userFunctions.createStripeCustomer;
+exports.onUserCreate = userFunctions.onUserCreate;
+exports.createUserAccount = userFunctions.createUserAccount;
+exports.setUserRole = userFunctions.setUserRole;
 exports.createConnectedAccount =
 	stripeOnboardingFunctions.createConnectedAccount;
 exports.createLoginLink = stripeOnboardingFunctions.createLoginLink;

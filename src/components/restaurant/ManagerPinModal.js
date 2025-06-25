@@ -15,13 +15,11 @@ import { functions } from "../../config/firebase"; // Adjust path
 import colors from "../../utils/styles/appStyles"; // Adjust path
 import { AuthContext } from "../../context/authContext";
 
-
 const PinPadButton = ({ value, onPress }) => (
 	<TouchableOpacity style={styles.pinButton} onPress={() => onPress(value)}>
 		<Text style={styles.pinButtonText}>{value}</Text>
 	</TouchableOpacity>
 );
-
 
 const ManagerPinModal = ({
 	isVisible, // Boolean to control visibility
@@ -35,14 +33,16 @@ const ManagerPinModal = ({
 	const [error, setError] = useState("");
 
 	const verifyPinFunction = httpsCallable(functions, "verifyEmployeePin");
+	const [hasVerified, setHasVerified] = useState(false);
 
 	// Reset PIN when modal becomes visible or employee changes
 	useEffect(() => {
+		if (hasVerified) return;
 		if (isVisible) {
 			setPin("");
 			setError("");
 		}
-	}, [isVisible, employeeToVerify]);
+	}, [isVisible]);
 
 	const handleKeyPress = (value) => {
 		if (pin.length < 6) {
@@ -59,6 +59,8 @@ const ManagerPinModal = ({
 			setError("PIN must be at least 4 digits.");
 			return;
 		}
+
+		const employeeIdToVerify = employeeToVerify?.uid || employeeToVerify?.id;
 		// Add a guard clause to ensure restaurantId was passed as a prop.
 		if (!restaurantId) {
 			setError("Restaurant information is missing. Cannot verify PIN.");
@@ -70,7 +72,7 @@ const ManagerPinModal = ({
 		try {
 			const result = await verifyPinFunction({
 				restaurantId: restaurantId,
-				employeeId: employeeToVerify.id,
+				employeeId: employeeIdToVerify,
 				pin: pin,
 			});
 
@@ -78,7 +80,6 @@ const ManagerPinModal = ({
 				// If PIN is correct, call the onSuccess callback passed in props
 				// and pass the verified employee's data to it.
 				onSuccess(result.data.employee);
-				onClose(); // Close the modal
 			} else {
 				setError(result.data.message || "Invalid PIN.");
 			}
@@ -141,8 +142,8 @@ const ManagerPinModal = ({
 								<PinPadButton value="9" onPress={handleKeyPress} />
 							</View>
 							<View style={styles.pinRow}>
-								<TouchableOpacity style={styles.pinButton} onPress={onClose}>
-									<Text style={styles.pinButtonText}>Cancel</Text>
+								<TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+									<Text style={styles.cancelButtonText}>Cancel</Text>
 								</TouchableOpacity>
 								<PinPadButton value="0" onPress={handleKeyPress} />
 								<TouchableOpacity
@@ -242,6 +243,17 @@ const styles = StyleSheet.create({
 		color: colors.textOnPrimaryBrand,
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+	cancelButton: {
+		width: 70,
+		height: 70,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	cancelButtonText: {
+		fontSize: 16,
+		color: colors.textMedium,
+		fontWeight: "600",
 	},
 });
 
