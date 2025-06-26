@@ -92,6 +92,8 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
 			userData = {
 				role: "owner",
 				hasSetupEmployees: false, // <<< SET THE ONBOARDING FLAG HERE
+				taxRate: 0.0,
+				isTestAccount: true,
 			};
 		} else {
 			throw new functions.https.HttpsError(

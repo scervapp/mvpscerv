@@ -487,7 +487,22 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
  * @param {string} data.server - The server object {id, name} for the order.
  * @param {object} context - The Firebase Functions context object.
  * @returns {Promise<{success: boolean, orderId?: string, error?: string}>}
+ *
+ *
  */
+
+const DRINK_CATEGORIES = [
+	"Beer",
+	"Wine",
+	"Cocktails",
+	"Spirits",
+	"Sodas",
+	"Drinks",
+	"Juices",
+	"Non-Alcoholic Drinks",
+	"Alcoholic Drinks",
+	"Beverages",
+];
 exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
@@ -507,14 +522,14 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 	try {
 		let itemsFromSource = [];
-		let orderSourceRef;
-		let updatePayload = {};
 		let restaurantIdForOrder;
 		const batch = db.batch();
 
+		const menuItemDetailsMap = new Map();
+
 		if (type === "party") {
-			orderSourceRef = db.collection("shared_baskets").doc(sourceId);
-			const basketDoc = await orderSourceRef.get();
+			const basketRef = db.collection("shared_baskets").doc(sourceId);
+			const basketDoc = await basketRef.get();
 			if (!basketDoc.exists) throw new Error("Shared basket not found.");
 
 			const allItems = basketDoc.data().items || [];
@@ -522,15 +537,38 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				(item) => item.orderedByUserId === userId && item.status === "new"
 			);
 
-			const updatedSourceItems = allItems.map((item) =>
-				item.orderedByUserId === userId && item.status === "new"
-					? { ...item, status: "sent", sentAt: new Date() }
-					: item
-			);
-			updatePayload = { items: updatedSourceItems, lastUpdated: new Date() };
-			if (itemsFromSource.length > 0)
+			if (itemsFromSource.length > 0) {
 				restaurantIdForOrder = itemsFromSource[0].restaurantId;
-			batch.update(orderSourceRef, updatePayload);
+
+				// Get all unique menu item IDs from the items being ordered.
+				const menuItemIds = [
+					...new Set(itemsFromSource.map((item) => item.id)),
+				];
+
+				// Fetch all the corresponding documents from the menuItems collection.
+				if (menuItemIds.length > 0) {
+					const menuItemsQuery = db
+						.collection("menuItems")
+						.where(admin.firestore.FieldPath.documentId(), "in", menuItemIds);
+					const menuItemsSnapshot = await menuItemsQuery.get();
+
+					// Populate our map for easy lookup.
+					menuItemsSnapshot.forEach((doc) => {
+						menuItemDetailsMap.set(doc.id, doc.data());
+					});
+				}
+
+				// Update the shared_basket items' status
+				const updatedSourceItems = allItems.map((item) =>
+					item.orderedByUserId === userId && item.status === "new"
+						? { ...item, status: "sent", sentAt: new Date() }
+						: item
+				);
+				batch.update(basketRef, {
+					items: updatedSourceItems,
+					lastUpdated: new Date(),
+				});
+			}
 		} else if (type === "individual") {
 			const basketQuery = db
 				.collection("baskets")
@@ -541,29 +579,46 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				id: doc.id,
 				...doc.data(),
 			}));
-			if (itemsFromSource.length > 0)
+			if (itemsFromSource.length > 0) {
 				restaurantIdForOrder = itemsFromSource[0].restaurantId;
-			basketSnapshot.docs.forEach((doc) =>
-				batch.update(doc.ref, { sentToChefQ: true })
-			);
+				basketSnapshot.docs.forEach((doc) =>
+					batch.update(doc.ref, { sentToChefQ: true })
+				);
+			}
 		}
 
 		if (itemsFromSource.length === 0) {
 			return { success: true, message: "No new items to send.", itemsSent: 0 };
 		}
 
-		// --- DATA NORMALIZATION FIX ---
-		// This now correctly handles items from both individual baskets (nested) and party baskets (flat).
+		// --- THIS IS THE FIX ---
+		// The normalization logic is now smarter and handles the different data structures correctly.
 		const kitchenItems = itemsFromSource.map((item) => {
+			let category;
+			let dishName;
+
+			if (type === "party") {
+				// For party items, get the details from the map we created.
+				const details = menuItemDetailsMap.get(item.id);
+				category = details.category || "Other"; // Safely access category
+				dishName = details.name || "Unknown Item"; // Safely access name
+			} else {
+				// For individual items, the structure already has the nested dish object.
+				// This line will no longer crash for party orders.
+				category = item.dish.category || "Other";
+				dishName = item.dish.name || "Unknown Item";
+			}
+
 			return {
 				id: item.id,
-				dishName: (item.dish && item.dish.name) || item.dishName,
+				dishName: dishName,
 				quantity: item.quantity,
 				specialInstructions: item.specialInstructions || "",
 				orderedFor: item.orderedByPipName || item.pipName || item.customerName,
+				// The destination is now reliably set for both party and individual orders.
+				destination: DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen",
 			};
 		});
-		// --- END OF FIX ---
 
 		const kitchenOrderRef = db.collection("kitchen_orders").doc();
 		const kitchenOrderData = {
@@ -571,7 +626,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			orderId: kitchenOrderRef.id,
 			table: table,
 			server: server,
-			items: kitchenItems, // Use the new, clean kitchenItems array
+			items: kitchenItems,
 			status: "new",
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		};
@@ -591,8 +646,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not send order to kitchen.",
-			error.message
+			"Could not send order to kitchen."
 		);
 	}
 });

@@ -124,6 +124,89 @@ const checkAndCloseParty = async (partyRef, partyData, transaction) => {
 	}
 };
 
+// --- NEW HELPER FUNCTION ---
+/**
+ * Creates a permanent 'order' document from a successful party payment.
+ * This is crucial for sales reporting.
+ * @param {object} partyData The data from the /parties/{partyId} document.
+ * @param {string} payingUserId The ID of the user who just paid.
+ * @param {object} paymentIntent The successful PaymentIntent object from Stripe.
+ * @param {number} stripeFeeActual The actual fee charged by Stripe for this transaction.
+ * @returns {Promise<void>}
+ */
+const createOrderFromPartyPayment = async (
+	partyData,
+	payingUserId,
+	paymentIntent,
+	stripeFeeActual
+) => {
+	console.log(
+		`Creating permanent order for user ${payingUserId} in party ${partyData.id}`
+	);
+
+	// 1. Get the items from the shared basket
+	const basketRef = db
+		.collection("shared_baskets")
+		.doc(partyData.sharedBasketId);
+	const basketDoc = await basketRef.get();
+	if (!basketDoc.exists) {
+		console.error(
+			`Could not find shared_basket ${partyData.sharedBasketId} to create order.`
+		);
+		return;
+	}
+
+	// 2. Filter for only the items that belong to the user who just paid
+	const allItems = basketDoc.data().items || [];
+	const userItems = allItems.filter(
+		(item) => item.orderedByUserId === payingUserId
+	);
+
+	if (userItems.length === 0) {
+		console.warn(
+			`User ${payingUserId} paid but had no items in the shared basket.`
+		);
+		return;
+	}
+
+	// 3. Construct the new 'order' document
+	const newOrderRef = db.collection("orders").doc(); // Create a new doc with a unique ID
+	const orderData = {
+		// Core Details
+		id: newOrderRef.id,
+		restaurantId: partyData.restaurantId,
+		userId: payingUserId,
+		timestamp: admin.firestore.FieldValue.serverTimestamp(),
+
+		// Items & Financials
+		items: userItems, // The array of items they paid for
+		subtotal: paymentIntent.metadata.subtotal, // from metadata
+		tax: paymentIntent.metadata.tax, // from metadata
+		gratuity: paymentIntent.metadata.gratuity, // from metadata
+		totalPrice: paymentIntent.amount, // The final amount charged
+
+		// Statuses
+		paymentStatus: "paid",
+		orderStatus: "confirmed",
+
+		// Table & Server Info
+		table: partyData.table,
+		server: partyData.server,
+
+		// Payment & Fee Details
+		stripePaymentIntentId: paymentIntent.id,
+		stripeChargeId: paymentIntent.latest_charge,
+		stripeFeeActual: stripeFeeActual,
+		platformFeeActual: paymentIntent.application_fee_amount || 0,
+	};
+
+	// 4. Save the new order document
+	await newOrderRef.set(orderData);
+	console.log(
+		`✅ Successfully created permanent order ${newOrderRef.id} from party payment.`
+	);
+};
+
 /**
  * A shared helper function to process verified Stripe webhook events.
  * It intelligently handles successful payments and failures for both
@@ -339,7 +422,7 @@ exports.preparePaymentSheetData = functions
 	})
 	.https.onCall(async (data, context) => {
 		if (!context.auth) {
-			throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+			throw new functions.https.HttpsError("unauthenticated", "Auth required");
 		}
 
 		const {
@@ -568,7 +651,7 @@ exports.stripeWebhookTest = functions
 		let event;
 
 		if (!webhookSecret || !secretKey) {
-			console.error("🔴 TEST Webhook Error: Missing secrets.");
+			console.error("🔴 TEST Webhook Error: Missing secrets..");
 			return response.status(500).send("Server configuration error.");
 		}
 

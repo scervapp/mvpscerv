@@ -20,7 +20,10 @@ import moment from "moment";
 import { useWorkDay } from "../../context/restaurant/WorkDayContext";
 import { AuthContext } from "../../context/authContext";
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
-import { fetchEmployees } from "../../utils/firebaseUtils";
+import {
+	fetchEmployees,
+	fetchEmployeesByRole,
+} from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
 
 // Reusable card component for the navigation grid
@@ -124,7 +127,7 @@ const RestaurantDashboardScreen = () => {
 		// 2. For everyone else, start the standard PIN verification flow.
 		setIsFetchingManagers(true);
 		try {
-			const managerList = await fetchEmployees(restaurantId, [
+			const managerList = await fetchEmployeesByRole(restaurantId, [
 				"manager",
 				"owner",
 			]);

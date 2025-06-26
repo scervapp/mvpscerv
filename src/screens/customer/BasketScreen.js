@@ -33,15 +33,7 @@ import { jsx } from "react/jsx-runtime";
 import formatCurrency from "../../utils/currencyFormatter";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Use consistent icon set if possible
 import { Divider } from "react-native-elements";
-import {
-	doc,
-	getDoc,
-	query,
-	collection,
-	where,
-	onSnapshot,
-	orderBy,
-} from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { useParty } from "../../context/customer/PartyContext";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 
@@ -73,8 +65,6 @@ const BasketScreen = ({ route, navigation }) => {
 		currentUserData?.uid
 	);
 	const [fees, setFees] = useState(0.05); // Default platform fee %
-
-	const checkInId = partyDetails?.checkInId;
 
 	// Get basket for the current restaurant
 	const restaurantBasketItems = useMemo(() => {

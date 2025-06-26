@@ -167,21 +167,29 @@ const PartyMenuScreen = () => {
 
 	return (
 		<SafeAreaView style={styles.screen}>
-			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-				<MenuItemsList
-					menuItems={menuItems}
-					isLoading={isLoadingMenu}
-					pips={partyMembersForModal} // <<< PASS THE CORRECT LIST HERE
-					onConfirmAddItemToContext={handleConfirmAddItemToPartyContext}
-					orderingMode="party"
-					partyData={{
-						partyId: partyId,
-						currentUserId: currentUserData.uid,
-					}}
-					// partyData prop is no longer needed as this screen gets it from context
-					// restaurantId is also not needed as it's derived from partyDetails
-				/>
-			</ScrollView>
+			<MenuItemsList
+				// Data
+				menuItems={menuItems}
+				isLoading={isLoadingMenu}
+				// Header (can be simple text or a more complex component)
+				ListHeaderComponent={
+					<View style={styles.headerContainer}>
+						<Text style={styles.headerTitle}>Order for Party</Text>
+						<Text style={styles.headerSubtitle}>
+							at {partyDetails.restaurantName}
+						</Text>
+					</View>
+				}
+				// Props for Functionality
+				pips={partyMembersForModal}
+				onConfirmAddItemToContext={handleConfirmAddItemToPartyContext}
+				orderingMode="party" // CRITICAL: This tells the modal how to behave
+				// This is the data the modal needs to correctly add an item to the party
+				partyData={{
+					partyId: partyId,
+					currentUserId: currentUserData.uid,
+				}}
+			/>
 		</SafeAreaView>
 	);
 };
@@ -189,7 +197,7 @@ const PartyMenuScreen = () => {
 const styles = StyleSheet.create({
 	screen: {
 		flex: 1,
-		backgroundColor: colors.backgroundLight, // Use your theme
+		backgroundColor: colors.backgroundLight,
 	},
 	centeredScreen: {
 		flex: 1,
@@ -198,6 +206,21 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.backgroundLight,
 	},
 	loadingText: { marginTop: 10, fontSize: 16, color: colors.textMedium },
+	headerContainer: {
+		padding: 20,
+	},
+	headerTitle: {
+		fontSize: 24,
+		fontWeight: "bold",
+		color: colors.textDark,
+		textAlign: "center",
+	},
+	headerSubtitle: {
+		fontSize: 16,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginTop: 4,
+	},
 	// Add any other specific styles for PartyMenuScreen if needed
 });
 

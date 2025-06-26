@@ -202,6 +202,96 @@ export const fetchTables = (restaurantId, callback, onError) => {
 		return () => {};
 	}
 };
+
+/**
+ * Fetches employees from a restaurant's subcollection based on their permission ROLE.
+ * This is used for security checks, like seeing if any managers exist.
+ * @param {string} restaurantId - The UID of the restaurant.
+ * @param {string[]} roles - An array of roles to search for (e.g., ['manager', 'owner']).
+ * @returns {Promise<object[]>} A promise that resolves to an array of employee objects.
+ */
+export const fetchEmployeesByRole = async (restaurantId, roles) => {
+	console.log(
+		`Fetching employees for restaurant "${restaurantId}" with roles: "${roles.join(
+			", "
+		)}"`
+	);
+	if (!restaurantId || !Array.isArray(roles) || roles.length === 0) {
+		console.error(
+			"fetchEmployeesByRole: restaurantId and a non-empty array of roles are required."
+		);
+		return [];
+	}
+
+	try {
+		const employeesRef = collection(
+			db,
+			"restaurants",
+			restaurantId,
+			"employees"
+		);
+
+		// Use the 'in' operator to find any employee whose role is in the provided array
+		const q = query(employeesRef, where("role", "in", roles));
+
+		const snapshot = await getDocs(q);
+		const employeesList = snapshot.docs.map((doc) => ({
+			id: doc.id,
+			...doc.data(),
+		}));
+
+		console.log(`Found ${employeesList.length} employees with matching roles.`);
+		return employeesList;
+	} catch (error) {
+		console.error("Error fetching employees by role:", error);
+		return [];
+	}
+};
+
+/**
+ * Fetches employees from a restaurant's subcollection based on their operational JOB TITLE.
+ * This is used for operational tasks, like assigning a server to a table.
+ * @param {string} restaurantId - The UID of the restaurant.
+ * @param {string} jobTitle - A specific job title string to filter by (e.g., 'Server').
+ * @returns {Promise<object[]>} A promise that resolves to an array of employee objects.
+ */
+export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
+	console.log(
+		`Fetching employees for restaurant "${restaurantId}" with job title: "${jobTitle}"`
+	);
+	if (!restaurantId || !jobTitle) {
+		console.error(
+			"fetchEmployeesByJobTitle: restaurantId and jobTitle are required."
+		);
+		return [];
+	}
+
+	try {
+		const employeesRef = collection(
+			db,
+			"restaurants",
+			restaurantId,
+			"employees"
+		);
+
+		// Use the '==' operator to find all employees with a specific job title
+		const q = query(employeesRef, where("jobTitle", "==", jobTitle));
+
+		const snapshot = await getDocs(q);
+		const employeesList = snapshot.docs.map((doc) => ({
+			id: doc.id,
+			...doc.data(),
+		}));
+
+		console.log(
+			`Found ${employeesList.length} employees with matching job title.`
+		);
+		return employeesList;
+	} catch (error) {
+		console.error("Error fetching employees by job title:", error);
+		return [];
+	}
+};
 /**
  * Fetches employees for a given restaurant, optionally filtering by a single role or an array of roles.
  *
@@ -209,10 +299,13 @@ export const fetchTables = (restaurantId, callback, onError) => {
  * @param {string|Array<string>} [roles] Optional. A single role string or an array of role strings to filter by.
  * @returns {Promise<Array>} A promise that resolves with an array of employee objects.
  */
-export const fetchEmployees = async (restaurantId, roles) => {
+export const fetchEmployees = async (restaurantId, jobTitles) => {
+	// --- THIS IS THE FIX ---
+	// The function now queries by `jobTitle` instead of `role`.
+
 	console.log(
-		`firebaseUtils.fetchEmployees: Fetching for restaurant "${restaurantId}" with roles: "${
-			roles || "any"
+		`firebaseUtils.fetchEmployees: Fetching for restaurant "${restaurantId}" with jobTitles: "${
+			jobTitles || "any"
 		}"`
 	);
 
@@ -230,28 +323,23 @@ export const fetchEmployees = async (restaurantId, roles) => {
 		);
 		let employeesQuery;
 
-		// --- THIS IS THE NEW ROBUST LOGIC ---
-		if (Array.isArray(roles) && roles.length > 0) {
-			// If 'roles' is a non-empty array, use the 'in' operator for the query.
-			// This is needed for fetching managers and owners together.
-			console.log("... using 'in' query for multiple roles.");
+		// The logic remains the same, but the field name is updated.
+		if (Array.isArray(jobTitles) && jobTitles.length > 0) {
+			console.log("... using 'in' query for multiple job titles.");
 			employeesQuery = query(
 				employeesSubcollectionRef,
-				where("role", "in", roles)
+				where("jobTitle", "in", jobTitles)
 			);
-		} else if (typeof roles === "string" && roles) {
-			// If 'roles' is a single string, use the '==' operator for backward compatibility.
-			console.log("... using '==' query for a single role.");
+		} else if (typeof jobTitles === "string" && jobTitles) {
+			console.log("... using '==' query for a single job title.");
 			employeesQuery = query(
 				employeesSubcollectionRef,
-				where("role", "==", roles)
+				where("jobTitle", "==", jobTitles)
 			);
 		} else {
-			// If no roles are specified, fetch all employees for the restaurant.
-			console.log("... no role filter, fetching all employees.");
+			console.log("... no job title filter, fetching all employees.");
 			employeesQuery = query(employeesSubcollectionRef);
 		}
-		// --- END OF NEW LOGIC ---
 
 		const snapshot = await getDocs(employeesQuery);
 		const employeesList = snapshot.docs.map((doc) => ({
@@ -269,7 +357,7 @@ export const fetchEmployees = async (restaurantId, roles) => {
 			error
 		);
 		// This could be a missing index error. The error message in the console
-		// will provide a direct link to create the necessary Firestore index.
+		// will provide a direct link to create the necessary Firestore index for `jobTitle`.
 		return []; // Return empty array on error
 	}
 };

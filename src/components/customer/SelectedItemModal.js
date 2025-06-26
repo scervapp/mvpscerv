@@ -92,6 +92,7 @@ const SelectedItemModal = ({
 	onConfirm,
 	orderingMode = "individual",
 	isLoading = false,
+	partyData,
 }) => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
@@ -176,47 +177,11 @@ const SelectedItemModal = ({
 	};
 
 	const handleConfirmPress = () => {
-		console.log("Handle Confirm Press Triggered");
 		if (!selectedItem) {
-			console.error(
-				"handleConfirmPress: Aborted because selectedItem is missing."
-			);
+			console.error("handleConfirmPress: Aborted, selectedItem is missing.");
 			return;
 		}
-
-		console.log(
-			`handleConfirmPress: Checking validation. Mode: "${orderingMode}", orderTargets length: ${orderTargets.length}`
-		);
-
 		if (orderTargets.length === 0) {
-			// This condition should now only be a problem if the default selection fails.
-			Alert.alert(
-				"Order For Whom?",
-				"Please select at least one person for this item."
-			);
-			return; // Stop execution
-		}
-
-		// Validation for target selection
-		if (
-			(orderingMode === "party" || orderingMode === "individual") &&
-			orderTargets.length === 0
-		) {
-			// In individual mode, if no PIPs are selected, we can assume it's for "Myself".
-			if (orderingMode === "individual" && currentUserData) {
-				const myselfTarget = {
-					id: currentUserData.uid,
-					name: currentUserData.firstName || "Myself",
-					specialInstructions: "", // Assuming no special instructions if not explicitly entered
-				};
-				// Call onConfirm with the constructed data for the current user
-				onConfirm({
-					selectedItem: { ...selectedItem },
-					quantity,
-					individualTargets: [myselfTarget],
-				});
-				return;
-			}
 			Alert.alert(
 				"Order For Whom?",
 				"Please select at least one person for this item."
@@ -224,24 +189,33 @@ const SelectedItemModal = ({
 			return;
 		}
 
-		// Construct the data object to pass back to the parent (MenuItemsList)
+		// 1. Rename `selectedItem` to `menuItemDetails` to match what the parent expects.
 		const dataToConfirm = {
-			selectedItem: { ...selectedItem },
+			menuItemDetails: { ...selectedItem },
 			quantity,
 		};
 
 		if (orderingMode === "individual") {
-			dataToConfirm.individualTargets = orderTargets;
+			// 2. Rename `individualTargets` to `individualPips`.
+			dataToConfirm.individualPips = orderTargets;
 		} else if (orderingMode === "party") {
-			const partyTarget = orderTargets[0];
-			dataToConfirm.chosenPartyTargetName = partyTarget.name;
+			// This part of your logic was already correct.
+			if (!partyData || !partyData.partyId) {
+				Alert.alert("Error", "Party information is missing. Cannot add item.");
+				return;
+			}
+			const partyTarget = orderTargets[0] || {};
+			dataToConfirm.partyContextData = {
+				partyId: partyData.partyId,
+				currentUserId: partyData.currentUserId,
+				orderingForPipName: partyTarget.name,
+			};
 			dataToConfirm.specialInstructions = partyTarget.specialInstructions;
-			// Call the onConfirm prop with the data object
 		}
 
+		// Call the parent's onConfirm function with the correctly structured data.
 		onConfirm(dataToConfirm);
 	};
-	if (!selectedItem) return null;
 
 	// Options for "Order For" in individual mode (Myself + PIPs)
 

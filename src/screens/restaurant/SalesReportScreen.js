@@ -16,6 +16,7 @@ import {
 	VictoryChart,
 	VictoryAxis,
 	VictoryLabel,
+	VictoryTheme,
 } from "victory-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

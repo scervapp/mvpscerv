@@ -37,8 +37,9 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import AuthPromptModal from "../global/AuthPromptModal";
+import RestaurantHeader from "./RestaurantHeader";
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
@@ -110,29 +111,39 @@ const RestaurantDetailScreen = () => {
 		}
 	}, [currentUserData?.uid]);
 
-	// Effect to fetch menu items for the restaurant
 	useEffect(() => {
-		let isMounted = true;
-		const loadMenu = async () => {
-			if (!restaurant?.id) {
-				if (isMounted) setIsLoadingMenu(false);
-				return;
+		if (!restaurant?.id) {
+			setMenuItems([]);
+			setIsLoadingMenu(false);
+			return;
+		}
+		console.log("Restaurant", restaurant.id);
+
+		setIsLoadingMenu(true);
+		const menuItemsRef = collection(db, "menuItems");
+		const q = query(menuItemsRef, where("restaurantId", "==", restaurant.id));
+
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot) => {
+				// snapshot.docs.map() correctly returns a flat array: [item1, item2, ...]
+				const fetchedMenu = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+
+				setMenuItems(fetchedMenu);
+				setIsLoadingMenu(false);
+			},
+			(error) => {
+				console.error("Error fetching menu in real-time:", error);
+				Alert.alert("Error", "Could not load the menu for this restaurant.");
+				setIsLoadingMenu(false);
 			}
-			setIsLoadingMenu(true);
-			try {
-				const fetchedMenu = await fetchMenu(restaurant.id);
-				if (isMounted) setMenuItems(fetchedMenu);
-			} catch (error) {
-				console.log("Error fetching menu:", error);
-				// Handle menu fetch error if needed (e.g., set an error state)
-			} finally {
-				if (isMounted) setIsLoadingMenu(false);
-			}
-		};
-		loadMenu();
-		return () => {
-			isMounted = false;
-		};
+		);
+
+		// Clean up the listener when the component unmounts
+		return () => unsubscribe();
 	}, [restaurant?.id]);
 
 	// --- Effect to potentially activate party after host's individual check-in ---
@@ -225,7 +236,7 @@ const RestaurantDetailScreen = () => {
 		}
 	};
 
-	console.log("Current", currentUserData);
+	
 
 	const handleCancelIndividualCheckIn = async () => {
 		if (!checkInObj?.id || isProcessingCheckInAction) return;
@@ -600,149 +611,29 @@ const RestaurantDetailScreen = () => {
 		);
 	}
 
-	return (
-		<SafeAreaView style={styles.safeArea}>
-			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-				{initialView !== "menuForParty" && (
-					<>
-						<Image source={{ uri: restaurant.imageUri }} style={styles.image} />
-						<View style={styles.infoContainer}>
-							<Text style={styles.name}>{restaurant.restaurantName}</Text>
-							<Text style={styles.address}>
-								{restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
-								{restaurant.zipcode}
-							</Text>
-							<Text style={styles.cuisine}>
-								Cuisine: {restaurant.cuisineType}
-							</Text>
-						</View>
+	const renderHeader = () => (
+		<RestaurantHeader
+			restaurant={restaurant}
+			initialView={initialView}
+			renderActionButtons={renderActionButtons}
+		/>
+	);
 
-						{/* --- Action Icons Row --- */}
-						{currentUserData?.role === "customer" ||
-						currentUserData?.role === "guest" ? (
-							renderActionButtons() // Assuming this function renders your "Check In" and "Start Party" buttons
-						) : (
-							// This block will now only show if there's no user at all,
-							// or if the user is a restaurant employee viewing a customer screen (which shouldn't happen).
-							<View style={styles.guestMessageContainer}>
-								<PaperButton
-									icon="login"
-									mode="contained"
-									onPress={() => navigation.navigate("Welcome")}
-									style={styles.guestLoginButton}
-								>
-									Login or Sign Up to Continue
-								</PaperButton>
-							</View>
-						)}
+	const renderMenu = () => (
+		<MenuItemsList
+			menuItems={menuItems}
+			isLoading={isLoadingMenu}
+			ListHeaderComponent={renderHeader()} // Pass the render function's result
+			pips={optionsForIndividualOrder}
+			onConfirmAddItemToContext={handleAddItemToIndividualBasket}
+			orderingMode="individual"
+		/>
+	);
 
-						{/* Check-In Modal */}
-						{isModalVisible && (
-							<Modal
-								transparent={true}
-								onRequestClose={closeModal}
-								visible={isModalVisible}
-								animationType="fade"
-							>
-								<View style={styles.modalOverlay}>
-									<View style={styles.modalContent}>
-										<Formik
-											initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
-											validationSchema={validationSchema}
-											onSubmit={handlePersonalCheckinSubmit}
-										>
-											{({
-												handleChange,
-												handleBlur,
-												handleSubmit,
-												values,
-												errors,
-												touched,
-											}) => (
-												<>
-													<Text style={styles.modalTitle}>
-														How many in your party?
-													</Text>
-													<TextInput
-														style={styles.input}
-														onChangeText={handleChange("partySize")}
-														onBlur={handleBlur("partySize")}
-														value={values.partySize}
-														keyboardType="numeric"
-														placeholder="e.g., 2"
-														textAlign="center"
-													/>
-													{errors.partySize && touched.partySize && (
-														<Text style={styles.errorTextModal}>
-															{errors.partySize}
-														</Text>
-													)}
-													<View style={styles.modalButtonRow}>
-														<TouchableOpacity
-															onPress={closeModal}
-															style={[
-																styles.modalButton,
-																styles.cancelModalButton,
-															]}
-														>
-															<Text style={styles.modalButtonText}>Cancel</Text>
-														</TouchableOpacity>
-														<TouchableOpacity
-															onPress={handleSubmit}
-															style={[
-																styles.modalButton,
-																isProcessingAction && styles.disabledButton,
-															]}
-															disabled={isProcessingAction}
-														>
-															{isProcessingAction ? (
-																<ActivityIndicator size="small" color="white" />
-															) : (
-																<Text style={styles.modalButtonText}>
-																	Request Check-In
-																</Text>
-															)}
-														</TouchableOpacity>
-													</View>
-												</>
-											)}
-										</Formik>
-									</View>
-								</View>
-							</Modal>
-						)}
-					</>
-				)}
+	console.log("Basket", basketCount);
 
-				{/* Menu Section */}
-				<View style={styles.menuSection}>
-					<Text style={styles.menuHeader}>Menu</Text>
-					{isLoadingMenu ? (
-						<ActivityIndicator
-							size="large"
-							color={colors.primary}
-							style={{ marginTop: 20 }}
-						/>
-					) : menuItems.length > 0 ? (
-						<MenuItemsList
-							menuItems={menuItems}
-							isLoading={isLoadingMenu}
-							restaurantId={restaurant.id} // For individual basket context if modal needs it
-							pips={optionsForIndividualOrder} // Pass current user's local PIPs
-							onConfirmAddItemToContext={handleAddItemToIndividualBasket} // The unified callback
-							// Will be 'individual' if partyContextData is null
-							// partyContextData is not explicitly passed here as this screen handles 'individual'
-							// If this screen *could* add to party, then:
-							// partyContextData={orderingMode === 'party' ? partyContextData : null}
-						/>
-					) : (
-						<Text style={styles.noMenuText}>
-							Menu not available at this time.
-						</Text>
-					)}
-				</View>
-			</ScrollView>
-
+	const renderOverlays = () => (
+		<>
 			{/* Floating Basket Button */}
 			{currentUserData?.role === "customer" && basketCount > 0 && (
 				<TouchableOpacity
@@ -752,7 +643,7 @@ const RestaurantDetailScreen = () => {
 							restaurant,
 							mode: "individual",
 						})
-					} // Default to individual mode
+					}
 				>
 					<View style={styles.fabContent}>
 						<MaterialCommunityIcons name="basket" size={32} color="white" />
@@ -764,18 +655,100 @@ const RestaurantDetailScreen = () => {
 					</View>
 				</TouchableOpacity>
 			)}
+
+			{/* Check-In Modal */}
+			{isModalVisible && (
+				<Modal
+					transparent={true}
+					onRequestClose={closeModal}
+					visible={isModalVisible}
+					animationType="fade"
+				>
+					<View style={styles.modalOverlay}>
+						<View style={styles.modalContent}>
+							<Formik
+								initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
+								validationSchema={validationSchema}
+								onSubmit={handlePersonalCheckinSubmit}
+							>
+								{({
+									handleChange,
+									handleBlur,
+									handleSubmit,
+									values,
+									errors,
+									touched,
+								}) => (
+									<>
+										<Text style={styles.modalTitle}>
+											How many in your party?
+										</Text>
+										<TextInput
+											style={styles.input}
+											onChangeText={handleChange("partySize")}
+											onBlur={handleBlur("partySize")}
+											value={values.partySize}
+											keyboardType="numeric"
+											placeholder="e.g., 2"
+											textAlign="center"
+										/>
+										{errors.partySize && touched.partySize && (
+											<Text style={styles.errorTextModal}>
+												{errors.partySize}
+											</Text>
+										)}
+										<View style={styles.modalButtonRow}>
+											<TouchableOpacity
+												onPress={closeModal}
+												style={[styles.modalButton, styles.cancelModalButton]}
+											>
+												<Text style={styles.modalButtonText}>Cancel</Text>
+											</TouchableOpacity>
+											<TouchableOpacity
+												onPress={handleSubmit}
+												style={[
+													styles.modalButton,
+													isProcessingAction && styles.disabledButton,
+												]}
+												disabled={isProcessingAction}
+											>
+												{isProcessingAction ? (
+													<ActivityIndicator size="small" color="white" />
+												) : (
+													<Text style={styles.modalButtonText}>
+														Request Check-In
+													</Text>
+												)}
+											</TouchableOpacity>
+										</View>
+									</>
+								)}
+							</Formik>
+						</View>
+					</View>
+				</Modal>
+			)}
+
+			{/* Auth Prompt Modal */}
 			<AuthPromptModal
 				isVisible={isAuthModalVisible}
 				onClose={() => setIsAuthModalVisible(false)}
 				onLoginPress={() => {
 					setIsAuthModalVisible(false);
-					logout("Login"); // Navigate to your existing Login screen
+					logout("Login");
 				}}
 				onSignupPress={() => {
 					setIsAuthModalVisible(false);
-					logout("CustomerSignup"); // Navigate to your existing Customer Signup screen
+					logout("CustomerSignup");
 				}}
 			/>
+		</>
+	);
+
+	return (
+		<SafeAreaView style={styles.safeArea}>
+			{renderMenu()}
+			{renderOverlays()}
 		</SafeAreaView>
 	);
 };

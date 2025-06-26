@@ -13,7 +13,10 @@ import {
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Button } from "react-native-paper";
 import { AuthContext } from "../../context/authContext";
-import { fetchEmployees } from "../../utils/firebaseUtils";
+import {
+	fetchEmployees,
+	fetchEmployeesByRole,
+} from "../../utils/firebaseUtils";
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import colors from "../../utils/styles/appStyles";
 
@@ -97,7 +100,7 @@ const BackOfficeAuthGate = () => {
 				// For all other cases, start the standard PIN verification flow.
 				setIsLoading(true);
 				try {
-					const managerList = await fetchEmployees(currentUserData.uid, [
+					const managerList = await fetchEmployeesByRole(currentUserData.uid, [
 						"manager",
 						"owner",
 					]);
