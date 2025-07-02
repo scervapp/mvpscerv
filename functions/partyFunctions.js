@@ -124,6 +124,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			restaurantName: restaurantName,
 			restaurantTaxRate: restaurantTaxRate,
 			restaurantStripeAccountId: restaurantStripeAccountId,
+			sharedBasketId: partyId, // <-- FIX: Explicitly add the basket ID
 
 			hostUserId: hostUserId,
 			hostName: hostName,
@@ -405,95 +406,75 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	}
 
 	const partyRef = db.collection("parties").doc(partyId);
-	const sharedBasketRef = db.collection("shared_baskets").doc(partyId); // Reference to the shared basket
+	const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
 
 	try {
 		return await db.runTransaction(async (transaction) => {
 			const partyDoc = await transaction.get(partyRef);
-			const basketDoc = await transaction.get(sharedBasketRef); // Read the basket doc as well
+			const basketDoc = await transaction.get(sharedBasketRef);
 
 			if (!partyDoc.exists) {
-				console.warn(`leaveParty: Party ${partyId} not found. Cannot leave.`);
 				return { success: true, message: "Party already ended." };
 			}
 
 			const partyData = partyDoc.data();
-			let guestPips = partyData.guestPips || [];
-			let guestUserIds = partyData.guestUserIds || [];
-
-			// Check if user is actually in the party before proceeding
-			if (!guestUserIds.includes(leavingUserId)) {
-				console.warn(
-					`leaveParty: User ${leavingUserId} is not in party ${partyId}.`
-				);
+			if (!partyData.guestUserIds.includes(leavingUserId)) {
 				return { success: true, message: "You are not in this party." };
 			}
 
-			const isHost = partyData.hostUserId === leavingUserId;
-
-			// --- NEW: Remove leaving user's items from the basket ---
+			// --- THIS IS THE FIX (PART 1) ---
+			// Before allowing a user to leave, check if they have sent items.
 			if (basketDoc.exists) {
-				const basketData = basketDoc.data();
-				const currentItems = basketData.items || [];
-				const updatedItems = currentItems.filter(
-					(item) => item.orderedByUserId !== leavingUserId
+				const basketItems = basketDoc.data().items || [];
+				const userHasSentItems = basketItems.some(
+					(item) =>
+						item.orderedByUserId === leavingUserId && item.status === "sent"
 				);
 
-				// Update the basket with the filtered items
+				if (userHasSentItems) {
+					// If they have sent items, block them from leaving.
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"You cannot leave the party after sending an order to the kitchen. Please proceed to checkout to settle your bill."
+					);
+				}
+			}
+			// --- END OF FIX ---
+
+			// If the check passes, proceed with removing the user and their "new" items.
+			if (basketDoc.exists) {
+				const updatedItems = (basketDoc.data().items || []).filter(
+					(item) => item.orderedByUserId !== leavingUserId
+				);
 				transaction.update(sharedBasketRef, {
 					items: updatedItems,
 					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 				});
-				console.log(
-					`leaveParty: Removed ${
-						currentItems.length - updatedItems.length
-					} item(s) for user ${leavingUserId} from basket.`
-				);
 			}
-			// --- END NEW LOGIC ---
 
-			// Filter the user out from party guest lists
-			const updatedGuestPips = guestPips.filter(
+			const guestPips = (partyData.guestPips || []).filter(
 				(pip) => pip.userId !== leavingUserId
 			);
+			const isHost = partyData.hostUserId === leavingUserId;
 
 			if (isHost) {
-				// If the host is leaving...
-				if (updatedGuestPips.length > 0) {
-					// Reassign host to the next person in the list
-					const newHost = updatedGuestPips[0];
+				if (guestPips.length > 0) {
+					const newHost = guestPips[0];
 					transaction.update(partyRef, {
 						hostUserId: newHost.userId,
 						hostName: newHost.name,
-						guestPips: updatedGuestPips,
+						guestPips: guestPips,
 						guestUserIds: admin.firestore.FieldValue.arrayRemove(leavingUserId),
-						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 					});
-					console.log(
-						`leaveParty: Host ${leavingUserId} left. New host is ${newHost.userId}.`
-					);
 				} else {
-					// If host leaves and no one is left, delete the party and basket
-					console.log(
-						`leaveParty: Host was the last person. Deleting party ${partyId} and its basket.`
-					);
 					transaction.delete(partyRef);
-					// The shared basket is already part of the transaction, ensure it's deleted
-					// even if it was not read (though we read it above).
-					if (basketDoc.exists) {
-						transaction.delete(sharedBasketRef);
-					}
+					if (basketDoc.exists) transaction.delete(sharedBasketRef);
 				}
 			} else {
-				// If a guest is leaving, just update the guest lists
 				transaction.update(partyRef, {
-					guestPips: updatedGuestPips,
+					guestPips: guestPips,
 					guestUserIds: admin.firestore.FieldValue.arrayRemove(leavingUserId),
-					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 				});
-				console.log(
-					`leaveParty: Guest ${leavingUserId} successfully left party ${partyId}.`
-				);
 			}
 
 			return { success: true };
@@ -503,15 +484,13 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not leave the party.",
-			error.message
+			"Could not leave the party."
 		);
 	}
 });
 
 /**
- * Allows the host of a 'pending' party to cancel it.
- * Updates the party status to 'cancelled'.
+ * Allows the host to cancel a party, but only if NO items have been sent to the kitchen by ANYONE.
  */
 exports.cancelParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -536,7 +515,6 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 	try {
 		const partyDoc = await partyRef.get();
 		if (!partyDoc.exists) {
-			console.log(`cancelParty: Party ${partyId} not found, already deleted.`);
 			return { success: true, message: "Party already deleted." };
 		}
 
@@ -550,14 +528,33 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		if (partyData.status !== "pending") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"Only parties in a 'pending' state can be cancelled."
+				"Only 'pending' parties can be cancelled."
 			);
 		}
 
-		// Use a batch to delete both documents atomically.
+		// --- THIS IS THE FIX (PART 2) ---
+		// Before allowing the host to cancel, check if ANY items have been sent.
+		const basketDoc = await sharedBasketRef.get();
+		if (basketDoc.exists) {
+			const basketItems = basketDoc.data().items || [];
+			const anyItemHasBeenSent = basketItems.some(
+				(item) => item.status === "sent"
+			);
+
+			if (anyItemHasBeenSent) {
+				// If any item has been sent, block the cancellation.
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Cannot cancel the party after an order has been sent to the kitchen."
+				);
+			}
+		}
+		// --- END OF FIX ---
+
+		// If the check passes, proceed with deleting the party and basket.
 		const batch = db.batch();
 		batch.delete(partyRef);
-		batch.delete(sharedBasketRef);
+		if (basketDoc.exists) batch.delete(sharedBasketRef);
 		await batch.commit();
 
 		console.log(
@@ -565,13 +562,9 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		);
 		return { success: true };
 	} catch (error) {
-		console.error(`Error cancelling/deleting party ${partyId}:`, error);
+		console.error(`Error cancelling party ${partyId}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
-		throw new functions.https.HttpsError(
-			"internal",
-			"Could not cancel party.",
-			error.message
-		);
+		throw new functions.https.HttpsError("internal", "Could not cancel party.");
 	}
 });
 // functions/partyFunctions.js (Conceptual Structure)
@@ -1148,3 +1141,4 @@ exports.removeSharedBasketItem = functions.https.onCall(
 		}
 	}
 );
+

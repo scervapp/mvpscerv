@@ -42,9 +42,25 @@ async function generateOrderId(restaurantId, customerId) {
 		//let orderNumber = 1; // Default to 1 if no previous orders today
 		if (!lastOrderSnapshot.empty) {
 			const lastOrderData = lastOrderSnapshot.docs[0].data();
+
+			// --- THIS IS THE FIX ---
+			// Safely check if lastOrderId exists and is a string before trying to split it.
 			const lastOrderId = lastOrderData.orderId;
-			const lastOrderNumber = parseInt(lastOrderId.split("-")[2], 10);
-			orderNumber = lastOrderNumber + 1;
+			if (
+				lastOrderId &&
+				typeof lastOrderId === "string" &&
+				lastOrderId.includes("-")
+			) {
+				const parts = lastOrderId.split("-");
+				// Ensure there are enough parts to prevent another crash
+				if (parts.length > 2) {
+					const lastOrderNumber = parseInt(parts[2], 10);
+					if (!isNaN(lastOrderNumber)) {
+						orderNumber = lastOrderNumber + 1;
+					}
+				}
+			}
+			// If the last order was malformed, we will safely default to '1'.
 		}
 
 		const formattedOrderNumber = orderNumber.toString().padStart(3, "0");
@@ -286,3 +302,5 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+module.exports = { generateOrderId };

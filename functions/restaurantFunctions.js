@@ -811,3 +811,105 @@ exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+/**
+ * Allows authorized staff to forcibly clear a table. This version now also
+ * checks for and cleans up any associated party and shared_basket documents.
+ *
+ * @param {object} data The data object from the client.
+ * @param {string} data.restaurantId The ID of the restaurant.
+ * @param {string} data.tableId The ID of the table to be cleared.
+ * @param {string} data.checkInId The ID of the check-in associated with the table.
+ * @param {string} data.customerId The ID of the customer who was at the table.
+ */
+exports.forceClearTable = functions.https.onCall(async (data, context) => {
+	// 1. Authentication & Authorization
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be staff and authenticated."
+		);
+	}
+
+	// 2. Validation
+	const { restaurantId, tableId, checkInId, customerId } = data;
+	if (!restaurantId || !tableId || !checkInId || !customerId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required IDs to clear the table."
+		);
+	}
+
+	// 3. Define Document References
+	const tableRef = db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("tables")
+		.doc(tableId);
+	const checkInRef = db.collection("checkIns").doc(checkInId);
+	const customerRef = db.collection("customers").doc(customerId);
+
+	try {
+		// 4. Perform all updates in a single atomic transaction
+		await db.runTransaction(async (transaction) => {
+			console.log(`Starting transaction to force clear table ${tableId}`);
+
+			// --- THIS IS THE FIX (PART 1) ---
+			// First, we must READ the check-in document to see if it's part of a party.
+			const checkInDoc = await transaction.get(checkInRef);
+			if (!checkInDoc.exists) {
+				console.warn(
+					`Check-in document ${checkInId} not found. Cannot proceed.`
+				);
+				// If the check-in is already gone, we can still try to clear the table.
+			} else {
+				const checkInData = checkInDoc.data();
+				// Check for the associatedPartyId
+				if (checkInData.associatedPartyId) {
+					const partyId = checkInData.associatedPartyId;
+					console.log(
+						`Found associated party ${partyId}. Queuing party and basket for deletion.`
+					);
+
+					const partyRef = db.collection("parties").doc(partyId);
+					const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+
+					// Add party and basket deletions to the transaction
+					transaction.delete(partyRef);
+					transaction.delete(sharedBasketRef);
+				}
+				// Mark the check-in as completed
+				transaction.update(checkInRef, {
+					status: "COMPLETED",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+			}
+			// --- END OF FIX (PART 1) ---
+
+			// Update the table's status to 'available'
+			transaction.update(tableRef, {
+				status: "available",
+				currentCheckInId: null,
+				currentCustomerId: null,
+				seatedAt: null,
+			});
+
+			// Clear the active check-in from the customer's document
+			transaction.update(customerRef, {
+				activeCheckIn: null,
+			});
+		});
+
+		console.log(
+			`✅ Successfully force-cleared table ${tableId} and reset all associated documents.`
+		);
+		return { success: true, message: "Table has been successfully cleared." };
+	} catch (error) {
+		console.error(`Error force-clearing table ${tableId}:`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"An unexpected error occurred while clearing the table."
+		);
+	}
+});

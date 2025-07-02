@@ -255,14 +255,13 @@ const BAR_CATEGORIES = [
 
 exports.getAggregatedSalesReport = functions.https.onCall(
 	async (data, context) => {
-		// 1. Authentication and Validation
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
 				"User must be authenticated."
 			);
 		}
-		const { restaurantId, period } = data; // period can be 'today', 'week', 'month'
+		const { restaurantId, period } = data;
 		if (!restaurantId || !period) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
@@ -270,12 +269,13 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 			);
 		}
 
-		// 2. Determine Date Range for the Query
+		// --- (LOG 1) ---
+		console.log("--- Starting getAggregatedSalesReport ---");
+		console.log(`Request for restaurant: ${restaurantId}, period: ${period}`);
+
+		// Date range logic
 		const now = new Date();
 		let startDate;
-
-		// Set timezone to avoid UTC day-end issues. Adjust to your restaurant's timezone.
-		// Example: 'America/New_York'. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 		const timeZone = "America/New_York";
 		const today = new Date(now.toLocaleString("en-US", { timeZone }));
 		today.setHours(0, 0, 0, 0);
@@ -286,10 +286,10 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 				break;
 			case "week":
 				startDate = new Date(today);
-				startDate.setDate(startDate.getDate() - today.getDay()); // Start of the current week (Sunday)
+				startDate.setDate(startDate.getDate() - today.getDay());
 				break;
 			case "month":
-				startDate = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the current month
+				startDate = new Date(today.getFullYear(), today.getMonth(), 1);
 				break;
 			default:
 				throw new functions.https.HttpsError(
@@ -297,13 +297,9 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 					"Invalid period specified."
 				);
 		}
-
-		console.log(
-			`Generating report for restaurant ${restaurantId} for period: ${period} (from ${startDate.toISOString()})`
-		);
+		console.log(`Querying orders from: ${startDate.toISOString()}`);
 
 		try {
-			// 3. Firestore Query
 			const ordersQuery = db
 				.collection("orders")
 				.where("restaurantId", "==", restaurantId)
@@ -312,14 +308,16 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 					">=",
 					admin.firestore.Timestamp.fromDate(startDate)
 				);
-
 			const ordersSnapshot = await ordersQuery.get();
 
 			if (ordersSnapshot.empty) {
-				return null; // Return null to indicate no data, which the client will handle
+				console.log("No orders found for this period.");
+				return null;
 			}
 
-			// 4. Data Aggregation
+			// --- (LOG 2) ---
+			console.log(`Found ${ordersSnapshot.size} order documents to process.`);
+
 			let totalRevenue = 0;
 			let totalOrders = 0;
 			const salesByCategory = { Food: 0, Bar: 0, Other: 0 };
@@ -327,28 +325,32 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 
 			ordersSnapshot.forEach((doc) => {
 				const order = doc.data();
-
-				// Aggregate KPIs
 				totalOrders += 1;
-				totalRevenue += Number(order.subtotal) || 0; // Use subtotal for net sales
+				totalRevenue += Number(order.subtotal) || 0;
 
-				// Aggregate Sales by Category and Top Selling Items
 				if (Array.isArray(order.items)) {
-					order.items.forEach((item) => {
-						const category = item.dish.category || "Other";
-						const revenue =
-							(Number(item.discountedPrice) || Number(item.dish.price) || 0) *
-							(item.quantity || 1);
+					order.items.forEach((item, index) => {
+						// --- (LOG 3: THE MOST IMPORTANT LOG) ---
+						// This will print the exact item that causes the crash right before it happens.
+						console.log(
+							`[Order ID: ${doc.id}, Item Index: ${index}] Processing item:`,
+							JSON.stringify(item, null, 2)
+						);
 
-						// Sales by Category
+						// Using the safe, linter-friendly syntax
+						const category = (item.dish && item.dish.category) || "Other";
+						const price = (item.dish && item.dish.price) || 0;
+						const revenue =
+							(Number(item.discountedPrice) || price) * (item.quantity || 1);
+						const itemName =
+							(item.dish && item.dish.name) || item.dishName || "Unknown Item";
+
 						if (BAR_CATEGORIES.includes(category)) {
 							salesByCategory.Bar += revenue;
 						} else {
 							salesByCategory.Food += revenue;
 						}
 
-						// Top Selling Items
-						const itemName = item.dish.name || "Unknown Item";
 						if (!topSellingItems[itemName]) {
 							topSellingItems[itemName] = { name: itemName, quantity: 0 };
 						}
@@ -357,26 +359,28 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 				}
 			});
 
-			// 5. Format and Return the Final Report Object
+			// --- (LOG 4) ---
+			console.log("--- Successfully finished report aggregation. ---");
+
 			const formattedTopItems = Object.values(topSellingItems)
 				.sort((a, b) => b.quantity - a.quantity)
-				.slice(0, 5); // Return only the top 5 items
-
+				.slice(0, 5);
 			const avgCheckSize = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
 			return {
-				totalRevenue: totalRevenue,
-				totalOrders: totalOrders,
-				avgCheckSize: avgCheckSize,
+				totalRevenue,
+				totalOrders,
+				avgCheckSize,
 				salesByCategory: {
-					// Convert to cents for consistency
 					Food: Math.round(salesByCategory.Food),
 					Bar: Math.round(salesByCategory.Bar),
 				},
 				topSellingItems: formattedTopItems,
 			};
 		} catch (error) {
-			console.error("Error generating aggregated sales report:", error);
+			// --- (LOG 5) ---
+			// This will now give us a more specific error message.
+			console.error("CRITICAL ERROR in getAggregatedSalesReport:", error);
 			throw new functions.https.HttpsError(
 				"internal",
 				"Failed to generate sales report."

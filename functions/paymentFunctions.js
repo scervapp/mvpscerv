@@ -8,6 +8,7 @@ const { onCall } = require("firebase-functions/v1/https");
 const db = admin.firestore();
 const { updateDoc } = require("firebase-admin/firestore");
 const { FieldValue } = require("firebase-admin/firestore");
+const { generateOrderId } = require("./orderFunctions");
 
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -52,32 +53,45 @@ const getStripeKeys = async (restaurantId) => {
  * @param {FirebaseFirestore.Transaction} transaction The transaction to run the check within.
  */
 const checkAndCloseParty = async (partyRef, partyData, transaction) => {
-	// The partyData object contains the most up-to-date guestPips array
-	const guestPips = partyData.guestPips || [];
+	// --- (LOG 1) ---
+	// Log the data we receive to start. This is the most important log.
+	console.log("--- Starting checkAndCloseParty ---");
+	console.log("Received partyData:", JSON.stringify(partyData, null, 2));
 
-	// --- THE FIX IS HERE ---
-	// First, filter the guest list to only include members who can actually pay (i.e., have a userId).
+	const guestPips = partyData.guestPips || [];
 	const payingMembers = guestPips.filter((pip) => pip.userId);
 
 	if (payingMembers.length === 0) {
-		// This case can happen if a host created a party for only local PIPs and never added themselves
-		// or if the last paying member just left. We can consider it complete.
-		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} has no paying members left. Closing party.`
-		);
-		// Fall-through to the deletion logic below.
+		console.log("No paying members found. Proceeding to cleanup.");
 	}
 
-	// Now, check if every single one of the PAYING members has a paymentStatus of 'paid'.
 	const allPayingMembersHavePaid = payingMembers.every(
 		(pip) => pip.paymentStatus === "paid"
 	);
 
 	if (allPayingMembersHavePaid) {
 		console.log(
-			`checkAndCloseParty: All paying members of party ${partyRef.id} have paid. Deleting party, basket, and check-in.`
+			`All paying members of party ${partyRef.id} have paid. Starting cleanup...`
 		);
 
+		// Delete the party document
+		transaction.delete(partyRef);
+		console.log(`Queued deletion for party ${partyRef.id}.`);
+
+		// Delete the associated shared basket
+		if (partyData.sharedBasketId) {
+			const sharedBasketRef = db
+				.collection("shared_baskets")
+				.doc(partyData.sharedBasketId);
+			transaction.delete(sharedBasketRef);
+			console.log(
+				`Queued deletion for shared basket ${partyData.sharedBasketId}.`
+			);
+		} else {
+			console.warn("Could not delete shared basket, ID was missing.");
+		}
+
+		// Update the table status
 		if (partyData.table.id && partyData.restaurantId) {
 			const tableRef = db
 				.collection("restaurants")
@@ -90,38 +104,52 @@ const checkAndCloseParty = async (partyRef, partyData, transaction) => {
 				currentCustomerId: null,
 			});
 			console.log(
-				`checkAndCloseParty: Queued update for table ${partyData.table.id} to status 'checkedOut'.`
+				`Queued update for table ${partyData.table.id} to status 'checkedOut'.`
 			);
 		} else {
 			console.warn(
-				`checkAndCloseParty: Could not update table status because table.id or restaurantId was missing from party doc ${partyRef.id}`
+				"Could not update table status, ID or restaurantId was missing."
 			);
 		}
 
-		// 1. Delete the party document itself.
-		transaction.delete(partyRef);
-
-		// 2. Delete the associated shared basket document.
-		const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
-		transaction.delete(sharedBasketRef);
-
-		// 3. Delete the associated check-in document, if it exists.
-		if (partyData.activeCheckInId) {
-			const checkInRef = db
-				.collection("checkIns")
-				.doc(partyData.activeCheckInId);
-			transaction.delete(checkInRef);
+		// --- (LOG 2) ---
+		// Check if the crucial checkInId exists before trying to update it.
+		if (partyData.checkInId) {
 			console.log(
-				`checkAndCloseParty: Queued deletion for party, basket, and check-in ${partyData.activeCheckInId}.`
+				`Found checkInId: ${partyData.checkInId}. Queuing update to 'COMPLETED'.`
 			);
+			const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
+			transaction.update(checkInRef, {
+				status: "COMPLETED",
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
 		} else {
-			console.log(`checkAndCloseParty: Queued deletion for party and basket.`);
+			console.error(
+				"CRITICAL: 'checkInId' is missing from partyData. Cannot update check-in status."
+			);
 		}
+
+		// Clear activeCheckIn for all paying members
+		console.log(
+			`Found ${payingMembers.length} paying members to clear activeCheckIn for.`
+		);
+		payingMembers.forEach((member) => {
+			if (member.userId) {
+				// --- (LOG 3) ---
+				// Confirm we are queuing an update for each specific customer.
+				console.log(
+					`Queuing update to clear activeCheckIn for customer ${member.userId}.`
+				);
+				const customerRef = db.collection("customers").doc(member.userId);
+				transaction.update(customerRef, { activeCheckIn: null });
+			}
+		});
 	} else {
 		console.log(
-			`checkAndCloseParty: Party ${partyRef.id} is not yet fully paid. No final cleanup action taken.`
+			`Party ${partyRef.id} is not yet fully paid. No cleanup action taken.`
 		);
 	}
+	console.log("--- Finished checkAndCloseParty ---");
 };
 
 // --- NEW HELPER FUNCTION ---
@@ -138,69 +166,97 @@ const createOrderFromPartyPayment = async (
 	partyData,
 	payingUserId,
 	paymentIntent,
-	stripeFeeActual
+	stripeFeeActual,
+	platformFeeActual
 ) => {
-	console.log(
-		`Creating permanent order for user ${payingUserId} in party ${partyData.id}`
-	);
+	const sharedBasketId = paymentIntent.metadata.sharedBasketId;
+	if (!sharedBasketId) {
+		console.error(
+			"Critical: sharedBasketId is missing from payment intent metadata."
+		);
+		return;
+	}
 
-	// 1. Get the items from the shared basket
-	const basketRef = db
-		.collection("shared_baskets")
-		.doc(partyData.sharedBasketId);
+	console.log("--- Starting createOrderFromPartyPayment ---");
+
+	const menuItemsRef = db
+		.collection("menuItems")
+		.where("restaurantId", "==", partyData.restaurantId);
+	const menuSnapshot = await menuItemsRef.get();
+	const menuItemsMap = new Map();
+	menuSnapshot.forEach((doc) => menuItemsMap.set(doc.id, doc.data()));
+
+	const basketRef = db.collection("shared_baskets").doc(sharedBasketId);
 	const basketDoc = await basketRef.get();
 	if (!basketDoc.exists) {
-		console.error(
-			`Could not find shared_basket ${partyData.sharedBasketId} to create order.`
-		);
+		console.error(`Could not find shared_basket ${sharedBasketId}.`);
 		return;
 	}
 
-	// 2. Filter for only the items that belong to the user who just paid
 	const allItems = basketDoc.data().items || [];
-	const userItems = allItems.filter(
-		(item) => item.orderedByUserId === payingUserId
-	);
+	const userItems = allItems
+		.filter((item) => item.orderedByUserId === payingUserId)
+		.map((item) => {
+			// The 'index' parameter is removed to prevent the crash.
+			console.log(
+				`[Payment Webhook] Processing basket item:`,
+				JSON.stringify(item, null, 2)
+			);
+
+			// --- THIS IS THE FIX ---
+			// The item from the basket has a `menuItemId`. We use that to look up details.
+			const fullMenuItem = menuItemsMap.get(item.menuItemId);
+
+			if (!fullMenuItem) {
+				console.warn(
+					`Could not find menu details for menuItemId: ${item.menuItemId}.`
+				);
+				return {
+					...item,
+					dish: { name: item.dishName || "Unknown Item", category: "Other" },
+				};
+			}
+
+			// Enrich the basket item with the full dish object.
+			return {
+				...item,
+				dish: fullMenuItem, // This ensures the category is included for the sales report.
+			};
+		});
 
 	if (userItems.length === 0) {
-		console.warn(
-			`User ${payingUserId} paid but had no items in the shared basket.`
-		);
+		console.warn(`User ${payingUserId} had no items to process.`);
 		return;
 	}
 
-	// 3. Construct the new 'order' document
-	const newOrderRef = db.collection("orders").doc(); // Create a new doc with a unique ID
+	const generatedOrderId = await generateOrderId(
+		partyData.restaurantId,
+		payingUserId
+	);
+
+	const newOrderRef = db.collection("orders").doc();
 	const orderData = {
-		// Core Details
 		id: newOrderRef.id,
+		orderId: generatedOrderId,
 		restaurantId: partyData.restaurantId,
 		userId: payingUserId,
 		timestamp: admin.firestore.FieldValue.serverTimestamp(),
-
-		// Items & Financials
-		items: userItems, // The array of items they paid for
-		subtotal: paymentIntent.metadata.subtotal, // from metadata
-		tax: paymentIntent.metadata.tax, // from metadata
-		gratuity: paymentIntent.metadata.gratuity, // from metadata
-		totalPrice: paymentIntent.amount, // The final amount charged
-
-		// Statuses
+		items: userItems, // This array now contains the full dish object with the category
+		subtotal: Number(paymentIntent.metadata.subtotal) || 0,
+		tax: Number(paymentIntent.metadata.tax) || 0,
+		gratuity: Number(paymentIntent.metadata.gratuity) || 0,
+		totalPrice: paymentIntent.amount,
 		paymentStatus: "paid",
 		orderStatus: "confirmed",
-
-		// Table & Server Info
 		table: partyData.table,
 		server: partyData.server,
-
-		// Payment & Fee Details
+		checkInId: partyData.checkInId,
 		stripePaymentIntentId: paymentIntent.id,
 		stripeChargeId: paymentIntent.latest_charge,
 		stripeFeeActual: stripeFeeActual,
-		platformFeeActual: paymentIntent.application_fee_amount || 0,
+		platformFeeActual: platformFeeActual,
 	};
 
-	// 4. Save the new order document
 	await newOrderRef.set(orderData);
 	console.log(
 		`✅ Successfully created permanent order ${newOrderRef.id} from party payment.`
@@ -312,6 +368,16 @@ const handleStripeEvent = async (event, stripeInstance) => {
 							console.log(
 								`✅ Updated payment status for user ${metadata.userId} in party ${metadata.partyId}.`
 							);
+
+							// Call createOrderFromPartyPayment to create the permanent order record
+							await createOrderFromPartyPayment(
+								updatedPartyData, // Use the updated party data
+								metadata.userId,
+								paymentIntent,
+								stripeFeeActual,
+								platformFeeCollected
+							);
+
 							await checkAndCloseParty(partyRef, updatedPartyData, transaction);
 						}
 					});
@@ -934,7 +1000,14 @@ exports.createEphemeralKey = functions
  * @returns {Promise<object>} An object containing the paymentIntent, ephemeralKey, and customerId.
  */
 exports.preparePartyPaymentSheet = functions
-	.runWith({ secrets: [STRIPE_SECRET_KEY_LIVE, STRIPE_SECRET_KEY_TEST] })
+	.runWith({
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
+	})
 	.https.onCall(async (data, context) => {
 		if (!context.auth || !context.auth.uid) {
 			throw new functions.https.HttpsError(
@@ -943,17 +1016,32 @@ exports.preparePartyPaymentSheet = functions
 			);
 		}
 		const customerUid = context.auth.uid;
-		const { partyId, amount, platformFee, restaurantStripeAccountId } = data;
+		const {
+			partyId,
+			amount,
+			platformFee,
+			restaurantStripeAccountId,
+			subtotal,
+			gratuity,
+			tax,
+		} = data;
 
 		// --- 1. Validation ---
-		if (!partyId || !amount || !restaurantStripeAccountId) {
+		if (
+			!partyId ||
+			!amount ||
+			!restaurantStripeAccountId ||
+			subtotal === undefined ||
+			gratuity === undefined ||
+			tax === undefined
+		) {
 			console.error(
 				"preparePartyPaymentSheet: Invalid input. Missing required data.",
 				data
 			);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Party ID, amount, and restaurant Stripe ID are required."
+				"Party ID, amount, restaurant Stripe ID, subtotal, gratuity, and tax are required."
 			);
 		}
 		if (amount <= 49) {
@@ -970,7 +1058,17 @@ exports.preparePartyPaymentSheet = functions
 			if (!partyDoc.exists) {
 				throw new functions.https.HttpsError("not-found", "Party not found.");
 			}
-			const restaurantId = partyDoc.data().restaurantId;
+
+			const partyData = partyDoc.data();
+			const restaurantId = partyData.restaurantId;
+			const sharedBasketId = partyData.sharedBasketId;
+
+			if (!sharedBasketId) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Party document is missing the shared basket ID."
+				);
+			}
 
 			const userDocRef = db.collection("customers").doc(customerUid);
 			const userDoc = await userDocRef.get();
@@ -1020,6 +1118,10 @@ exports.preparePartyPaymentSheet = functions
 					partyId: partyId,
 					userId: customerUid,
 					restaurantId: restaurantId,
+					subtotal: subtotal, // Add subtotal to metadata
+					gratuity: gratuity, // Add gratuity to metadata
+					tax: tax, // Add calculated tax to metadata
+					sharedBasketId: sharedBasketId, // Pass the basket ID
 				},
 			});
 
@@ -1046,3 +1148,4 @@ exports.preparePartyPaymentSheet = functions
 			);
 		}
 	});
+

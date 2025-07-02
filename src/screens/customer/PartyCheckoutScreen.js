@@ -27,6 +27,9 @@ import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { httpsCallable } from "firebase/functions";
+
+
+
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
@@ -46,6 +49,7 @@ const PartyCheckoutScreen = () => {
 	const [paymentError, setPaymentError] = useState(null);
 	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
+	
 
 	const [fees, setFees] = useState(0.05); // Default platform fee, fetched from DB
 	const [gratuityPercentage, setGratuityPercentage] = useState("18"); // Default tip
@@ -194,6 +198,9 @@ const PartyCheckoutScreen = () => {
 					amount: totalForPayment, // Total in cents for this user's portion
 					platformFee: platformFee, // Your calculated fee for this user's portion
 					restaurantStripeAccountId: partyDetails.restaurantStripeAccountId,
+					subtotal: subtotal, // Pass the user's subtotal
+					gratuity: gratuity, // Pass the user's gratuity
+					tax: 0, // Pass a placeholder for tax, as it's calculated server-side
 				});
 
 				if (!data.paymentIntent || !data.ephemeralKey || !data.customer) {
@@ -494,3 +501,4 @@ const styles = StyleSheet.create({
 });
 
 export default PartyCheckoutScreen;
+

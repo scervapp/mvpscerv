@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
-const TableItem = ({ item, onPress, isSelected }) => {
+const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 	if (!item || !item.name || !item.status) {
 		return null; // Render nothing to prevent the crash
 	}
@@ -46,6 +46,7 @@ const TableItem = ({ item, onPress, isSelected }) => {
 		<TouchableOpacity
 			style={cardStyle}
 			onPress={() => onPress(item)}
+			onLongPress={() => onLongPress(item)}
 			// A table can be tapped to view details even if occupied, but seating is only for available tables.
 			// The parent modal will decide what actions are available based on status.
 			// disabled={!canBePressed}

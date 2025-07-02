@@ -77,10 +77,12 @@ const SalesReportScreen = ({ navigation }) => {
 	const insets = useSafeAreaInsets();
 
 	const formatCurrency = (cents) => {
-		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
-		return `$${(cents / 100).toFixed(2)}`;
+		const num = Number(cents); // Coerce to a number first
+		if (typeof num !== "number" || isNaN(num)) {
+			return "$0.00"; // Return a default value if input is invalid
+		}
+		return `$${(num / 100).toFixed(2)}`;
 	};
-
 	// This function will fetch our new, aggregated report data
 	useEffect(() => {
 		// This guard clause prevents the function from running if auth is still loading or user data isn't available.
@@ -143,6 +145,10 @@ const SalesReportScreen = ({ navigation }) => {
 		);
 	}
 
+	const totalRevenue = reportData.totalRevenue || 0;
+	const totalOrders = reportData.totalOrders || 0;
+	const avgCheckSize = reportData.avgCheckSize || 0;
+
 	// Data for charts, derived from the reportData object
 	const categoryChartData = reportData.salesByCategory
 		? Object.entries(reportData.salesByCategory).map(([key, value]) => ({
@@ -157,7 +163,6 @@ const SalesReportScreen = ({ navigation }) => {
 				y: item.quantity,
 		  }))
 		: [];
-
 	return (
 		<View style={[styles.container, { paddingTop: insets.top }]}>
 			<View style={styles.header}>
@@ -169,23 +174,23 @@ const SalesReportScreen = ({ navigation }) => {
 			</View>
 			<ScrollView contentContainerStyle={styles.scrollContent}>
 				<View style={styles.kpiContainer}>
+					{/* The values being passed are now guaranteed to be numbers */}
 					<KPICard
 						title="Total Revenue"
-						value={formatCurrency(reportData.totalRevenue)}
+						value={formatCurrency(totalRevenue)}
 						iconName="cash-outline"
 					/>
 					<KPICard
 						title="Total Orders"
-						value={reportData.totalOrders}
+						value={totalOrders.toString()}
 						iconName="receipt-outline"
 					/>
 					<KPICard
 						title="Avg. Check Size"
-						value={formatCurrency(reportData.avgCheckSize)}
-						iconName="stats-chart-outline"
+						value={formatCurrency(avgCheckSize)}
+						iconName="analytics-outline"
 					/>
 				</View>
-
 				<ChartCard title="Sales by Category">
 					<VictoryPie
 						data={categoryChartData}
@@ -196,27 +201,29 @@ const SalesReportScreen = ({ navigation }) => {
 						style={{
 							labels: { fill: "white", fontSize: 12, fontWeight: "bold" },
 						}}
-						labels={({ datum }) =>
-							`${datum.x}: ${formatCurrency(datum.y * 100)}`
-						}
+						labels={({ datum }) => `${datum.x}\n${formatCurrency(datum.y)}`} // Format the cents value
 						width={width - 60}
 						height={220}
 					/>
 				</ChartCard>
 
+				{/* The Bar Chart remains commented out for now. */}
+
 				<ChartCard title="Top Selling Items (by Quantity)">
 					<VictoryChart
 						theme={VictoryTheme.material}
 						domainPadding={{ x: 20 }}
-						width={width - 60}
-						height={topItemsChartData.length * 50 + 50} // Dynamic height
+						width={width - 40}
+						height={Math.max(200, topItemsChartData.length * 50 + 50)}
 					>
 						<VictoryBar
 							horizontal
 							style={{ data: { fill: colors.primary } }}
 							data={topItemsChartData}
 							barWidth={25}
-							labels={({ datum }) => `${datum.x} (${datum.y})`}
+							labels={({ datum }) =>
+								`${datum.x.substring(0, 15)}... (${datum.y})`
+							}
 							labelComponent={
 								<VictoryLabel
 									dx={5}

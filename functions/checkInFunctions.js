@@ -180,16 +180,15 @@ exports.handleCheckInResponse = functions.https.onCall(
 			restaurantId,
 		} = data;
 
-		// --- ROBUST VALIDATION ---
-		// This is the check that was likely failing, causing your error.
+		// --- Validation ---
 		if (!checkInId || !table.id || !server.id || !customerId || !restaurantId) {
 			console.error(
-				"handleCheckInResponse: Invalid input. One or more required IDs are missing.",
+				"handleCheckInResponse: Invalid input. Missing required IDs.",
 				data
 			);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Missing critical information (checkInId, tableId, serverId, customerId, restaurantId)."
+				"Missing critical information."
 			);
 		}
 
@@ -207,16 +206,15 @@ exports.handleCheckInResponse = functions.https.onCall(
 				if (!checkInDoc.exists) {
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Check-in request not found. It may have been cancelled."
+						"Check-in request not found."
 					);
 				}
 				const checkInData = checkInDoc.data();
 
-				// Prevent re-processing an already handled check-in
 				if (checkInData.status !== "REQUESTED") {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						`This check-in has already been processed. Current status: ${checkInData.status}`
+						`This check-in has already been processed.`
 					);
 				}
 
@@ -228,7 +226,7 @@ exports.handleCheckInResponse = functions.https.onCall(
 					acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
 				});
 
-				// Update the table's status to OCCUPIED
+				// Update the table's status
 				transaction.update(tableRef, {
 					status: "OCCUPIED",
 					currentCheckInId: checkInId,
@@ -251,13 +249,19 @@ exports.handleCheckInResponse = functions.https.onCall(
 					const partyRef = db
 						.collection("parties")
 						.doc(checkInData.associatedPartyId);
+
+					// --- THIS IS THE FIX ---
+					// We must also save the checkInId to the party document itself.
+					// This is the missing link that was causing the cleanup to fail.
 					transaction.update(partyRef, {
-						status: "active", // The party is now officially active
+						status: "active",
 						table: { id: table.id, name: table.name },
 						server: { id: server.id, name: server.name },
-
+						checkInId: checkInId, // This is the crucial line we are adding
 						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 					});
+					// --- END OF FIX ---
+
 					console.log(
 						`handleCheckInResponse: Updated associated party ${checkInData.associatedPartyId} to active.`
 					);
@@ -276,12 +280,12 @@ exports.handleCheckInResponse = functions.https.onCall(
 			if (error instanceof functions.https.HttpsError) throw error;
 			throw new functions.https.HttpsError(
 				"internal",
-				"An unexpected error occurred while confirming the check-in.",
-				error.message
+				"An unexpected error occurred while confirming the check-in."
 			);
 		}
 	}
 );
+
 exports.clearTable = functions.firestore
 	.document("restaurants/{restaurantId}/tables/{tableId}")
 	.onUpdate(async (change, context) => {

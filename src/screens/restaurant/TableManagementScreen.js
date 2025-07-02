@@ -177,6 +177,7 @@ const TableManagementScreen = () => {
 	const addTableFunction = httpsCallable(functions, "addTable");
 	const updateTableFunction = httpsCallable(functions, "updateTable");
 	const deleteTableFunction = httpsCallable(functions, "deleteTable");
+	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
 
 	useEffect(() => {
 		if (!currentUserData?.uid) {
@@ -198,6 +199,48 @@ const TableManagementScreen = () => {
 	const handleTablePress = (table) => {
 		setSelectedTable(table);
 		setIsModalVisible(true);
+	};
+
+	const forceClearAction = async (tableToClear) => {
+		if (!tableToClear?.currentCheckInId || !tableToClear?.currentCustomerId) {
+			Alert.alert("Error", "Missing information needed to clear this table.");
+			return;
+		}
+		setIsActionLoading(true);
+		try {
+			await forceClearTableFunction({
+				restaurantId: currentUserData.uid,
+				tableId: tableToClear.id,
+				checkInId: tableToClear.currentCheckInId,
+				customerId: tableToClear.currentCustomerId,
+			});
+			Alert.alert("Success", `${tableToClear.name} has been cleared.`);
+		} catch (error) {
+			console.error("Error force-clearing table:", error);
+			Alert.alert("Error", `Could not clear the table: ${error.message}`);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
+	const handleTableLongPress = (table) => {
+		if (table.status === "OCCUPIED" || table.status === "occupied") {
+			// Show a confirmation dialog before proceeding.
+			Alert.alert(
+				"Force Clear Table?",
+				`This will clear all data for ${table.name} and check out the current customer. This action cannot be undone.`,
+				[
+					{ text: "Cancel", style: "cancel" },
+					{
+						text: "Confirm Clear",
+						style: "destructive",
+						onPress: () => forceClearAction(table), // Call the action function
+					},
+				]
+			);
+		} else {
+			Alert.alert("Info", "Only occupied tables can be force-cleared.");
+		}
 	};
 
 	const closeModal = () => {
@@ -338,6 +381,7 @@ const TableManagementScreen = () => {
 								// --- THE FIX IS HERE ---
 								// Always call handleTablePress. The modal logic will decide what to show.
 								onPress={() => handleTablePress(item)}
+								onLongPress={() => handleTableLongPress(item)}
 							/>
 						)}
 						keyExtractor={(item) => item.id}

@@ -542,7 +542,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 				// Get all unique menu item IDs from the items being ordered.
 				const menuItemIds = [
-					...new Set(itemsFromSource.map((item) => item.id)),
+					...new Set(itemsFromSource.map((item) => item.menuItemId)),
 				];
 
 				// Fetch all the corresponding documents from the menuItems collection.
@@ -599,7 +599,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 			if (type === "party") {
 				// For party items, get the details from the map we created.
-				const details = menuItemDetailsMap.get(item.id);
+				const details = menuItemDetailsMap.get(item.menuItemId);
 				category = details.category || "Other"; // Safely access category
 				dishName = details.name || "Unknown Item"; // Safely access name
 			} else {
@@ -874,3 +874,4 @@ exports.updateBasketItemQuantity = functions.https.onCall(
 );
 exports.clearBasket = functions.https.onCall(clearBasket);
 exports.sendToChefsQ = functions.https.onCall(sendToChefsQ);
+

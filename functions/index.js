@@ -43,6 +43,8 @@ exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.createEphemeralKey = paymentFunctions.createEphemeralKey;
 exports.preparePaymentSheetData = paymentFunctions.preparePaymentSheetData;
 exports.preparePartyPaymentSheet = paymentFunctions.preparePartyPaymentSheet;
+exports.finalizePartyPaymentAndCreateOrder =
+	paymentFunctions.finalizePartyPaymentAndCreateOrder;
 exports.discountOrderItem = restaurantFunctions.discountOrderItem;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
@@ -92,6 +94,7 @@ exports.verifyEmployeePin = restaurantFunctions.verifyEmployeePin;
 exports.addEmployee = restaurantFunctions.addEmployee;
 exports.deleteEmployee = restaurantFunctions.deleteEmployee;
 exports.setEmployeeRole = restaurantFunctions.setEmployeeRole;
+exports.forceClearTable = restaurantFunctions.forceClearTable;
 //exports.updateEmployee = restaurantFunctions.updateEmployee;
 
 // Table functions
