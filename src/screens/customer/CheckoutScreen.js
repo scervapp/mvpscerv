@@ -195,7 +195,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
-			const pipFee = Math.round((pipSubtotal + pipTax) * fees); // Platform fee for THIS PIP
+			const pipFee = Math.round(pipSubtotal * fees); // Platform fee for THIS PIP
 			const pipTotalBeforeTax = pipSubtotal + pipGratuity + pipFee; // Total for PIP *before* Stripe Tax adds tax
 			const pipDiscount = pipOriginalSubtotal - pipSubtotal; // Discount for THIS PIP
 			const estimatedTax = Math.round(subtotal * (restaurant?.taxRate || 0));
@@ -362,14 +362,26 @@ const CheckoutScreen = ({ route, navigation }) => {
 				}
 
 				// 3. Prepare Line Items and Customer Details for Tax Calc
-				const lineItemsForTax = [
-					{
-						amount: amountBeforeTax, // cents (subtotal + gratuity)
-						quantity: 1,
-						tax_code: "txcd_10103001", // VERIFY/REPLACE
-						name: `Order at ${restaurant.restaurantName || "Restaurant"}`,
-					},
-				];
+				const lineItemsForTax = restaurantBasketItems
+					.filter((item) => item && item.id) // 1. Filter for valid items with an ID.
+					.map((item) => {
+						const priceInCents = Math.round((item.dish?.price || 0) * 100);
+						return {
+							amount: priceInCents * (item.quantity || 1),
+							quantity: 1,
+							tax_code: "txcd_10103001",
+							// 2. Use the guaranteed-to-exist item.id as the reference.
+							reference: item.id,
+						};
+					});
+
+				if (lineItemsForTax.length === 0) {
+					console.warn(
+						"No valid line items with IDs to send for tax calculation."
+					);
+					// Optionally, set an error state here.
+					return;
+				}
 				// --- IMPORTANT: Get actual customer address ---
 				// Placeholder - Fetch or use state for customer address
 				const customerDetailsForTax = {

@@ -62,6 +62,7 @@ exports.createLoginLink = stripeOnboardingFunctions.createLoginLink;
 exports.checkOnboardingStatus = stripeOnboardingFunctions.checkOnboardingStatus;
 exports.getDailySalesReport = reportingFunctions.getDailySalesReport;
 exports.getAggregatedSalesReport = reportingFunctions.getAggregatedSalesReport;
+exports.getDashboardReport = reportingFunctions.getDashboardReport;
 exports.generateCustomToken = generateCustomToken.generateCustomToken;
 exports.sendInvite = sendInvite.sendInvite;
 exports.setAdminClaim = setAdminClaim.setAdminClaim;
@@ -95,6 +96,7 @@ exports.addEmployee = restaurantFunctions.addEmployee;
 exports.deleteEmployee = restaurantFunctions.deleteEmployee;
 exports.setEmployeeRole = restaurantFunctions.setEmployeeRole;
 exports.forceClearTable = restaurantFunctions.forceClearTable;
+exports.autoCloseStaleWorkDays = restaurantFunctions.autoCloseStaleWorkDays;
 //exports.updateEmployee = restaurantFunctions.updateEmployee;
 
 // Table functions

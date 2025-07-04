@@ -5,236 +5,135 @@ const db = admin.firestore();
 exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 	const { restaurantId } = data;
 	if (!restaurantId) {
-		/* ... validation ... */
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID is required."
+		);
 	}
-	// Add auth check if needed
-	console.log(
-		`getDailySalesReport: Fetching report for restaurantId: ${restaurantId}`
-	);
 
 	try {
-		// --- Firestore Query ---
 		const ordersRef = db.collection("orders");
-		const query = ordersRef
+		const q = ordersRef
 			.where("restaurantId", "==", restaurantId)
-			// Optional: Add date range filtering here for performance on large datasets
-			// const oneWeekAgo = new Date();
-			// oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-			// .where("timestamp", ">=", admin.firestore.Timestamp.fromDate(oneWeekAgo))
-			.orderBy("timestamp", "desc");
-
-		const ordersSnapshot = await query.get();
-
-		console.log(
-			`getDailySalesReport: Found ${ordersSnapshot.size} orders for restaurant ${restaurantId}`
-		);
+			.where("paymentStatus", "==", "paid");
+		const ordersSnapshot = await q.get();
 
 		if (ordersSnapshot.empty) {
-			console.log(
-				"getDailySalesReport: No orders found for the specified criteria."
-			);
-			return []; // Return empty array if no orders match
+			return [];
 		}
 
-		// --- Data Aggregation ---
 		let reportsByDay = {};
+		const timeZone = "America/New_York"; // IMPORTANT: Set to your primary operational timezone
 
 		ordersSnapshot.forEach((orderDoc) => {
-			const orderId = orderDoc.id;
 			const orderData = orderDoc.data();
-
-			// Validate timestamp
 			if (
 				!orderData.timestamp ||
 				typeof orderData.timestamp.toDate !== "function"
 			) {
-				console.warn(
-					`Skipping Order ID: ${orderId} - Invalid or missing timestamp.`
-				);
-				return; // Skip this document
+				console.warn(`Skipping Order ID: ${orderDoc.id} - Invalid timestamp.`);
+				return;
 			}
 
-			const orderDate = orderData.timestamp
-				.toDate()
-				.toISOString()
-				.split("T")[0]; // YYYY-MM-DD
+			// Convert the UTC timestamp to a date string in the specified timezone.
+			const orderDate = new Date(
+				orderData.timestamp.toDate().toLocaleString("en-US", { timeZone })
+			);
+			const dateKey = orderDate.toISOString().split("T")[0]; // YYYY-MM-DD format
 
-			// Initialize daily report structure if it's the first order for that day
-			if (!reportsByDay[orderDate]) {
-				console.log(`Initializing report for date: ${orderDate}`);
-				reportsByDay[orderDate] = {
-					restaurantSubtotal: 0, // Net Sales (after discounts)
-					totalOriginalSubtotal: 0, // Gross Sales (before discounts)
+			if (!reportsByDay[dateKey]) {
+				reportsByDay[dateKey] = {
+					date: dateKey,
+					orderCount: 0,
+					grossSales: 0,
+					totalDiscountApplied: 0,
+					netSales: 0,
 					totalTaxCollected: 0,
 					totalGratuityReceived: 0,
-					itemCounts: {}, // Stores { itemName: { count, revenue, discount, originalPricePerUnit } }
-					serverTips: {}, // Stores { serverName: totalTipAmount }
-					totalPlatformFeePotential: 0, // Sum of potential platform fees (orderData.fee)
-					ordersWithFeeWaived: 0, // Count of orders where fee was waived
-					estimatedStripeFees: 0, // Sum of estimated Stripe fees for orders on this day
-					orderCount: 0,
-					totalDiscountApplied: 0,
-					paymentMethodCounts: {}, // Stores { paymentMethodType: count }
+					estimatedProcessingFeesDeducted: 0,
+					allItemsSold: [],
+					serverTips: [],
+					// ... other fields you need to initialize
 				};
 			}
 
-			const dailyReport = reportsByDay[orderDate];
+			const dailyReport = reportsByDay[dateKey];
 
-			// Safely extract and sum numerical data (defaulting to 0 if missing/invalid)
+			// --- Aggregate data (your existing logic is already very good) ---
 			const orderSubtotal = Number(orderData.subtotal) || 0;
-			const orderTax = Number(orderData.tax) || 0;
 			const orderGratuity = Number(orderData.gratuity) || 0;
-			const orderPlatformFee = Number(orderData.fee) || 0;
-			const platformFeeWaived = orderData.platformFeeWaived === true;
-			const orderTotalPrice = Number(orderData.totalPrice) || 0; // Needed for Stripe fee estimate
-			// Default originalSubtotal to subtotal if missing
-			const orderOriginalSubtotal =
-				Number(
-					orderData.originalSubtotal !== undefined
-						? orderData.originalSubtotal
-						: orderSubtotal
-				) || 0;
-			const orderDiscount = orderOriginalSubtotal - orderSubtotal; // Calculate discount for this order
-			// Ensure paymentMethodType exists and is stored on order doc
-			const paymentMethodType = orderData.paymentMethodType || "unknown";
+			const originalSubtotal =
+				Number(orderData.originalSubtotal) || orderSubtotal;
 
-			// Estimate Stripe Fee for THIS order (use a constant or config for rates)
-			const stripeRate = 0.029;
-			const stripeFixedFee = 30; // cents
-			const estimatedOrderStripeFee =
-				Math.round(orderTotalPrice * stripeRate) + stripeFixedFee;
-
-			// Aggregate daily totals
-			dailyReport.restaurantSubtotal += orderSubtotal;
-			dailyReport.totalOriginalSubtotal += orderOriginalSubtotal;
-			dailyReport.totalTaxCollected += orderTax;
-			dailyReport.totalGratuityReceived += orderGratuity;
-			dailyReport.totalPlatformFeePotential += orderPlatformFee;
-			dailyReport.estimatedStripeFees += estimatedOrderStripeFee;
 			dailyReport.orderCount += 1;
-			dailyReport.totalDiscountApplied += orderDiscount;
-			dailyReport.paymentMethodCounts[paymentMethodType] =
-				(dailyReport.paymentMethodCounts[paymentMethodType] || 0) + 1;
+			dailyReport.grossSales += originalSubtotal + orderGratuity;
+			dailyReport.totalDiscountApplied += originalSubtotal - orderSubtotal;
+			dailyReport.netSales += orderSubtotal;
+			dailyReport.totalTaxCollected += Number(orderData.taxActual) || 0;
+			dailyReport.totalGratuityReceived += orderGratuity;
+			dailyReport.estimatedProcessingFeesDeducted +=
+				Number(orderData.stripeFeeActual) || 0;
 
-			if (platformFeeWaived) {
-				dailyReport.ordersWithFeeWaived += 1;
-			}
-
-			// Aggregate Item Counts & Details
+			// Aggregate items sold for the detailed list
 			if (Array.isArray(orderData.items)) {
 				orderData.items.forEach((item) => {
-					const itemName = item.dish.name || "Unknown Item"; // Safer access
-					const itemQuantity = Number(item.quantity) || 1;
-					const itemOriginalPrice = Math.round(
-						(Number(item.dish.price) || 0) * 100
+					const itemName =
+						(item.dish && item.dish.name) || item.dishName || "Unknown Item";
+					const existingItem = dailyReport.allItemsSold.find(
+						(i) => i.name === itemName
 					);
-					const itemPricePaid = Math.round(
-						(Number(
-							item.discount ? parseFloat(item.discountedPrice) : item.dish.price
-						) || 0) * 100
-					);
-					const itemRevenue = itemPricePaid * itemQuantity;
-					const itemDiscount = itemOriginalPrice * itemQuantity - itemRevenue; // Calculate total discount for this line item
+					const revenue =
+						(Number(item.discountedPrice) ||
+							(item.dish && item.dish.price) ||
+							0) * (item.quantity || 1);
 
-					if (!dailyReport.itemCounts[itemName]) {
-						dailyReport.itemCounts[itemName] = {
-							count: 0,
-							revenue: 0,
-							discount: 0,
-							originalPricePerUnit: itemOriginalPrice,
-						};
+					if (existingItem) {
+						existingItem.count += item.quantity || 1;
+						existingItem.totalRevenue += Math.round(revenue * 100);
+					} else {
+						dailyReport.allItemsSold.push({
+							name: itemName,
+							count: item.quantity || 1,
+							totalRevenue: Math.round(revenue * 100),
+						});
 					}
-					dailyReport.itemCounts[itemName].count += itemQuantity;
-					dailyReport.itemCounts[itemName].revenue += itemRevenue;
-					dailyReport.itemCounts[itemName].discount += itemDiscount;
 				});
 			}
 
-			// Aggregate Server Tips
-			if (orderData.server && orderGratuity > 0) {
-				const serverName =
-					`${orderData.server.firstName || ""} ${
-						orderData.server.lastName || ""
-					}`.trim() || "Unknown Server";
-				if (!dailyReport.serverTips[serverName]) {
-					dailyReport.serverTips[serverName] = 0;
+			// Aggregate server tips
+			if (orderData.server.name && orderGratuity > 0) {
+				const serverName = orderData.server.name;
+				const existingServer = dailyReport.serverTips.find(
+					(s) => s.serverName === serverName
+				);
+				if (existingServer) {
+					existingServer.gratuityTotal += orderGratuity;
+				} else {
+					dailyReport.serverTips.push({
+						serverName,
+						gratuityTotal: orderGratuity,
+					});
 				}
-				dailyReport.serverTips[serverName] += orderGratuity;
 			}
 		});
 
 		// --- Format Final Output ---
-		const sortedReports = Object.entries(reportsByDay)
-			.map(([date, report]) => {
-				const wasAnyFeeWaived = report.ordersWithFeeWaived > 0;
-				// If fees were waived, the restaurant deduction for processing is 0
-				const restaurantFeeDeduction = wasAnyFeeWaived
-					? 0
-					: report.estimatedStripeFees;
-				// Base total collected (excluding platform fees, including tips)
-				const restaurantBaseTotal =
-					report.restaurantSubtotal +
-					report.totalTaxCollected +
-					report.totalGratuityReceived;
-				// Estimated payout after potential processing fee deduction
-				const estimatedNetPayout = restaurantBaseTotal - restaurantFeeDeduction;
-				// Average Order Value (based on base total, per order)
-				const averageOrderValue =
-					report.orderCount > 0 ? restaurantBaseTotal / report.orderCount : 0;
-
-				return {
-					date,
-					orderCount: report.orderCount,
-					// Financials (RETURN RAW CENTS)
-					grossSales: report.totalOriginalSubtotal,
-					totalDiscountApplied: report.totalDiscountApplied,
-					netSales: report.restaurantSubtotal,
-					totalTaxCollected: report.totalTaxCollected,
-					totalGratuityReceived: report.totalGratuityReceived,
-					restaurantBaseTotal: restaurantBaseTotal, // Subtotal+Tax+Tip
-					estimatedProcessingFeesDeducted: restaurantFeeDeduction, // Est. Stripe fee deduction (0 if waived)
-					potentialPlatformFee: report.totalPlatformFeePotential, // Your potential fee
-					estimatedNetPayout: estimatedNetPayout,
-					averageOrderValue: Math.round(averageOrderValue), // AOV in cents
-
-					// Waiver Status
-					wasAnyFeeWaived: wasAnyFeeWaived,
-					ordersWithFeeWaived: report.ordersWithFeeWaived,
-
-					// Payment Methods Summary
-					paymentMethodSummary: Object.entries(report.paymentMethodCounts).map(
-						([type, count]) => ({ type, count })
-					),
-
-					// Server Tips Breakdown (RAW CENTS)
-					serverTips: Object.entries(report.serverTips)
-						.map(([name, gratuity]) => ({
-							serverName: name,
-							gratuityTotal: gratuity,
-						}))
-						.sort((a, b) => b.gratuityTotal - a.gratuityTotal), // Sort tips desc
-
-					// All Items Sold Breakdown (RAW CENTS)
-					allItemsSold: Object.entries(report.itemCounts)
-						.map(([name, info]) => ({
-							name,
-							count: info.count,
-							totalRevenue: info.revenue, // Net revenue for this item type
-							totalDiscount: info.discount, // Total discount for this item type
-							originalPricePerUnit: info.originalPricePerUnit,
-						}))
-						.sort((a, b) => b.count - a.count), // Sort by count desc
-				};
+		const sortedReports = Object.values(reportsByDay)
+			.map((report) => {
+				const estimatedNetPayout =
+					report.netSales +
+					report.totalGratuityReceived -
+					report.estimatedProcessingFeesDeducted;
+				return { ...report, estimatedNetPayout };
 			})
-			.sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort reports by date descending
+			.sort((a, b) => new Date(b.date) - new Date(a.date));
 
 		return sortedReports;
 	} catch (error) {
 		console.error("Error getting daily sales report:", error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Failed to generate sales report.",
-			error.message
+			"Failed to generate sales report."
 		);
 	}
 });
@@ -253,8 +152,10 @@ const BAR_CATEGORIES = [
 	"Beverages",
 ];
 
-exports.getAggregatedSalesReport = functions.https.onCall(
-	async (data, context) => {
+exports.getAggregatedSalesReport = functions
+	.runWith({ memory: "512MB" })
+	.https.onCall(async (data, context) => {
+		// 1. Authentication and Validation
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
@@ -269,14 +170,181 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 			);
 		}
 
-		// --- (LOG 1) ---
-		console.log("--- Starting getAggregatedSalesReport ---");
-		console.log(`Request for restaurant: ${restaurantId}, period: ${period}`);
-
-		// Date range logic
+		// 2. Date Range Logic
 		const now = new Date();
 		let startDate;
+		const timeZone = "America/New_York"; // Set to your primary operational timezone
+		const today = new Date(now.toLocaleString("en-US", { timeZone }));
+		today.setHours(0, 0, 0, 0);
+
+		switch (period) {
+			case "today":
+				startDate = today;
+				break;
+			case "week":
+				startDate = new Date(today);
+				startDate.setDate(startDate.getDate() - today.getDay()); // Assumes week starts on Sunday
+				break;
+			case "month":
+				startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+				break;
+			default:
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Invalid period specified."
+				);
+		}
+
+		try {
+			// 3. Firestore Query
+			const ordersQuery = db
+				.collection("orders")
+				.where("restaurantId", "==", restaurantId)
+				.where("paymentStatus", "==", "paid") // Only include fully paid orders
+				.where(
+					"timestamp",
+					">=",
+					admin.firestore.Timestamp.fromDate(startDate)
+				);
+
+			const ordersSnapshot = await ordersQuery.get();
+			if (ordersSnapshot.empty) return null;
+
+			// 4. Enhanced Data Aggregation
+			let totalGrossRevenue = 0;
+			let totalStripeFees = 0;
+			let totalOrders = 0;
+			let totalDiscounts = 0; // Accumulator for discounts
+			let totalTurnoverDuration = 0;
+			let ordersWithTurnover = 0;
+
+			const salesByCategory = { Food: 0, Bar: 0 };
+			const topSellingItems = {};
+			const salesByHour = Array(24).fill(0);
+			const salesByDay = Array(7).fill(0);
+
+			ordersSnapshot.forEach((doc) => {
+				const order = doc.data();
+				const orderTimestamp = order.timestamp.toDate();
+
+				// Financial calculations based on your business rules
+				const orderSubtotal = Number(order.subtotal) || 0;
+				const orderGratuity = Number(order.gratuity) || 0;
+				const orderStripeFee = Number(order.stripeFeeActual) || 0;
+				const originalSubtotal =
+					Number(order.originalSubtotal) || orderSubtotal;
+
+				totalGrossRevenue += orderSubtotal + orderGratuity;
+				totalStripeFees += orderStripeFee;
+				totalDiscounts += originalSubtotal - orderSubtotal;
+				totalOrders += 1;
+
+				// Busiest Times/Days Aggregation
+				const hour = orderTimestamp.getHours();
+				const dayOfWeek = orderTimestamp.getDay();
+				salesByHour[hour] += orderSubtotal;
+				salesByDay[dayOfWeek] += orderSubtotal;
+
+				// Table Turnover Calculation
+				if (order.checkInTimestamp && order.timestamp) {
+					const checkInTime = order.checkInTimestamp.toDate();
+					const durationMinutes =
+						(orderTimestamp.getTime() - checkInTime.getTime()) / 60000;
+					if (durationMinutes > 0) {
+						totalTurnoverDuration += durationMinutes;
+						ordersWithTurnover += 1;
+					}
+				}
+
+				// Detailed Item & Category Aggregation
+				if (Array.isArray(order.items)) {
+					order.items.forEach((item) => {
+						const priceInCents = Math.round(
+							((item.dish && item.dish.price) || 0) * 100
+						);
+						const discountedPriceInCents = Math.round(
+							(Number(item.discountedPrice) || 0) * 100
+						);
+						const revenueInCents =
+							(discountedPriceInCents || priceInCents) * (item.quantity || 1);
+						const category = (item.dish && item.dish.category) || "Other";
+						const itemName =
+							(item.dish && item.dish.name) || item.dishName || "Unknown Item";
+
+						if (BAR_CATEGORIES.includes(category)) {
+							salesByCategory.Bar += revenueInCents;
+						} else {
+							salesByCategory.Food += revenueInCents;
+						}
+
+						if (!topSellingItems[itemName]) {
+							topSellingItems[itemName] = {
+								name: itemName,
+								quantity: 0,
+								totalRevenue: 0,
+							};
+						}
+						topSellingItems[itemName].quantity += item.quantity || 1;
+						topSellingItems[itemName].totalRevenue += revenueInCents;
+					});
+				}
+			});
+
+			// 5. Format and Return the Final, Rich Report Object
+			const netPayout = totalGrossRevenue - totalStripeFees;
+			const avgCheckSize =
+				totalOrders > 0 ? totalGrossRevenue / totalOrders : 0;
+			const avgTurnoverRate =
+				ordersWithTurnover > 0 ? totalTurnoverDuration / ordersWithTurnover : 0;
+
+			const formattedTopItems = Object.values(topSellingItems)
+				.sort((a, b) => b.totalRevenue - a.totalRevenue)
+				.slice(0, 10);
+
+			return {
+				totalRevenue: totalGrossRevenue,
+				netPayout: netPayout,
+				totalDiscounts: totalDiscounts,
+				totalOrders,
+				avgCheckSize,
+				avgTurnoverRate: Math.round(avgTurnoverRate),
+				salesByCategory: {
+					Food: Math.round(salesByCategory.Food),
+					Bar: Math.round(salesByCategory.Bar),
+				},
+				topSellingItems: formattedTopItems,
+				salesByHour: salesByHour.map((s) => Math.round(s)),
+				salesByDay: salesByDay.map((s) => Math.round(s)),
+			};
+		} catch (error) {
+			console.error("Error generating aggregated sales report:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Failed to generate sales report."
+			);
+		}
+	});
+
+exports.getDashboardReport = functions
+	.runWith({ memory: "512MB" })
+	.https.onCall(async (data, context) => {
+		if (!context.auth) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const { restaurantId, period } = data;
+		if (!restaurantId || !period) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID and a period are required."
+			);
+		}
+
 		const timeZone = "America/New_York";
+		let startDate;
+		const now = new Date();
 		const today = new Date(now.toLocaleString("en-US", { timeZone }));
 		today.setHours(0, 0, 0, 0);
 
@@ -297,94 +365,147 @@ exports.getAggregatedSalesReport = functions.https.onCall(
 					"Invalid period specified."
 				);
 		}
-		console.log(`Querying orders from: ${startDate.toISOString()}`);
 
 		try {
 			const ordersQuery = db
 				.collection("orders")
 				.where("restaurantId", "==", restaurantId)
+				.where("paymentStatus", "==", "paid")
 				.where(
 					"timestamp",
 					">=",
 					admin.firestore.Timestamp.fromDate(startDate)
 				);
+
 			const ordersSnapshot = await ordersQuery.get();
+			if (ordersSnapshot.empty) return null;
 
-			if (ordersSnapshot.empty) {
-				console.log("No orders found for this period.");
-				return null;
-			}
-
-			// --- (LOG 2) ---
-			console.log(`Found ${ordersSnapshot.size} order documents to process.`);
-
-			let totalRevenue = 0;
-			let totalOrders = 0;
-			const salesByCategory = { Food: 0, Bar: 0, Other: 0 };
+			let totalGrossRevenue = 0,
+				totalStripeFees = 0,
+				totalOrders = 0,
+				totalDiscounts = 0;
+			let totalTurnoverDuration = 0,
+				ordersWithTurnover = 0;
+			const salesByCategory = { Food: 0, Bar: 0 };
 			const topSellingItems = {};
+			const salesByHour = Array(24).fill(0);
+			const salesByDay = Array(7).fill(0);
+			const serverTips = {};
 
 			ordersSnapshot.forEach((doc) => {
 				const order = doc.data();
+				const orderTimestamp = order.timestamp.toDate();
+
+				const orderSubtotal = Number(order.subtotal) || 0;
+				const orderGratuity = Number(order.gratuity) || 0;
+				const orderStripeFee = Number(order.stripeFeeActual) || 0;
+
+				const originalSubtotal =
+					Number(order.originalSubtotal) || orderSubtotal;
+
+				totalGrossRevenue += orderSubtotal + orderGratuity;
+				totalStripeFees += orderStripeFee;
+
+				totalDiscounts += originalSubtotal - orderSubtotal;
 				totalOrders += 1;
-				totalRevenue += Number(order.subtotal) || 0;
+
+				salesByHour[orderTimestamp.getHours()] += orderSubtotal;
+				salesByDay[orderTimestamp.getDay()] += orderSubtotal;
+
+				if (order.checkInTimestamp && order.timestamp) {
+					const durationMinutes =
+						(orderTimestamp.getTime() -
+							order.checkInTimestamp.toDate().getTime()) /
+						60000;
+					if (durationMinutes > 0) {
+						totalTurnoverDuration += durationMinutes;
+						ordersWithTurnover += 1;
+					}
+				}
 
 				if (Array.isArray(order.items)) {
-					order.items.forEach((item, index) => {
-						// --- (LOG 3: THE MOST IMPORTANT LOG) ---
-						// This will print the exact item that causes the crash right before it happens.
-						console.log(
-							`[Order ID: ${doc.id}, Item Index: ${index}] Processing item:`,
-							JSON.stringify(item, null, 2)
-						);
-
-						// Using the safe, linter-friendly syntax
+					order.items.forEach((item) => {
 						const category = (item.dish && item.dish.category) || "Other";
-						const price = (item.dish && item.dish.price) || 0;
-						const revenue =
-							(Number(item.discountedPrice) || price) * (item.quantity || 1);
+						const priceInCents = Math.round(
+							((item.dish && item.dish.price) || 0) * 100
+						);
+						const revenueInCents =
+							(Math.round((Number(item.discountedPrice) || 0) * 100) ||
+								priceInCents) * (item.quantity || 1);
 						const itemName =
 							(item.dish && item.dish.name) || item.dishName || "Unknown Item";
 
-						if (BAR_CATEGORIES.includes(category)) {
-							salesByCategory.Bar += revenue;
-						} else {
-							salesByCategory.Food += revenue;
-						}
+						if (BAR_CATEGORIES.includes(category))
+							salesByCategory.Bar += revenueInCents;
+						else salesByCategory.Food += revenueInCents;
 
-						if (!topSellingItems[itemName]) {
-							topSellingItems[itemName] = { name: itemName, quantity: 0 };
-						}
+						if (!topSellingItems[itemName])
+							topSellingItems[itemName] = {
+								name: itemName,
+								quantity: 0,
+								totalRevenue: 0,
+							};
 						topSellingItems[itemName].quantity += item.quantity || 1;
+						topSellingItems[itemName].totalRevenue += revenueInCents;
 					});
+				}
+
+				if (order.server.name && orderGratuity > 0) {
+					const serverName = order.server.name;
+					serverTips[serverName] =
+						(serverTips[serverName] || 0) + orderGratuity;
 				}
 			});
 
-			// --- (LOG 4) ---
-			console.log("--- Successfully finished report aggregation. ---");
+			const netPayout = totalGrossRevenue - totalStripeFees;
+			const avgCheckSize =
+				totalOrders > 0 ? totalGrossRevenue / totalOrders : 0;
+			const avgTurnoverRate =
+				ordersWithTurnover > 0 ? totalTurnoverDuration / ordersWithTurnover : 0;
 
-			const formattedTopItems = Object.values(topSellingItems)
-				.sort((a, b) => b.quantity - a.quantity)
-				.slice(0, 5);
-			const avgCheckSize = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+			// For "Today", return the full detailed breakdown.
+			if (period === "today") {
+				return {
+					totalRevenue: totalGrossRevenue,
+					netPayout,
+					totalDiscounts: totalDiscounts,
+					totalStripeFees: totalStripeFees,
+					totalOrders,
+					avgCheckSize,
+					avgTurnoverRate: Math.round(avgTurnoverRate),
+					allItemsSold: Object.values(topSellingItems).sort(
+						(a, b) => b.totalRevenue - a.totalRevenue
+					),
+					serverTips: Object.entries(serverTips)
+						.map(([name, total]) => ({
+							serverName: name,
+							gratuityTotal: total,
+						}))
+						.sort((a, b) => b.gratuityTotal - a.gratuityTotal),
+				};
+			}
 
+			// For "Week" or "Month", return the summarized data for charts.
 			return {
-				totalRevenue,
+				totalRevenue: totalGrossRevenue,
+				netPayout,
 				totalOrders,
 				avgCheckSize,
 				salesByCategory: {
 					Food: Math.round(salesByCategory.Food),
 					Bar: Math.round(salesByCategory.Bar),
 				},
-				topSellingItems: formattedTopItems,
+				topSellingItems: Object.values(topSellingItems)
+					.sort((a, b) => b.quantity - a.quantity)
+					.slice(0, 5),
+				salesByHour: salesByHour.map((s) => Math.round(s)),
+				salesByDay: salesByDay.map((s) => Math.round(s)),
 			};
 		} catch (error) {
-			// --- (LOG 5) ---
-			// This will now give us a more specific error message.
-			console.error("CRITICAL ERROR in getAggregatedSalesReport:", error);
+			console.error("Error generating dashboard report:", error);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Failed to generate sales report."
+				"Failed to generate report."
 			);
 		}
-	}
-);
+	});

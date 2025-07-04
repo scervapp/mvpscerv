@@ -8,6 +8,40 @@ const db = admin.firestore();
 // Define the secret
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 
+/**
+ * An internal helper function to generate a new, unique, sequential restaurant number.
+ * It uses a distributed counter to handle potential race conditions.
+ * This function is NOT exported as it's only called by other functions.
+ * @returns {Promise<number>} A new unique restaurant number.
+ */
+async function generateUniqueRestaurantNumber() {
+	const counterRef = db.collection("appConfig").doc("restaurantCounter");
+
+	try {
+		// Run a transaction to atomically increment the counter.
+		const newNumber = await db.runTransaction(async (transaction) => {
+			const counterDoc = await transaction.get(counterRef);
+			let currentNumber = 1000; // Start at 1001 for the first restaurant
+			if (counterDoc.exists) {
+				currentNumber = counterDoc.data().currentNumber;
+			}
+			const nextNumber = currentNumber + 1;
+			transaction.set(
+				counterRef,
+				{ currentNumber: nextNumber },
+				{ merge: true }
+			);
+			return nextNumber;
+		});
+		console.log(`Generated new restaurant number: ${newNumber}`);
+		return newNumber;
+	} catch (error) {
+		console.error("FATAL: Could not generate unique restaurant number.", error);
+		// Fallback to a random number to prevent signup from failing completely
+		return Math.floor(1000 + Math.random() * 9000);
+	}
+}
+
 exports.createStripeCustomer = functions
 	.runWith({
 		secrets: [STRIPE_SECRET_KEY],
@@ -89,11 +123,27 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
 		} else if (role === "owner") {
 			collectionName = "restaurants";
 			restaurantId = userRecord.uid;
+			const uniqueNumber = await generateUniqueRestaurantNumber();
 			userData = {
 				role: "owner",
-				hasSetupEmployees: false, // <<< SET THE ONBOARDING FLAG HERE
+				onboardingStatus: "pending_profile", // Start of the onboarding funnel
+				isLive: false, // Not visible to customers yet
+				isTestAccount: true, // Defaults to using test keys
+				isOpen: false, // Restaurant starts as closed
+
+				// Operations & Financials
+				restaurantNumber: uniqueNumber,
 				taxRate: 0.0,
-				isTestAccount: true,
+				platformCoverStripeFeeForRestaurant: false,
+				stripeAccountId: null, // To be filled in after Stripe onboarding
+				stripeAccountStatus: "unverified", // Initial Stripe status
+
+				// Profile & Discovery
+				geoPoint: null, // To be filled in from address
+				tags: [], // Empty array for future use
+
+				// Original Onboarding Flag
+				hasSetupEmployees: false,
 			};
 		} else {
 			throw new functions.https.HttpsError(

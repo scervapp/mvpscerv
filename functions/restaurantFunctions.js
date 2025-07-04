@@ -5,12 +5,12 @@ const bcrypt = require("bcrypt");
 
 /**
  * Starts a new work day for a restaurant.
- * Checks to ensure no other work day is currently open.
+ * - Cleans up tables and old kitchen orders from the previous day.
+ * - Creates a new work_day document with status 'OPEN'.
+ * - Sets an 'isOpen: true' flag on the main restaurant document for easy client-side access.
  *
  * @param {object} data - The data object from the client.
  * @param {string} data.restaurantId - The ID of the restaurant.
- * @param {object} context - The Firebase Functions context object.
- * @returns {Promise<{success: boolean, workDayId?: string, error?: string}>}
  */
 exports.startWorkDay = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -27,13 +27,11 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const workDaysRef = db
-		.collection("restaurants")
-		.doc(restaurantId)
-		.collection("work_days");
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const workDaysRef = restaurantRef.collection("work_days");
 
 	try {
-		// First, check for an already open work day (as before)
+		// First, check for an already open work day
 		const openDaysQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
 		const openDaysSnapshot = await openDaysQuery.get();
 		if (!openDaysSnapshot.empty) {
@@ -43,16 +41,14 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// --- NEW: CLEANUP ROUTINE ---
+		// --- Cleanup Routine ---
 		console.log(
 			`startWorkDay: Running cleanup routine for restaurant ${restaurantId}...`
 		);
-		const batch = db.batch();
+		const cleanupBatch = db.batch();
 
 		// 1. Reset all tables that are not 'available'.
-		const tablesToResetQuery = db
-			.collection("restaurants")
-			.doc(restaurantId)
+		const tablesToResetQuery = restaurantRef
 			.collection("tables")
 			.where("status", "!=", "available");
 		const tablesSnapshot = await tablesToResetQuery.get();
@@ -62,7 +58,7 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 					doc.data().status
 				}' to 'available'.`
 			);
-			batch.update(doc.ref, {
+			cleanupBatch.update(doc.ref, {
 				status: "available",
 				currentCheckInId: null,
 				currentCustomerId: null,
@@ -70,8 +66,7 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			});
 		});
 
-		// 2. Clear any lingering orders from the Chef's Q.
-		// We'll mark them as 'stale' instead of deleting to preserve data.
+		// 2. Archive any lingering orders from the Chef's Q.
 		const kitchenOrdersRef = db.collection("kitchen_orders");
 		const activeOrdersQuery = kitchenOrdersRef
 			.where("restaurantId", "==", restaurantId)
@@ -81,18 +76,19 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			console.log(
 				`... Archiving stale kitchen order ${doc.id} from previous day.`
 			);
-			batch.update(doc.ref, { status: "archived_stale" });
+			cleanupBatch.update(doc.ref, { status: "archived_stale" });
 		});
 
-		await batch.commit(); // Commit all cleanup changes
+		await cleanupBatch.commit();
 		console.log(
-			`startWorkDay: Cleanup complete. Found and reset ${tablesSnapshot.size} tables and archived ${activeOrdersSnapshot.size} kitchen orders.`
+			`startWorkDay: Cleanup complete. Reset ${tablesSnapshot.size} tables and archived ${activeOrdersSnapshot.size} kitchen orders.`
 		);
-		// --- END CLEANUP ROUTINE ---
 
-		// Now, create the new work day document
-		const newWorkDayRef = workDaysRef.doc();
-		await newWorkDayRef.set({
+		// --- Create New Work Day ---
+		const newWorkDayRef = workDaysRef.doc(); // Auto-generate ID
+		const finalBatch = db.batch();
+
+		finalBatch.set(newWorkDayRef, {
 			status: "OPEN",
 			startTime: admin.firestore.FieldValue.serverTimestamp(),
 			endTime: null,
@@ -101,12 +97,15 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 				name: context.auth.token.name || "Manager",
 			},
 			managerWhoClosed: null,
-			totalSales: 0,
-			totalTips: 0,
 		});
 
+		// Set the public-facing status on the main restaurant document.
+		finalBatch.update(restaurantRef, { isOpen: true });
+
+		await finalBatch.commit();
+
 		console.log(
-			`startWorkDay: Successfully started new work day ${newWorkDayRef.id} for restaurant ${restaurantId}.`
+			`Successfully started new work day ${newWorkDayRef.id} and set restaurant to OPEN.`
 		);
 		return { success: true, workDayId: newWorkDayRef.id };
 	} catch (error) {
@@ -117,20 +116,20 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not start the work day.",
-			error.message
+			"Could not start the work day."
 		);
 	}
 });
 
 /**
  * Ends the current open work day for a restaurant.
+ * - Validates that no tables are currently occupied or need cleaning.
+ * - Updates the work_day document status to 'CLOSED'.
+ * - Sets an 'isOpen: false' flag on the main restaurant document.
  *
  * @param {object} data - The data object from the client.
  * @param {string} data.restaurantId - The ID of the restaurant.
  * @param {string} data.workDayId - The ID of the work day document to close.
- * @param {object} context - The Firebase Functions context object.
- * @returns {Promise<{success: boolean, error?: string}>}
  */
 exports.endWorkDay = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -147,33 +146,29 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const workDayRef = db
-		.collection("restaurants")
-		.doc(restaurantId)
-		.collection("work_days")
-		.doc(workDayId);
-	const tablesRef = db
-		.collection("restaurants")
-		.doc(restaurantId)
-		.collection("tables");
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const workDayRef = restaurantRef.collection("work_days").doc(workDayId);
+	const tablesRef = restaurantRef.collection("tables");
 
 	try {
-		// --- NEW VALIDATION STEP ---
-		// Check for any currently occupied tables.
-		const occupiedTablesQuery = tablesRef.where("status", "==", "OCCUPIED");
-		const occupiedSnapshot = await occupiedTablesQuery.get();
+		// --- Pre-close Validation Step ---
+		// Check for any tables that are NOT available. This includes 'OCCUPIED' and 'checkedOut'.
+		const unresolvedTablesQuery = tablesRef
+			.where("status", "!=", "available")
+			.limit(1);
+		const unresolvedSnapshot = await unresolvedTablesQuery.get();
 
-		if (!occupiedSnapshot.empty) {
+		if (!unresolvedSnapshot.empty) {
+			const unresolvedCount = unresolvedSnapshot.size;
+			const sampleTable = unresolvedSnapshot.docs[0].data();
 			console.warn(
-				`endWorkDay attempt failed for restaurant ${restaurantId}: ${occupiedSnapshot.size} tables are still occupied.`
+				`endWorkDay attempt failed: ${unresolvedCount} tables are not available (e.g., status: ${sampleTable.status}).`
 			);
-			// Throw a specific error that the client can understand and display.
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				`Cannot end the day while ${occupiedSnapshot.size} table(s) are still occupied. Please check out all tables first.`
+				`Cannot end the day while ${unresolvedCount} table(s) are still occupied or need cleaning. Please clear all tables first.`
 			);
 		}
-		// --- END VALIDATION STEP ---
 
 		const workDayDoc = await workDayRef.get();
 		if (!workDayDoc.exists || workDayDoc.data().status !== "OPEN") {
@@ -183,18 +178,26 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// Proceed with closing the day if validation passes
-		await workDayRef.update({
+		// --- Proceed with Closing ---
+		const batch = db.batch();
+
+		// Close the work day document
+		batch.update(workDayRef, {
 			status: "CLOSED",
 			endTime: admin.firestore.FieldValue.serverTimestamp(),
 			managerWhoClosed: {
 				uid: context.auth.uid,
-				name: context.auth.token.name || "Unknown Manager",
+				name: context.auth.token.name || "Manager",
 			},
 		});
 
+		// Set the public-facing status on the main restaurant document
+		batch.update(restaurantRef, { isOpen: false });
+
+		await batch.commit();
+
 		console.log(
-			`endWorkDay: Successfully ended work day ${workDayId} for restaurant ${restaurantId}.`
+			`Successfully ended work day ${workDayId} and set restaurant to CLOSED.`
 		);
 		return { success: true };
 	} catch (error) {
@@ -202,11 +205,63 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not end the work day.",
-			error.message
+			"Could not end the work day."
 		);
 	}
 });
+
+/**
+ * A scheduled function that runs every day at 5:00 AM Eastern Time.
+ * It finds any work days that were left open for more than 18 hours
+ * and automatically closes them to prevent data contamination.
+ */
+exports.autoCloseStaleWorkDays = functions.pubsub
+	.schedule("every day 05:00")
+	.timeZone("America/New_York")
+	.onRun(async (context) => {
+		console.log("Running scheduled job: autoCloseStaleWorkDays...");
+
+		const now = new Date();
+		const eighteenHoursAgo = new Date(now.getTime() - 18 * 60 * 60 * 1000);
+		const staleTimestamp = admin.firestore.Timestamp.fromDate(eighteenHoursAgo);
+
+		// Find all work_days subcollections that have a stale, open day
+		const staleDaysQuery = db
+			.collectionGroup("work_days")
+			.where("status", "==", "OPEN")
+			.where("startTime", "<=", staleTimestamp);
+
+		const staleDaysSnapshot = await staleDaysQuery.get();
+
+		if (staleDaysSnapshot.empty) {
+			console.log("No stale work days found. Job finished.");
+			return null;
+		}
+
+		console.log(`Found ${staleDaysSnapshot.size} stale work days to close.`);
+		const batch = db.batch();
+
+		staleDaysSnapshot.forEach((doc) => {
+			console.log(`Closing stale work day: ${doc.id} at path: ${doc.ref.path}`);
+			// Update the work_day status to 'CLOSED_AUTO'
+			batch.update(doc.ref, {
+				status: "CLOSED_AUTO",
+				endTime: admin.firestore.FieldValue.serverTimestamp(),
+				notes:
+					"Automatically closed by system due to being open for over 18 hours.",
+			});
+
+			// Also update the parent restaurant's `isOpen` flag to false
+			const restaurantRef = doc.ref.parent.parent; // Navigates up to the restaurant doc
+			if (restaurantRef) {
+				batch.update(restaurantRef, { isOpen: false });
+			}
+		});
+
+		await batch.commit();
+		console.log("Successfully closed all found stale work days.");
+		return null;
+	});
 
 /**
  * Adds a new table to a restaurant's subcollection.

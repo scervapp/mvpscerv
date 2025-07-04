@@ -234,11 +234,32 @@ const createOrderFromPartyPayment = async (
 		payingUserId
 	);
 
+	// 1. Find the currently active workday for the restaurant.
+	const workDaysRef = db
+		.collection("restaurants")
+		.doc(partyData.restaurantId)
+		.collection("work_days");
+	const openWorkDayQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
+	const openWorkDaySnapshot = await openWorkDayQuery.get();
+
+	let activeWorkDayId = null;
+	if (!openWorkDaySnapshot.empty) {
+		activeWorkDayId = openWorkDaySnapshot.docs[0].id;
+		console.log(
+			`Found active workday ${activeWorkDayId} for this party order.`
+		);
+	} else {
+		console.warn(
+			`Could not find an active workday for restaurant ${partyData.restaurantId} when creating order.`
+		);
+	}
+
 	const newOrderRef = db.collection("orders").doc();
 	const orderData = {
 		id: newOrderRef.id,
 		orderId: generatedOrderId,
 		restaurantId: partyData.restaurantId,
+		workDayId: activeWorkDayId,
 		userId: payingUserId,
 		timestamp: admin.firestore.FieldValue.serverTimestamp(),
 		items: userItems, // This array now contains the full dish object with the category
@@ -565,14 +586,10 @@ exports.preparePaymentSheetData = functions
 					console.log("Calling Stripe Tax Calculation API...");
 					const taxCalculation = await stripeInstance.tax.calculations.create({
 						currency: "usd",
-						line_items: lineItems.map((item) => ({
-							amount: Math.round(item.amount),
-							quantity: item.quantity || 1,
-							tax_code: item.tax_code,
-							reference: item.id || item.name,
-						})),
+						line_items: lineItems, // Use the lineItems array directly
 						customer_details: customerDetails,
 					});
+
 					calculatedTaxAmount = taxCalculation.tax_amount_exclusive || 0; // Tax in cents
 					console.log(`Stripe Tax Calculated: ${calculatedTaxAmount} cents`);
 				}
@@ -634,6 +651,7 @@ exports.preparePaymentSheetData = functions
 				customer: customerId,
 				application_fee_amount: applicationFeeToCharge,
 				transfer_data: { destination: connectedAccountId },
+				on_behalf_of: connectedAccountId,
 				metadata: {
 					// Ensure essential IDs are passed from client and included here
 					...(metadata || {}),
@@ -1023,7 +1041,8 @@ exports.preparePartyPaymentSheet = functions
 			restaurantStripeAccountId,
 			subtotal,
 			gratuity,
-			tax,
+			lineItems,
+			customerDetails,
 		} = data;
 
 		// --- 1. Validation ---
@@ -1033,7 +1052,8 @@ exports.preparePartyPaymentSheet = functions
 			!restaurantStripeAccountId ||
 			subtotal === undefined ||
 			gratuity === undefined ||
-			tax === undefined
+			!lineItems ||
+			!customerDetails
 		) {
 			console.error(
 				"preparePartyPaymentSheet: Invalid input. Missing required data.",
@@ -1095,6 +1115,27 @@ exports.preparePartyPaymentSheet = functions
 				await userDocRef.update({ stripeCustomerId: stripeCustomerId });
 			}
 
+			let calculatedTaxAmount = 0;
+			if (lineItems.length > 0) {
+				const taxCalculation = await stripeInstance.tax.calculations.create({
+					currency: "usd",
+					line_items: lineItems,
+					customer_details: customerDetails,
+				});
+				calculatedTaxAmount = taxCalculation.tax_amount_exclusive || 0;
+			}
+			// --- END OF FIX ---
+
+			// Calculate the final total amount on the server.
+			const finalAmount =
+				subtotal + gratuity + platformFee + calculatedTaxAmount;
+			if (finalAmount <= 49) {
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Payment amount is too low."
+				);
+			}
+
 			// --- 5. Create Ephemeral Key for the session ---
 			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
 				{ customer: stripeCustomerId },
@@ -1103,7 +1144,7 @@ exports.preparePartyPaymentSheet = functions
 
 			// --- 6. Create the Payment Intent ---
 			const paymentIntent = await stripeInstance.paymentIntents.create({
-				amount: Math.round(amount), // Ensure amount is an integer
+				amount: Math.round(finalAmount), // Ensure amount is an integer
 				currency: "usd",
 				customer: stripeCustomerId,
 				automatic_payment_methods: { enabled: true },
@@ -1111,6 +1152,7 @@ exports.preparePartyPaymentSheet = functions
 				transfer_data: {
 					destination: restaurantStripeAccountId,
 				},
+				on_behalf_of: restaurantStripeAccountId,
 				// The platform fee was pre-calculated on the client for this user's portion
 				application_fee_amount: Math.round(platformFee),
 				metadata: {
@@ -1120,7 +1162,7 @@ exports.preparePartyPaymentSheet = functions
 					restaurantId: restaurantId,
 					subtotal: subtotal, // Add subtotal to metadata
 					gratuity: gratuity, // Add gratuity to metadata
-					tax: tax, // Add calculated tax to metadata
+					tax: calculatedTaxAmount, // Add calculated tax to metadata
 					sharedBasketId: sharedBasketId, // Pass the basket ID
 				},
 			});
@@ -1134,6 +1176,8 @@ exports.preparePartyPaymentSheet = functions
 				paymentIntent: paymentIntent.client_secret,
 				ephemeralKey: ephemeralKey.secret,
 				customer: stripeCustomerId,
+				calculatedTaxAmount: calculatedTaxAmount,
+				finalAmount: finalAmount,
 			};
 		} catch (error) {
 			console.error(

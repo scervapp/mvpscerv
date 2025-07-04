@@ -28,8 +28,6 @@ import { Picker } from "@react-native-picker/picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { httpsCallable } from "firebase/functions";
 
-
-
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
@@ -49,11 +47,13 @@ const PartyCheckoutScreen = () => {
 	const [paymentError, setPaymentError] = useState(null);
 	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
-	
 
 	const [fees, setFees] = useState(0.05); // Default platform fee, fetched from DB
 	const [gratuityPercentage, setGratuityPercentage] = useState("18"); // Default tip
 	const [isLoadingParty, setIsLoadingParty] = useState(false);
+
+	const [calculatedTax, setCalculatedTax] = useState(0);
+	const [finalTotal, setFinalTotal] = useState(0);
 
 	const { partyId } = route.params;
 
@@ -191,6 +191,27 @@ const PartyCheckoutScreen = () => {
 			setIsPreparing(true);
 			setPaymentError(null);
 			try {
+				// This is the data Stripe Tax needs to calculate tax correctly.
+				const lineItemsForTax = myItems.map((item) => {
+					const priceInCents = Math.round((item.price || 0) * 100);
+					return {
+						amount: priceInCents * (item.quantity || 1),
+						quantity: 1,
+						tax_code: "txcd_10103001", // General food/beverage tax code
+						reference: item.id,
+					};
+				});
+				const customerDetailsForTax = {
+					address: {
+						line1: null,
+						city: null,
+						state: "NY",
+						postal_code: "11215",
+						country: "US",
+					},
+					address_source: "billing",
+				};
+
 				// --- Call the NEW 'preparePartyPaymentSheet' Cloud Function ---
 				const prepareFn = httpsCallable(functions, "preparePartyPaymentSheet");
 				const { data } = await prepareFn({
@@ -200,13 +221,17 @@ const PartyCheckoutScreen = () => {
 					restaurantStripeAccountId: partyDetails.restaurantStripeAccountId,
 					subtotal: subtotal, // Pass the user's subtotal
 					gratuity: gratuity, // Pass the user's gratuity
-					tax: 0, // Pass a placeholder for tax, as it's calculated server-side
+					lineItems: lineItemsForTax,
+					customerDetails: customerDetailsForTax,
 				});
 
 				if (!data.paymentIntent || !data.ephemeralKey || !data.customer) {
 					throw new Error("Payment details from server are incomplete.");
 				}
 
+				// After getting the response, update the state with the server-calculated values.
+				setCalculatedTax(data.calculatedTaxAmount || 0);
+				setFinalTotal(data.finalAmount || totalForPayment);
 				// Initialize the Payment Sheet
 				const { error } = await initPaymentSheet({
 					merchantDisplayName: `Scerv Inc. - ${partyDetails.restaurantName}`,
@@ -365,14 +390,26 @@ const PartyCheckoutScreen = () => {
 						</View>
 						<Divider style={styles.divider} />
 						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Amount before Tax:</Text>
-							<Text style={styles.amount}>
-								{formatCurrency(totalForPayment)}
-							</Text>
+							<Text style={styles.label}>Est. Sales Tax:</Text>
+							{isPreparing ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<Text style={styles.amount}>
+									{formatCurrency(calculatedTax)}
+								</Text>
+							)}
 						</View>
-						<Text style={styles.disclaimerText}>
-							Final tax will be calculated by Stripe.
-						</Text>
+						<Divider style={styles.divider} />
+						<View style={styles.summaryRow}>
+							<Text style={styles.totalLabel}>Your Total:</Text>
+							{isPreparing ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<Text style={styles.totalAmount}>
+									{formatCurrency(finalTotal)}
+								</Text>
+							)}
+						</View>
 					</View>
 
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
@@ -397,7 +434,7 @@ const PartyCheckoutScreen = () => {
 							? "Preparing..."
 							: isPaying
 							? "Processing..."
-							: `Pay ${formatCurrency(totalForPayment)}`}
+							: `Pay ${formatCurrency(finalTotal)}`}
 					</Button>
 				</View>
 			</SafeAreaView>
@@ -462,6 +499,7 @@ const styles = StyleSheet.create({
 	},
 	label: { fontSize: 16, color: colors.textMedium },
 	amount: { fontSize: 16, fontWeight: "500", color: colors.textDark },
+	totalAmount: { fontSize: 18, fontWeight: "bold", color: colors.primary },
 	divider: { marginVertical: 8 },
 	disclaimerText: {
 		fontSize: 12,

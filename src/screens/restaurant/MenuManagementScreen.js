@@ -17,7 +17,10 @@ import { collection, onSnapshot, where, query } from "firebase/firestore";
 import { AuthContext } from "../../context/authContext";
 import MenuItem from "../../components/restaurant/MenuItem";
 import colors from "../../utils/styles/appStyles";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+	SafeAreaView,
+	useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 const MenuSectionHeader = ({ title }) => (
 	<View style={styles.sectionHeaderContainer}>
@@ -150,7 +153,7 @@ const MenuManagementScreen = () => {
 		<MenuItem
 			item={item}
 			restaurantId={currentUserData.uid}
-			onPress={() => handleEditItem(item)}
+			onEdit={() => handleEditItem(item)}
 		/>
 	);
 	if (isLoading) {
@@ -170,69 +173,81 @@ const MenuManagementScreen = () => {
 	}
 
 	return (
-		<TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-			<View style={[styles.container, { paddingTop: insets.top }]}>
-				{/* --- Header --- */}
-				<View style={styles.header}>
-					<Text style={styles.headerTitle}>Manage Menu</Text>
-					<TouchableOpacity style={styles.headerButton} onPress={handleAddItem}>
-						<Ionicons name="add" size={24} color={colors.primary} />
-						<Text style={styles.headerButtonText}>Add Item</Text>
-					</TouchableOpacity>
-				</View>
-
-				{/* --- Search Bar --- */}
-				<View style={styles.searchContainer}>
-					<Ionicons
-						name="search"
-						size={20}
-						color={colors.textLight}
-						style={styles.searchIcon}
-					/>
-					<TextInput
-						style={styles.searchInput}
-						placeholder="Search for a dish..."
-						placeholderTextColor={colors.textLight}
-						value={searchTerm}
-						onChangeText={setSearchTerm}
-					/>
-				</View>
-
-				{/* --- Content --- */}
-				{menuItems.length === 0 ? (
-					<EmptyMenu onAddItem={handleAddItem} />
-				) : processedMenu.length === 0 ? (
-					<View style={styles.emptyContainer}>
-						<Text style={styles.emptyTitle}>No Results Found</Text>
-						<Text style={styles.emptySubtitle}>
-							No menu items match your search for "{searchTerm}".
-						</Text>
+		<SafeAreaView style={styles.safeArea}>
+			<TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+				<View style={styles.container}>
+					{/* --- Header --- */}
+					<View style={styles.header}>
+						<Text style={styles.headerTitle}>Manage Menu</Text>
+						<TouchableOpacity
+							style={styles.headerButton}
+							onPress={handleAddItem}
+						>
+							<Ionicons name="add" size={24} color={colors.primary} />
+							<Text style={styles.headerButtonText}>Add Item</Text>
+						</TouchableOpacity>
 					</View>
-				) : (
-					<SectionList
-						sections={processedMenu}
-						renderItem={renderMenuItem}
-						keyExtractor={(item) => item.id}
-						renderSectionHeader={({ section: { title } }) => (
-							<MenuSectionHeader title={title} />
-						)}
-						contentContainerStyle={styles.menuList}
-						stickySectionHeadersEnabled={false}
-					/>
-				)}
 
-				{/* --- Add/Edit Item Modal --- */}
-				<AddItemModal
-					isVisible={showModal}
-					onClose={() => setShowModal(false)}
-					itemToEdit={selectedItem} // Pass the selected item to the modal
-				/>
-			</View>
-		</TouchableWithoutFeedback>
+					{/* --- Search Bar --- */}
+					<View style={styles.searchContainer}>
+						<Ionicons
+							name="search"
+							size={20}
+							color={colors.textLight}
+							style={styles.searchIcon}
+						/>
+						<TextInput
+							style={styles.searchInput}
+							placeholder="Search for a dish..."
+							placeholderTextColor={colors.textLight}
+							value={searchTerm}
+							onChangeText={setSearchTerm}
+						/>
+					</View>
+
+					{/* --- THIS IS THE FIX --- */}
+					{/* This container View now has `flex: 1`, which allows its children (the list or empty states) to expand and scroll correctly. */}
+					<View style={{ flex: 1 }}>
+						{menuItems.length === 0 ? (
+							<EmptyMenu onAddItem={handleAddItem} />
+						) : processedMenu.length === 0 ? (
+							<View style={styles.emptyContainer}>
+								<Text style={styles.emptyTitle}>No Results Found</Text>
+								<Text style={styles.emptySubtitle}>
+									No menu items match your search for "{searchTerm}".
+								</Text>
+							</View>
+						) : (
+							<SectionList
+								sections={processedMenu}
+								renderItem={renderMenuItem}
+								keyExtractor={(item, index) => item.id + index}
+								renderSectionHeader={({ section: { title } }) => (
+									<MenuSectionHeader title={title} />
+								)}
+								contentContainerStyle={styles.menuList}
+								keyboardShouldPersistTaps="handled"
+							/>
+						)}
+					</View>
+
+					{/* --- Add/Edit Item Modal --- */}
+					<AddItemModal
+						isVisible={showModal}
+						onClose={() => setShowModal(false)}
+						itemToEdit={selectedItem}
+					/>
+				</View>
+			</TouchableWithoutFeedback>
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
+	safeArea: {
+		flex: 1,
+		backgroundColor: colors.surfaceWhite,
+	},
 	container: {
 		flex: 1,
 		backgroundColor: colors.backgroundLight,
@@ -241,11 +256,6 @@ const styles = StyleSheet.create({
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		backgroundColor: colors.backgroundLight,
-	},
-	errorText: {
-		fontSize: 16,
-		color: colors.statusDanger,
 	},
 	header: {
 		flexDirection: "row",
@@ -255,16 +265,13 @@ const styles = StyleSheet.create({
 		paddingVertical: 15,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
 	},
-	headerTitle: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.textDark,
-	},
+	headerTitle: { fontSize: 24, fontWeight: "bold", color: colors.textDark },
 	headerButton: {
 		flexDirection: "row",
 		alignItems: "center",
-		backgroundColor: colors.primary + "20", // Light primary color
+		backgroundColor: colors.primary + "20",
 		paddingHorizontal: 12,
 		paddingVertical: 8,
 		borderRadius: 20,
@@ -281,26 +288,19 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 8,
 		marginHorizontal: 20,
-		marginTop: 15,
+		marginVertical: 15,
 		paddingHorizontal: 10,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
-	searchIcon: {
-		marginRight: 10,
-	},
-	searchInput: {
-		flex: 1,
-		height: 45,
-		fontSize: 16,
-		color: colors.textDark,
-	},
+	searchIcon: { marginRight: 10 },
+	searchInput: { flex: 1, height: 45, fontSize: 16, color: colors.textDark },
 	menuList: {
 		paddingHorizontal: 20,
 		paddingBottom: 40,
 	},
 	sectionHeaderContainer: {
-		paddingTop: 25,
+		paddingTop: 10,
 		paddingBottom: 10,
 		backgroundColor: colors.backgroundLight,
 	},
@@ -314,7 +314,6 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		alignItems: "center",
 		padding: 40,
-		marginTop: -50, // Adjust to better center vertically
 	},
 	emptyTitle: {
 		fontSize: 22,
@@ -336,10 +335,9 @@ const styles = StyleSheet.create({
 		borderRadius: 25,
 		marginTop: 25,
 	},
-	emptyButtonText: {
-		color: "#FFFFFF",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
+	emptyButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "bold" },
+	errorText: { fontSize: 16, color: colors.statusDanger },
 });
+
 export default MenuManagementScreen;
+

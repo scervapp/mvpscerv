@@ -25,6 +25,7 @@ import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
 import colors from "../utils/styles/appStyles";
 import BackOfficeAuthGate from "../screens/restaurant/BackOfficeAuthGate.";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import HistoricalReportsScreen from "../screens/restaurant/HistoricalReportScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -73,6 +74,11 @@ const BackOfficeStackNavigator = () => {
 				name="DailySalesDetails"
 				component={DailySalesDetailsScreen}
 				options={{ headerTitle: "Daily Sales Details" }}
+			/>
+			<Stack.Screen
+				name="HistoricalReports"
+				component={HistoricalReportsScreen}
+				options={{ headerTitle: "Historical Reports" }}
 			/>
 			<Stack.Screen
 				name="RestaurantProfile"

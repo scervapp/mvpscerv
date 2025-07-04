@@ -37,7 +37,7 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import AuthPromptModal from "../global/AuthPromptModal";
 import RestaurantHeader from "./RestaurantHeader";
 
@@ -68,6 +68,8 @@ const RestaurantDetailScreen = () => {
 	const [isStartingPartyProcess, setIsStartingPartyProcess] = useState(false);
 	const [userPips, setUserPips] = useState([]);
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
+	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
+	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
 	const {
@@ -110,6 +112,32 @@ const RestaurantDetailScreen = () => {
 			setUserPips([]);
 		}
 	}, [currentUserData?.uid]);
+
+	useEffect(() => {
+		if (!restaurant?.id) {
+			setIsLoadingRestaurant(false);
+			return;
+		}
+		const restaurantRef = doc(db, "restaurants", restaurant.id);
+		const unsubscribe = onSnapshot(
+			restaurantRef,
+			(docSnap) => {
+				if (docSnap.exists()) {
+					// Update our state with the latest data, including the isOpen flag.
+					setLiveRestaurantData({ id: docSnap.id, ...docSnap.data() });
+				} else {
+					console.error("Restaurant document not found.");
+				}
+				setIsLoadingRestaurant(false);
+			},
+			(error) => {
+				console.error("Error fetching real-time restaurant data:", error);
+				setIsLoadingRestaurant(false);
+			}
+		);
+
+		return () => unsubscribe();
+	}, [restaurant?.id]);
 
 	useEffect(() => {
 		if (!restaurant?.id) {
@@ -235,8 +263,6 @@ const RestaurantDetailScreen = () => {
 			closeModal();
 		}
 	};
-
-	
 
 	const handleCancelIndividualCheckIn = async () => {
 		if (!checkInObj?.id || isProcessingCheckInAction) return;
@@ -453,18 +479,26 @@ const RestaurantDetailScreen = () => {
 
 	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
 	const renderActionButtons = () => {
-		console.log("RestaurantDetailScreen (renderActionButtons):", {
-			checkInStatus: checkInStatus,
-			isProcessingAction: isProcessingAction, // Is this stuck on true?
-			isLoadingCheckInStatus: isLoadingCheckInStatus,
-			isLoadingParty: isLoadingParty,
-		});
+		const isRestaurantOpen = liveRestaurantData?.isOpen === true;
 
 		if (isLoadingCheckInStatus || isLoadingParty) {
 			// Combined initial loading for this section
 			return (
 				<View style={styles.actionsRow}>
 					<ActivityIndicator size="small" color={colors.primary} />
+				</View>
+			);
+		}
+
+		if (!isRestaurantOpen) {
+			return (
+				<View style={styles.actionsRow}>
+					<View style={styles.closedMessageContainer}>
+						<Ionicons name="moon-outline" size={24} color={colors.textLight} />
+						<Text style={styles.closedMessageText}>
+							This restaurant is currently closed.
+						</Text>
+					</View>
 				</View>
 			);
 		}
@@ -808,6 +842,16 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderColor: colors.borderLight,
 		marginBottom: 10, // Space before menu
+	},
+	closedMessageContainer: {
+		flex: 1,
+		paddingVertical: 10,
+		alignItems: "center",
+	},
+	closedMessageText: {
+		fontSize: 16,
+		fontWeight: "500",
+		color: colors.textMedium,
 	},
 	actionButton: {
 		alignItems: "center",

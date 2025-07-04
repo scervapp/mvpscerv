@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
 	View,
 	Text,
@@ -12,113 +12,150 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { fetchRestaurants } from "../../utils/customerUtils";
 import RestaurantCard from "./RestaurantCard";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "../../config/firebase";
+import colors from "../../utils/styles/appStyles";
 
-const RestaurantList = ({ searchText }) => {
-	const [restaurants, setRestaurants] = useState([]);
-	const [loading, setLoading] = useState(false);
-	const [filteredRestaurants, setFilteredRestaurants] = useState([]);
-
+const RestaurantList = ({ searchText, initialRestaurantData }) => {
+	const [allRestaurants, setAllRestaurants] = useState(
+		initialRestaurantData || []
+	);
+	const [isLoading, setIsLoading] = useState(!initialRestaurantData);
+	const [error, setError] = useState(null);
 	const navigation = useNavigation();
 
+	// This useEffect sets up the real-time listener for live restaurants.
 	useEffect(() => {
-		const fetchRestaurantsData = async () => {
-			try {
-				const data = await fetchRestaurants();
-				setRestaurants(data);
-				setFilteredRestaurants(data);
-			} catch (error) {
-				console.log("Error fetching restaurants", error);
-			} finally {
-				setLoading(false);
+		setIsLoading(true);
+		const restaurantsRef = collection(db, "restaurants");
+
+		// This query is the key: it only fetches restaurants that are NOT test accounts.
+		const q = query(restaurantsRef, where("isPublic", "==", true));
+
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot) => {
+				const liveRestaurants = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setAllRestaurants(liveRestaurants);
+				setIsLoading(false);
+				setError(null);
+			},
+			(err) => {
+				console.error("Error fetching live restaurants:", err);
+				setError("Could not load available restaurants.");
+				setIsLoading(false);
 			}
-		};
+		);
 
-		fetchRestaurantsData();
-	}, []);
+		// Cleanup the listener when the component is unmounted
+		return () => unsubscribe();
+	}, []); // Empty dependency array means this runs once on mount
 
-	useEffect(() => {
-		const filtered = restaurants.filter((restaurant) => {
-			const lowerCaseSearch = searchText.toLowerCase();
-			return (
-				(restaurant.restaurantName &&
-					restaurant.restaurantName.toLowerCase().includes(lowerCaseSearch)) ||
-				(restaurant.cuisineType &&
-					restaurant.cuisineType.toLowerCase().includes(lowerCaseSearch)) ||
-				(restaurant.city &&
-					restaurant.city.toLowerCase().includes(lowerCaseSearch)) ||
-				(restaurant.zipcode &&
-					restaurant.zipcode.toLowerCase().includes(lowerCaseSearch))
-			);
-		});
-		setFilteredRestaurants(filtered);
-	}, [searchText, restaurants]);
-
-	const renderItem = ({ item }) => (
-		<RestaurantCard
-			restaurant={item}
-			onPress={() => handleRestaurantPress(item)}
-		/>
-	);
+	// Use useMemo to efficiently filter the list only when the data or search term changes
+	const filteredRestaurants = useMemo(() => {
+		if (!searchText) {
+			return allRestaurants;
+		}
+		return allRestaurants.filter(
+			(restaurant) =>
+				(restaurant.restaurantName || "")
+					.toLowerCase()
+					.includes(searchText.toLowerCase()) ||
+				(restaurant.cuisineType || "")
+					.toLowerCase()
+					.includes(searchText.toLowerCase())
+		);
+	}, [allRestaurants, searchText]);
 
 	const handleRestaurantPress = (restaurant) => {
 		navigation.navigate("RestaurantDetail", { restaurant });
 	};
-	if (loading) {
+
+	if (isLoading) {
 		return (
-			<View style={styles.loadingContainer}>
-				<ActivityIndicator size="large" />
+			<View style={styles.centeredContainer}>
+				<ActivityIndicator size="large" color={colors.primary} />
+				<Text style={styles.loadingText}>Finding Restaurants...</Text>
+			</View>
+		);
+	}
+
+	if (error) {
+		return (
+			<View style={styles.centeredContainer}>
+				<Text style={styles.errorText}>{error}</Text>
+			</View>
+		);
+	}
+
+	if (filteredRestaurants.length === 0) {
+		return (
+			<View style={styles.centeredContainer}>
+				<Text style={styles.noResultsText}>
+					{searchText
+						? `No results for "${searchText}"`
+						: "No Restaurants Available"}
+				</Text>
+				<Text style={styles.noResultsSubText}>
+					{searchText
+						? "Try a different search term."
+						: "Please check back later!"}
+				</Text>
 			</View>
 		);
 	}
 
 	return (
-		<View style={styles.container}>
-			<FlatList
-				data={filteredRestaurants}
-				renderItem={renderItem}
-				keyExtractor={(item) => item.id}
-				contentContainerStyle={styles.listContentContainer}
-				showsVerticalScrollIndicator={false} // Hide the scroll bar
-			/>
-		</View>
+		<FlatList
+			data={filteredRestaurants}
+			renderItem={({ item }) => (
+				<RestaurantCard
+					restaurant={item}
+					onPress={() => handleRestaurantPress(item)}
+				/>
+			)}
+			keyExtractor={(item) => item.id}
+			contentContainerStyle={styles.listContentContainer}
+			showsVerticalScrollIndicator={false}
+		/>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
+	centeredContainer: {
 		flex: 1,
-		width: "100%", // Take up the full width of the parent container
-		paddingHorizontal: 10,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
 	},
 	listContentContainer: {
-		flexGrow: 1, // Allow the list to grow vertically as needed
-	},
-	restaurantItem: {
-		flexDirection: "row",
-		alignItems: "center",
 		paddingVertical: 10,
-		borderBottomWidth: 1,
-		borderBottomColor: "#CCCCCC",
+		paddingHorizontal: 5, // Add some horizontal padding for the cards
 	},
-	thumbnail: {
-		width: 80,
-		height: 80,
-		borderRadius: 10,
-		marginRight: 10,
-	},
-	restaurantInfo: {
-		flex: 1,
-	},
-	restaurantName: {
-		fontWeight: "bold",
+	loadingText: {
+		marginTop: 10,
 		fontSize: 16,
-		marginBottom: 5,
+		color: colors.textMedium,
 	},
-	address: {
-		marginBottom: 5,
+	errorText: {
+		fontSize: 16,
+		color: colors.statusDanger,
+		textAlign: "center",
 	},
-	cuisine: {
-		color: "#666666",
+	noResultsText: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.textMedium,
+		textAlign: "center",
+	},
+	noResultsSubText: {
+		fontSize: 14,
+		color: colors.textLight,
+		textAlign: "center",
+		marginTop: 8,
 	},
 });
 

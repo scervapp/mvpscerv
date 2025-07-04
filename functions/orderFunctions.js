@@ -239,6 +239,30 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 				platformFeeShouldBeWaived = true;
 			}
 		}
+		const workDaysRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("work_days");
+		const openWorkDayQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
+		const openWorkDaySnapshot = await openWorkDayQuery.get();
+
+		let activeWorkDayId = null;
+		if (!openWorkDaySnapshot.empty) {
+			activeWorkDayId = openWorkDaySnapshot.docs[0].id;
+			console.log(
+				`Found active workday ${activeWorkDayId} for this pending order.`
+			);
+		} else {
+			// This is a critical failure because an individual should not be able to order
+			// if the restaurant isn't open.
+			console.error(
+				`CRITICAL: User ${userId} tried to create an order but no active workday was found for restaurant ${restaurantId}.`
+			);
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"The restaurant is currently not open for orders."
+			);
+		}
 
 		// Generate OrderId
 		const generatedOrderId = await generateOrderId(restaurantId, userId);
@@ -266,8 +290,8 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 			stripeFeeActual: 0, // Actual Stripe processing fee
 			platformFeeActual: 0, // Actual platform fee collected
 			// --- Store optional calculation inputs if needed ---
-			// originalSubtotal: originalSubtotal || 0,
-			// totalDiscount: totalDiscount || 0,
+			originalSubtotal: originalSubtotal || 0,
+			totalDiscount: totalDiscount || 0,
 			// --- Timestamp ---
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			// Add other initial fields as needed
@@ -303,4 +327,4 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 	}
 });
 
-module.exports = { generateOrderId };
+exports.generateOrderId = generateOrderId;

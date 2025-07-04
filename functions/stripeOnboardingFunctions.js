@@ -23,6 +23,10 @@ exports.createConnectedAccount = functions
 				type: "express",
 				country: "US",
 				email: currentUserData.email,
+				capabilities: {
+					card_payments: { requested: true },
+					transfers: { requested: true },
+				},
 			});
 
 			// Store the account ID in the DB

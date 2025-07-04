@@ -64,7 +64,7 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 				setImageUri(null);
 			}
 		}
-	}, [isVisible, itemToEdit, isEditMode]);
+	}, [isVisible, itemToEdit]);
 
 	const handleImageSelection = async () => {
 		setIsUploading(true);

@@ -18,7 +18,8 @@ import colors from "../../utils/styles/appStyles";
 import backgroundSearchImage from "../../../assets/backgroundSearch.png";
 import CustomSearchBar from "./CustomSearchBar";
 
-const CustomerDashboard = ({ route, navigation }) => {
+const CustomerDashboard = ({ route = {}, navigation }) => {
+	const { initialRestaurantData = [] } = route.params || {};
 	const [searchText, setSearchText] = useState("");
 	const [showRestaurantList, setShowRestaurantList] = useState(false);
 	const { logout } = useContext(AuthContext);
@@ -30,7 +31,11 @@ const CustomerDashboard = ({ route, navigation }) => {
 
 	// Instead of ScrollView, use FlatList to handle both instructions and the restaurant list
 	const renderItem = ({ item }) => (
-		<RestaurantList searchText={searchText} navigation={navigation} />
+		<RestaurantList
+			searchText={searchText}
+			navigation={navigation}
+			initialRestaurantData={initialRestaurantData}
+		/>
 	);
 
 	const instructions = [
@@ -71,7 +76,11 @@ const CustomerDashboard = ({ route, navigation }) => {
 				<FlatList
 					data={[{ key: "restaurants" }]} // Placeholder to render restaurant list
 					renderItem={() => (
-						<RestaurantList searchText={searchText} navigation={navigation} />
+						<RestaurantList
+							searchText={searchText}
+							navigation={navigation}
+							initialRestaurantData={initialRestaurantData}
+						/>
 					)}
 				/>
 			)}

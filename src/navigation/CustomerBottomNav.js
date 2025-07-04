@@ -87,6 +87,7 @@ const CustomerDashboardStack = () => (
 			options={{ headerShown: false }}
 			name="CustomerDashboardInner"
 			component={CustomerDashboard}
+			initialParams={{ initialRestaurantData: [] }}
 		/>
 		<Stack.Screen
 			name="RestaurantDetail"

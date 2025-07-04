@@ -8,6 +8,7 @@ import {
 	ActivityIndicator,
 	TouchableOpacity,
 	Dimensions,
+	SafeAreaView,
 } from "react-native";
 import { httpsCallable } from "firebase/functions";
 import {
@@ -35,14 +36,12 @@ const KPICard = ({ title, value, iconName }) => (
 		<Text style={styles.kpiTitle}>{title}</Text>
 	</View>
 );
-
 const ChartCard = ({ title, children }) => (
 	<View style={styles.chartCard}>
 		<Text style={styles.chartTitle}>{title}</Text>
 		{children}
 	</View>
 );
-
 const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
 	<View style={styles.periodSelectorContainer}>
 		{["Today", "Week", "Month"].map((period) => (
@@ -67,104 +66,245 @@ const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
 	</View>
 );
 
+// --- New Components for "Today's Snapshot" View ---
+const DetailedReportCard = ({ title, children, iconName }) => (
+	<View style={styles.detailCard}>
+		<View style={styles.cardHeader}>
+			<Ionicons name={iconName} size={20} color={colors.primary} />
+			<Text style={styles.cardTitle}>{title}</Text>
+		</View>
+		<View style={styles.cardContent}>{children}</View>
+	</View>
+);
+const DetailRow = ({ label, value, isDeduction = false }) => (
+	<View style={styles.summaryRow}>
+		<Text style={styles.summaryLabel}>{label}</Text>
+		<Text style={[styles.summaryValue, isDeduction && styles.deductionValue]}>
+			{value}
+		</Text>
+	</View>
+);
+
+const ItemsSoldList = ({ items, formatCurrency }) => (
+	<View>
+		<View style={styles.tableHeader}>
+			<Text style={[styles.tableHeaderText, { flex: 3 }]}>Item</Text>
+			<Text style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}>
+				Qty
+			</Text>
+			<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
+				Revenue
+			</Text>
+		</View>
+		{items.map((item, index) => (
+			<View key={index} style={styles.tableRow}>
+				<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
+				<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
+					{item.quantity}
+				</Text>
+				<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
+					{formatCurrency(item.totalRevenue)}
+				</Text>
+			</View>
+		))}
+	</View>
+);
+
 const SalesReportScreen = ({ navigation }) => {
 	const { currentUserData, isLoading: isAuthLoading } = useContext(AuthContext);
 	const [reportData, setReportData] = useState(null);
-	const [isLoading, setIsLoading] = useState(true);
-	const [selectedPeriod, setSelectedPeriod] = useState("Week");
 	const [isFetching, setIsFetching] = useState(true);
-
+	const [selectedPeriod, setSelectedPeriod] = useState("Today"); // Default to Today
 	const insets = useSafeAreaInsets();
 
 	const formatCurrency = (cents) => {
-		const num = Number(cents); // Coerce to a number first
-		if (typeof num !== "number" || isNaN(num)) {
-			return "$0.00"; // Return a default value if input is invalid
-		}
-		return `$${(num / 100).toFixed(2)}`;
+		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
+		return `$${(cents / 100).toFixed(2)}`;
 	};
-	// This function will fetch our new, aggregated report data
+
 	useEffect(() => {
-		// This guard clause prevents the function from running if auth is still loading or user data isn't available.
-		if (isAuthLoading || !currentUserData?.uid) {
-			return;
-		}
-
-		const fetchSalesReport = async () => {
+		if (isAuthLoading || !currentUserData?.uid) return;
+		const fetchReport = async () => {
 			setIsFetching(true);
-			if (!currentUserData?.uid) return;
-			setIsLoading(true);
 			try {
-				// We will create this new, more powerful Cloud Function next
-				const getAggregatedSalesReport = httpsCallable(
-					functions,
-					"getAggregatedSalesReport"
-				);
-				const response = await getAggregatedSalesReport({
+				const getReport = httpsCallable(functions, "getDashboardReport");
+				const response = await getReport({
 					restaurantId: currentUserData.uid,
-					period: selectedPeriod.toLowerCase(), // 'today', 'week', 'month'
+					period: selectedPeriod.toLowerCase(),
 				});
-
 				setReportData(response.data);
 			} catch (error) {
-				console.error("Error fetching sales report:", error);
-				setReportData(null); // Clear data on error
-				Alert.alert("Error", "Could not fetch sales data. Please try again.");
+				console.error("Error fetching dashboard report:", error);
+				setReportData(null);
 			} finally {
 				setIsFetching(false);
 			}
 		};
-
-		fetchSalesReport();
+		fetchReport();
 	}, [selectedPeriod, currentUserData?.uid, isAuthLoading]);
 
-	if (isAuthLoading || isFetching) {
-		return (
-			<View style={styles.centered}>
-				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
-		);
-	}
-
-	if (!reportData) {
-		return (
-			<View style={styles.centered}>
-				<Ionicons
-					name="alert-circle-outline"
-					size={60}
-					color={colors.textLight}
+	const renderTodayView = () => (
+		<ScrollView contentContainerStyle={styles.scrollContent}>
+			<DetailedReportCard title="Financial Snapshot" iconName="cash-outline">
+				<DetailRow
+					label="Gross Revenue"
+					value={formatCurrency(reportData.totalRevenue)}
 				/>
+				<DetailRow
+					label="Discounts"
+					value={`-${formatCurrency(reportData.totalDiscounts)}`}
+					isDeduction
+				/>
+				<View style={styles.divider} />
+				<DetailRow
+					label="Trransaction Fees"
+					value={`-${formatCurrency(reportData.totalStripeFees)}`}
+					isDeduction
+				/>
+				<View style={styles.divider} />
+				<DetailRow
+					label="Net Payout"
+					value={formatCurrency(reportData.netPayout)}
+				/>
+			</DetailedReportCard>
+			<DetailedReportCard
+				title="Operational Metrics"
+				iconName="stats-chart-outline"
+			>
+				<DetailRow
+					label="Total Orders"
+					value={reportData.totalOrders?.toString() || "0"}
+				/>
+				<DetailRow
+					label="Avg. Table Turnover"
+					value={`${reportData.avgTurnoverRate || 0} min`}
+				/>
+			</DetailedReportCard>
+			<DetailedReportCard title="Items Sold Today" iconName="fast-food-outline">
+				<ItemsSoldList
+					items={reportData.allItemsSold || []}
+					formatCurrency={formatCurrency}
+				/>
+			</DetailedReportCard>
+			<DetailedReportCard title="Server Tips" iconName="people-outline">
+				{(reportData.serverTips || []).length > 0 ? (
+					reportData.serverTips.map((tip, index) => (
+						<DetailRow
+							key={index}
+							label={tip.serverName}
+							value={formatCurrency(tip.gratuityTotal)}
+						/>
+					))
+				) : (
+					<Text style={styles.noDataText}>No tips recorded yet.</Text>
+				)}
+			</DetailedReportCard>
+		</ScrollView>
+	);
+
+	const renderAggregateView = () => (
+		<ScrollView contentContainerStyle={styles.scrollContent}>
+			<View style={styles.kpiContainer}>
+				<KPICard
+					title="Net Payout"
+					value={formatCurrency(reportData.netPayout)}
+					iconName="wallet-outline"
+				/>
+				<KPICard
+					title="Gross Revenue"
+					value={formatCurrency(reportData.totalRevenue)}
+					iconName="cash-outline"
+				/>
+				<KPICard
+					title="Total Orders"
+					value={reportData.totalOrders?.toString() || "0"}
+					iconName="receipt-outline"
+				/>
+			</View>
+			<ChartCard title="Sales by Category">
+				<VictoryPie
+					data={
+						reportData.salesByCategory
+							? Object.entries(reportData.salesByCategory).map(([k, v]) => ({
+									x: k,
+									y: v,
+							  }))
+							: []
+					}
+					colorScale={["#4CAF50", "#FFC107"]}
+					innerRadius={50}
+					labels={({ datum }) => `${datum.x}\n${formatCurrency(datum.y)}`}
+					style={{
+						labels: { fill: "white", fontSize: 12, fontWeight: "bold" },
+					}}
+					width={width - 60}
+					height={220}
+				/>
+			</ChartCard>
+			<ChartCard title="Busiest Days">
+				<VictoryChart height={250} width={width - 50} domainPadding={{ x: 25 }}>
+					<VictoryBar
+						style={{ data: { fill: colors.statusSuccess } }}
+						data={(reportData.salesByDay || []).map((sales, day) => ({
+							x: ["S", "M", "T", "W", "T", "F", "S"][day],
+							y: sales,
+						}))}
+					/>
+					<VictoryAxis style={{ tickLabels: { fontSize: 10, padding: 5 } }} />
+					<VictoryAxis
+						dependentAxis
+						tickFormat={(x) => `$${x / 100}`}
+						style={{ tickLabels: { fontSize: 10 } }}
+					/>
+				</VictoryChart>
+			</ChartCard>
+			<ChartCard title="Busiest Times">
+				<VictoryChart height={250} width={width - 50} domainPadding={{ x: 10 }}>
+					<VictoryBar
+						style={{ data: { fill: colors.primary } }}
+						data={(reportData.salesByHour || []).map((sales, hour) => ({
+							x: hour,
+							y: sales,
+						}))}
+					/>
+					<VictoryAxis
+						tickValues={[0, 6, 12, 18, 23]}
+						tickFormat={["12a", "6a", "12p", "6p", "11p"]}
+						style={{ tickLabels: { fontSize: 10, padding: 5 } }}
+					/>
+					<VictoryAxis
+						dependentAxis
+						tickFormat={(x) => `$${x / 100}`}
+						style={{ tickLabels: { fontSize: 10 } }}
+					/>
+				</VictoryChart>
+			</ChartCard>
+		</ScrollView>
+	);
+
+	const renderContent = () => {
+		if (isFetching)
+			return (
+				<ActivityIndicator
+					size="large"
+					color={colors.primary}
+					style={{ flex: 1 }}
+				/>
+			);
+		if (!reportData)
+			return (
 				<Text style={styles.noDataText}>
 					No sales data available for this period.
 				</Text>
-				<PeriodSelector
-					selectedPeriod={selectedPeriod}
-					onSelectPeriod={setSelectedPeriod}
-				/>
-			</View>
-		);
-	}
+			);
 
-	const totalRevenue = reportData.totalRevenue || 0;
-	const totalOrders = reportData.totalOrders || 0;
-	const avgCheckSize = reportData.avgCheckSize || 0;
+		return selectedPeriod === "Today"
+			? renderTodayView()
+			: renderAggregateView();
+	};
 
-	// Data for charts, derived from the reportData object
-	const categoryChartData = reportData.salesByCategory
-		? Object.entries(reportData.salesByCategory).map(([key, value]) => ({
-				x: key,
-				y: value / 100,
-		  }))
-		: [];
-
-	const topItemsChartData = reportData.topSellingItems
-		? reportData.topSellingItems.map((item) => ({
-				x: item.name,
-				y: item.quantity,
-		  }))
-		: [];
 	return (
-		<View style={[styles.container, { paddingTop: insets.top }]}>
+		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.header}>
 				<Text style={styles.headerTitle}>Business Pulse</Text>
 				<PeriodSelector
@@ -172,88 +312,21 @@ const SalesReportScreen = ({ navigation }) => {
 					onSelectPeriod={setSelectedPeriod}
 				/>
 			</View>
-			<ScrollView contentContainerStyle={styles.scrollContent}>
-				<View style={styles.kpiContainer}>
-					{/* The values being passed are now guaranteed to be numbers */}
-					<KPICard
-						title="Total Revenue"
-						value={formatCurrency(totalRevenue)}
-						iconName="cash-outline"
-					/>
-					<KPICard
-						title="Total Orders"
-						value={totalOrders.toString()}
-						iconName="receipt-outline"
-					/>
-					<KPICard
-						title="Avg. Check Size"
-						value={formatCurrency(avgCheckSize)}
-						iconName="analytics-outline"
-					/>
-				</View>
-				<ChartCard title="Sales by Category">
-					<VictoryPie
-						data={categoryChartData}
-						colorScale={["#4CAF50", "#FFC107", "#2196F3", "#F44336"]}
-						innerRadius={50}
-						padAngle={2}
-						labelRadius={({ innerRadius }) => innerRadius + 15}
-						style={{
-							labels: { fill: "white", fontSize: 12, fontWeight: "bold" },
-						}}
-						labels={({ datum }) => `${datum.x}\n${formatCurrency(datum.y)}`} // Format the cents value
-						width={width - 60}
-						height={220}
-					/>
-				</ChartCard>
-
-				{/* The Bar Chart remains commented out for now. */}
-
-				<ChartCard title="Top Selling Items (by Quantity)">
-					<VictoryChart
-						theme={VictoryTheme.material}
-						domainPadding={{ x: 20 }}
-						width={width - 40}
-						height={Math.max(200, topItemsChartData.length * 50 + 50)}
-					>
-						<VictoryBar
-							horizontal
-							style={{ data: { fill: colors.primary } }}
-							data={topItemsChartData}
-							barWidth={25}
-							labels={({ datum }) =>
-								`${datum.x.substring(0, 15)}... (${datum.y})`
-							}
-							labelComponent={
-								<VictoryLabel
-									dx={5}
-									textAnchor="start"
-									style={{ fill: colors.textDark, fontSize: 12 }}
-								/>
-							}
-						/>
-						<VictoryAxis
-							style={{
-								ticks: { stroke: "transparent" },
-								tickLabels: { fill: "transparent" },
-							}}
-						/>
-					</VictoryChart>
-				</ChartCard>
-			</ScrollView>
-		</View>
+			<View style={styles.container}>{renderContent()}</View>
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
+	safeArea: { flex: 1, backgroundColor: colors.surfaceWhite },
 	container: { flex: 1, backgroundColor: colors.backgroundLight },
-	centered: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
-		padding: 20,
+	centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+	header: {
+		paddingHorizontal: 15,
+		paddingTop: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
 	},
-	header: { paddingHorizontal: 15, paddingTop: 10 },
 	headerTitle: {
 		fontSize: 28,
 		fontWeight: "bold",
@@ -283,11 +356,11 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 	},
 	periodButtonTextActive: { color: colors.primary },
-	scrollContent: { paddingHorizontal: 15, paddingBottom: 30 },
+	scrollContent: { padding: 15, paddingBottom: 30 },
 	kpiContainer: {
 		flexDirection: "row",
 		justifyContent: "space-around",
-		marginBottom: 15,
+		marginBottom: 20,
 	},
 	kpiCard: {
 		flex: 1,
@@ -296,25 +369,27 @@ const styles = StyleSheet.create({
 		padding: 15,
 		alignItems: "center",
 		marginHorizontal: 5,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.05,
-		shadowRadius: 5,
 		elevation: 2,
 	},
 	kpiValue: {
-		fontSize: 20,
+		fontSize: 18,
 		fontWeight: "bold",
 		color: colors.textDark,
 		marginVertical: 5,
 	},
-	kpiTitle: { fontSize: 12, color: colors.textMedium },
+	kpiTitle: {
+		fontSize: 11,
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		textAlign: "center",
+	},
 	chartCard: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 12,
 		padding: 15,
 		marginBottom: 20,
 		alignItems: "center",
+		elevation: 2,
 	},
 	chartTitle: {
 		fontSize: 16,
@@ -325,10 +400,64 @@ const styles = StyleSheet.create({
 	},
 	noDataText: {
 		textAlign: "center",
-		marginTop: 20,
+		marginTop: 40,
 		fontSize: 16,
 		color: colors.textLight,
 	},
+	// Styles for "Today" view
+	detailCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		marginBottom: 20,
+		elevation: 2,
+	},
+	cardHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		padding: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	cardTitle: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginLeft: 10,
+	},
+	cardContent: { paddingHorizontal: 15, paddingTop: 5, paddingBottom: 15 },
+	summaryRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		paddingVertical: 8,
+	},
+	summaryLabel: { fontSize: 16, color: colors.textMedium },
+	summaryValue: { fontSize: 16, fontWeight: "500", color: colors.textDark },
+	deductionValue: { color: colors.statusDanger },
+	divider: {
+		height: 1,
+		backgroundColor: colors.borderLight,
+		marginVertical: 8,
+	},
+	tableHeader: {
+		flexDirection: "row",
+		borderBottomWidth: 2,
+		borderBottomColor: colors.borderLight,
+		paddingBottom: 10,
+		marginBottom: 5,
+	},
+	tableHeaderText: {
+		fontWeight: "bold",
+		color: colors.textMedium,
+		fontSize: 12,
+	},
+	tableRow: {
+		flexDirection: "row",
+		paddingVertical: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+		alignItems: "center",
+	},
+	tableCell: { color: colors.textDark, fontSize: 14 },
 });
 
 export default SalesReportScreen;

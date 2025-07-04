@@ -24,12 +24,12 @@ import app from "../../config/firebase";
 import { deleteDoc } from "firebase/firestore";
 import colors from "../../utils/styles/appStyles";
 
-const MenuItem = ({ item, restaurantId }) => {
+const MenuItem = ({ item, restaurantId, onEdit }) => {
 	const db = getFirestore(app);
 	const [showModal, setShowModal] = useState(false);
 
 	const handleEdit = () => {
-		setShowModal(true);
+		onEdit(item);
 	};
 	const handleDelete = () => {
 		try {
