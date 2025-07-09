@@ -5,7 +5,7 @@ import {
 	Text,
 	StyleSheet,
 	ScrollView,
-	ActivityIndicator,
+	S,
 	TouchableOpacity,
 	Dimensions,
 	SafeAreaView,
@@ -158,7 +158,7 @@ const SalesReportScreen = ({ navigation }) => {
 	const renderContent = () => {
 		if (isFetching)
 			return (
-				<ActivityIndicator
+				<S
 					size="large"
 					color={colors.primary}
 					style={{ flex: 1 }}
