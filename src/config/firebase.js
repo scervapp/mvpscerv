@@ -59,10 +59,7 @@ export const auth = initializeAuth(app, {
 export const functions = getFunctions(app);
 
 // // connect to emulators if in development mode
-// if (__DEV__) {
-// 	connectAuthEmulator(auth, "http://localhost:9099");
-// 	connectFirestoreEmulator(db, "localhost", 8080);
-// 	connectFunctionsEmulator(functions, "localhost", 5001);
-// }
+// Replace 'YOUR_COMPUTER_IP_ADDRESS' with the actual IP address you found in Step 1.
 
 export default app;
+

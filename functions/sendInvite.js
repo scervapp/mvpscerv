@@ -1,17 +1,24 @@
+// functions/sendInvite.js
 const admin = require("firebase-admin");
 const functions = require("firebase-functions");
-const mailjet = require("node-mailjet").apiConnect(
-	functions.config().mailjet.api_key,
-	functions.config().mailjet.secret_key
-);
+
+// We no longer initialize the client here.
 
 exports.sendInvite = functions.https.onCall(async (data, context) => {
-	const { email } = data; // Assuming you're passing teh emai in the data object
+	const { email } = data;
 
 	try {
+		// --- THIS IS THE FIX ---
+		// Initialize the Mailjet client INSIDE the function.
+		// This ensures functions.config() is available when the function is called.
+		const mailjet = require("node-mailjet").apiConnect(
+			functions.config().mailjet.api_key,
+			functions.config().mailjet.secret_key
+		);
+		// --- END OF FIX ---
+
 		const link = await admin.auth().generateSignInWithEmailLink(email, {
-			// Configure setting like URL, handling of existing accounts
-			url: "https://admin.scerv.com/handle-invite",
+			url: "https://admin.scerv.com/handle-invite", // Your admin portal URL
 			handleCodeInApp: true,
 		});
 
@@ -19,29 +26,28 @@ exports.sendInvite = functions.https.onCall(async (data, context) => {
 			Messages: [
 				{
 					From: {
-						Email: "no-reply@scerv.com", // Replace with your sender email
+						Email: "no-reply@scerv.com", // Your sender email
 						Name: "Scerv Admin Portal",
 					},
-					To: [
-						{
-							Email: email,
-						},
-					],
+					To: [{ Email: email }],
 					Subject: "Welcome to the Scerv Admin Portal",
 					HTMLPart: `
-                  <p>You've been invited to the Scerv Admin Portal!</p>
-                  <p>Click the link below to create your account:</p>
-                  <a href="<span class="math-inline">\{link\}"\></span>{link}</a>
-                `,
+                        <p>You've been invited to the Scerv Admin Portal!</p>
+                        <p>Click the link below to create your account:</p>
+                        <a href="${link}">${link}</a>
+                    `,
 				},
 			],
 		});
 
 		await request;
-
-		// Send the email invitation using your preferred method (e.g SnedGrid, Mailgun)
-		// your email sending logic
+		console.log(`Successfully sent invite to ${email}`);
+		return { success: true };
 	} catch (error) {
-		console.error("Error", error);
+		console.error("Error sending invite:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to send invitation."
+		);
 	}
 });

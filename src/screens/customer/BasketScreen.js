@@ -112,22 +112,28 @@ const BasketScreen = ({ route, navigation }) => {
 
 	const {
 		subtotal,
-		taxEstimate,
 		platformFeeEstimate,
 		grandTotalEstimate,
 		totalDiscount,
 		originalSubtotal,
-		pipDataForDisplay, // This will be the output of transformBasketData
+		pipDataForDisplay,
 	} = useMemo(() => {
-		// Pass currentUserId and a name for their section to transformBasketData
-		const transformedPipData = transformBasketData(
-			displayItems,
-			currentUserData?.uid,
-			currentUserData?.firstName || "Your Items" // Name for the current user's section
-		);
+		// Guard clause no longer checks for restaurant.taxRate
+		if (
+			!restaurantBasketItems ||
+			restaurantBasketItems.length === 0 ||
+			typeof fees !== "number"
+		) {
+			return {
+				subtotal: 0,
+				platformFeeEstimate: 0,
+				grandTotalEstimate: 0,
+				totalDiscount: 0,
+				originalSubtotal: 0,
+				pipDataForDisplay: [],
+			};
+		}
 
-		// Now, calculate overall totals based on the raw displayItems,
-		// as transformBasketData now also calculates per-person subtotals.
 		let calcOriginalSubtotal = 0;
 		let calcSubtotalAfterDiscounts = 0;
 
@@ -143,25 +149,29 @@ const BasketScreen = ({ route, navigation }) => {
 		});
 
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotalAfterDiscounts;
-		const calcTaxEstimate = Math.round(
-			calcSubtotalAfterDiscounts * (restaurant?.taxRate || 0)
-		);
+
+		// --- THIS IS THE FIX (PART 1) ---
+		// The tax calculation is completely removed.
 		const calcPlatformFeeEstimate = Math.round(
 			calcSubtotalAfterDiscounts * fees
 		);
 		const calcGrandTotalEstimate =
-			calcSubtotalAfterDiscounts + calcTaxEstimate + calcPlatformFeeEstimate;
+			calcSubtotalAfterDiscounts + calcPlatformFeeEstimate;
+		// --- END OF FIX ---
 
 		return {
 			subtotal: calcSubtotalAfterDiscounts,
-			taxEstimate: calcTaxEstimate,
 			platformFeeEstimate: calcPlatformFeeEstimate,
 			grandTotalEstimate: calcGrandTotalEstimate,
 			totalDiscount: calcTotalDiscount,
 			originalSubtotal: calcOriginalSubtotal,
-			pipDataForDisplay: transformedPipData, // Use the transformed data for rendering sections
+			pipDataForDisplay: transformBasketData(
+				displayItems,
+				currentUserData?.uid,
+				currentUserData?.firstName || "Your Items"
+			),
 		};
-	}, [displayItems, restaurant?.taxRate, fees, currentUserData]); // Added currentUserData
+	}, [displayItems, fees, currentUserData]);
 
 	// --- Actions ---
 	const handleSendToChefsQ = async () => {
@@ -346,7 +356,6 @@ const BasketScreen = ({ route, navigation }) => {
 									)}
 							</>
 						)}
-					{/* --- END: Status Message Area --- */}
 
 					{/* Loading Indicator or Basket List */}
 					{isProcessing && displayItems.length === 0 ? ( // Show loader only if no items AND loading
@@ -396,21 +405,12 @@ const BasketScreen = ({ route, navigation }) => {
 											</View>
 										)}
 										<View style={styles.summaryRow}>
-											<Text style={styles.summaryLabel}>
-												Est. Service Fee ({(fees * 100).toFixed(0)}%):
-											</Text>
+											<Text style={styles.summaryLabel}>Est. Service Fee:</Text>
 											<Text style={styles.summaryAmount}>
 												{formatCurrency(platformFeeEstimate)}
 											</Text>
 										</View>
-										<View style={styles.summaryRow}>
-											<Text style={styles.summaryLabel}>
-												Est. Tax ({(restaurant?.taxRate * 100).toFixed(2)}%):
-											</Text>
-											<Text style={styles.summaryAmount}>
-												{formatCurrency(taxEstimate)}
-											</Text>
-										</View>
+										<View style={styles.summaryRow}></View>
 										<View style={[styles.summaryRow, styles.grandTotalRow]}>
 											<Text style={styles.grandTotalLabel}>
 												Estimated Total (Before Tip):

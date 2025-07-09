@@ -37,7 +37,7 @@ exports.handleCheckInResponse = checkInFunctions.handleCheckInResponse;
 exports.clearTable = checkInFunctions.clearTable;
 exports.createOrder = orderFunctions.createOrder;
 exports.createPendingOrder = orderFunctions.createPendingOrder;
-exports.createPaymentIntent = paymentFunctions.createPaymentIntent;
+
 exports.createSetupIntent = paymentFunctions.createSetupIntent;
 exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.createEphemeralKey = paymentFunctions.createEphemeralKey;

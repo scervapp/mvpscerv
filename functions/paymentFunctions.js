@@ -169,6 +169,13 @@ const createOrderFromPartyPayment = async (
 	stripeFeeActual,
 	platformFeeActual
 ) => {
+	console.log(
+		`[Webhook Log] Starting createOrderFromPartyPayment for user: ${payingUserId} in party: ${partyData.id}`
+	);
+	console.log(
+		`[Webhook Log] Stripe Fee: ${stripeFeeActual}, Platform Fee: ${platformFeeActual}`
+	);
+
 	const sharedBasketId = paymentIntent.metadata.sharedBasketId;
 	if (!sharedBasketId) {
 		console.error(
@@ -177,7 +184,14 @@ const createOrderFromPartyPayment = async (
 		return;
 	}
 
-	console.log("--- Starting createOrderFromPartyPayment ---");
+	let checkInTimestamp = null;
+	if (partyData.checkInId) {
+		const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
+		const checkInDoc = await checkInRef.get();
+		if (checkInDoc.exists) {
+			checkInTimestamp = checkInDoc.data().acceptedAt;
+		}
+	}
 
 	const menuItemsRef = db
 		.collection("menuItems")
@@ -197,30 +211,10 @@ const createOrderFromPartyPayment = async (
 	const userItems = allItems
 		.filter((item) => item.orderedByUserId === payingUserId)
 		.map((item) => {
-			// The 'index' parameter is removed to prevent the crash.
-			console.log(
-				`[Payment Webhook] Processing basket item:`,
-				JSON.stringify(item, null, 2)
-			);
-
-			// --- THIS IS THE FIX ---
-			// The item from the basket has a `menuItemId`. We use that to look up details.
 			const fullMenuItem = menuItemsMap.get(item.menuItemId);
-
-			if (!fullMenuItem) {
-				console.warn(
-					`Could not find menu details for menuItemId: ${item.menuItemId}.`
-				);
-				return {
-					...item,
-					dish: { name: item.dishName || "Unknown Item", category: "Other" },
-				};
-			}
-
-			// Enrich the basket item with the full dish object.
 			return {
 				...item,
-				dish: fullMenuItem, // This ensures the category is included for the sales report.
+				dish: fullMenuItem || { name: "Unknown Item", category: "Other" },
 			};
 		});
 
@@ -234,7 +228,6 @@ const createOrderFromPartyPayment = async (
 		payingUserId
 	);
 
-	// 1. Find the currently active workday for the restaurant.
 	const workDaysRef = db
 		.collection("restaurants")
 		.doc(partyData.restaurantId)
@@ -245,9 +238,6 @@ const createOrderFromPartyPayment = async (
 	let activeWorkDayId = null;
 	if (!openWorkDaySnapshot.empty) {
 		activeWorkDayId = openWorkDaySnapshot.docs[0].id;
-		console.log(
-			`Found active workday ${activeWorkDayId} for this party order.`
-		);
 	} else {
 		console.warn(
 			`Could not find an active workday for restaurant ${partyData.restaurantId} when creating order.`
@@ -262,7 +252,7 @@ const createOrderFromPartyPayment = async (
 		workDayId: activeWorkDayId,
 		userId: payingUserId,
 		timestamp: admin.firestore.FieldValue.serverTimestamp(),
-		items: userItems, // This array now contains the full dish object with the category
+		items: userItems,
 		subtotal: Number(paymentIntent.metadata.subtotal) || 0,
 		tax: Number(paymentIntent.metadata.tax) || 0,
 		gratuity: Number(paymentIntent.metadata.gratuity) || 0,
@@ -274,14 +264,199 @@ const createOrderFromPartyPayment = async (
 		checkInId: partyData.checkInId,
 		stripePaymentIntentId: paymentIntent.id,
 		stripeChargeId: paymentIntent.latest_charge,
-		stripeFeeActual: stripeFeeActual,
-		platformFeeActual: platformFeeActual,
+		stripeFeeActual: stripeFeeActual, // Storing the fee
+		platformFeeActual: platformFeeActual, // Storing the fee
+		checkInTimestamp: checkInTimestamp,
 	};
 
 	await newOrderRef.set(orderData);
 	console.log(
-		`✅ Successfully created permanent order ${newOrderRef.id} from party payment.`
+		`✅ Successfully created permanent order ${newOrderRef.id} from party payment with fees.`
 	);
+};
+
+/**
+ * Creates a permanent 'order' document and performs all necessary cleanup
+ * after a successful individual payment.
+ * @param {object} metadata The metadata object from the Stripe Payment Intent.
+ * @param {object} paymentIntent The full PaymentIntent object.
+ * @param {number} stripeFeeActual The calculated Stripe fee for the transaction.
+ */
+const createOrderFromIndividualPayment = async (
+	metadata,
+	paymentIntent,
+	stripeFeeActual
+) => {
+	console.log(
+		"[Webhook Log] Starting createOrderFromIndividualPayment for user:",
+		metadata.userId
+	);
+	console.log(
+		"[Webhook Log] Full metadata received:",
+		JSON.stringify(metadata, null, 2)
+	);
+	console.log("[Webhook Log] PaymentIntent ID:", paymentIntent.id);
+
+	try {
+		// 1. Generate the human-readable Order ID
+		const generatedOrderId = await generateOrderId(
+			metadata.restaurantId,
+			metadata.userId
+		);
+		console.log(`[Webhook Log] Generated Order ID: ${generatedOrderId}`);
+
+		// 2. Parse all data from metadata
+		const simplifiedItems = JSON.parse(metadata.items || "[]");
+		const menuItemsRef = db
+			.collection("menuItems")
+			.where("restaurantId", "==", metadata.restaurantId);
+		const menuSnapshot = await menuItemsRef.get();
+		const menuItemsMap = new Map();
+		menuSnapshot.forEach((doc) => menuItemsMap.set(doc.id, doc.data()));
+
+		const items = simplifiedItems.map((item) => {
+			const fullMenuItem = menuItemsMap.get(item.menuItemId);
+			return {
+				...item,
+				dish: fullMenuItem || { name: "Unknown Item", category: "Other" },
+			};
+		});
+
+		const table = JSON.parse(metadata.table || "null");
+		const server = JSON.parse(metadata.server || "null");
+		const checkInTimestampRaw = JSON.parse(metadata.checkInTimestamp || "null");
+
+		let checkInTimestamp = null;
+		if (checkInTimestampRaw && checkInTimestampRaw.seconds) {
+			checkInTimestamp = new admin.firestore.Timestamp(
+				checkInTimestampRaw.seconds,
+				checkInTimestampRaw.nanoseconds
+			);
+		}
+		console.log(`[Webhook Log] Parsed items count: ${items.length}`);
+		console.log(`[Webhook Log] Parsed table:`, table ? table.name : "N/A");
+
+		// 3. Find the active workday
+		const workDaysRef = db
+			.collection("restaurants")
+			.doc(metadata.restaurantId)
+			.collection("work_days");
+		const openWorkDayQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
+		const openWorkDaySnapshot = await openWorkDayQuery.get();
+		const activeWorkDayId = openWorkDaySnapshot.empty
+			? null
+			: openWorkDaySnapshot.docs[0].id;
+		console.log(`[Webhook Log] Active Workday ID: ${activeWorkDayId}`);
+
+		// 4. Prepare the final order data
+		const newOrderRef = db.collection("orders").doc(); // Generate a new Firestore ID
+		const orderData = {
+			id: newOrderRef.id,
+			orderId: generatedOrderId,
+			restaurantId: metadata.restaurantId,
+			userId: metadata.userId,
+			workdayId: activeWorkDayId,
+			items,
+			table,
+			server,
+			checkInId: metadata.checkInId,
+			checkInTimestamp,
+			subtotal: Number(metadata.subtotal),
+			gratuity: Number(metadata.gratuity),
+			taxActual: Number(metadata.taxActual),
+			platformFeeActual: paymentIntent.application_fee_amount || 0,
+			stripeFeeActual,
+			totalPrice: paymentIntent.amount,
+			paymentStatus: "paid",
+			orderStatus: "confirmed",
+			timestamp: admin.firestore.FieldValue.serverTimestamp(),
+		};
+		console.log(
+			`[Webhook Log] Prepared order data for Firestore document ${newOrderRef.id}`
+		);
+
+		// 5. Use a batch write to perform all database updates atomically
+		const batch = db.batch();
+
+		// Action 1: Create the new order document
+		batch.set(newOrderRef, orderData);
+		console.log(`[Webhook Log] Queued creation for order ${newOrderRef.id}.`);
+
+		// Action 2: Update the table status
+		if (table && table.id) {
+			const tableRef = db
+				.collection("restaurants")
+				.doc(metadata.restaurantId)
+				.collection("tables")
+				.doc(table.id);
+			batch.update(tableRef, {
+				status: "checkedOut",
+				currentCheckInId: null,
+				currentCustomerId: null,
+			});
+			console.log(
+				`[Webhook Log] Queued update for table ${table.id} to 'checkedOut'.`
+			);
+		} else {
+			console.warn(
+				"[Webhook Log] No table ID found in metadata, skipping table update."
+			);
+		}
+
+		// Action 3: Update the check-in status
+		if (metadata.checkInId) {
+			const checkInRef = db.collection("checkIns").doc(metadata.checkInId);
+			batch.update(checkInRef, {
+				status: "COMPLETED",
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+			console.log(
+				`[Webhook Log] Queued update for checkIn ${metadata.checkInId} to 'COMPLETED'.`
+			);
+		} else {
+			console.warn(
+				"[Webhook Log] No checkInId found in metadata, skipping check-in update."
+			);
+		}
+
+		// Action 4: Clear the customer's active check-in (CRITICAL STEP)
+		if (metadata.userId) {
+			const customerRef = db.collection("customers").doc(metadata.userId);
+			// This is the most important update for the confirmation screen.
+			batch.update(customerRef, { activeCheckIn: null });
+			console.log(
+				`[Webhook Log] Queued update for customer ${metadata.userId} to set activeCheckIn to null.`
+			);
+		}
+		if (metadata.checkInId) {
+			const basketItemsQuery = db
+				.collection("baskets")
+				.where("checkInId", "==", metadata.checkInId);
+			const basketItemsSnapshot = await basketItemsQuery.get();
+
+			if (!basketItemsSnapshot.empty) {
+				console.log(
+					`[Webhook Log] Found ${basketItemsSnapshot.size} basket items to delete for checkInId ${metadata.checkInId}.`
+				);
+				basketItemsSnapshot.forEach((doc) => {
+					batch.delete(doc.ref); // Add deletion to the batch
+				});
+			}
+		} else {
+			console.error(
+				"[Webhook Log] CRITICAL: No userId found in metadata. Cannot clear activeCheckIn."
+			);
+		}
+
+		// Commit all changes at once
+		await batch.commit();
+		console.log(
+			`✅ Successfully created order ${newOrderRef.id} and completed cleanup for individual payment.`
+		);
+	} catch (error) {
+		console.error("Error in createOrderFromIndividualPayment:", error);
+		// We log the error but don't re-throw, as the webhook should still return a 200 to Stripe.
+	}
 };
 
 /**
@@ -299,6 +474,11 @@ const handleStripeEvent = async (event, stripeInstance) => {
 	const paymentIntent = event.data.object;
 	const metadata = paymentIntent.metadata || {};
 
+	console.log(
+		"Webhook received. Metadata content:",
+		JSON.stringify(metadata, null, 2)
+	);
+
 	switch (event.type) {
 		case "payment_intent.succeeded":
 			const paymentIntentId = paymentIntent.id;
@@ -309,7 +489,6 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			// --- 1. Retrieve Charge Details to get Exact Fees ---
 			const chargeId = paymentIntent.latest_charge;
 			let stripeFeeActual = 0;
-			let amountTransferred = 0;
 			const platformFeeCollected = paymentIntent.application_fee_amount || 0;
 			const finalAmountCharged = paymentIntent.amount;
 
@@ -317,20 +496,17 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				try {
 					const chargeDetails = await stripeInstance.charges.retrieve(
 						chargeId,
-						{
-							expand: ["balance_transaction"],
-						}
+						{ expand: ["balance_transaction"] }
 					);
 					const balanceTransaction = chargeDetails.balance_transaction;
 					if (
 						balanceTransaction &&
 						typeof balanceTransaction.fee === "number"
 					) {
+						// Best case: We get the exact fee from the balance transaction.
 						stripeFeeActual = balanceTransaction.fee;
-						amountTransferred = balanceTransaction.net - platformFeeCollected;
-					} else {
-						console.warn(
-							`Webhook Warn: Balance transaction or fee missing for Charge ${chargeId}.`
+						console.log(
+							`Webhook: Retrieved exact Stripe fee: ${stripeFeeActual}`
 						);
 					}
 				} catch (chargeRetrieveError) {
@@ -339,14 +515,28 @@ const handleStripeEvent = async (event, stripeInstance) => {
 						chargeRetrieveError
 					);
 				}
-			} else {
+			}
+
+			// Fallback calculation: If the exact fee is still 0 (due to timing), we calculate an estimate.
+			// This prevents the fee from ever being saved incorrectly.
+			if (stripeFeeActual === 0) {
+				const stripeRate = 0.029; // 2.9%
+				const stripeFixedFee = 30; // 30 cents
+				stripeFeeActual =
+					Math.round(paymentIntent.amount * stripeRate) + stripeFixedFee;
 				console.warn(
-					`Webhook Warn: No charge ID found on PaymentIntent ${paymentIntentId}. Cannot get exact fees.`
+					`Webhook Warn: Using estimated Stripe fee: ${stripeFeeActual}`
 				);
 			}
 
-			// --- 2. Differentiate between Party Payment and Individual Order ---
-			if (metadata.type === "party_payment") {
+			if (metadata.type === "individual_payment") {
+				await createOrderFromIndividualPayment(
+					metadata,
+					paymentIntent,
+					stripeFeeActual
+				);
+				return;
+			} else if (metadata.type === "party_payment") {
 				// --- Handle a successful PARTY payment ---
 				if (!metadata.partyId || !metadata.userId) {
 					console.error(
@@ -408,83 +598,6 @@ const handleStripeEvent = async (event, stripeInstance) => {
 						error
 					);
 				}
-			} else {
-				// --- Handle a successful INDIVIDUAL order payment (your original detailed logic) ---
-				const firestoreDocId = metadata.firestoreDocId;
-				if (!firestoreDocId) {
-					console.error(
-						"🔴 Individual payment succeeded but is missing firestoreDocId in metadata.",
-						metadata
-					);
-					return;
-				}
-
-				const orderDocRef = db.collection("orders").doc(firestoreDocId);
-				try {
-					const updateData = {
-						paymentStatus: "paid",
-						orderStatus: "confirmed",
-						stripePaymentIntentId: paymentIntentId,
-						stripeChargeId: typeof chargeId === "string" ? chargeId : null,
-						stripeFeeActual: stripeFeeActual,
-						platformFeeActual: platformFeeCollected,
-						taxActual: Number(metadata.calculated_tax_amount) || 0,
-						totalPrice: finalAmountCharged,
-						amountTransferredToRestaurant: amountTransferred,
-						lastUpdated: new Date(),
-					};
-					await orderDocRef.update(updateData);
-					console.log(
-						`✅ Successfully updated individual order ${firestoreDocId} to paid with full details.`
-					);
-
-					// Optionally, update table status if applicable
-					const orderData = (await orderDocRef.get()).data();
-					if (orderData.table.id && orderData.restaurantId) {
-						const tableRef = db
-							.collection("restaurants")
-							.doc(orderData.restaurantId)
-							.collection("tables")
-							.doc(orderData.table.id);
-
-						await tableRef.update({
-							status: "checkedOut",
-							currentCheckInId: null,
-							currentCustomerId: null,
-						});
-
-						if (orderData.userId) {
-							const customerRef = db
-								.collection("customers")
-								.doc(orderData.userId);
-							console.log(
-								`Webhook: Clearing activeCheckIn for customer ${orderData.userId}.`
-							);
-							await customerRef.update({
-								activeCheckIn: null, // Clear the check-in object
-							});
-							console.log(`✅ Successfully cleared customer's activeCheckIn.`);
-						}
-						// 3. Mark the original check-in as 'COMPLETED'.
-						if (orderData.checkInId) {
-							const checkInRef = db
-								.collection("checkIns")
-								.doc(orderData.checkInId);
-							await checkInRef.update({
-								status: "COMPLETED", // Mark as completed to remove from restaurant's active queue
-								updatedAt: FieldValue.serverTimestamp(),
-							});
-							console.log(
-								`✅ Successfully updated checkIn ${orderData.checkInId} status to COMPLETED.`
-							);
-						}
-					}
-				} catch (error) {
-					console.error(
-						`Error updating individual order ${firestoreDocId}:`,
-						error
-					);
-				}
 			}
 			break;
 
@@ -496,6 +609,170 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			console.log(`⚠️ Unhandled event type: ${event.type}`);
 	}
 };
+
+/**
+ * Prepares Stripe Payment Sheet data for a single user's portion of a party order.
+ *
+ * @param {object} data - The data object from the client.
+ * @param {string} data.partyId - The ID of the party the user is paying for.
+ * @param {number} data.amount - The total amount in cents for this user's portion of the bill.
+ * @param {number} data.platformFee - The platform fee in cents calculated for this user's portion.
+ * @param {string} data.restaurantStripeAccountId - The Stripe Connect account ID of the restaurant.
+ * @param {object} context - The Firebase Functions context object.
+ * @returns {Promise<object>} An object containing the paymentIntent, ephemeralKey, and customerId.
+ */
+exports.preparePartyPaymentSheet = functions
+	.runWith({
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const customerUid = context.auth.uid;
+		const {
+			partyId,
+			amount,
+			platformFee,
+			restaurantStripeAccountId,
+			subtotal,
+			gratuity,
+		} = data;
+
+		// --- 1. Validation ---
+		if (
+			!partyId ||
+			!amount ||
+			!restaurantStripeAccountId ||
+			subtotal === undefined ||
+			gratuity === undefined
+		) {
+			console.error(
+				"preparePartyPaymentSheet: Invalid input. Missing required data.",
+				data
+			);
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID, amount, restaurant Stripe ID, subtotal, gratuity, and tax are required."
+			);
+		}
+		if (amount <= 49) {
+			// Stripe has a minimum charge amount (e.g., 50 cents)
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Payment amount is too low."
+			);
+		}
+
+		try {
+			// --- 2. Get Restaurant and User Info ---
+			const partyDoc = await db.collection("parties").doc(partyId).get();
+			if (!partyDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Party not found.");
+			}
+
+			const partyData = partyDoc.data();
+			const restaurantId = partyData.restaurantId;
+			const sharedBasketId = partyData.sharedBasketId;
+
+			if (!sharedBasketId) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Party document is missing the shared basket ID."
+				);
+			}
+
+			const userDocRef = db.collection("customers").doc(customerUid);
+			const userDoc = await userDocRef.get();
+			if (!userDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Customer profile not found in database."
+				);
+			}
+
+			// --- 3. Initialize Stripe with correct API key ---
+			const keys = await getStripeKeys(restaurantId);
+			const stripeInstance = stripe(keys.stripeSecretKey);
+
+			// --- 4. Get or Create Stripe Customer ---
+			let stripeCustomerId = userDoc.data().stripeCustomerId;
+			if (!stripeCustomerId) {
+				console.log(`Creating new Stripe customer for user ${customerUid}.`);
+				const customer = await stripeInstance.customers.create({
+					email: userDoc.data().email,
+					name: `${userDoc.data().firstName} ${userDoc.data().lastName}`,
+				});
+				stripeCustomerId = customer.id;
+				await userDocRef.update({ stripeCustomerId: stripeCustomerId });
+			}
+
+			// Calculate the final total amount on the server.
+			const finalAmount = subtotal + gratuity + platformFee;
+
+			// --- 5. Create Ephemeral Key for the session ---
+			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
+				{ customer: stripeCustomerId },
+				{ apiVersion: "2024-04-10" } // Use a recent, stable Stripe API version
+			);
+
+			// --- 6. Create the Payment Intent ---
+			const paymentIntent = await stripeInstance.paymentIntents.create({
+				amount: Math.round(finalAmount), // Ensure amount is an integer
+				currency: "usd",
+				customer: stripeCustomerId,
+				automatic_payment_methods: { enabled: true },
+				// For Stripe Connect, specify the destination account and application fee
+				transfer_data: {
+					destination: restaurantStripeAccountId,
+				},
+				on_behalf_of: restaurantStripeAccountId,
+				// The platform fee was pre-calculated on the client for this user's portion
+				application_fee_amount: Math.round(platformFee),
+				metadata: {
+					type: "party_payment", // Differentiate from individual orders
+					partyId: partyId,
+					userId: customerUid,
+					restaurantId: restaurantId,
+					subtotal: subtotal, // Add subtotal to metadata
+					gratuity: gratuity, // Add gratuity to metadata
+
+					sharedBasketId: sharedBasketId, // Pass the basket ID
+				},
+			});
+
+			console.log(
+				`Successfully created Payment Intent ${paymentIntent.id} for user ${customerUid} and party ${partyId}.`
+			);
+
+			// --- 7. Return all necessary secrets to the Client ---
+			return {
+				paymentIntent: paymentIntent.client_secret,
+				ephemeralKey: ephemeralKey.secret,
+				customer: stripeCustomerId,
+				finalAmount: finalAmount,
+			};
+		} catch (error) {
+			console.error(
+				`Error preparing party payment sheet for party ${partyId}:`,
+				error
+			);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not initialize payment.",
+				error.message
+			);
+		}
+	});
 
 /// Function to Prepare payment sheet data
 exports.preparePaymentSheetData = functions
@@ -520,24 +797,16 @@ exports.preparePaymentSheetData = functions
 			gratuity, // Gratuity amount in cents
 			platformFee, // Your calculated potential platform fee (e.g., 5%) in cents
 			// Data for Stripe Tax calculation:
-			lineItems, // Array like [{ amount(pre-tax cents), quantity, tax_code, description }]
-			customerDetails, // Object like { address: { postal_code, country, state, ... } }
-			// Other necessary data
+			items,
 			connectedAccountId,
-			setup_future_usage, // 'off_session' or undefined
-			paymentMethodId, // ID if using saved card
-			metadata, // MUST include internalOrderId, firestoreDocId, etc.
+			checkInId,
+			table,
+			server,
+			checkInTimestamp,
 		} = data;
 
 		// --- Basic Validation ---
-		if (
-			!restaurantId ||
-			!customerId ||
-			!connectedAccountId ||
-			!lineItems ||
-			!Array.isArray(lineItems) ||
-			lineItems.length === 0
-		) {
+		if (!restaurantId || !customerId || !connectedAccountId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
 				"Missing required parameters."
@@ -561,131 +830,53 @@ exports.preparePaymentSheetData = functions
 				apiVersion: "2023-10-16",
 			});
 
-			// --- 1. Calculate Tax using Stripe Tax API ---
-			let calculatedTaxAmount = 0;
-			// Only calculate if lineItems have amount > 0? Prevents unnecessary API call for $0 cart.
-			const preTaxAmountForTaxCalc = lineItems.reduce(
-				(sum, item) => sum + (item.amount || 0) * (item.quantity || 1),
-				0
-			);
+			const userDocRef = db.collection("customers").doc(context.auth.uid);
+			const userDoc = await userDocRef.get();
+			if (!userDoc.exists)
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Customer profile not found."
+				);
 
-			if (preTaxAmountForTaxCalc > 0) {
-				// Avoid tax calc on $0
-				// Basic address check - adjust as needed for international
-				if (
-					!customerDetails.address.country ||
-					(!customerDetails.address.postal_code &&
-						!customerDetails.address.state)
-				) {
-					console.warn(
-						"Insufficient address details provided for tax calculation. Proceeding without tax."
-					);
-					// You might choose to throw an error here depending on requirements
-					// throw new functions.https.HttpsError("invalid-argument", "Address (country, state/postal code) required for tax.");
-				} else {
-					console.log("Calling Stripe Tax Calculation API...");
-					const taxCalculation = await stripeInstance.tax.calculations.create({
-						currency: "usd",
-						line_items: lineItems, // Use the lineItems array directly
-						customer_details: customerDetails,
-					});
-
-					calculatedTaxAmount = taxCalculation.tax_amount_exclusive || 0; // Tax in cents
-					console.log(`Stripe Tax Calculated: ${calculatedTaxAmount} cents`);
-				}
-			} else {
-				console.log("Skipping tax calculation for zero amount.");
+			let stripeCustomerId = userDoc.data().stripeCustomerId;
+			if (!stripeCustomerId) {
+				const customer = await stripeInstance.customers.create({
+					phone: userDoc.data().phoneNumber,
+					name: `${userDoc.data().firstName} ${userDoc.data().lastName}`,
+				});
+				stripeCustomerId = customer.id;
+				await userDocRef.update({ stripeCustomerId });
 			}
 
 			// --- 2. Calculate Final Amount ---
-			const finalAmount =
-				subtotal + gratuity + platformFee + calculatedTaxAmount; // All in cents
-
-			// --- 3. Determine Actual Application Fee based on Waiver Flag ---
-			let applicationFeeToCharge = platformFee;
-
-			let platformCoversStripeFeeForRestaurant = false;
-			const restaurantRef = db.collection("restaurants").doc(restaurantId);
-			const restaurantSnap = await restaurantRef.get();
-			// --- FIX: Use .exists PROPERTY, not function() ---
-			if (!restaurantSnap.exists) {
-				// Check existence property first
-				console.error(
-					`Restaurant document ${restaurantId} not found when checking waiver.`
-				);
-				// Decide: throw error or proceed with default fee? Throwing is safer.
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Restaurant configuration not found."
-				);
-			} else {
-				// Document exists, now check the flag
-				const restaurantData = restaurantSnap.data();
-				console.log("Restaurant data for waiver check:", restaurantData);
-				// Use your actual field name for the waiver flag
-				if (restaurantData.waivePlatformFee === true) {
-					platformCoversStripeFeeForRestaurant = true;
-					const finalAmount =
-						subtotal + gratuity + platformFee + calculatedTaxAmount; // Use finalAmount for estimate
-					const estimatedStripeFee = Math.round(finalAmount * 0.029) + 30;
-					applicationFeeToCharge = Math.max(
-						0,
-						platformFee - estimatedStripeFee
-					);
-					console.log(
-						`Platform covering Stripe fee. Adjusted App Fee: ${applicationFeeToCharge}`
-					);
-				} else {
-					console.log(
-						`Platform *not* covering Stripe fee. App Fee Charged: ${platformFee}`
-					);
-					applicationFeeToCharge = platformFee; // Explicitly set if waiver flag is false/missing
-				}
-			}
-			// --- End Fee Determination ---
+			const finalAmount = subtotal + gratuity + platformFee;
 
 			// --- 4. Create Payment Intent ---
 			const paymentIntentParams = {
 				amount: finalAmount,
 				currency: "usd",
-				customer: customerId,
-				application_fee_amount: applicationFeeToCharge,
+				customer: stripeCustomerId,
+				application_fee_amount: platformFee,
 				transfer_data: { destination: connectedAccountId },
 				on_behalf_of: connectedAccountId,
 				metadata: {
-					// Ensure essential IDs are passed from client and included here
-					...(metadata || {}),
-					restaurantId: restaurantId,
-					calculated_tax_amount: calculatedTaxAmount, // Store calculated tax
-					calculated_platform_fee: platformFee,
-					platform_covers_stripe_fee:
-						platformCoversStripeFeeForRestaurant.toString(),
+					type: "individual_payment", // Clearly mark the type for the webhook
+					restaurantId,
+					userId: context.auth.uid,
+					subtotal,
+					gratuity,
+					platformFee,
+					checkInId: checkInId,
+					// Store complex objects as JSON strings, as metadata only accepts strings.
+					items: JSON.stringify(items),
+					table: JSON.stringify(table),
+					server: JSON.stringify(server),
+					// Convert the timestamp object to a JSON string to preserve its structure.
+					checkInTimestamp: checkInTimestamp
+						? JSON.stringify(checkInTimestamp)
+						: null,
 				},
-				// If using saved card, set payment_method and confirm:true
-				// If using Payment Sheet for new card, set setup_future_usage and confirm:false (handled by sheet)
-				// confirmation_method: 'automatic', // Recommended for Payment Intents API
-				// confirm: false, // Default for Payment Sheet flow, set true if using saved card ID
 			};
-			// Add payment_method only if provided and confirming immediately
-			if (paymentMethodId) {
-				paymentIntentParams.payment_method = paymentMethodId;
-				paymentIntentParams.confirm = true; // IMPORTANT: Confirm now if using saved card
-				console.log(
-					"Creating and confirming PaymentIntent with saved payment method."
-				);
-			} else {
-				// Set for Payment Sheet to handle confirmation and potential card saving
-				paymentIntentParams.setup_future_usage =
-					setup_future_usage || "off_session";
-				paymentIntentParams.payment_method_options = {
-					card: { request_three_d_secure: "automatic" },
-				};
-				paymentIntentParams.automatic_payment_methods = {
-					enabled: true,
-					allow_redirects: "never",
-				}; // Often used with Payment Sheet
-				console.log("Creating PaymentIntent for Payment Sheet confirmation.");
-			}
 
 			const paymentIntent = await stripeInstance.paymentIntents.create(
 				paymentIntentParams
@@ -706,7 +897,6 @@ exports.preparePaymentSheetData = functions
 				paymentIntentClientSecret: paymentIntent.client_secret,
 				ephemeralKeySecret: ephemeralKey.secret,
 				customerId: customerId, // Return customerId for convenience
-				calculatedTaxAmount: calculatedTaxAmount, // Return calculated tax
 				finalAmount: finalAmount, // Return final amount
 			};
 		} catch (error) {
@@ -815,105 +1005,6 @@ exports.stripeWebhookLive = functions
 
 //
 
-exports.createPaymentIntent = functions
-	.runWith({
-		secrets: [
-			STRIPE_SECRET_KEY_LIVE,
-			STRIPE_SECRET_KEY_TEST,
-			STRIPE_PUBLISHABLE_KEY_LIVE,
-			STRIPE_PUBLISHABLE_KEY_TEST,
-		], // Declare required secrets
-	})
-	.https.onCall(async (data, context) => {
-		// 2. Get Stripe key based on account type
-
-		const keys = await getStripeKeys(data.restaurantId);
-		const stripeSecretKey = keys.stripeSecretKey;
-
-		const {
-			amount,
-			subtotal,
-			tax,
-			gratuity,
-			fee,
-			currentUserData,
-			restaurantNumber,
-			customerId,
-			table,
-			connectedAccountId,
-		} = data;
-
-		try {
-			if (isNaN(amount) || amount <= 0) {
-				throw new functions.https.HttpsError(
-					"invalid-argument",
-					"Invalid amount provided"
-				);
-			}
-
-			let applicationFeeToCharge = fee; // Default to charging the full platform fee
-			let platformCoverStripeFeeForRestaurant = false;
-
-			// Fetch restaurant setting
-			const restaurantRef = db.collection("restaurants").doc(data.restaurantId);
-			const restaurantSnap = await restaurantRef.get();
-
-			if (!restaurantSnap.exists) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Restaurant not found"
-				);
-			}
-
-			const restaurantData = restaurantSnap.data();
-			if (restaurantData.platformCoverStripeFeeForRestaurant === true) {
-				platformCoverStripeFeeForRestaurant = true;
-				// Calculate estimated Stripe fee to adjust application fee
-				const estimatedStripeFee = Math.round(amount * 0.029) + 30;
-				applicationFeeToCharge = Math.max(0, fee - estimatedStripeFee); // platform takes less so restaurant gets more
-				console.log(
-					`Platform covering stripe fee for restaurant ${data.restaurantId}`
-				);
-			} else
-				[
-					console.log(
-						`Platform *not* covering Stripe fee for restaurant ${data.restaurantId}`
-					),
-				];
-			// End fee determination
-
-			const paymentIntent = await stripe(stripeSecretKey).paymentIntents.create(
-				{
-					amount: amount,
-					currency: "usd",
-					customer: customerId,
-					setup_future_usage: "off_session",
-					application_fee_amount: applicationFeeToCharge,
-					transfer_data: {
-						destination: connectedAccountId,
-					},
-
-					metadata: {
-						tax: tax,
-						gratuity: gratuity,
-						table: table,
-						calculated_platform_fee: fee,
-						platform_covers_stripe_fee:
-							platformCoverStripeFeeForRestaurant.toString(),
-						subtotal: subtotal,
-						purpose: "restaurant payment",
-						restaurantId: data.restaurantId,
-					},
-				}
-			);
-
-			return { clientSecret: paymentIntent.client_secret };
-		} catch (error) {
-			console.error("Error creating PaymentIntent: ", error);
-			throw new functions.https.HttpsError("internal", error.message);
-		}
-	});
-
 // Function to allow custome to select cards using setupIntent
 exports.createSetupIntent = functions
 	.runWith({
@@ -1003,193 +1094,6 @@ exports.createEphemeralKey = functions
 		} catch (error) {
 			console.error("Error creating ephermeral key: ", error);
 			throw new functions.https.HttpsError("internal", error.message);
-		}
-	});
-
-/**
- * Prepares Stripe Payment Sheet data for a single user's portion of a party order.
- *
- * @param {object} data - The data object from the client.
- * @param {string} data.partyId - The ID of the party the user is paying for.
- * @param {number} data.amount - The total amount in cents for this user's portion of the bill.
- * @param {number} data.platformFee - The platform fee in cents calculated for this user's portion.
- * @param {string} data.restaurantStripeAccountId - The Stripe Connect account ID of the restaurant.
- * @param {object} context - The Firebase Functions context object.
- * @returns {Promise<object>} An object containing the paymentIntent, ephemeralKey, and customerId.
- */
-exports.preparePartyPaymentSheet = functions
-	.runWith({
-		secrets: [
-			STRIPE_SECRET_KEY_LIVE,
-			STRIPE_SECRET_KEY_TEST,
-			STRIPE_PUBLISHABLE_KEY_LIVE,
-			STRIPE_PUBLISHABLE_KEY_TEST,
-		],
-	})
-	.https.onCall(async (data, context) => {
-		if (!context.auth || !context.auth.uid) {
-			throw new functions.https.HttpsError(
-				"unauthenticated",
-				"User must be authenticated."
-			);
-		}
-		const customerUid = context.auth.uid;
-		const {
-			partyId,
-			amount,
-			platformFee,
-			restaurantStripeAccountId,
-			subtotal,
-			gratuity,
-			lineItems,
-			customerDetails,
-		} = data;
-
-		// --- 1. Validation ---
-		if (
-			!partyId ||
-			!amount ||
-			!restaurantStripeAccountId ||
-			subtotal === undefined ||
-			gratuity === undefined ||
-			!lineItems ||
-			!customerDetails
-		) {
-			console.error(
-				"preparePartyPaymentSheet: Invalid input. Missing required data.",
-				data
-			);
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Party ID, amount, restaurant Stripe ID, subtotal, gratuity, and tax are required."
-			);
-		}
-		if (amount <= 49) {
-			// Stripe has a minimum charge amount (e.g., 50 cents)
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Payment amount is too low."
-			);
-		}
-
-		try {
-			// --- 2. Get Restaurant and User Info ---
-			const partyDoc = await db.collection("parties").doc(partyId).get();
-			if (!partyDoc.exists) {
-				throw new functions.https.HttpsError("not-found", "Party not found.");
-			}
-
-			const partyData = partyDoc.data();
-			const restaurantId = partyData.restaurantId;
-			const sharedBasketId = partyData.sharedBasketId;
-
-			if (!sharedBasketId) {
-				throw new functions.https.HttpsError(
-					"failed-precondition",
-					"Party document is missing the shared basket ID."
-				);
-			}
-
-			const userDocRef = db.collection("customers").doc(customerUid);
-			const userDoc = await userDocRef.get();
-			if (!userDoc.exists) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Customer profile not found in database."
-				);
-			}
-
-			// --- 3. Initialize Stripe with correct API key ---
-			const keys = await getStripeKeys(restaurantId);
-			const stripeInstance = stripe(keys.stripeSecretKey);
-
-			// --- 4. Get or Create Stripe Customer ---
-			let stripeCustomerId = userDoc.data().stripeCustomerId;
-			if (!stripeCustomerId) {
-				console.log(`Creating new Stripe customer for user ${customerUid}.`);
-				const customer = await stripeInstance.customers.create({
-					email: userDoc.data().email,
-					name: `${userDoc.data().firstName} ${userDoc.data().lastName}`,
-				});
-				stripeCustomerId = customer.id;
-				await userDocRef.update({ stripeCustomerId: stripeCustomerId });
-			}
-
-			let calculatedTaxAmount = 0;
-			if (lineItems.length > 0) {
-				const taxCalculation = await stripeInstance.tax.calculations.create({
-					currency: "usd",
-					line_items: lineItems,
-					customer_details: customerDetails,
-				});
-				calculatedTaxAmount = taxCalculation.tax_amount_exclusive || 0;
-			}
-			// --- END OF FIX ---
-
-			// Calculate the final total amount on the server.
-			const finalAmount =
-				subtotal + gratuity + platformFee + calculatedTaxAmount;
-			if (finalAmount <= 49) {
-				throw new functions.https.HttpsError(
-					"invalid-argument",
-					"Payment amount is too low."
-				);
-			}
-
-			// --- 5. Create Ephemeral Key for the session ---
-			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
-				{ customer: stripeCustomerId },
-				{ apiVersion: "2024-04-10" } // Use a recent, stable Stripe API version
-			);
-
-			// --- 6. Create the Payment Intent ---
-			const paymentIntent = await stripeInstance.paymentIntents.create({
-				amount: Math.round(finalAmount), // Ensure amount is an integer
-				currency: "usd",
-				customer: stripeCustomerId,
-				automatic_payment_methods: { enabled: true },
-				// For Stripe Connect, specify the destination account and application fee
-				transfer_data: {
-					destination: restaurantStripeAccountId,
-				},
-				on_behalf_of: restaurantStripeAccountId,
-				// The platform fee was pre-calculated on the client for this user's portion
-				application_fee_amount: Math.round(platformFee),
-				metadata: {
-					type: "party_payment", // Differentiate from individual orders
-					partyId: partyId,
-					userId: customerUid,
-					restaurantId: restaurantId,
-					subtotal: subtotal, // Add subtotal to metadata
-					gratuity: gratuity, // Add gratuity to metadata
-					tax: calculatedTaxAmount, // Add calculated tax to metadata
-					sharedBasketId: sharedBasketId, // Pass the basket ID
-				},
-			});
-
-			console.log(
-				`Successfully created Payment Intent ${paymentIntent.id} for user ${customerUid} and party ${partyId}.`
-			);
-
-			// --- 7. Return all necessary secrets to the Client ---
-			return {
-				paymentIntent: paymentIntent.client_secret,
-				ephemeralKey: ephemeralKey.secret,
-				customer: stripeCustomerId,
-				calculatedTaxAmount: calculatedTaxAmount,
-				finalAmount: finalAmount,
-			};
-		} catch (error) {
-			console.error(
-				`Error preparing party payment sheet for party ${partyId}:`,
-				error
-			);
-			if (error instanceof functions.https.HttpsError) throw error;
-			throw new functions.https.HttpsError(
-				"internal",
-				"Could not initialize payment.",
-				error.message
-			);
 		}
 	});
 

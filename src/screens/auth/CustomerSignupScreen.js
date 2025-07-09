@@ -1,5 +1,5 @@
 // screens/auth/CustomerSignupScreen.js
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useRef } from "react";
 import {
 	View,
 	Text,
@@ -11,6 +11,7 @@ import {
 	SafeAreaView,
 	ScrollView,
 	Platform,
+	KeyboardAvoidingView,
 } from "react-native";
 import { Formik } from "formik";
 import * as Yup from "yup";
@@ -18,168 +19,185 @@ import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
+import { getAuth, PhoneAuthProvider } from "firebase/auth";
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
+import app from "../../config/firebase";
 
 const CustomerSignupScreen = ({ navigation }) => {
-	const { signup, isLoading, authError } = useContext(AuthContext);
+	const { signInWithPhoneCredential, isLoading, authError, auth } =
+		useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
-	const handleSignupSubmit = async (values) => {
-		if (isLoading) return;
+	const [verificationId, setVerificationId] = useState(null); // Stores the ID from Firebase
+	const [verificationCode, setVerificationCode] = useState(""); // The 6-digit code from the user
+	const [formValues, setFormValues] = useState(null); // Temporarily stores user's form input
+	const recaptchaVerifier = useRef(null);
+
+	// Step 1: Send the verification code to the user's phone
+	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
-			// Call the unified signup function from the context
-			await signup(
-				values.email,
-				values.password,
-				"customer", // Explicitly set the role
-				{
-					firstName: values.firstName,
-					lastName: values.lastName,
-					phoneNumber: values.phoneNumber,
-				}
+			const phoneNumber = `+1${values.phoneNumber}`;
+			const phoneProvider = new PhoneAuthProvider(auth);
+			const verId = await phoneProvider.verifyPhoneNumber(
+				phoneNumber,
+				recaptchaVerifier.current
 			);
-			// Navigation is now handled automatically by the AppNavigator
-			// when the currentUserData state changes.
+			setFormValues(values);
+			setVerificationId(verId);
 		} catch (error) {
-			// The error is already set in the context and will be displayed by the authError state.
-			console.log("Signup failed on screen:", error.message);
+			Alert.alert(
+				"Error",
+				`Could not send verification code: ${error.message}`
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
 
+	// Step 2: Confirm the code and sign in/up
+	const handleConfirmCode = async () => {
+		if (isLoading) return;
+		setIsSubmitting(true);
+		try {
+			// Call the new context function, passing all necessary data
+			await signInWithPhoneCredential(verificationId, verificationCode, {
+				firstName: formValues.firstName,
+				lastName: formValues.lastName,
+				phoneNumber: formValues.phoneNumber,
+			});
+			// Navigation is handled by the AuthContext listener on successful sign-in
+		} catch (error) {
+			Alert.alert("Error", `Could not verify code: ${error.message}`);
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+
+	// The validation schema no longer includes email or password
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required("First name is required"),
 		lastName: Yup.string().required("Last name is required"),
-		email: Yup.string()
-			.email("Please enter a valid email")
-			.required("Email is required"),
 		phoneNumber: Yup.string()
 			.matches(/^[0-9]{10}$/, "Must be a valid 10-digit phone number")
 			.required("Phone number is required"),
-		password: Yup.string()
-			.min(6, "Password must be at least 6 characters")
-			.required("Password is required"),
 	});
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView contentContainerStyle={styles.container}>
-				<View style={styles.header}>
-					<Text style={styles.title}>Create Your Account</Text>
-					<Text style={styles.subtitle}>
-						Join Scerv to start dining smarter.
-					</Text>
-				</View>
+			<FirebaseRecaptchaVerifierModal
+				ref={recaptchaVerifier}
+				firebaseConfig={app.options}
+				attemptInvisibleVerification={true}
+			/>
+			<KeyboardAvoidingView
+				behavior={Platform.OS === "ios" ? "padding" : "height"}
+				style={styles.keyboardAvoidingContainer}
+			>
+				<ScrollView contentContainerStyle={styles.scrollContentContainer}>
+					<View style={styles.header}>
+						<Text style={styles.title}>
+							{!verificationId ? "Create Your Account" : "Verify Your Phone"}
+						</Text>
+						<Text style={styles.subtitle}>
+							{!verificationId
+								? "Enter your name and phone number to begin."
+								: `Enter the 6-digit code sent to +1 ${formValues?.phoneNumber}`}
+						</Text>
+					</View>
 
-				<Formik
-					initialValues={{
-						email: "",
-						password: "",
-						firstName: "",
-						lastName: "",
-						phoneNumber: "",
-					}}
-					validationSchema={validationSchema}
-					onSubmit={handleSignupSubmit}
-				>
-					{({
-						handleChange,
-						handleBlur,
-						handleSubmit,
-						values,
-						errors,
-						touched,
-					}) => (
+					{!verificationId ? (
+						<Formik
+							initialValues={{ firstName: "", lastName: "", phoneNumber: "" }}
+							validationSchema={validationSchema}
+							onSubmit={handleSendVerificationCode}
+						>
+							{({
+								handleChange,
+								handleBlur,
+								handleSubmit,
+								values,
+								errors,
+								touched,
+							}) => (
+								<View style={styles.form}>
+									<TextInput
+										style={styles.input}
+										placeholder="First Name"
+										value={values.firstName}
+										onChangeText={handleChange("firstName")}
+									/>
+									{touched.firstName && errors.firstName && (
+										<Text style={styles.errorText}>{errors.firstName}</Text>
+									)}
+									<TextInput
+										style={styles.input}
+										placeholder="Last Name"
+										value={values.lastName}
+										onChangeText={handleChange("lastName")}
+									/>
+									{touched.lastName && errors.lastName && (
+										<Text style={styles.errorText}>{errors.lastName}</Text>
+									)}
+									<TextInput
+										style={styles.input}
+										placeholder="10-Digit Phone Number"
+										value={values.phoneNumber}
+										onChangeText={handleChange("phoneNumber")}
+										keyboardType="phone-pad"
+										maxLength={10}
+									/>
+									{touched.phoneNumber && errors.phoneNumber && (
+										<Text style={styles.errorText}>{errors.phoneNumber}</Text>
+									)}
+									<Button
+										mode="contained"
+										onPress={handleSubmit}
+										disabled={isSubmitting}
+										loading={isSubmitting}
+										style={styles.button}
+									>
+										Send Verification Code
+									</Button>
+								</View>
+							)}
+						</Formik>
+					) : (
 						<View style={styles.form}>
 							<TextInput
 								style={styles.input}
-								placeholder="First Name"
-								value={values.firstName}
-								onChangeText={handleChange("firstName")}
-								onBlur={handleBlur("firstName")}
-								placeholderTextColor={colors.textLight}
+								placeholder="6-Digit Code"
+								value={verificationCode}
+								onChangeText={setVerificationCode}
+								keyboardType="number-pad"
+								maxLength={6}
+								textAlign="center"
 							/>
-							{touched.firstName && errors.firstName && (
-								<Text style={styles.errorText}>{errors.firstName}</Text>
-							)}
-
-							<TextInput
-								style={styles.input}
-								placeholder="Last Name"
-								value={values.lastName}
-								onChangeText={handleChange("lastName")}
-								onBlur={handleBlur("lastName")}
-								placeholderTextColor={colors.textLight}
-							/>
-							{touched.lastName && errors.lastName && (
-								<Text style={styles.errorText}>{errors.lastName}</Text>
-							)}
-
-							<TextInput
-								style={styles.input}
-								placeholder="Email Address"
-								value={values.email}
-								onChangeText={handleChange("email")}
-								onBlur={handleBlur("email")}
-								keyboardType="email-address"
-								autoCapitalize="none"
-								placeholderTextColor={colors.textLight}
-							/>
-							{touched.email && errors.email && (
-								<Text style={styles.errorText}>{errors.email}</Text>
-							)}
-
-							<TextInput
-								style={styles.input}
-								placeholder="Phone Number"
-								value={values.phoneNumber}
-								onChangeText={handleChange("phoneNumber")}
-								onBlur={handleBlur("phoneNumber")}
-								keyboardType="phone-pad"
-								maxLength={10}
-								placeholderTextColor={colors.textLight}
-							/>
-							{touched.phoneNumber && errors.phoneNumber && (
-								<Text style={styles.errorText}>{errors.phoneNumber}</Text>
-							)}
-
-							<TextInput
-								style={styles.input}
-								placeholder="Password"
-								value={values.password}
-								onChangeText={handleChange("password")}
-								onBlur={handleBlur("password")}
-								secureTextEntry
-								placeholderTextColor={colors.textLight}
-							/>
-							{touched.password && errors.password && (
-								<Text style={styles.errorText}>{errors.password}</Text>
-							)}
-
-							{authError && <Text style={styles.errorText}>{authError}</Text>}
-
 							<Button
 								mode="contained"
-								onPress={handleSubmit}
-								disabled={isLoading || isSubmitting}
+								onPress={handleConfirmCode}
+								disabled={
+									isLoading || isSubmitting || verificationCode.length < 6
+								}
 								loading={isLoading || isSubmitting}
 								style={styles.button}
-								labelStyle={styles.buttonText}
 							>
-								Sign Up
+								Verify & Continue
+							</Button>
+							<Button mode="text" onPress={() => setVerificationId(null)}>
+								Use a different number
 							</Button>
 						</View>
 					)}
-				</Formik>
 
-				<View style={styles.footer}>
-					<Text style={styles.footerText}>Already have an account?</Text>
-					<TouchableOpacity onPress={() => navigation.navigate("Login")}>
-						<Text style={styles.linkTextFooter}> Log In</Text>
-					</TouchableOpacity>
-				</View>
-			</ScrollView>
+					<View style={styles.footer}>
+						<Text style={styles.footerText}>Already have an account?</Text>
+						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
+							<Text style={styles.linkTextFooter}> Log In</Text>
+						</TouchableOpacity>
+					</View>
+				</ScrollView>
+			</KeyboardAvoidingView>
 		</SafeAreaView>
 	);
 };
@@ -195,6 +213,17 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginBottom: 8,
 	},
+	keyboardAvoidingContainer: {
+		flex: 1,
+	},
+	scrollView: {
+		flex: 1,
+	},
+	scrollContentContainer: {
+		flexGrow: 1,
+		justifyContent: "center",
+		padding: 25,
+	},
 	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
 	form: { width: "100%" },
 	input: {
@@ -208,14 +237,6 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 	},
 	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
-	buttonText: { fontSize: 16, fontWeight: "bold" },
-	linkText: {
-		color: colors.primary,
-		textAlign: "center",
-		marginTop: 20,
-		fontWeight: "600",
-		fontSize: 15,
-	},
 	errorText: {
 		color: colors.statusDanger,
 		marginBottom: 10,

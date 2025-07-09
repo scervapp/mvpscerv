@@ -380,12 +380,13 @@ exports.getDashboardReport = functions
 			const ordersSnapshot = await ordersQuery.get();
 			if (ordersSnapshot.empty) return null;
 
-			let totalGrossRevenue = 0,
-				totalStripeFees = 0,
-				totalOrders = 0,
-				totalDiscounts = 0;
-			let totalTurnoverDuration = 0,
-				ordersWithTurnover = 0;
+			let totalGrossRevenue = 0;
+			let totalStripeFees = 0;
+			let totalOrders = 0;
+			let totalDiscounts = 0;
+			let totalGratuity = 0; // New accumulator for tips
+			let totalTurnoverDuration = 0;
+			let ordersWithTurnover = 0;
 			const salesByCategory = { Food: 0, Bar: 0 };
 			const topSellingItems = {};
 			const salesByHour = Array(24).fill(0);
@@ -399,13 +400,16 @@ exports.getDashboardReport = functions
 				const orderSubtotal = Number(order.subtotal) || 0;
 				const orderGratuity = Number(order.gratuity) || 0;
 				const orderStripeFee = Number(order.stripeFeeActual) || 0;
-
 				const originalSubtotal =
 					Number(order.originalSubtotal) || orderSubtotal;
 
 				totalGrossRevenue += orderSubtotal + orderGratuity;
+
+				// 2. Accumulate gratuity and Stripe fees separately.
+				totalGratuity += orderGratuity;
 				totalStripeFees += orderStripeFee;
 
+				// 3. Accumulate discounts and order count.
 				totalDiscounts += originalSubtotal - orderSubtotal;
 				totalOrders += 1;
 
@@ -464,40 +468,27 @@ exports.getDashboardReport = functions
 				ordersWithTurnover > 0 ? totalTurnoverDuration / ordersWithTurnover : 0;
 
 			// For "Today", return the full detailed breakdown.
-			if (period === "today") {
-				return {
-					totalRevenue: totalGrossRevenue,
-					netPayout,
-					totalDiscounts: totalDiscounts,
-					totalStripeFees: totalStripeFees,
-					totalOrders,
-					avgCheckSize,
-					avgTurnoverRate: Math.round(avgTurnoverRate),
-					allItemsSold: Object.values(topSellingItems).sort(
-						(a, b) => b.totalRevenue - a.totalRevenue
-					),
-					serverTips: Object.entries(serverTips)
-						.map(([name, total]) => ({
-							serverName: name,
-							gratuityTotal: total,
-						}))
-						.sort((a, b) => b.gratuityTotal - a.gratuityTotal),
-				};
-			}
 
-			// For "Week" or "Month", return the summarized data for charts.
 			return {
 				totalRevenue: totalGrossRevenue,
 				netPayout,
+				totalDiscounts,
+				totalGratuity,
+				totalStripeFees,
 				totalOrders,
 				avgCheckSize,
+				avgTurnoverRate: Math.round(avgTurnoverRate),
+				allItemsSold: Object.values(topSellingItems).sort(
+					(a, b) => b.totalRevenue - a.totalRevenue
+				),
+				serverTips: Object.entries(serverTips)
+					.map(([name, total]) => ({ serverName: name, gratuityTotal: total }))
+					.sort((a, b) => b.gratuityTotal - a.gratuityTotal),
+				// These are still calculated but might only be used by the client for Week/Month charts
 				salesByCategory: {
 					Food: Math.round(salesByCategory.Food),
 					Bar: Math.round(salesByCategory.Bar),
 				},
-				topSellingItems: Object.values(topSellingItems)
-					.sort((a, b) => b.quantity - a.quantity)
-					.slice(0, 5),
 				salesByHour: salesByHour.map((s) => Math.round(s)),
 				salesByDay: salesByDay.map((s) => Math.round(s)),
 			};

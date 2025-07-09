@@ -48,39 +48,57 @@ exports.createStripeCustomer = functions
 	})
 	.https.onCall(async (data, context) => {
 		const stripeSecretKey = STRIPE_SECRET_KEY.value();
-		const { userId, email, connectedAccountId } = data;
+
+		if (
+			!context.auth ||
+			!context.auth.uid ||
+			context.auth.uid !== data.userId
+		) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User not authenticated."
+			);
+		}
+		const { userId, restaurantId } = data;
+		if (!userId || !restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"User ID and Restaurant ID are required."
+			);
+		}
 
 		try {
-			// 1. Input validation
-			if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
+			const userDocRef = db.collection("customers").doc(userId);
+			const userDoc = await userDocRef.get();
+			if (!userDoc.exists) {
 				throw new functions.https.HttpsError(
-					"unauthenticated",
-					"User not authenticated"
+					"not-found",
+					"Customer profile not found."
 				);
 			}
+			const userData = userDoc.data();
+			const phoneNumber = userData.phoneNumber;
+			const name = `${userData.firstName} ${userData.lastName}`.trim();
 
-			if (!email || typeof email !== "string" || email.trim() === "") {
+			if (!phoneNumber) {
 				throw new functions.https.HttpsError(
-					"invalid-argument",
-					"Invalid email provided"
+					"failed-precondition",
+					"User profile is missing a phone number."
 				);
 			}
 
 			// 2. Retrieve the Stripekey
 			const customer = await stripe(stripeSecretKey).customers.create({
-				email,
+				phone: `+1${phoneNumber}`, // Use the phone number from Firestore
+				name: name,
 			});
 
-			console.log("Customer created successfully", customer.id);
-			// 4. Store the Stripe customer ID in firestore
-			await db.collection("customers").doc(userId).set(
-				{
-					stripeCustomerId: customer.id,
-				},
-				{ merge: true }
-			);
+			console.log("Stripe customer created successfully:", customer.id);
 
-			// 5. Return the Stripe customer ID
+			// 4. Store the new Stripe Customer ID back into the user's document
+			await userDocRef.update({ stripeCustomerId: customer.id });
+
+			// 5. Return the new customer ID
 			return { customerId: customer.id };
 		} catch (error) {
 			console.error("Error creating Stripe customer: ", error);

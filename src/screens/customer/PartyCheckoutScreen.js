@@ -191,27 +191,6 @@ const PartyCheckoutScreen = () => {
 			setIsPreparing(true);
 			setPaymentError(null);
 			try {
-				// This is the data Stripe Tax needs to calculate tax correctly.
-				const lineItemsForTax = myItems.map((item) => {
-					const priceInCents = Math.round((item.price || 0) * 100);
-					return {
-						amount: priceInCents * (item.quantity || 1),
-						quantity: 1,
-						tax_code: "txcd_10103001", // General food/beverage tax code
-						reference: item.id,
-					};
-				});
-				const customerDetailsForTax = {
-					address: {
-						line1: null,
-						city: null,
-						state: "NY",
-						postal_code: "11215",
-						country: "US",
-					},
-					address_source: "billing",
-				};
-
 				// --- Call the NEW 'preparePartyPaymentSheet' Cloud Function ---
 				const prepareFn = httpsCallable(functions, "preparePartyPaymentSheet");
 				const { data } = await prepareFn({
@@ -221,17 +200,13 @@ const PartyCheckoutScreen = () => {
 					restaurantStripeAccountId: partyDetails.restaurantStripeAccountId,
 					subtotal: subtotal, // Pass the user's subtotal
 					gratuity: gratuity, // Pass the user's gratuity
-					lineItems: lineItemsForTax,
-					customerDetails: customerDetailsForTax,
 				});
 
 				if (!data.paymentIntent || !data.ephemeralKey || !data.customer) {
 					throw new Error("Payment details from server are incomplete.");
 				}
 
-				// After getting the response, update the state with the server-calculated values.
-				setCalculatedTax(data.calculatedTaxAmount || 0);
-				setFinalTotal(data.finalAmount || totalForPayment);
+				setFinalTotal(data.finalAmount);
 				// Initialize the Payment Sheet
 				const { error } = await initPaymentSheet({
 					merchantDisplayName: `Scerv Inc. - ${partyDetails.restaurantName}`,
@@ -348,7 +323,6 @@ const PartyCheckoutScreen = () => {
 								<Picker.Item label="18% (Recommended)" value="18" />
 								<Picker.Item label="20%" value="20" />
 								<Picker.Item label="25%" value="25" />
-								<Picker.Item label="Custom" value="custom" disabled={true} />
 								<Picker.Item label="No Tip" value="0" />
 							</Picker>
 						</View>
@@ -388,17 +362,8 @@ const PartyCheckoutScreen = () => {
 							<Text style={styles.label}>Service Fee:</Text>
 							<Text style={styles.amount}>{formatCurrency(platformFee)}</Text>
 						</View>
-						<Divider style={styles.divider} />
-						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Est. Sales Tax:</Text>
-							{isPreparing ? (
-								<ActivityIndicator size="small" color={colors.primary} />
-							) : (
-								<Text style={styles.amount}>
-									{formatCurrency(calculatedTax)}
-								</Text>
-							)}
-						</View>
+
+						<View style={styles.summaryRow}></View>
 						<Divider style={styles.divider} />
 						<View style={styles.summaryRow}>
 							<Text style={styles.totalLabel}>Your Total:</Text>

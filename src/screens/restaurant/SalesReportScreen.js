@@ -1,5 +1,5 @@
 // screens/restaurant/SalesReportScreen.js
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext, useLayoutEffect } from "react";
 import {
 	View,
 	Text,
@@ -29,19 +29,62 @@ import colors from "../../utils/styles/appStyles";
 const { width } = Dimensions.get("window");
 
 // --- Reusable Helper Components ---
-const KPICard = ({ title, value, iconName }) => (
+const KPICard = ({ title, value, iconName, isDeduction = false }) => (
 	<View style={styles.kpiCard}>
-		<Ionicons name={iconName} size={24} color={colors.primary} />
-		<Text style={styles.kpiValue}>{value}</Text>
+		<Ionicons
+			name={iconName}
+			size={22}
+			color={isDeduction ? colors.statusDanger : colors.primary}
+		/>
+		<Text style={[styles.kpiValue, isDeduction && styles.deductionValue]}>
+			{value}
+		</Text>
 		<Text style={styles.kpiTitle}>{title}</Text>
 	</View>
 );
-const ChartCard = ({ title, children }) => (
-	<View style={styles.chartCard}>
-		<Text style={styles.chartTitle}>{title}</Text>
-		{children}
+
+const DetailedReportCard = ({ title, children, iconName }) => (
+	<View style={styles.detailCard}>
+		<View style={styles.cardHeader}>
+			<Ionicons name={iconName} size={20} color={colors.primary} />
+			<Text style={styles.cardTitle}>{title}</Text>
+		</View>
+		<View style={styles.cardContent}>{children}</View>
 	</View>
 );
+
+const DetailRow = ({ label, value }) => (
+	<View style={styles.summaryRow}>
+		<Text style={styles.summaryLabel}>{label}</Text>
+		<Text style={styles.summaryValue}>{value}</Text>
+	</View>
+);
+
+const ItemsSoldList = ({ items, formatCurrency }) => (
+	<View>
+		<View style={styles.tableHeader}>
+			<Text style={[styles.tableHeaderText, { flex: 3 }]}>Item</Text>
+			<Text style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}>
+				Qty
+			</Text>
+			<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
+				Revenue
+			</Text>
+		</View>
+		{(items || []).map((item, index) => (
+			<View key={index} style={styles.tableRow}>
+				<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
+				<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
+					{item.quantity}
+				</Text>
+				<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
+					{formatCurrency(item.totalRevenue)}
+				</Text>
+			</View>
+		))}
+	</View>
+);
+
 const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
 	<View style={styles.periodSelectorContainer}>
 		{["Today", "Week", "Month"].map((period) => (
@@ -66,61 +109,30 @@ const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
 	</View>
 );
 
-// --- New Components for "Today's Snapshot" View ---
-const DetailedReportCard = ({ title, children, iconName }) => (
-	<View style={styles.detailCard}>
-		<View style={styles.cardHeader}>
-			<Ionicons name={iconName} size={20} color={colors.primary} />
-			<Text style={styles.cardTitle}>{title}</Text>
-		</View>
-		<View style={styles.cardContent}>{children}</View>
-	</View>
-);
-const DetailRow = ({ label, value, isDeduction = false }) => (
-	<View style={styles.summaryRow}>
-		<Text style={styles.summaryLabel}>{label}</Text>
-		<Text style={[styles.summaryValue, isDeduction && styles.deductionValue]}>
-			{value}
-		</Text>
-	</View>
-);
-
-const ItemsSoldList = ({ items, formatCurrency }) => (
-	<View>
-		<View style={styles.tableHeader}>
-			<Text style={[styles.tableHeaderText, { flex: 3 }]}>Item</Text>
-			<Text style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}>
-				Qty
-			</Text>
-			<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
-				Revenue
-			</Text>
-		</View>
-		{items.map((item, index) => (
-			<View key={index} style={styles.tableRow}>
-				<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
-				<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
-					{item.quantity}
-				</Text>
-				<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
-					{formatCurrency(item.totalRevenue)}
-				</Text>
-			</View>
-		))}
-	</View>
-);
-
 const SalesReportScreen = ({ navigation }) => {
 	const { currentUserData, isLoading: isAuthLoading } = useContext(AuthContext);
 	const [reportData, setReportData] = useState(null);
 	const [isFetching, setIsFetching] = useState(true);
-	const [selectedPeriod, setSelectedPeriod] = useState("Today"); // Default to Today
+	const [selectedPeriod, setSelectedPeriod] = useState("Today");
 	const insets = useSafeAreaInsets();
 
 	const formatCurrency = (cents) => {
 		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
 		return `$${(cents / 100).toFixed(2)}`;
 	};
+
+	useLayoutEffect(() => {
+		navigation.setOptions({
+			headerRight: () => (
+				<TouchableOpacity
+					onPress={() => navigation.navigate("HistoricalReports")}
+					style={{ marginRight: 15 }}
+				>
+					<Ionicons name="archive-outline" size={26} color={colors.primary} />
+				</TouchableOpacity>
+			),
+		});
+	}, [navigation]);
 
 	useEffect(() => {
 		if (isAuthLoading || !currentUserData?.uid) return;
@@ -143,145 +155,6 @@ const SalesReportScreen = ({ navigation }) => {
 		fetchReport();
 	}, [selectedPeriod, currentUserData?.uid, isAuthLoading]);
 
-	const renderTodayView = () => (
-		<ScrollView contentContainerStyle={styles.scrollContent}>
-			<DetailedReportCard title="Financial Snapshot" iconName="cash-outline">
-				<DetailRow
-					label="Gross Revenue"
-					value={formatCurrency(reportData.totalRevenue)}
-				/>
-				<DetailRow
-					label="Discounts"
-					value={`-${formatCurrency(reportData.totalDiscounts)}`}
-					isDeduction
-				/>
-				<View style={styles.divider} />
-				<DetailRow
-					label="Trransaction Fees"
-					value={`-${formatCurrency(reportData.totalStripeFees)}`}
-					isDeduction
-				/>
-				<View style={styles.divider} />
-				<DetailRow
-					label="Net Payout"
-					value={formatCurrency(reportData.netPayout)}
-				/>
-			</DetailedReportCard>
-			<DetailedReportCard
-				title="Operational Metrics"
-				iconName="stats-chart-outline"
-			>
-				<DetailRow
-					label="Total Orders"
-					value={reportData.totalOrders?.toString() || "0"}
-				/>
-				<DetailRow
-					label="Avg. Table Turnover"
-					value={`${reportData.avgTurnoverRate || 0} min`}
-				/>
-			</DetailedReportCard>
-			<DetailedReportCard title="Items Sold Today" iconName="fast-food-outline">
-				<ItemsSoldList
-					items={reportData.allItemsSold || []}
-					formatCurrency={formatCurrency}
-				/>
-			</DetailedReportCard>
-			<DetailedReportCard title="Server Tips" iconName="people-outline">
-				{(reportData.serverTips || []).length > 0 ? (
-					reportData.serverTips.map((tip, index) => (
-						<DetailRow
-							key={index}
-							label={tip.serverName}
-							value={formatCurrency(tip.gratuityTotal)}
-						/>
-					))
-				) : (
-					<Text style={styles.noDataText}>No tips recorded yet.</Text>
-				)}
-			</DetailedReportCard>
-		</ScrollView>
-	);
-
-	const renderAggregateView = () => (
-		<ScrollView contentContainerStyle={styles.scrollContent}>
-			<View style={styles.kpiContainer}>
-				<KPICard
-					title="Net Payout"
-					value={formatCurrency(reportData.netPayout)}
-					iconName="wallet-outline"
-				/>
-				<KPICard
-					title="Gross Revenue"
-					value={formatCurrency(reportData.totalRevenue)}
-					iconName="cash-outline"
-				/>
-				<KPICard
-					title="Total Orders"
-					value={reportData.totalOrders?.toString() || "0"}
-					iconName="receipt-outline"
-				/>
-			</View>
-			<ChartCard title="Sales by Category">
-				<VictoryPie
-					data={
-						reportData.salesByCategory
-							? Object.entries(reportData.salesByCategory).map(([k, v]) => ({
-									x: k,
-									y: v,
-							  }))
-							: []
-					}
-					colorScale={["#4CAF50", "#FFC107"]}
-					innerRadius={50}
-					labels={({ datum }) => `${datum.x}\n${formatCurrency(datum.y)}`}
-					style={{
-						labels: { fill: "white", fontSize: 12, fontWeight: "bold" },
-					}}
-					width={width - 60}
-					height={220}
-				/>
-			</ChartCard>
-			<ChartCard title="Busiest Days">
-				<VictoryChart height={250} width={width - 50} domainPadding={{ x: 25 }}>
-					<VictoryBar
-						style={{ data: { fill: colors.statusSuccess } }}
-						data={(reportData.salesByDay || []).map((sales, day) => ({
-							x: ["S", "M", "T", "W", "T", "F", "S"][day],
-							y: sales,
-						}))}
-					/>
-					<VictoryAxis style={{ tickLabels: { fontSize: 10, padding: 5 } }} />
-					<VictoryAxis
-						dependentAxis
-						tickFormat={(x) => `$${x / 100}`}
-						style={{ tickLabels: { fontSize: 10 } }}
-					/>
-				</VictoryChart>
-			</ChartCard>
-			<ChartCard title="Busiest Times">
-				<VictoryChart height={250} width={width - 50} domainPadding={{ x: 10 }}>
-					<VictoryBar
-						style={{ data: { fill: colors.primary } }}
-						data={(reportData.salesByHour || []).map((sales, hour) => ({
-							x: hour,
-							y: sales,
-						}))}
-					/>
-					<VictoryAxis
-						tickValues={[0, 6, 12, 18, 23]}
-						tickFormat={["12a", "6a", "12p", "6p", "11p"]}
-						style={{ tickLabels: { fontSize: 10, padding: 5 } }}
-					/>
-					<VictoryAxis
-						dependentAxis
-						tickFormat={(x) => `$${x / 100}`}
-						style={{ tickLabels: { fontSize: 10 } }}
-					/>
-				</VictoryChart>
-			</ChartCard>
-		</ScrollView>
-	);
-
 	const renderContent = () => {
 		if (isFetching)
 			return (
@@ -298,15 +171,74 @@ const SalesReportScreen = ({ navigation }) => {
 				</Text>
 			);
 
-		return selectedPeriod === "Today"
-			? renderTodayView()
-			: renderAggregateView();
+		return (
+			<ScrollView contentContainerStyle={styles.scrollContent}>
+				<View style={styles.kpiContainer}>
+					<KPICard
+						title="Gross Sales"
+						value={formatCurrency(reportData.totalRevenue)}
+						iconName="cash-outline"
+					/>
+					<KPICard
+						title="Tips Collected"
+						value={formatCurrency(reportData.totalGratuity)}
+						iconName="gift-outline"
+					/>
+					<KPICard
+						title="Transaction Fees"
+						value={`-${formatCurrency(reportData.totalStripeFees)}`}
+						iconName="trending-down-outline"
+						isDeduction={true}
+					/>
+					<KPICard
+						title="Net Payout"
+						value={formatCurrency(reportData.netPayout)}
+						iconName="wallet-outline"
+					/>
+				</View>
+
+				<DetailedReportCard
+					title="Operational Metrics"
+					iconName="stats-chart-outline"
+				>
+					<DetailRow
+						label="Total Orders"
+						value={reportData.totalOrders?.toString() || "0"}
+					/>
+					<DetailRow
+						label="Avg. Table Turnover"
+						value={`${reportData.avgTurnoverRate || 0} min`}
+					/>
+				</DetailedReportCard>
+
+				<DetailedReportCard title="Items Sold" iconName="fast-food-outline">
+					<ItemsSoldList
+						items={reportData.allItemsSold || []}
+						formatCurrency={formatCurrency}
+					/>
+				</DetailedReportCard>
+
+				<DetailedReportCard title="Server Tips" iconName="people-outline">
+					{(reportData.serverTips || []).length > 0 ? (
+						reportData.serverTips.map((tip, index) => (
+							<DetailRow
+								key={index}
+								label={tip.serverName}
+								value={formatCurrency(tip.gratuityTotal)}
+							/>
+						))
+					) : (
+						<Text style={styles.noDataText}>No tips were recorded yet.</Text>
+					)}
+				</DetailedReportCard>
+			</ScrollView>
+		);
 	};
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.header}>
-				<Text style={styles.headerTitle}>Business Pulse</Text>
+				<Text style={styles.headerTitle}>Business Report</Text>
 				<PeriodSelector
 					selectedPeriod={selectedPeriod}
 					onSelectPeriod={setSelectedPeriod}
@@ -320,7 +252,6 @@ const SalesReportScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.surfaceWhite },
 	container: { flex: 1, backgroundColor: colors.backgroundLight },
-	centered: { flex: 1, justifyContent: "center", alignItems: "center" },
 	header: {
 		paddingHorizontal: 15,
 		paddingTop: 10,
@@ -359,52 +290,44 @@ const styles = StyleSheet.create({
 	scrollContent: { padding: 15, paddingBottom: 30 },
 	kpiContainer: {
 		flexDirection: "row",
-		justifyContent: "space-around",
+		justifyContent: "space-between",
 		marginBottom: 20,
+		marginHorizontal: -5,
 	},
 	kpiCard: {
 		flex: 1,
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 12,
-		padding: 15,
+		paddingVertical: 15,
+		paddingHorizontal: 5,
 		alignItems: "center",
 		marginHorizontal: 5,
 		elevation: 2,
+		shadowColor: "#000",
+		shadowOpacity: 0.05,
+		shadowRadius: 5,
 	},
 	kpiValue: {
-		fontSize: 18,
+		fontSize: 16,
 		fontWeight: "bold",
 		color: colors.textDark,
-		marginVertical: 5,
+		marginVertical: 6,
 	},
+	deductionValue: { color: colors.statusDanger },
 	kpiTitle: {
-		fontSize: 11,
+		fontSize: 10,
 		color: colors.textMedium,
 		textTransform: "uppercase",
 		textAlign: "center",
-	},
-	chartCard: {
-		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
-		padding: 15,
-		marginBottom: 20,
-		alignItems: "center",
-		elevation: 2,
-	},
-	chartTitle: {
-		fontSize: 16,
-		fontWeight: "bold",
-		color: colors.textDark,
-		alignSelf: "flex-start",
-		marginBottom: 10,
+		fontWeight: "600",
 	},
 	noDataText: {
 		textAlign: "center",
-		marginTop: 40,
+		marginTop: 20,
 		fontSize: 16,
 		color: colors.textLight,
+		paddingVertical: 10,
 	},
-	// Styles for "Today" view
 	detailCard: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 12,
@@ -432,12 +355,6 @@ const styles = StyleSheet.create({
 	},
 	summaryLabel: { fontSize: 16, color: colors.textMedium },
 	summaryValue: { fontSize: 16, fontWeight: "500", color: colors.textDark },
-	deductionValue: { color: colors.statusDanger },
-	divider: {
-		height: 1,
-		backgroundColor: colors.borderLight,
-		marginVertical: 8,
-	},
 	tableHeader: {
 		flexDirection: "row",
 		borderBottomWidth: 2,

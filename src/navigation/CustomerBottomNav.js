@@ -40,6 +40,7 @@ import PartySessionScreen from "../screens/customer/PartySessionScreen";
 import RestaurantDetailScreen from "../components/customer/RestaurantDetail";
 import PartyMenuScreen from "../screens/customer/PartyMenuScreen";
 import PartyCheckoutScreen from "../screens/customer/PartyCheckoutScreen";
+import ManageAccountScreen from "../screens/customer/ManageAccountScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -217,6 +218,11 @@ const AccountScreenStack = () => (
 				},
 			}}
 		/>
+		<Stack.Screen
+			name="ManageAccountScreen"
+			component={ManageAccountScreen}
+			options={{ headerTitle: "Manage Account" }}
+		/>
 	</Stack.Navigator>
 );
 
@@ -390,3 +396,4 @@ const CustomerBottomNavigation = () => {
 };
 
 export default CustomerBottomNavigation;
+

@@ -78,14 +78,6 @@ const OrderConfirmationScreen = () => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 
-	// --- LOG 1: Log incoming parameters when the screen mounts ---
-	useEffect(() => {
-		console.log(
-			"OrderConfirmationScreen: MOUNTED. Received route.params:",
-			JSON.stringify(route.params, null, 2)
-		);
-	}, []);
-
 	// Get params from route
 	const {
 		mode = "individual", // 'individual' or 'party'
@@ -125,8 +117,16 @@ const OrderConfirmationScreen = () => {
 		let docRef;
 
 		// Determine which document to listen to based on the mode
-		if (mode === "individual" && orderDocId) {
-			docRef = doc(db, "orders", orderDocId);
+		if (mode === "individual") {
+			if (currentUserData?.activeCheckIn === null && status === "processing") {
+				// If the activeCheckIn has been cleared by the webhook, the process is successful.
+				console.log(
+					"OrderConfirmationScreen: activeCheckIn is null. Confirming success."
+				);
+				setStatus("paid");
+			}
+			// We don't need an unsubscribe function here.
+			return;
 		} else if (mode === "party" && partyId && currentUserData?.uid) {
 			docRef = doc(db, "parties", partyId);
 		} else {
@@ -197,7 +197,7 @@ const OrderConfirmationScreen = () => {
 		);
 
 		return () => unsubscribe();
-	}, [orderDocId, partyId, mode, currentUserData?.uid]);
+	}, [partyId, mode, currentUserData?.activeCheckIn, status]);
 
 	return (
 		<SafeAreaView style={styles.safeArea}>

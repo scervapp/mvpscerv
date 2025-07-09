@@ -193,6 +193,7 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 		totalDiscount, // Optional: store total discount
 		restaurantName,
 		checkInTimestamp,
+
 		checkInId,
 	} = data;
 
@@ -295,7 +296,7 @@ exports.createPendingOrder = functions.https.onCall(async (data, context) => {
 			// --- Timestamp ---
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			// Add other initial fields as needed
-			checkInTimestamp,
+			checkInTimestamp: checkInTimestamp || null,
 		};
 
 		console.log(

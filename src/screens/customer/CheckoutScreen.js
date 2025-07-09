@@ -125,12 +125,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 		subtotal, // Total pre-tax subtotal (after discounts) in cents
 		gratuity, // Total gratuity in cents
 		platformFee, // Your calculated platform fee in cents
-		amountBeforeTax, // Sum of subtotal + gratuity (used for line item in Checkout) in cents
 		totalDiscount, // Total discount in cents
 		originalSubtotal, // Total original subtotal (before discounts) in cents
 		pipTotals, // Array of per-person calculations (useful for display)
-		tax,
-		estimatedOverallTotal,
+		totalForPayment,
 	} = useMemo(() => {
 		console.log("Memo: Recalculating Totals Running");
 		// Guard clause: Ensure necessary data is available
@@ -145,10 +143,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 				subtotal: 0,
 				gratuity: 0,
 				platformFee: 0,
-				amountBeforeTax: 0,
 				totalDiscount: 0,
 				originalSubtotal: 0,
 				pipTotals: [],
+				totalForPayment: 0,
 			};
 		}
 
@@ -191,32 +189,21 @@ const CheckoutScreen = ({ route, navigation }) => {
 				}, 0);
 			}
 
-			const pipTax = Math.round(pipSubtotal * restaurant.taxRate); // Tax for THIS PIP (needed for fee calc)
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
 			const pipFee = Math.round(pipSubtotal * fees); // Platform fee for THIS PIP
-			const pipTotalBeforeTax = pipSubtotal + pipGratuity + pipFee; // Total for PIP *before* Stripe Tax adds tax
 			const pipDiscount = pipOriginalSubtotal - pipSubtotal; // Discount for THIS PIP
-			const estimatedTax = Math.round(subtotal * (restaurant?.taxRate || 0));
-			const estimatedOverallTotal =
-				amountBeforeTax + platformFee + estimatedTax;
 
 			return {
 				...(personData || {}), // Spread person data safely
 				subtotal: pipSubtotal,
-				tax: pipTax, // Store calculated pipTax for reference/fee calculation
 				fee: pipFee,
 				gratuity: pipGratuity,
-				totalBeforeTax: pipTotalBeforeTax, // Store this pre-tax total
 				discount: pipDiscount,
+				total: pipTotals,
 			};
 		});
-
-		const calculated_tax = calcPipTotals.reduce(
-			(sum, pip) => sum + (pip.tax || 0),
-			0
-		);
 
 		// Calculate overall platform fee by summing pipFees
 		const calculated_platform_fee = calcPipTotals.reduce(
@@ -224,34 +211,24 @@ const CheckoutScreen = ({ route, navigation }) => {
 			0
 		);
 
-		// Amount for Stripe line item (Subtotal + Gratuity)
-		const calcAmountBeforeTax = calcSubtotal + calcGratuityAmount;
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
-
-		console.log("Memo: Calculated Totals:", {
-			calcSubtotal,
-			calcGratuityAmount,
-			calculated_platform_fee,
-			calcAmountBeforeTax,
-		});
+		const calcTotalForPayment =
+			calcSubtotal + calcGratuityAmount + calculated_platform_fee;
 
 		return {
 			subtotal: calcSubtotal,
 			gratuity: calcGratuityAmount,
 			platformFee: calculated_platform_fee,
-			amountBeforeTax: calcAmountBeforeTax,
 			totalDiscount: calcTotalDiscount,
 			originalSubtotal: calcOriginalSubtotal,
 			pipTotals: calcPipTotals, // Include the detailed PIP array
-			tax: calculated_tax,
-			estimatedOverallTotal,
+			totalForPayment: calcTotalForPayment,
 		};
 	}, [
 		// Dependencies for recalculation
 		restaurantBasketItems,
 		gratuityPercentage,
 		fees,
-		restaurant?.taxRate, // Needed for pipFee calculation
 		filteredBasketData,
 	]);
 
@@ -262,82 +239,20 @@ const CheckoutScreen = ({ route, navigation }) => {
 			!stripePublishableKey ||
 			!currentUserData?.uid ||
 			!restaurant?.uid ||
-			amountBeforeTax <= 0 ||
-			!checkInObj
+			!checkInObj || // We need the full check-in object
+			subtotal <= 0 // Use subtotal, as amountBeforeTax depends on gratuity which can change
 		) {
-			setIsPaymentSheetReady(false); // Ensure not ready if inputs missing
+			setIsPaymentSheetReady(false);
 			return;
 		}
 
 		const prepareSheet = async () => {
-			console.log("Effect: Preparing Payment Sheet...");
 			setIsPreparing(true);
-			setIsPaymentSheetReady(false); // Reset while preparing
+			setIsPaymentSheetReady(false);
 			setPaymentError(null);
-			pendingOrderIdRef.current = null;
-			pendingFirestoreDocIdRef.current = null;
 
 			try {
-				// 1. Create Pending Order & Get ID
-				const createPendingOrderFunction = httpsCallable(
-					functions,
-					"createPendingOrder"
-				);
-
-				// --- MODIFICATION START ---
-				// Map basket items to include category
-				const itemsWithCategory = restaurantBasketItems.map((item) => ({
-					...item, // Keep existing item data
-					dish: {
-						// Ensure the dish object is included correctly
-						...item.dish,
-						category: item.dish?.category || "Uncategorized", // Add category, provide default
-					},
-				}));
-
-				// Get the check-in timestamp (adjust field name 'checkInTime' if needed)
-				const checkInTimestamp =
-					checkInObj?.checkInTime instanceof Timestamp
-						? checkInObj.checkInTime
-						: null; // Or Timestamp.now() as a fallback? Decide your logic.
-
-				const orderInputData = {
-					userId: currentUserData.uid,
-					restaurantId: restaurant.uid,
-					table: checkInObj.table || null, // Get table from checkInObj
-					items: itemsWithCategory, // Use memoized items
-					server: checkInObj.server || null, // Get server from checkInObj
-					gratuity: gratuity, // Use gratuity from useMemo
-					subtotal: subtotal, // Use subtotal from useMemo
-					fee: platformFee, // Use platformFee from useMemo
-					originalSubtotal: originalSubtotal, // Use value from useMemo
-					totalDiscount: totalDiscount, // Use value from useMemo
-					restaurantName: restaurant.restaurantName,
-					checkInTimestamp: checkInTimestamp,
-					checkInId: checkInObj.id,
-				};
-
-				const { data: orderResult } = await createPendingOrderFunction(
-					orderInputData
-				);
-				if (
-					!orderResult?.success ||
-					!orderResult.orderId ||
-					!orderResult.firestoreDocId
-				) {
-					throw new Error("Failed order pre-creation.");
-				}
-				pendingOrderIdRef.current = orderResult.orderId;
-				pendingFirestoreDocIdRef.current = orderResult.firestoreDocId;
-				console.log(
-					"Pending Order Created:",
-					pendingOrderIdRef.current,
-					pendingFirestoreDocIdRef.current
-				);
-
-				// 2. Get/Create Stripe Customer ID
 				let stripeCustomerId = null;
-
 				const userDocRef = doc(db, "customers", currentUserData.uid);
 				const userDocSnapshot = await getDoc(userDocRef);
 				if (
@@ -354,122 +269,76 @@ const CheckoutScreen = ({ route, navigation }) => {
 						data: { customerId },
 					} = await createStripeCustomerFunction({
 						userId: currentUserData.uid,
-						email: currentUserData.email,
 						restaurantId: restaurant.uid,
 					});
 					stripeCustomerId = customerId;
 					await updateDoc(userDocRef, { stripeCustomerId });
 				}
 
-				// 3. Prepare Line Items and Customer Details for Tax Calc
-				const lineItemsForTax = restaurantBasketItems
-					.filter((item) => item && item.id) // 1. Filter for valid items with an ID.
-					.map((item) => {
-						const priceInCents = Math.round((item.dish?.price || 0) * 100);
-						return {
-							amount: priceInCents * (item.quantity || 1),
-							quantity: 1,
-							tax_code: "txcd_10103001",
-							// 2. Use the guaranteed-to-exist item.id as the reference.
-							reference: item.id,
-						};
-					});
+				const leanItemsForMetadata = restaurantBasketItems.map((item) => ({
+					menuItemId: item.menuItemId, // The ID of the menu item
+					quantity: item.quantity,
+					specialInstructions: item.specialInstructions || "",
+					// Include any other small, essential fields like pipId if necessary
+					pipId: item.pipId,
+					pipName: item.pipName,
+					discount: item.discount || null,
+					discountedPrice: item.discountedPrice || null,
+				}));
 
-				if (lineItemsForTax.length === 0) {
-					console.warn(
-						"No valid line items with IDs to send for tax calculation."
-					);
-					// Optionally, set an error state here.
-					return;
-				}
-				// --- IMPORTANT: Get actual customer address ---
-				// Placeholder - Fetch or use state for customer address
-				const customerDetailsForTax = {
-					address: {
-						line1: null,
-						city: null,
-						state: "NY",
-						postal_code: "11215",
-						country: "US",
-					},
-					address_source: "billing",
-				};
-				// --- End Address ---
-
-				const metadataForServer = {
-					userId: currentUserData.uid,
+				// This is the data that will be stored in the Stripe metadata
+				const dataToPrepare = {
 					restaurantId: restaurant.uid,
-					internalOrderId: pendingOrderIdRef.current,
-					firestoreDocId: pendingFirestoreDocIdRef.current,
-					calculatedPlatformFee: platformFee, // Pass potential fee
-					// Add other metadata...
+					customerId: stripeCustomerId,
+					connectedAccountId: restaurant.stripeAccountId,
+					// Pass the calculated totals
+					subtotal,
+					gratuity,
+					platformFee,
+					// Pass the data needed for the webhook to create the order
+					items: leanItemsForMetadata, // Or your leanItemsForMetadata
+					table: checkInObj.table || null,
+					server: checkInObj.server || null,
+					checkInId: checkInObj.id,
+					checkInTimestamp: checkInObj.acceptedAt,
 				};
 
-				// 4. Call the NEW server function
+				// 4. Call the single, updated server function
 				const preparePaymentSheetFunction = httpsCallable(
 					functions,
 					"preparePaymentSheetData"
 				);
-				const dataToPrepare = {
-					restaurantId: restaurant.uid,
-					customerId: stripeCustomerId,
-					subtotal: subtotal,
-					gratuity: gratuity,
-					platformFee: platformFee,
-					lineItems: lineItemsForTax,
-					customerDetails: customerDetailsForTax,
-					connectedAccountId: restaurant.stripeAccountId,
-					setup_future_usage: selectedCard ? undefined : "off_session",
-					paymentMethodId: selectedCard, // Pass if using saved card
-					metadata: metadataForServer,
-				};
-				console.log("Calling preparePaymentSheetData...");
 				const result = await preparePaymentSheetFunction(dataToPrepare);
 				const prepData = result?.data;
 
-				if (!prepData) {
-					throw new Error(
-						"preparePaymentSheetFunction returned null or undefined data."
-					);
-				}
-
-				if (
-					!prepData.paymentIntentClientSecret ||
-					!prepData.ephemeralKeySecret ||
-					!prepData.customerId
-				) {
+				if (!prepData || !prepData.paymentIntentClientSecret) {
 					throw new Error("Server did not return necessary Stripe secrets.");
 				}
+				// --- END OF FIX ---
 
-				// 5. Update UI State with Tax/Total from Server
-				setCalculatedTax(prepData.calculatedTaxAmount || 0);
+				// 5. Update UI State with Tax/Total from Serve
 				setFinalTotal(prepData.finalAmount || 0);
 
 				// 6. Initialize Payment Sheet
-				console.log("Initializing Payment Sheet...");
 				const { error: initSheetError } = await initPaymentSheet({
 					merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
 					paymentIntentClientSecret: prepData.paymentIntentClientSecret,
 					customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 					customerId: prepData.customerId,
-					returnURL: "stripe://stripe-redirect", // Needed for some payment methods like Alipay
-					// allowsDelayedPaymentMethods: true, // Optional
+					returnURL: "stripe://stripe-redirect",
 				});
 
 				if (initSheetError) {
-					throw initSheetError; // Let the catch block handle it
+					throw initSheetError;
 				} else {
-					console.log("Payment Sheet Initialized Successfully");
-					setIsPaymentSheetReady(true); // <<< READY!
+					setIsPaymentSheetReady(true);
 				}
 			} catch (error) {
 				console.error("Error preparing payment sheet:", error);
 				setPaymentError(
-					`Error: ${error.code || "Unknown"} - ${
-						error.message || "Failed to prepare payment."
-					}`
+					`Error: ${error.message || "Failed to prepare payment."}`
 				);
-				setIsPaymentSheetReady(false); // Ensure not ready on error
+				setIsPaymentSheetReady(false);
 			} finally {
 				setIsPreparing(false);
 			}
@@ -481,20 +350,13 @@ const CheckoutScreen = ({ route, navigation }) => {
 		stripePublishableKey,
 		currentUserData?.uid,
 		restaurant?.uid,
-		restaurant?.stripeAccountId,
 		checkInObj,
-		subtotal,
-		gratuity,
-		platformFee,
-		amountBeforeTax, // Key calculated values
-		checkInObj, // If table/server info changes?
-		selectedCard, // Re-prepare if selected card changes
-		// DO NOT add 'totals' object here if it causes loops, use specific props
+		totalForPayment,
 	]);
 
 	// --- Handle Payment Button Press ---
 	const handlePayment = async () => {
-		if (!isPaymentSheetReady || isPaying) return; // Check readiness and if already paying
+		if (!isPaymentSheetReady || isPaying) return;
 		setIsPaying(true);
 		setPaymentError(null);
 
@@ -502,75 +364,41 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const { error } = await presentPaymentSheet();
 
 		if (error) {
-			console.log("Payment Sheet presented error/cancellation:", error); // Log the full error for debugging
-
-			if (error.code === "Canceled") {
-				// User manually closed the Payment Sheet
-				console.log("Payment Sheet was canceled by the user.");
-				// No error message needed, just stop the paying indicator
-				setPaymentError(null); // Ensure no failure message is shown for simple cancel
-			} else {
-				// An actual payment error occurred (e.g., card declined)
-				console.error(
-					"Payment failed via Payment Sheet:",
-					error.code,
-					error.message
-				);
-				// Set an error message to display non-intrusively within your UI
+			// This part is correct. It handles cancellations and declines.
+			if (error.code !== "Canceled") {
+				console.error("Payment failed:", error);
 				setPaymentError(
-					`Payment failed: ${
-						error.localizedMessage || error.message || "Please try again."
-					}`
+					`Payment failed: ${error.localizedMessage || error.message}`
 				);
-				// --- Alert.alert is REMOVED ---
 			}
-			setIsPaying(false); // Payment attempt finished (failed or canceled)
-			// ** IMPORTANT: We DO NOT navigate away here. User stays on CheckoutScreen. **
-
-			// Clear pending order refs if payment fails? Maybe not, allow retry?
+			setIsPaying(false);
 		} else {
+			// --- PAYMENT SUCCEEDED ---
+			// We no longer look for a pending document ID.
+			// We simply navigate to a confirmation screen. The webhook will handle the rest.
 			console.log(
-				"Payment Sheet completed successfully! Waiting for webhook confirmation."
+				"Payment Sheet completed successfully! Navigating to confirmation."
 			);
 
-			// Navigate to confirmation screen, passing the FIRESTORE DOC ID
-			const docIdToConfirm = pendingFirestoreDocIdRef.current;
-			if (!docIdToConfirm) {
-				console.error("Payment Success but Firestore Doc ID missing!");
-				setPaymentError(
-					"Order confirmation pending, but reference missing.  Contact support"
-				);
-				setIsPaying(false);
-				return;
-			}
-			// Reset error before navigating
-			setPaymentError(null);
 			navigation.dispatch(
 				CommonActions.reset({
-					index: 0, // Make the first route in the array the active one
+					index: 0,
 					routes: [
-						// Define the new state for THIS STACK
 						{
-							name: "OrderConfirmation", // The screen to display
+							name: "OrderConfirmation",
 							params: {
-								// Pass necessary parameters
-								orderDocId: docIdToConfirm,
-								status: "processing", // Still indicate initial status
-								// sessionId: sessionId // Optional if needed
+								// We pass a status to tell the screen to show a "processing" message
+								// while it waits for the webhook.
+								initialStatus: "processing",
+								// We no longer pass an orderDocId
 							},
 						},
-						// By ONLY including OrderConfirmation, there's nothing to go back to
-						// within this specific stack navigator (e.g., CustomerDashboardStack)
 					],
 				})
 			);
 
-			pendingFirestoreDocIdRef.current = null; // Clear after navigating
-			pendingOrderIdRef.current = null;
-			// Clear basket potentially here or wait for webhook
-			clearBasket(restaurant.id);
+			// Note: We don't set isPaying to false here because we are navigating away.
 		}
-		setIsPaying(false);
 	};
 
 	// Function to toggle PIP section expansion
@@ -716,17 +544,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 							<Text style={styles.label}>Service Fee:</Text>
 							<Text style={styles.amount}>{formatCurrency(platformFee)}</Text>
 						</View>
-						{/* Tax Row - Shows loading or calculated amount */}
-						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Sales Tax:</Text>
-							{isPreparing || calculatedTax === null ? (
-								<Text style={styles.calculatingText}>Calculating...</Text>
-							) : (
-								<Text style={styles.amount}>
-									{formatCurrency(calculatedTax)}
-								</Text>
-							)}
-						</View>
+
 						{/* Final Total Row */}
 						<View style={[styles.summaryRow, styles.totalRow]}>
 							<Text style={styles.totalLabel}>Total Amount:</Text>
@@ -954,3 +772,4 @@ const styles = StyleSheet.create({
 });
 
 export default CheckoutScreen;
+

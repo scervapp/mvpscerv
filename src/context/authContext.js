@@ -13,8 +13,10 @@ import {
 	signOut,
 	signInAnonymously,
 	sendPasswordResetEmail,
+	PhoneAuthProvider,
+	signInWithCredential,
 } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { db, functions } from "../config/firebase";
 import { httpsCallable } from "firebase/functions";
 
@@ -137,6 +139,46 @@ export const AuthProvider = ({ children }) => {
 		}
 	}, []);
 
+	const signInWithPhoneCredential = useCallback(
+		async (verificationId, verificationCode, additionalData) => {
+			setAuthError(null);
+			setIsLoading(true);
+			try {
+				const credential = PhoneAuthProvider.credential(
+					verificationId,
+					verificationCode
+				);
+				const authResult = await signInWithCredential(auth, credential);
+
+				// Check if this is a new user
+				const userDocRef = doc(db, "customers", authResult.user.uid);
+				const userDoc = await getDoc(userDocRef);
+
+				if (!userDoc.exists()) {
+					// If the document doesn't exist, this is their first time signing in.
+					// We create their Firestore document now.
+					console.log("New phone user detected. Creating customer document...");
+					await setDoc(userDocRef, {
+						uid: authResult.user.uid,
+						phoneNumber: authResult.user.phoneNumber,
+						firstName: additionalData.firstName,
+						lastName: additionalData.lastName,
+						role: "customer",
+						createdAt: new Date(),
+					});
+				}
+				// The onAuthStateChanged listener will handle setting the user data in state.
+			} catch (error) {
+				console.error("Phone Sign-In Error:", error);
+				setAuthError(error.message);
+				throw error;
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[auth]
+	);
+
 	const continueAsGuest = useCallback(async () => {
 		setAuthError(null);
 		try {
@@ -175,7 +217,8 @@ export const AuthProvider = ({ children }) => {
 		redirectPath,
 		clearRedirectPath,
 		sendPasswordResetEmail, // Keep your password reset function if needed
-		// No signInWithGoogle here as requested
+		auth,
+		signInWithPhoneCredential,
 	};
 
 	return (

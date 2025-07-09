@@ -7,21 +7,53 @@ import {
 	TouchableOpacity,
 	Pressable,
 	Alert,
+	SafeAreaView,
+	ScrollView,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
+import colors from "../../utils/styles/appStyles";
+
+const AccountRow = ({ label, iconName, onPress, isDestructive = false }) => (
+	<TouchableOpacity style={styles.listItem} onPress={onPress}>
+		<Ionicons
+			name={iconName}
+			size={24}
+			color={isDestructive ? colors.statusDanger : colors.primary}
+			style={styles.icon}
+		/>
+		<Text
+			style={[styles.listItemText, isDestructive && styles.destructiveText]}
+		>
+			{label}
+		</Text>
+		{!isDestructive && (
+			<Ionicons
+				name="chevron-forward-outline"
+				size={22}
+				color={colors.textLight}
+			/>
+		)}
+	</TouchableOpacity>
+);
+
+const SettingsCard = ({ children }) => (
+	<View style={styles.card}>{children}</View>
+);
 
 const AccountScreen = () => {
-	const { logout, deleteUserFunction } = useContext(AuthContext);
+	const { logout, deleteUserFunction, currentUserData } =
+		useContext(AuthContext);
 	const [showDelete, setShowDelete] = useState(false);
 	const navigation = useNavigation();
 
 	const handleSignOut = async () => {
 		try {
-			await logout({ global: true });
-			navigation.navigate("Welcome");
+			// The logout function in your context should handle navigation after sign out
+			await logout();
 		} catch (error) {
 			console.log("error signing out: ", error);
+			Alert.alert("Error", "Could not sign out. Please try again.");
 		}
 	};
 
@@ -58,122 +90,90 @@ const AccountScreen = () => {
 
 	// Render the account settings screen
 	return (
-		<View style={styles.container}>
-			<Text style={styles.header}>My Account</Text>
+		<SafeAreaView style={styles.safeArea}>
+			<ScrollView contentContainerStyle={styles.container}>
+				<View style={styles.profileHeader}>
+					<View style={styles.avatar}>
+						<Ionicons name="person" size={50} color={colors.primary} />
+					</View>
+					<Text style={styles.userName}>
+						{currentUserData?.firstName || ""} {currentUserData?.lastName || ""}
+					</Text>
+					<Text style={styles.userPhone}>{currentUserData?.phoneNumber}</Text>
+				</View>
 
-			<TouchableOpacity
-				onPress={() => navigation.navigate("PipsScreenInner")}
-				style={styles.listItem}
-			>
-				<Ionicons
-					name="people-outline"
-					size={24}
-					color="gray"
-					style={styles.icon}
-				/>
-				<Text style={styles.listItemText}>PIPS</Text>
-				<Ionicons
-					name="chevron-forward-outline"
-					size={24}
-					color="gray"
-					style={styles.chevronIcon}
-				/>
-			</TouchableOpacity>
-
-			<TouchableOpacity
-				onPress={() => navigation.navigate("OrderHistoryScreenInner")}
-				style={styles.listItem}
-			>
-				<Ionicons
-					name="time-outline"
-					size={24}
-					color="gray"
-					style={styles.icon}
-				/>
-				<Text style={styles.listItemText}>Order History</Text>
-				<Ionicons
-					name="chevron-forward-outline"
-					size={24}
-					color="gray"
-					style={styles.chevronIcon}
-				/>
-			</TouchableOpacity>
-
-			{/* Add other list items as needed */}
-
-			{showDelete && (
-				<TouchableOpacity onPress={handleDeleteAccount} style={styles.listItem}>
-					{/* Add the "Delete Account" button */}
-					<Ionicons
-						name="trash-outline"
-						size={24}
-						color="red"
-						style={styles.icon}
+				{/* --- THIS IS THE FIX (PART 1) --- */}
+				{/* The main screen now has clearer sections */}
+				<SettingsCard>
+					<AccountRow
+						label="My PIPs (People In Party)"
+						iconName="people-outline"
+						onPress={() => navigation.navigate("PipsScreenInner")}
 					/>
-					<Text style={styles.listItemText}>Delete Account</Text>
-				</TouchableOpacity>
-			)}
+					<View style={styles.divider} />
+					<AccountRow
+						label="Order History"
+						iconName="receipt-outline"
+						onPress={() => navigation.navigate("OrderHistoryScreenInner")}
+					/>
+				</SettingsCard>
 
-			<Pressable onPress={handleSignOut} style={styles.logoutButton}>
-				<Text style={styles.logoutButtonText}>Logout</Text>
-			</Pressable>
-			<TouchableOpacity
-				onPress={() => handleShowDelete()}
-				style={styles.moreOptions}
-			>
-				<Text>More Options</Text>
-			</TouchableOpacity>
-		</View>
+				<SettingsCard>
+					<AccountRow
+						label="Manage Account"
+						iconName="settings-outline"
+						onPress={() => navigation.navigate("ManageAccountScreen")} // Navigate to the new screen
+					/>
+				</SettingsCard>
+				{/* --- END OF FIX --- */}
+
+				<TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
+					<Text style={styles.logoutButtonText}>Sign Out</Text>
+				</TouchableOpacity>
+			</ScrollView>
+		</SafeAreaView>
 	);
 };
 
 // Add styles
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		padding: 20,
-		backgroundColor: "#f8f8f8", // Example background color
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	container: { padding: 20 },
+	profileHeader: { alignItems: "center", marginBottom: 30, marginTop: 20 },
+	avatar: {
+		width: 100,
+		height: 100,
+		borderRadius: 50,
+		backgroundColor: colors.primary + "20",
+		justifyContent: "center",
+		alignItems: "center",
+		marginBottom: 15,
 	},
-	header: {
-		fontSize: 24,
-		fontWeight: "bold",
+	userName: { fontSize: 22, fontWeight: "bold", color: colors.textDark },
+	userPhone: { fontSize: 16, color: colors.textMedium, marginTop: 4 },
+	card: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
 		marginBottom: 20,
-		color: "#333",
+		overflow: "hidden",
 	},
 	listItem: {
 		flexDirection: "row",
 		alignItems: "center",
-		backgroundColor: "#fff",
-		padding: 15,
-		marginBottom: 10,
-		borderRadius: 8,
+		paddingVertical: 18,
+		paddingHorizontal: 15,
 	},
-	icon: {
-		marginRight: 10,
-	},
-	chevronIcon: {
-		marginLeft: "auto",
-	},
-	listItemText: {
-		fontSize: 16,
-		flex: 1,
-	},
+	icon: { marginRight: 15 },
+	listItemText: { fontSize: 16, color: colors.textDark, flex: 1 },
+	divider: { height: 1, backgroundColor: colors.borderLight, marginLeft: 54 },
 	logoutButton: {
-		backgroundColor: "#dc3545", // Example logout button color
+		backgroundColor: colors.primary,
 		padding: 15,
-		borderRadius: 8,
-		marginTop: 30,
+		borderRadius: 12,
 		alignItems: "center",
+		marginTop: 20,
 	},
-	logoutButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-
-	moreOptions: {
-		paddingTop: 40,
-	},
+	logoutButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 });
 
 export default AccountScreen;
