@@ -35,7 +35,13 @@
     "plugins": [
       "expo-router",
       "expo-web-browser",
-      "expo-splash-screen"
+      [
+      "expo-splash-screen", {
+        "backgroundColor": "#ffffff",
+        "image": "./assets/splash.png",
+        "resizeMode": "contain"
+      }
+    ]
     ],
     "extra": {
       "eas": {
