@@ -55,7 +55,8 @@
     "react-native-webview": "13.13.5",
     "tone": "^15.1.22",
     "victory-native": "^37.3.6",
-    "yup": "^1.4.0"
+    "yup": "^1.4.0",
+    "@expo/metro-config": "~0.20.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
