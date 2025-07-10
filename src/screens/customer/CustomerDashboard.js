@@ -22,7 +22,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	const { initialRestaurantData = [] } = route.params || {};
 	const [searchText, setSearchText] = useState("");
 	const [showRestaurantList, setShowRestaurantList] = useState(false);
-	const { logout } = useContext(AuthContext);
+	const { logout, currentUserData } = useContext(AuthContext);
 
 	const handleSearch = (text) => {
 		setSearchText(text);
@@ -77,6 +77,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 					data={[{ key: "restaurants" }]} // Placeholder to render restaurant list
 					renderItem={() => (
 						<RestaurantList
+							currentUserData={currentUserData}
 							searchText={searchText}
 							navigation={navigation}
 							initialRestaurantData={initialRestaurantData}
@@ -131,3 +132,4 @@ const styles = StyleSheet.create({
 });
 
 export default CustomerDashboard;
+

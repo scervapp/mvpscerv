@@ -5,20 +5,13 @@ import {
 	Text,
 	StyleSheet,
 	ScrollView,
-	S,
 	TouchableOpacity,
 	Dimensions,
 	SafeAreaView,
+	ActivityIndicator,
 } from "react-native";
 import { httpsCallable } from "firebase/functions";
-import {
-	VictoryPie,
-	VictoryBar,
-	VictoryChart,
-	VictoryAxis,
-	VictoryLabel,
-	VictoryTheme,
-} from "victory-native";
+
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -158,7 +151,7 @@ const SalesReportScreen = ({ navigation }) => {
 	const renderContent = () => {
 		if (isFetching)
 			return (
-				<S
+				<ActivityIndicator
 					size="large"
 					color={colors.primary}
 					style={{ flex: 1 }}

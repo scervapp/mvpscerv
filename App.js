@@ -6,21 +6,24 @@ import { PartyProvider } from "./src/context/customer/PartyContext";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { WorkDayProvider } from "./src/context/restaurant/WorkDayContext";
 import { EmployeeSessionProvider } from "./src/context/restaurant/EmployeeSessionContext";
+import { RestaurantDataProvider } from "./src/context/restaurant/RestaurantDataContext";
 
 export default function App() {
 	return (
 		<SafeAreaProvider>
 			<ActionSheetProvider>
 				<AuthProvider>
-					<WorkDayProvider>
-						<EmployeeSessionProvider>
-							<PartyProvider>
-								<BasketProvider>
-									<AppNavigator />
-								</BasketProvider>
-							</PartyProvider>
-						</EmployeeSessionProvider>
-					</WorkDayProvider>
+					<RestaurantDataProvider>
+						<WorkDayProvider>
+							<EmployeeSessionProvider>
+								<PartyProvider>
+									<BasketProvider>
+										<AppNavigator />
+									</BasketProvider>
+								</PartyProvider>
+							</EmployeeSessionProvider>
+						</WorkDayProvider>
+					</RestaurantDataProvider>
 				</AuthProvider>
 			</ActionSheetProvider>
 		</SafeAreaProvider>

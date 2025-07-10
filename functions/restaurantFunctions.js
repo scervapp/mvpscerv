@@ -878,15 +878,13 @@ exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
  * @param {string} data.customerId The ID of the customer who was at the table.
  */
 exports.forceClearTable = functions.https.onCall(async (data, context) => {
-	// 1. Authentication & Authorization
+	// 1. Authentication & Validation (remains the same)
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
 			"User must be staff and authenticated."
 		);
 	}
-
-	// 2. Validation
 	const { restaurantId, tableId, checkInId, customerId } = data;
 	if (!restaurantId || !tableId || !checkInId || !customerId) {
 		throw new functions.https.HttpsError(
@@ -895,7 +893,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	// 3. Define Document References
+	// 2. Define Document References (remains the same)
 	const tableRef = db
 		.collection("restaurants")
 		.doc(restaurantId)
@@ -905,43 +903,38 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 	const customerRef = db.collection("customers").doc(customerId);
 
 	try {
-		// 4. Perform all updates in a single atomic transaction
+		// --- THIS IS THE FIX ---
+		// We now perform all READ operations before queuing any WRITE operations.
+
+		// First, read the basket items associated with the check-in. This happens outside the transaction.
+		const basketItemsQuery = db
+			.collection("baskets")
+			.where("checkInId", "==", checkInId);
+		const basketItemsSnapshot = await basketItemsQuery.get();
+
+		// Now, start the transaction.
 		await db.runTransaction(async (transaction) => {
 			console.log(`Starting transaction to force clear table ${tableId}`);
 
-			// --- THIS IS THE FIX (PART 1) ---
-			// First, we must READ the check-in document to see if it's part of a party.
+			// READ 1: Get the check-in document to see if it's associated with a party.
 			const checkInDoc = await transaction.get(checkInRef);
-			if (!checkInDoc.exists) {
-				console.warn(
-					`Check-in document ${checkInId} not found. Cannot proceed.`
+			const associatedPartyId = checkInDoc.exists
+				? checkInDoc.data().associatedPartyId
+				: null;
+
+			// --- All reads are now complete. We can proceed with writes. ---
+
+			// WRITE 1: Queue deletions for each found basket item.
+			if (!basketItemsSnapshot.empty) {
+				console.log(
+					`Found ${basketItemsSnapshot.size} basket items to delete.`
 				);
-				// If the check-in is already gone, we can still try to clear the table.
-			} else {
-				const checkInData = checkInDoc.data();
-				// Check for the associatedPartyId
-				if (checkInData.associatedPartyId) {
-					const partyId = checkInData.associatedPartyId;
-					console.log(
-						`Found associated party ${partyId}. Queuing party and basket for deletion.`
-					);
-
-					const partyRef = db.collection("parties").doc(partyId);
-					const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
-
-					// Add party and basket deletions to the transaction
-					transaction.delete(partyRef);
-					transaction.delete(sharedBasketRef);
-				}
-				// Mark the check-in as completed
-				transaction.update(checkInRef, {
-					status: "COMPLETED",
-					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				basketItemsSnapshot.forEach((doc) => {
+					transaction.delete(doc.ref);
 				});
 			}
-			// --- END OF FIX (PART 1) ---
 
-			// Update the table's status to 'available'
+			// WRITE 2: Update the table's status to 'available'.
 			transaction.update(tableRef, {
 				status: "available",
 				currentCheckInId: null,
@@ -949,14 +942,34 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 				seatedAt: null,
 			});
 
-			// Clear the active check-in from the customer's document
-			transaction.update(customerRef, {
-				activeCheckIn: null,
-			});
+			// WRITE 3: Update the check-in document's status to 'COMPLETED'.
+			if (checkInDoc.exists) {
+				transaction.update(checkInRef, {
+					status: "COMPLETED",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+			}
+
+			// WRITE 4: Clear the active check-in from the customer's document.
+			transaction.update(customerRef, { activeCheckIn: null });
+
+			// WRITE 5: If a party was associated, delete the party and its basket.
+			if (associatedPartyId) {
+				console.log(
+					`Found associated party ${associatedPartyId}. Queuing for deletion.`
+				);
+				const partyRef = db.collection("parties").doc(associatedPartyId);
+				const sharedBasketRef = db
+					.collection("shared_baskets")
+					.doc(associatedPartyId);
+				transaction.delete(partyRef);
+				transaction.delete(sharedBasketRef);
+			}
 		});
+		// --- END OF FIX ---
 
 		console.log(
-			`✅ Successfully force-cleared table ${tableId} and reset all associated documents.`
+			`✅ Successfully force-cleared table ${tableId} and all associated data.`
 		);
 		return { success: true, message: "Table has been successfully cleared." };
 	} catch (error) {

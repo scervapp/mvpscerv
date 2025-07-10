@@ -3,10 +3,16 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { defineSecret } = require("firebase-functions/params");
 const stripe = require("stripe");
+const { getStripeKeys } = require("./stripeUtils");
 const db = admin.firestore();
 
 // Define the secret
-const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
+const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
+const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
+const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
+const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
+const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
 /**
  * An internal helper function to generate a new, unique, sequential restaurant number.
@@ -44,11 +50,14 @@ async function generateUniqueRestaurantNumber() {
 
 exports.createStripeCustomer = functions
 	.runWith({
-		secrets: [STRIPE_SECRET_KEY],
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
 	})
 	.https.onCall(async (data, context) => {
-		const stripeSecretKey = STRIPE_SECRET_KEY.value();
-
 		if (
 			!context.auth ||
 			!context.auth.uid ||
@@ -68,6 +77,10 @@ exports.createStripeCustomer = functions
 		}
 
 		try {
+			const keys = await getStripeKeys(restaurantId);
+			const stripeInstance = stripe(keys.stripeSecretKey);
+			const isLiveMode = !keys.publishableKey.includes("_test_");
+
 			const userDocRef = db.collection("customers").doc(userId);
 			const userDoc = await userDocRef.get();
 			if (!userDoc.exists) {
@@ -88,15 +101,23 @@ exports.createStripeCustomer = functions
 			}
 
 			// 2. Retrieve the Stripekey
-			const customer = await stripe(stripeSecretKey).customers.create({
+			const customer = await stripeInstance.customers.create({
 				phone: `+1${phoneNumber}`, // Use the phone number from Firestore
 				name: name,
 			});
 
-			console.log("Stripe customer created successfully:", customer.id);
+			console.log(
+				`Successfully created new ${
+					isLiveMode ? "LIVE" : "TEST"
+				} Stripe customer: ${customer.id}`
+			);
 
 			// 4. Store the new Stripe Customer ID back into the user's document
-			await userDocRef.update({ stripeCustomerId: customer.id });
+			const customerIdField = isLiveMode
+				? "stripeCustomerId_live"
+				: "stripeCustomerId_test";
+
+			await userDocRef.update({ [customerIdField]: customer.id });
 
 			// 5. Return the new customer ID
 			return { customerId: customer.id };

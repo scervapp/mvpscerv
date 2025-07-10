@@ -1,6 +1,6 @@
 // navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
-import React, { use } from "react";
-import { Platform, View, StyleSheet } from "react-native";
+import React, { useState, useContext, useEffect } from "react";
+import { Platform, View, StyleSheet, Text } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -21,11 +21,13 @@ import SalesReportScreen from "../screens/restaurant/SalesReportScreen";
 import DailySalesDetailsScreen from "../screens/restaurant/DailySalesDetailsScreen";
 import RestaurantProfile from "../screens/restaurant/RestaurantProfile";
 import MenuManagementScreen from "../screens/restaurant/MenuManagementScreen";
+import BackOfficeAuthGate from "../screens/restaurant/BackOfficeAuthGate.js";
 
 import colors from "../utils/styles/appStyles";
-import BackOfficeAuthGate from "../screens/restaurant/BackOfficeAuthGate.";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import HistoricalReportsScreen from "../screens/restaurant/HistoricalReportScreen";
+import { useRestaurantData } from "../context/restaurant/RestaurantDataContext";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -40,6 +42,17 @@ const defaultHeaderOptions = {
 	headerTitleStyle: {
 		fontWeight: "bold",
 	},
+};
+
+const TabBarBadge = ({ count }) => {
+	if (!count || count === 0) return null;
+	// Display '9+' if the count is higher than 9
+	const badgeText = count > 9 ? "9+" : count.toString();
+	return (
+		<View style={styles.badge}>
+			<Text style={styles.badgeText}>{badgeText}</Text>
+		</View>
+	);
 };
 
 // --- This stack is for all the "Back Office" related management screens ---
@@ -96,32 +109,13 @@ const BackOfficeStackNavigator = () => {
 
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
+	const { newCheckInCount, newKitchenOrderCount } = useRestaurantData();
 	const insets = useSafeAreaInsets();
 
 	return (
 		<Tab.Navigator
 			screenOptions={({ route }) => ({
 				headerShown: false, // Headers are handled by the inner stack navigators
-				tabBarIcon: ({ focused, color, size }) => {
-					let iconName;
-					size = focused ? 30 : 26;
-
-					if (route.name === "Dashboard") {
-						iconName = focused ? "view-dashboard" : "view-dashboard-outline";
-					} else if (route.name === "Checkins") {
-						iconName = focused ? "account-clock" : "account-clock-outline";
-					} else if (route.name === "Tables") {
-						iconName = focused ? "table-chair" : "table-chair";
-					} else if (route.name === "ChefsQ") {
-						iconName = focused
-							? "silverware-fork-knife"
-							: "silverware-fork-knife";
-					}
-
-					return (
-						<MaterialCommunityIcons name={iconName} size={size} color={color} />
-					);
-				},
 				tabBarActiveTintColor: colors.primary,
 				tabBarInactiveTintColor: colors.textMedium,
 				tabBarShowLabel: true,
@@ -133,31 +127,56 @@ const RestaurantBottomNavigation = () => {
 					paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
 					height: 60 + insets.bottom, // total height adjusts based on device
 				},
+				tabBarIcon: ({ focused, color, size }) => {
+					let iconName;
+					let badgeCount = 0;
+
+					switch (route.name) {
+						case "Dashboard":
+							iconName = focused ? "view-dashboard" : "view-dashboard-outline";
+							break;
+						case "Checkins":
+							iconName = focused ? "account-clock" : "account-clock-outline";
+							badgeCount = newCheckInCount; // Assign the badge count for this tab
+							break;
+						case "ChefsQ":
+							iconName = focused
+								? "silverware-fork-knife"
+								: "silverware-fork-knife";
+							badgeCount = newKitchenOrderCount; // Assign the badge count for this tab
+							break;
+						case "Tables":
+							iconName = focused ? "table-chair" : "table-chair";
+							break;
+						default:
+							iconName = "help-circle";
+							break;
+					}
+
+					return (
+						<View style={styles.iconWrapper}>
+							<MaterialCommunityIcons
+								name={iconName}
+								size={focused ? 30 : 26}
+								color={color}
+							/>
+							<TabBarBadge count={badgeCount} />
+						</View>
+					);
+				},
 			})}
 		>
 			{/* Tab 1: The New Dashboard (Home Base) */}
-			<Tab.Screen
-				name="Dashboard"
-				// The Dashboard will have its own StackNavigator to contain itself and the BackOffice stack
-				component={RestaurantDashboardStack}
-			/>
+			<Tab.Screen name="Dashboard" component={RestaurantDashboardStack} />
 			{/* Tab 2: Customers Waiting */}
 			<Tab.Screen
 				name="Checkins" // Renamed for clarity if needed
 				component={RestaurantCheckin}
 			/>
 			{/* Tab 3: Chef's Queue */}
-			<Tab.Screen
-				name="ChefsQ"
-				component={ChefsQScreen}
-				options={{ title: "Chef's Q" }}
-			/>
+			<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
 			{/* Tab 4: Table Management */}
-			<Tab.Screen
-				name="Tables"
-				component={TableManagementScreen}
-				options={{ title: "Tables" }}
-			/>
+			<Tab.Screen name="Tables" component={TableManagementScreen} />
 		</Tab.Navigator>
 	);
 };
@@ -189,6 +208,32 @@ const styles = StyleSheet.create({
 		// If you need a fixed height, you can try increasing the Android value:
 		height: Platform.OS === "ios" ? 90 : 70,
 	},
+	iconWrapper: {
+		width: 30,
+		height: 30,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	badge: {
+		position: "absolute",
+		right: -10,
+		top: -4,
+		backgroundColor: colors.statusDanger, // A bright, attention-grabbing color
+		borderRadius: 10, // Makes it a perfect circle
+		width: 20, // Ensures a consistent size
+		height: 20,
+		justifyContent: "center",
+		alignItems: "center",
+		// Add a border to make it "pop" off the icon
+		borderWidth: 2,
+		borderColor: colors.surfaceWhite,
+	},
+	badgeText: {
+		color: "white",
+		fontSize: 10,
+		fontWeight: "bold",
+	},
 });
 
 export default RestaurantBottomNavigation;
+

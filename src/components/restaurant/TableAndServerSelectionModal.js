@@ -24,6 +24,7 @@ const TableAndServerSelectionModal = ({
 	onConfirm, // Callback: onConfirm({ table, server })
 	currentRestaurantId,
 	numInParty, // Number of people in the check-in party
+	isProcessing,
 }) => {
 	const [tables, setTables] = useState([]);
 	const [servers, setServers] = useState([]);
@@ -211,9 +212,15 @@ const TableAndServerSelectionModal = ({
 					<Button
 						onPress={handleConfirm}
 						mode="contained"
-						disabled={!selectedTable || !selectedServer}
-						style={[styles.modalButton, { backgroundColor: colors.primary }]}
+						disabled={!selectedTable || !selectedServer || isProcessing}
+						style={[
+							styles.modalButton,
+							styles.confirmButton,
+							(!selectedTable || !selectedServer || isProcessing) &&
+								styles.disabledButton,
+						]}
 						labelStyle={{ color: colors.textOnPrimaryBrand }}
+						loading={isProcessing}
 					>
 						Confirm & Seat
 					</Button>
@@ -273,6 +280,10 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		marginTop: 40,
 		paddingHorizontal: 20,
+	},
+	disabledButton: {
+		backgroundColor: colors.textLight, // A muted gray color
+		opacity: 0.7,
 	},
 });
 

@@ -2,13 +2,13 @@
 const functions = require("firebase-functions");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
-const { createStripeCustomer } = require("./userFunctions");
 const stripe = require("stripe");
 const { onCall } = require("firebase-functions/v1/https");
 const db = admin.firestore();
 const { updateDoc } = require("firebase-admin/firestore");
 const { FieldValue } = require("firebase-admin/firestore");
 const { generateOrderId } = require("./orderFunctions");
+const { getStripeKeys } = require("./stripeUtils");
 
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -16,35 +16,6 @@ const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
 const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
 const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
-
-// Helper function to determine Stripe keys based on user account type
-const getStripeKeys = async (restaurantId) => {
-	try {
-		const userDoc = await db.collection("restaurants").doc(restaurantId).get();
-		if (!userDoc.exists) {
-			console.log("getStripeKeys - Restaurant not found"); // Log if the document doesn't exist
-			throw new Error("Restaurant not found");
-		}
-
-		const userData = userDoc.data();
-
-		const isTestAccount = userData.isTestAccount || false;
-
-		const keys = {
-			publishableKey: await (isTestAccount
-				? STRIPE_PUBLISHABLE_KEY_TEST.value()
-				: STRIPE_PUBLISHABLE_KEY_LIVE.value()),
-			stripeSecretKey: await (isTestAccount
-				? STRIPE_SECRET_KEY_TEST.value()
-				: STRIPE_SECRET_KEY_LIVE.value()),
-		};
-
-		return keys;
-	} catch (error) {
-		console.error("Error fetching Stripe keys: ", error);
-		throw new Error("Failed to fetch Stripe keys");
-	}
-};
 
 /**
  * Checks if all members of a party have paid. If so, updates the
@@ -702,9 +673,18 @@ exports.preparePartyPaymentSheet = functions
 			// --- 3. Initialize Stripe with correct API key ---
 			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = stripe(keys.stripeSecretKey);
+			const restaurantDoc = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const isLiveMode =
+				restaurantDoc.exists && restaurantDoc.data().isTestAccount === false;
 
-			// --- 4. Get or Create Stripe Customer ---
-			let stripeCustomerId = userDoc.data().stripeCustomerId;
+			const customerIdField = isLiveMode
+				? "stripeCustomerId_live"
+				: "stripeCustomerId_test";
+			let stripeCustomerId = userData[customerIdField];
+
 			if (!stripeCustomerId) {
 				console.log(`Creating new Stripe customer for user ${customerUid}.`);
 				const customer = await stripeInstance.customers.create({
@@ -827,8 +807,15 @@ exports.preparePaymentSheetData = functions
 			const keys = await getStripeKeys(restaurantId);
 			const stripeSecretKey = keys.stripeSecretKey;
 			const stripeInstance = stripe(stripeSecretKey, {
-				apiVersion: "2023-10-16",
+				apiVersion: "2024-04-10",
 			});
+
+			const restaurantDoc = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const isLiveMode =
+				restaurantDoc.exists && restaurantDoc.data().isTestAccount === false;
 
 			const userDocRef = db.collection("customers").doc(context.auth.uid);
 			const userDoc = await userDocRef.get();
@@ -837,8 +824,13 @@ exports.preparePaymentSheetData = functions
 					"not-found",
 					"Customer profile not found."
 				);
+			const userData = userDoc.data();
+			const customerIdField = isLiveMode
+				? "stripeCustomerId_live"
+				: "stripeCustomerId_test";
 
-			let stripeCustomerId = userDoc.data().stripeCustomerId;
+			let stripeCustomerId = userData[customerIdField];
+
 			if (!stripeCustomerId) {
 				const customer = await stripeInstance.customers.create({
 					phone: userDoc.data().phoneNumber,

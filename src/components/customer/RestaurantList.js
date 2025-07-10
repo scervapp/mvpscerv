@@ -16,7 +16,7 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
-const RestaurantList = ({ searchText, initialRestaurantData }) => {
+const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) => {
 	const [allRestaurants, setAllRestaurants] = useState(
 		initialRestaurantData || []
 	);
@@ -26,11 +26,28 @@ const RestaurantList = ({ searchText, initialRestaurantData }) => {
 
 	// This useEffect sets up the real-time listener for live restaurants.
 	useEffect(() => {
+		if (!currentUserData) {
+			setIsLoading(false);
+			return;
+		}
+
 		setIsLoading(true);
 		const restaurantsRef = collection(db, "restaurants");
 
-		// This query is the key: it only fetches restaurants that are NOT test accounts.
-		const q = query(restaurantsRef, where("isPublic", "==", true));
+		let q;
+
+		const canViewAll = currentUserData.canViewHiddenRestaurants;
+		if (canViewAll) {
+			// 2. If they have permission, create a query to fetch ALL restaurants.
+			console.log("User has permission. Fetching all restaurants.");
+			q = query(restaurantsRef);
+		} else {
+			// 3. Otherwise, create a query to fetch ONLY live restaurants.
+			console.log(
+				"User does not have permission. Fetching only live restaurants."
+			);
+			q = query(restaurantsRef, where("isLive", "==", true));
+		}
 
 		const unsubscribe = onSnapshot(
 			q,
@@ -160,3 +177,4 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantList;
+

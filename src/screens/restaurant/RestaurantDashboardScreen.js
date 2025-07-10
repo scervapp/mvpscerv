@@ -1,5 +1,5 @@
 // screens/restaurant/RestaurantDashboardScreen.js
-import React, { useContext, useState, useCallback } from "react";
+import React, { useContext, useState, useCallback, useRef } from "react";
 import {
 	View,
 	Text,
@@ -25,6 +25,8 @@ import {
 	fetchEmployeesByRole,
 } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
+import * as Tone from "tone";
+import { useRestaurantData } from "../../context/restaurant/RestaurantDataContext";
 
 // Reusable card component for the navigation grid
 const DashboardCard = ({ label, iconName, onPress }) => (
@@ -85,6 +87,8 @@ const RestaurantDashboardScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
 		useWorkDay();
+
+	const { loadSounds } = useRestaurantData();
 
 	const [isManagerListVisible, setIsManagerListVisible] = useState(false);
 	const [managers, setManagers] = useState([]);
@@ -171,8 +175,20 @@ const RestaurantDashboardScreen = () => {
 
 	const handleStartDay = async () => {
 		setIsActionLoading(true);
-		await startWorkDay();
-		setIsActionLoading(false);
+		try {
+			// 2. Await Tone.start() to activate the audio engine.
+			// This must be triggered by a direct user press.
+			await loadSounds();
+			console.log("Audio context started successfully.");
+
+			// 3. Then, proceed with starting the workday as before.
+			await startWorkDay();
+		} catch (error) {
+			console.error("Error during start day process:", error);
+			// The startWorkDay function already shows an alert on failure.
+		} finally {
+			setIsActionLoading(false);
+		}
 	};
 
 	const handleEndDay = () => {

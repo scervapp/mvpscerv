@@ -32,7 +32,7 @@ import {
 	useCheckInStatus,
 } from "../../utils/customerUtils";
 import MenuItemsList from "./MenuItemsList"; // Assuming this is your menu component
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
@@ -40,6 +40,7 @@ import { Button as PaperButton } from "react-native-paper"; // Using Paper Butto
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import AuthPromptModal from "../global/AuthPromptModal";
 import RestaurantHeader from "./RestaurantHeader";
+import { httpsCallable } from "firebase/functions";
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
@@ -70,6 +71,11 @@ const RestaurantDetailScreen = () => {
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
+
+	const customerCancelSeatedCheckIn = httpsCallable(
+		functions,
+		"customerCancelSeatedCheckIn"
+	);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
 	const {
@@ -454,6 +460,37 @@ const RestaurantDetailScreen = () => {
 		[currentUserData?.uid, addItemToIndividualBasketFromContext, restaurant?.id]
 	);
 
+	const handleLeaveTable = () => {
+		if (!checkInObj?.id || isProcessingCheckInAction) return;
+
+		Alert.alert(
+			"Leave Table",
+			"Are you sure you want to leave your table? Any items in your basket will be cleared.",
+			[
+				{ text: "Stay", style: "cancel" },
+				{
+					text: "Leave",
+					style: "destructive",
+					onPress: async () => {
+						setIsProcessingCheckInAction(true);
+						try {
+							await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
+							// The real-time listeners will handle the UI update automatically.
+						} catch (error) {
+							console.error("Error leaving table:", error);
+							Alert.alert(
+								"Error",
+								error.message || "Could not leave the table."
+							);
+						} finally {
+							setIsProcessingCheckInAction(false);
+						}
+					},
+				},
+			]
+		);
+	};
+
 	const optionsForIndividualOrder = useMemo(() => {
 		if (!currentUserData) return [];
 		const myselfOption = {
@@ -574,19 +611,30 @@ const RestaurantDetailScreen = () => {
 								color={colors.statusSuccess}
 							/>
 							<Text style={styles.actionButtonTextCheckedIn}>Checked In!</Text>
-							{tableNumber && (
-								<Text style={styles.tableText}>Table: {tableNumber}</Text>
+							{checkInObj?.table?.name && (
+								<Text style={styles.tableText}>
+									Table: {checkInObj.table.name}
+								</Text>
 							)}
 						</View>
-						{/* Start Party button is disabled/hidden as user is already checked in individually */}
-						<View style={styles.actionButtonDisabled}>
-							<MaterialCommunityIcons
-								name="account-multiple-plus-outline"
-								size={28}
-								color={colors.textLight}
-							/>
-							<Text style={styles.actionButtonTextDisabled}>Start Party</Text>
-						</View>
+						<TouchableOpacity
+							style={styles.actionButton}
+							onPress={handleLeaveTable}
+							disabled={isProcessingCheckInAction}
+						>
+							{isProcessingCheckInAction ? (
+								<ActivityIndicator size="small" color={colors.danger} />
+							) : (
+								<MaterialCommunityIcons
+									name="exit-run"
+									size={28}
+									color={colors.danger}
+								/>
+							)}
+							<Text style={[styles.actionButtonText, { color: colors.danger }]}>
+								Leave Table
+							</Text>
+						</TouchableOpacity>
 					</View>
 				);
 			case "NONE":
@@ -663,8 +711,6 @@ const RestaurantDetailScreen = () => {
 			orderingMode="individual"
 		/>
 	);
-
-	console.log("Basket", basketCount);
 
 	const renderOverlays = () => (
 		<>

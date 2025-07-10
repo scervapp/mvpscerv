@@ -33,6 +33,9 @@ exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
 exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
+exports.declineCheckIn = checkInFunctions.declineCheckIn;
+exports.customerCancelSeatedCheckIn =
+	checkInFunctions.customerCancelSeatedCheckIn;
 exports.handleCheckInResponse = checkInFunctions.handleCheckInResponse;
 exports.clearTable = checkInFunctions.clearTable;
 exports.createOrder = orderFunctions.createOrder;
@@ -105,3 +108,4 @@ exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
 
 //
+

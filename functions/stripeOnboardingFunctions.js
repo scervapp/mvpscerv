@@ -4,22 +4,33 @@ const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const stripe = require("stripe");
 const { onCall } = require("firebase-functions/v1/https");
+const { getStripeKeys } = require("./stripeUtils");
+
 const db = admin.firestore();
 
-const STRIPE_PUBLISHABLE_KEY = defineSecret("STRIPE_PUBLISHABLE_KEY");
-
-const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
+const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
+const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
+const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 
 exports.createConnectedAccount = functions
 	.runWith({
-		secrets: [STRIPE_SECRET_KEY],
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
 	})
 	.https.onCall(async (currentUserData, context) => {
-		const stripeSecretKey = STRIPE_SECRET_KEY.value();
+		const restaurantId = currentUserData.uid;
+		const keys = await getStripeKeys(restaurantId);
+		const stripeSecretKey = keys.stripeSecretKey;
+		const stripeInstance = stripe(stripeSecretKey);
 
 		try {
 			// create c onnected account
-			const account = await stripe(stripeSecretKey).accounts.create({
+			const account = await stripeInstance.accounts.create({
 				type: "express",
 				country: "US",
 				email: currentUserData.email,
@@ -48,15 +59,23 @@ exports.createConnectedAccount = functions
 
 exports.createLoginLink = functions
 	.runWith({
-		secrets: [STRIPE_SECRET_KEY],
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
 	})
 	.https.onCall(async (data, context) => {
-		const stripeSecretKey = STRIPE_SECRET_KEY.value();
-		const { accountId } = data;
+		const { accountId, restaurantId } = data;
+
+		const keys = await getStripeKeys(restaurantId);
+		const stripeSecretKey = keys.stripeSecretKey;
+		const stripeInstance = stripe(stripeSecretKey);
 
 		try {
 			// create a login link for the connected account
-			const loginLink = await stripe(stripeSecretKey).accounts.createLoginLink(
+			const loginLink = await stripeInstance.accounts.createLoginLink(
 				accountId
 			);
 
@@ -69,17 +88,21 @@ exports.createLoginLink = functions
 
 exports.checkOnboardingStatus = functions
 	.runWith({
-		secrets: [STRIPE_SECRET_KEY],
+		secrets: [
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+		],
 	})
 	.https.onCall(async (data, context) => {
-		const stripeSecretKey = STRIPE_SECRET_KEY.value();
-		const { accountId } = data;
+		const { accountId, restaurantId } = data;
+		const keys = await getStripeKeys(restaurantId);
+		const stripeInstance = stripe(keys.stripeSecretKey);
 
 		try {
 			// Retrieve the connected account to check its status
-			const account = await stripe(stripeSecretKey).accounts.retrieve(
-				accountId
-			);
+			const account = await stripeInstance.accounts.retrieve(accountId);
 
 			// Check if the account is fully onboarded
 			const isOnboarded = account.charges_enabled && account.details_submitted;
@@ -87,7 +110,7 @@ exports.checkOnboardingStatus = functions
 			// if not onbaorded, create a new account link
 			let accountLinkUrl = null;
 			if (!isOnboarded) {
-				const accountLink = await stripe(stripeSecretKey).accountLinks.create({
+				const accountLink = await stripeInstance.accountLinks.create({
 					account: accountId,
 					refresh_url: "https://www.scerv.com/onboarding/refresh",
 					return_url: "https://www.scerv.com/onboarding/return",

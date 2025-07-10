@@ -5,9 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
 // --- Reusable Check-In Card Component ---
-const CheckInRequestCard = ({ item, onSelect }) => {
+const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 	const formatTime = (timestamp) => {
-		if (!timestamp?.toDate) return "Just now"; // Guard against invalid timestamp
+		if (!timestamp?.toDate) return "Just now";
 		const now = moment();
 		const then = moment(timestamp.toDate());
 		const diffMinutes = now.diff(then, "minutes");
@@ -44,9 +44,17 @@ const CheckInRequestCard = ({ item, onSelect }) => {
 				)}
 			</View>
 
+			{/* --- THIS IS THE FIX (PART 2) --- */}
+			{/* The footer now contains both the Decline and Seat buttons. */}
 			<View style={styles.cardFooter}>
 				<TouchableOpacity
-					style={styles.seatButton}
+					style={[styles.actionButton, styles.declineButton]}
+					onPress={onDecline} // Calls the new onDecline function
+				>
+					<Text style={styles.declineButtonText}>Decline</Text>
+				</TouchableOpacity>
+				<TouchableOpacity
+					style={[styles.actionButton, styles.seatButton]}
 					onPress={() => onSelect(item)}
 				>
 					<Text style={styles.seatButtonText}>Seat Party</Text>
@@ -57,6 +65,7 @@ const CheckInRequestCard = ({ item, onSelect }) => {
 					/>
 				</TouchableOpacity>
 			</View>
+			{/* --- END OF FIX --- */}
 		</View>
 	);
 };
@@ -120,16 +129,33 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		fontSize: 12,
 	},
+	// --- THIS IS THE FIX (PART 3) ---
+	// Updated styles for the footer to accommodate two buttons.
 	cardFooter: {
-		alignItems: "flex-end",
+		flexDirection: "row",
+		justifyContent: "flex-end", // Aligns buttons to the right
+		alignItems: "center",
 	},
-	seatButton: {
+	actionButton: {
 		flexDirection: "row",
 		alignItems: "center",
-		backgroundColor: colors.primary,
 		paddingVertical: 10,
-		paddingHorizontal: 20,
+		paddingHorizontal: 15,
 		borderRadius: 8,
+		marginLeft: 10, // Space between buttons
+	},
+	declineButton: {
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.statusDanger,
+	},
+	declineButtonText: {
+		color: colors.statusDanger,
+		fontSize: 16,
+		fontWeight: "bold",
+	},
+	seatButton: {
+		backgroundColor: colors.primary,
 	},
 	seatButtonText: {
 		color: colors.textOnPrimaryBrand,
@@ -137,6 +163,7 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginRight: 8,
 	},
+	// --- END OF FIX ---
 });
 
 export default CheckInRequestCard;

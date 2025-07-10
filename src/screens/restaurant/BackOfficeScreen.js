@@ -102,6 +102,7 @@ const BackOfficeScreen = ({ navigation }) => {
 			);
 			const response = await checkOnboardingStatus({
 				accountId: currentUserData.stripeAccountId,
+				restaurantId: currentUserData.uid,
 			});
 
 			if (response.data.isOnboarded) {

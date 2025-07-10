@@ -146,6 +146,198 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 	}
 });
 
+/**
+ * Allows authorized staff to decline a pending check-in request.
+ *
+ * @param {object} data The data object from the client.
+ * @param {string} data.checkInId The ID of the check-in document to decline.
+ */
+exports.declineCheckIn = functions.https.onCall(async (data, context) => {
+	// 1. Authentication & Authorization
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be staff and authenticated."
+		);
+	}
+
+	// 2. Validation
+	const { checkInId } = data;
+	if (!checkInId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Check-in ID is required."
+		);
+	}
+
+	const checkInRef = db.collection("checkIns").doc(checkInId);
+
+	try {
+		return await db.runTransaction(async (transaction) => {
+			// 3. Read the check-in document first
+			const checkInDoc = await transaction.get(checkInRef);
+			if (!checkInDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Check-in request not found."
+				);
+			}
+			const checkInData = checkInDoc.data();
+
+			// Only pending requests can be declined
+			if (checkInData.status !== "REQUESTED") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This check-in has already been processed."
+				);
+			}
+
+			// 4. Perform all writes
+			// Action 1: Update the check-in status
+			transaction.update(checkInRef, {
+				status: "DECLINED",
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			// Action 2: Clear the customer's activeCheckIn status
+			if (checkInData.customerId) {
+				const customerRef = db
+					.collection("customers")
+					.doc(checkInData.customerId);
+				transaction.update(customerRef, { activeCheckIn: null });
+			}
+
+			console.log(`Successfully declined check-in ${checkInId}.`);
+			return { success: true };
+		});
+	} catch (error) {
+		console.error(`Error declining check-in ${checkInId}:`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not decline the check-in request."
+		);
+	}
+});
+
+/**
+ * Allows a customer to cancel their own 'ACCEPTED' check-in, but only if
+ * no items have been sent to the kitchen.
+ *
+ * @param {object} data The data object from the client.
+ * @param {string} data.checkInId The ID of the check-in to cancel.
+ * @param {object} context The Firebase Functions context object.
+ */
+exports.customerCancelSeatedCheckIn = functions.https.onCall(
+	async (data, context) => {
+		// 1. Authentication & Validation
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const { checkInId } = data;
+		if (!checkInId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Check-in ID is required."
+			);
+		}
+
+		const customerId = context.auth.uid;
+		const checkInRef = db.collection("checkIns").doc(checkInId);
+
+		try {
+			return await db.runTransaction(async (transaction) => {
+				// 2. Read the check-in document first
+				const checkInDoc = await transaction.get(checkInRef);
+				if (!checkInDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Check-in not found."
+					);
+				}
+				const checkInData = checkInDoc.data();
+
+				// 3. Security Checks
+				if (checkInData.customerId !== customerId) {
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"You can only cancel your own check-in."
+					);
+				}
+				if (checkInData.status !== "ACCEPTED") {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"This check-in is not currently active."
+					);
+				}
+
+				// 4. CRITICAL: Check if any items have been sent to the kitchen
+				const basketQuery = db
+					.collection("baskets")
+					.where("checkInId", "==", checkInId);
+				const basketSnapshot = await basketQuery.get(); // This read must happen BEFORE the transaction writes.
+
+				const hasSentItems = basketSnapshot.docs.some(
+					(doc) => doc.data().sentToChefQ === true
+				);
+				if (hasSentItems) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"Cannot leave table after an order has been sent to the kitchen. Please proceed to checkout."
+					);
+				}
+
+				// 5. Perform Cleanup (all writes happen after all reads)
+				console.log(
+					`User ${customerId} is leaving table. Cleaning up check-in ${checkInId}.`
+				);
+
+				// Delete all basket items associated with this check-in
+				basketSnapshot.forEach((doc) => transaction.delete(doc.ref));
+
+				// Update the table status
+				if (checkInData.table.id && checkInData.restaurantId) {
+					const tableRef = db
+						.collection("restaurants")
+						.doc(checkInData.restaurantId)
+						.collection("tables")
+						.doc(checkInData.table.id);
+					transaction.update(tableRef, {
+						status: "available",
+						currentCheckInId: null,
+						currentCustomerId: null,
+					});
+				}
+
+				// Update the check-in status
+				transaction.update(checkInRef, {
+					status: "CANCELLED_BY_USER",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+
+				// Clear the activeCheckIn from the customer's profile
+				const customerRef = db.collection("customers").doc(customerId);
+				transaction.update(customerRef, { activeCheckIn: null });
+
+				return {
+					success: true,
+					message: "You have successfully left the table.",
+				};
+			});
+		} catch (error) {
+			console.error(`Error cancelling seated check-in ${checkInId}:`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not leave the table."
+			);
+		}
+	}
+);
+
 // Handle Checkin-In Response (Accept or Decline)
 /**
  * Handles a restaurant's response to a check-in request (accept or decline).

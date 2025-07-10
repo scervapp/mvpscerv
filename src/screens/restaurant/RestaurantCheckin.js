@@ -40,7 +40,7 @@ const RestaurantCheckin = () => {
 	const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
 
-	const { isLandscape } = userOrientation();
+	const declineCheckInFunction = httpsCallable(functions, "declineCheckIn");
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
@@ -91,6 +91,35 @@ const RestaurantCheckin = () => {
 		setIsSelectionModalVisible(true);
 	};
 
+	const handleDeclineCheckIn = (checkInItem) => {
+		Alert.alert(
+			"Decline Check-In",
+			`Are you sure you want to decline the check-in for ${checkInItem.customerName}?`,
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Decline",
+					style: "destructive",
+					onPress: async () => {
+						setIsProcessing(true);
+						try {
+							await declineCheckInFunction({ checkInId: checkInItem.id });
+							// The real-time listener will automatically remove the item from the list.
+						} catch (error) {
+							console.error("Error declining check-in:", error);
+							Alert.alert(
+								"Error",
+								`Could not decline check-in: ${error.message}`
+							);
+						} finally {
+							setIsProcessing(false);
+						}
+					},
+				},
+			]
+		);
+	};
+
 	const handleConfirmSelection = async ({ table, server }) => {
 		if (!selectedCheckIn || !table || !server) {
 			Alert.alert("Error", "Missing information to confirm seating.");
@@ -117,12 +146,7 @@ const RestaurantCheckin = () => {
 				numInParty: selectedCheckIn.numberOfPeople,
 			});
 
-			if (result.data.success) {
-				Alert.alert(
-					"Success!",
-					`${selectedCheckIn.customerName} has been seated at Table ${table.name}.`
-				);
-			} else {
+			if (!result.data.success) {
 				throw new Error(result.data.error || "Failed to confirm check-in.");
 			}
 		} catch (err) {
@@ -171,7 +195,11 @@ const RestaurantCheckin = () => {
 			<FlatList
 				data={checkInRequests}
 				renderItem={({ item }) => (
-					<CheckInRequestCard item={item} onSelect={handleSelectCheckIn} />
+					<CheckInRequestCard
+						item={item}
+						onSelect={() => handleSelectCheckIn(item)}
+						onDecline={() => handleDeclineCheckIn(item)}
+					/>
 				)}
 				keyExtractor={(item) => item.id}
 				contentContainerStyle={styles.listContainer}
@@ -203,6 +231,7 @@ const RestaurantCheckin = () => {
 						onConfirm={handleConfirmSelection}
 						numInParty={selectedCheckIn.numberOfPeople}
 						currentRestaurantId={currentUserData?.uid}
+						isProcessing={isProcessing}
 					/>
 				)}
 			</View>
