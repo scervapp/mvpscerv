@@ -14,7 +14,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.scerv.app",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+        "googleServicesFile": "./GoogleService-Info.plist" 
 
      
     },
@@ -25,7 +26,8 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.scerv.eat",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+        "googleServicesFile": "./google-services.json" 
     
     },
     "web": {
@@ -42,11 +44,8 @@
       }
     ],
    [
-        "@react-native-firebase/app",
-        {
-          "android": { "googleServicesFile": "./google-services.json" },
-          "ios":     { "googleServicesFile": "./GoogleService-Info.plist" }
-        }
+        "@react-native-firebase/app"
+     
       ]
     ],
     "extra": {
