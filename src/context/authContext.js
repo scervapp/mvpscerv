@@ -207,7 +207,7 @@ export const AuthProvider = ({ children }) => {
 		redirectPath,
 		clearRedirectPath,
 		sendPasswordResetEmail, // Keep your password reset function if needed
-		sendPasswordResetEmail,
+
 		signInWithPhoneCredential,
 	};
 
