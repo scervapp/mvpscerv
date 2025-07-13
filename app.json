@@ -14,8 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.scerv.app",
-      "newArchEnabled": false,
-        "googleServicesFile": "./GoogleService-Info.plist" 
+      "newArchEnabled": false
 
      
     },
@@ -26,14 +25,15 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.scerv.eat",
-      "newArchEnabled": false,
-        "googleServicesFile": "./google-services.json" 
+      "newArchEnabled": false
+
     
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+     
       "expo-router",
       "expo-web-browser",
       [
@@ -42,11 +42,8 @@
         "image": "./assets/splash.png",
         "resizeMode": "contain"
       }
-    ],
-   [
-        "@react-native-firebase/app"
-     
-      ]
+    ]
+   
     ],
     "extra": {
       "eas": {

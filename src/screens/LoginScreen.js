@@ -1,5 +1,4 @@
-// screens/LoginScreen.js
-import React, { useState, useContext, useRef, useEffect } from "react";
+import React, { useState, useContext, useRef } from "react";
 import {
 	View,
 	Text,
@@ -7,7 +6,6 @@ import {
 	TextInput,
 	TouchableOpacity,
 	Alert,
-	ActivityIndicator,
 	SafeAreaView,
 	ScrollView,
 	Platform,
@@ -18,14 +16,14 @@ import * as Yup from "yup";
 import { AuthContext } from "../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../utils/styles/appStyles";
-
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import app from "../config/firebase";
 import { Button } from "react-native-paper";
-
-import auth from "@react-native-firebase/auth";
+import { PhoneAuthProvider } from "firebase/auth";
 
 const CustomerLoginForm = ({
-	confirmationResult,
+	verificationId,
+	setVerificationId,
 	phoneNumber,
 	setPhoneNumber,
 	handleSendCode,
@@ -36,7 +34,7 @@ const CustomerLoginForm = ({
 	isLoading,
 }) => (
 	<View style={styles.form}>
-		{!confirmationResult ? (
+		{!verificationId ? (
 			<>
 				<TextInput
 					style={styles.input}
@@ -79,7 +77,8 @@ const CustomerLoginForm = ({
 				<Button
 					mode="text"
 					onPress={() => {
-						handleConfirmCode(true);
+						setVerificationId(null);
+						setVerificationCode("");
 					}}
 				>
 					Use a different number
@@ -142,15 +141,15 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
 );
 
 const LoginScreen = ({ navigation }) => {
-	const { login, isLoading, authError, signInWithPhoneCredential } =
+	const { login, isLoading, authError, signInWithPhoneCredential, auth } =
 		useContext(AuthContext);
 	const [activeTab, setActiveTab] = useState("customer");
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [confirmation, setConfirmation] = useState(null);
+	const [verificationId, setVerificationId] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [phoneNumber, setPhoneNumber] = useState("");
+	const recaptchaVerifier = useRef(null);
 
-	// --- Handlers for Phone (Customer) Login ---
 	const handleSendCode = async () => {
 		if (!/^[0-9]{10}$/.test(phoneNumber)) {
 			Alert.alert(
@@ -162,10 +161,12 @@ const LoginScreen = ({ navigation }) => {
 		setIsSubmitting(true);
 		try {
 			const fullPhoneNumber = `+1${phoneNumber}`;
-			const confirmationResult = await auth().signInWithPhoneNumber(
-				fullPhoneNumber
+			const phoneProvider = new PhoneAuthProvider(auth);
+			const verId = await phoneProvider.verifyPhoneNumber(
+				fullPhoneNumber,
+				recaptchaVerifier.current
 			);
-			setConfirmation(confirmationResult);
+			setVerificationId(verId);
 		} catch (error) {
 			Alert.alert("Error", `Could not send code: ${error.message}`);
 		} finally {
@@ -174,10 +175,10 @@ const LoginScreen = ({ navigation }) => {
 	};
 
 	const handleConfirmCode = async () => {
-		if (isLoading || !confirmation) return;
+		if (isLoading) return;
 		setIsSubmitting(true);
 		try {
-			await signInWithPhoneCredential(confirmation, verificationCode, null); // Pass null for additionalData on login
+			await signInWithPhoneCredential(verificationId, verificationCode);
 		} catch (error) {
 			Alert.alert("Login Failed", `Could not verify code: ${error.message}`);
 		} finally {
@@ -185,13 +186,12 @@ const LoginScreen = ({ navigation }) => {
 		}
 	};
 
-	// --- Handler for Email (Restaurant) Login ---
 	const handleEmailLogin = async (values) => {
 		setIsSubmitting(true);
 		try {
 			await login(values.email, values.password);
 		} catch (error) {
-			// Error is set in context and displayed automatically
+			// Error is set in context
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -199,7 +199,11 @@ const LoginScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<View nativeID="recaptcha-container" />
+			<FirebaseRecaptchaVerifierModal
+				ref={recaptchaVerifier}
+				firebaseConfig={app.options}
+				attemptInvisibleVerification={true}
+			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}
@@ -217,7 +221,6 @@ const LoginScreen = ({ navigation }) => {
 						<Text style={styles.title}>Welcome Back</Text>
 						<Text style={styles.subtitle}>Sign in to access your account</Text>
 					</View>
-
 					<View style={styles.tabContainer}>
 						<TouchableOpacity
 							style={[styles.tab, activeTab === "customer" && styles.activeTab]}
@@ -249,12 +252,11 @@ const LoginScreen = ({ navigation }) => {
 							</Text>
 						</TouchableOpacity>
 					</View>
-
 					{authError && <Text style={styles.errorText}>{authError}</Text>}
-
 					{activeTab === "customer" ? (
 						<CustomerLoginForm
-							confirmationResult={confirmationResult}
+							verificationId={verificationId}
+							setVerificationId={setVerificationId}
 							phoneNumber={phoneNumber}
 							setPhoneNumber={setPhoneNumber}
 							handleSendCode={handleSendCode}
@@ -271,13 +273,11 @@ const LoginScreen = ({ navigation }) => {
 							isLoading={isLoading}
 						/>
 					)}
-
 					<TouchableOpacity
 						onPress={() => navigation.navigate("PasswordReset")}
 					>
 						<Text style={styles.linkText}>Forgot Password?</Text>
 					</TouchableOpacity>
-
 					<View style={styles.footer}>
 						<Text style={styles.footerText}>Don't have an account?</Text>
 						<TouchableOpacity

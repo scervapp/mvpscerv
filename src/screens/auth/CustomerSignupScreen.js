@@ -7,7 +7,6 @@ import {
 	TextInput,
 	TouchableOpacity,
 	Alert,
-	ActivityIndicator,
 	SafeAreaView,
 	ScrollView,
 	Platform,
@@ -16,30 +15,32 @@ import {
 import { Formik } from "formik";
 import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
-import { Ionicons } from "@expo/vector-icons";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import auth from "@react-native-firebase/auth";
-
+import { getAuth, PhoneAuthProvider } from "firebase/auth";
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import app from "../../config/firebase";
 
 const CustomerSignupScreen = ({ navigation }) => {
-	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
+	const { signInWithPhoneCredential, isLoading, auth } =
+		useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [confirmation, setConfirmation] = useState(null); // This will store the confirmation object
+	const [verificationId, setVerificationId] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [formValues, setFormValues] = useState(null);
+	const recaptchaVerifier = useRef(null);
 
-	// Step 1: Send the verification code to the user's phone
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
 			const phoneNumber = `+1${values.phoneNumber}`;
-			const confirmationResult = await auth().signInWithPhoneNumber(
-				phoneNumber
+			const phoneProvider = new PhoneAuthProvider(auth);
+			const verId = await phoneProvider.verifyPhoneNumber(
+				phoneNumber,
+				recaptchaVerifier.current
 			);
 			setFormValues(values);
-			setConfirmation(confirmationResult);
+			setVerificationId(verId);
 		} catch (error) {
 			Alert.alert(
 				"Error",
@@ -50,13 +51,11 @@ const CustomerSignupScreen = ({ navigation }) => {
 		}
 	};
 
-	// Step 2: Confirm the code and sign in/up
 	const handleConfirmCode = async () => {
-		if (isLoading || !confirmation) return;
+		if (isLoading) return;
 		setIsSubmitting(true);
 		try {
-			// The context function now receives the confirmation object and the code
-			await signInWithPhoneCredential(confirmation, verificationCode, {
+			await signInWithPhoneCredential(verificationId, verificationCode, {
 				firstName: formValues.firstName,
 				lastName: formValues.lastName,
 				phoneNumber: formValues.phoneNumber,
@@ -68,7 +67,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 		}
 	};
 
-	// The validation schema no longer includes email or password
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required("First name is required"),
 		lastName: Yup.string().required("Last name is required"),
@@ -79,6 +77,11 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
+			<FirebaseRecaptchaVerifierModal
+				ref={recaptchaVerifier}
+				firebaseConfig={app.options}
+				attemptInvisibleVerification={true}
+			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}
@@ -101,14 +104,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 							validationSchema={validationSchema}
 							onSubmit={handleSendVerificationCode}
 						>
-							{({
-								handleChange,
-								handleBlur,
-								handleSubmit,
-								values,
-								errors,
-								touched,
-							}) => (
+							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
 									<TextInput
 										style={styles.input}
@@ -193,7 +189,12 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
-	container: { flexGrow: 1, justifyContent: "center", padding: 25 },
+	keyboardAvoidingContainer: { flex: 1 },
+	scrollContentContainer: {
+		flexGrow: 1,
+		justifyContent: "center",
+		padding: 25,
+	},
 	header: { alignItems: "center", marginBottom: 30 },
 	title: {
 		fontSize: 32,
@@ -201,17 +202,6 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		textAlign: "center",
 		marginBottom: 8,
-	},
-	keyboardAvoidingContainer: {
-		flex: 1,
-	},
-	scrollView: {
-		flex: 1,
-	},
-	scrollContentContainer: {
-		flexGrow: 1,
-		justifyContent: "center",
-		padding: 25,
 	},
 	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
 	form: { width: "100%" },

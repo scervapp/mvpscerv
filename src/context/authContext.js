@@ -6,7 +6,16 @@ import React, {
 	useContext,
 	useCallback,
 } from "react";
-import auth from "@react-native-firebase/auth";
+import {
+	getAuth,
+	onAuthStateChanged,
+	signInWithEmailAndPassword,
+	signOut,
+	signInAnonymously,
+	sendPasswordResetEmail,
+	PhoneAuthProvider, 
+	signInWithCredential, 
+} from "firebase/auth";
 import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { db, functions } from "../config/firebase";
 import { httpsCallable } from "firebase/functions";
@@ -19,11 +28,10 @@ export const AuthProvider = ({ children }) => {
 	const [isLoading, setIsLoading] = useState(true);
 	const [authError, setAuthError] = useState(null);
 	const [redirectPath, setRedirectPath] = useState(null);
+	const auth = getAuth();
 
-	// This single listener is now the source of truth for the user's auth state.
 	useEffect(() => {
-		// --- Use the onAuthStateChanged listener from @react-native-firebase/auth ---
-		const subscriber = auth().onAuthStateChanged(async (user) => {
+		const unsubscribe = onAuthStateChanged(auth, async (user) => {
 			setIsLoading(true);
 			if (user) {
 				let collectionName;
@@ -39,7 +47,6 @@ export const AuthProvider = ({ children }) => {
 					return;
 				}
 
-				// The logic for getting claims remains the same
 				const tokenResult = await user.getIdTokenResult(true);
 				userRole = tokenResult.claims.role || "customer";
 				restId =
@@ -83,31 +90,29 @@ export const AuthProvider = ({ children }) => {
 				setIsLoading(false);
 			}
 		});
-		return subscriber; // unsubscribe on unmount
+		return () => unsubscribe();
 	}, []);
 
-	// --- Action Functions ---
+	const login = useCallback(
+		async (email, password) => {
+			setAuthError(null);
+			try {
+				await signInWithEmailAndPassword(auth, email, password);
+			} catch (error) {
+				console.error("Login Error:", error.code);
+				setAuthError(error.message || "Invalid email or password.");
+				throw error;
+			}
+		},
+		[auth]
+	);
 
-	const login = useCallback(async (email, password) => {
-		setAuthError(null);
-		try {
-			// Use the new auth() function
-			await auth().signInWithEmailAndPassword(email, password);
-		} catch (error) {
-			console.error("Login Error:", error.code);
-			setAuthError(error.message || "Invalid email or password.");
-			throw error;
-		}
-	}, []);
-
-	// Calls a Cloud Function to securely create the auth user and set their role.
 	const signup = useCallback(async (email, password, role, additionalData) => {
 		setAuthError(null);
 		try {
 			const createUserAccount = httpsCallable(functions, "createUserAccount");
 			await createUserAccount({ email, password, role, additionalData });
-			// Use the new auth() function
-			await auth().signInWithEmailAndPassword(email, password);
+			await signInWithEmailAndPassword(auth, email, password);
 		} catch (error) {
 			console.error("Signup Error:", error);
 			setAuthError(error.message);
@@ -116,72 +121,68 @@ export const AuthProvider = ({ children }) => {
 	}, []);
 
 	const signInWithPhoneCredential = useCallback(
-		async (confirmation, verificationCode, additionalData) => {
+		async (verificationId, verificationCode, additionalData) => {
 			setAuthError(null);
 			setIsLoading(true);
 			try {
-				const userCredential = await confirmation.confirm(verificationCode);
-				const user = userCredential.user;
+				const credential = PhoneAuthProvider.credential(
+					verificationId,
+					verificationCode
+				);
+				const authResult = await signInWithCredential(auth, credential);
 
-				if (additionalData) {
-					const userDocRef = doc(db, "customers", user.uid);
-					const userDoc = await getDoc(userDocRef);
+				const userDocRef = doc(db, "customers", authResult.user.uid);
+				const userDoc = await getDoc(userDocRef);
 
-					if (!userDoc.exists()) {
-						console.log(
-							"New phone user detected. Creating customer document..."
-						);
-						await setDoc(userDocRef, {
-							uid: user.uid,
-							phoneNumber: user.phoneNumber,
-							firstName: additionalData.firstName,
-							lastName: additionalData.lastName,
-							role: "customer",
-							createdAt: new Date(),
-						});
-					}
+				if (!userDoc.exists()) {
+					console.log("New phone user detected. Creating customer document...");
+					await setDoc(userDocRef, {
+						uid: authResult.user.uid,
+						phoneNumber: authResult.user.phoneNumber,
+						firstName: additionalData.firstName,
+						lastName: additionalData.lastName,
+						role: "customer",
+						createdAt: new Date(),
+					});
 				}
 			} catch (error) {
 				console.error("Phone Sign-In Error:", error);
-				if (error.code === "auth/invalid-verification-code") {
-					setAuthError("Invalid code. Please try again.");
-				} else {
-					setAuthError(error.message);
-				}
+				setAuthError(error.message);
 				throw error;
 			} finally {
 				setIsLoading(false);
 			}
 		},
-		[db]
+		[auth, db]
 	);
 
 	const continueAsGuest = useCallback(async () => {
 		setAuthError(null);
 		try {
-			// Use the new auth() function
-			await auth().signInAnonymously();
+			await signInAnonymously(auth);
 		} catch (error) {
 			console.error("Error signing in as guest:", error);
 			setAuthError("Could not start a guest session.");
 			throw error;
 		}
-	}, []);
+	}, [auth]);
 
-	const logout = useCallback(async (redirectTo = null) => {
-		if (redirectTo) setRedirectPath(redirectTo);
-		try {
-			// Use the new auth() function
-			await auth().signOut();
-		} catch (error) {
-			console.error("Logout Error:", error);
-		}
-	}, []);
+	const logout = useCallback(
+		async (redirectTo = null) => {
+			if (redirectTo) setRedirectPath(redirectTo);
+			try {
+				await signOut(auth);
+			} catch (error) {
+				console.error("Logout Error:", error);
+			}
+		},
+		[auth]
+	);
 
 	const sendPasswordResetEmail = useCallback(async (email) => {
 		setAuthError(null);
 		try {
-			await auth().sendPasswordResetEmail(email);
+			await sendPasswordResetEmail(auth, email);
 			Alert.alert(
 				"Password Reset",
 				"A password reset link has been sent to your email."
@@ -206,8 +207,8 @@ export const AuthProvider = ({ children }) => {
 		continueAsGuest,
 		redirectPath,
 		clearRedirectPath,
-		sendPasswordResetEmail, // Keep your password reset function if needed
-
+		sendPasswordResetEmail,
+		auth,
 		signInWithPhoneCredential,
 	};
 
