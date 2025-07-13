@@ -1,5 +1,5 @@
 // screens/LoginScreen.js
-import React, { useState, useContext, useRef } from "react";
+import React, { useState, useContext, useRef, useEffect } from "react";
 import {
 	View,
 	Text,
@@ -18,14 +18,14 @@ import * as Yup from "yup";
 import { AuthContext } from "../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../utils/styles/appStyles";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
+
 import app from "../config/firebase";
 import { Button } from "react-native-paper";
-import { PhoneAuthProvider } from "firebase/auth";
+
+import auth from "@react-native-firebase/auth";
 
 const CustomerLoginForm = ({
-	verificationId,
-	setVerificationId,
+	confirmationResult,
 	phoneNumber,
 	setPhoneNumber,
 	handleSendCode,
@@ -36,7 +36,7 @@ const CustomerLoginForm = ({
 	isLoading,
 }) => (
 	<View style={styles.form}>
-		{!verificationId ? (
+		{!confirmationResult ? (
 			<>
 				<TextInput
 					style={styles.input}
@@ -79,8 +79,7 @@ const CustomerLoginForm = ({
 				<Button
 					mode="text"
 					onPress={() => {
-						setVerificationId(null);
-						setVerificationCode("");
+						handleConfirmCode(true);
 					}}
 				>
 					Use a different number
@@ -143,14 +142,13 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
 );
 
 const LoginScreen = ({ navigation }) => {
-	const { login, isLoading, authError, signInWithPhoneCredential, auth } =
+	const { login, isLoading, authError, signInWithPhoneCredential } =
 		useContext(AuthContext);
-	const [activeTab, setActiveTab] = useState("customer"); // 'customer' or 'restaurant'
+	const [activeTab, setActiveTab] = useState("customer");
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [verificationId, setVerificationId] = useState(null);
+	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [phoneNumber, setPhoneNumber] = useState("");
-	const recaptchaVerifier = useRef(null);
 
 	// --- Handlers for Phone (Customer) Login ---
 	const handleSendCode = async () => {
@@ -164,12 +162,10 @@ const LoginScreen = ({ navigation }) => {
 		setIsSubmitting(true);
 		try {
 			const fullPhoneNumber = `+1${phoneNumber}`;
-			const phoneProvider = new PhoneAuthProvider(auth);
-			const verId = await phoneProvider.verifyPhoneNumber(
-				fullPhoneNumber,
-				recaptchaVerifier.current
+			const confirmationResult = await auth().signInWithPhoneNumber(
+				fullPhoneNumber
 			);
-			setVerificationId(verId);
+			setConfirmation(confirmationResult);
 		} catch (error) {
 			Alert.alert("Error", `Could not send code: ${error.message}`);
 		} finally {
@@ -178,12 +174,10 @@ const LoginScreen = ({ navigation }) => {
 	};
 
 	const handleConfirmCode = async () => {
-		if (isLoading) return;
+		if (isLoading || !confirmation) return;
 		setIsSubmitting(true);
 		try {
-			// Call the context function to handle the sign-in logic
-			await signInWithPhoneCredential(verificationId, verificationCode);
-			// Navigation is handled by the AuthContext
+			await signInWithPhoneCredential(confirmation, verificationCode, null); // Pass null for additionalData on login
 		} catch (error) {
 			Alert.alert("Login Failed", `Could not verify code: ${error.message}`);
 		} finally {
@@ -205,11 +199,7 @@ const LoginScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<FirebaseRecaptchaVerifierModal
-				ref={recaptchaVerifier}
-				firebaseConfig={app.options}
-				attemptInvisibleVerification={true}
-			/>
+			<View nativeID="recaptcha-container" />
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}
@@ -262,12 +252,9 @@ const LoginScreen = ({ navigation }) => {
 
 					{authError && <Text style={styles.errorText}>{authError}</Text>}
 
-					{/* --- THIS IS THE FIX (PART 2) --- */}
-					{/* We now render the standalone components and pass the state down as props. */}
 					{activeTab === "customer" ? (
 						<CustomerLoginForm
-							verificationId={verificationId}
-							setVerificationId={setVerificationId}
+							confirmationResult={confirmationResult}
 							phoneNumber={phoneNumber}
 							setPhoneNumber={setPhoneNumber}
 							handleSendCode={handleSendCode}
@@ -325,26 +312,33 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		color: colors.textDark,
 		textAlign: "center",
-		marginTop: 15,
 		marginBottom: 8,
 	},
 	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
 	tabContainer: {
 		flexDirection: "row",
-		backgroundColor: colors.backgroundMedium,
-		borderRadius: 25,
-		padding: 5,
+		justifyContent: "center",
 		marginBottom: 20,
-	},
-	tab: { flex: 1, paddingVertical: 10, borderRadius: 20, alignItems: "center" },
-	activeTab: {
 		backgroundColor: colors.surfaceWhite,
-		elevation: 2,
-		shadowColor: "#000",
-		shadowOpacity: 0.1,
+		borderRadius: 8,
+		padding: 4,
 	},
-	tabText: { fontSize: 16, fontWeight: "600", color: colors.textMedium },
-	activeTabText: { color: colors.primary },
+	tab: {
+		flex: 1,
+		paddingVertical: 10,
+		borderRadius: 6,
+	},
+	activeTab: {
+		backgroundColor: colors.primary,
+	},
+	tabText: {
+		textAlign: "center",
+		fontWeight: "600",
+		color: colors.textMedium,
+	},
+	activeTabText: {
+		color: colors.surfaceWhite,
+	},
 	form: { width: "100%" },
 	input: {
 		height: 55,
@@ -367,8 +361,7 @@ const styles = StyleSheet.create({
 		color: colors.primary,
 		textAlign: "center",
 		marginTop: 20,
-		fontWeight: "600",
-		fontSize: 15,
+		fontWeight: "500",
 	},
 	footer: {
 		flexDirection: "row",

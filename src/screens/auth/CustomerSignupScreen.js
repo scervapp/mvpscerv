@@ -19,32 +19,27 @@ import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import { getAuth, PhoneAuthProvider } from "firebase/auth";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
+import auth from "@react-native-firebase/auth";
+
 import app from "../../config/firebase";
 
 const CustomerSignupScreen = ({ navigation }) => {
-	const { signInWithPhoneCredential, isLoading, authError, auth } =
-		useContext(AuthContext);
+	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
-
-	const [verificationId, setVerificationId] = useState(null); // Stores the ID from Firebase
-	const [verificationCode, setVerificationCode] = useState(""); // The 6-digit code from the user
-	const [formValues, setFormValues] = useState(null); // Temporarily stores user's form input
-	const recaptchaVerifier = useRef(null);
+	const [confirmation, setConfirmation] = useState(null); // This will store the confirmation object
+	const [verificationCode, setVerificationCode] = useState("");
+	const [formValues, setFormValues] = useState(null);
 
 	// Step 1: Send the verification code to the user's phone
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
 			const phoneNumber = `+1${values.phoneNumber}`;
-			const phoneProvider = new PhoneAuthProvider(auth);
-			const verId = await phoneProvider.verifyPhoneNumber(
-				phoneNumber,
-				recaptchaVerifier.current
+			const confirmationResult = await auth().signInWithPhoneNumber(
+				phoneNumber
 			);
 			setFormValues(values);
-			setVerificationId(verId);
+			setConfirmation(confirmationResult);
 		} catch (error) {
 			Alert.alert(
 				"Error",
@@ -57,16 +52,15 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	// Step 2: Confirm the code and sign in/up
 	const handleConfirmCode = async () => {
-		if (isLoading) return;
+		if (isLoading || !confirmation) return;
 		setIsSubmitting(true);
 		try {
-			// Call the new context function, passing all necessary data
-			await signInWithPhoneCredential(verificationId, verificationCode, {
+			// The context function now receives the confirmation object and the code
+			await signInWithPhoneCredential(confirmation, verificationCode, {
 				firstName: formValues.firstName,
 				lastName: formValues.lastName,
 				phoneNumber: formValues.phoneNumber,
 			});
-			// Navigation is handled by the AuthContext listener on successful sign-in
 		} catch (error) {
 			Alert.alert("Error", `Could not verify code: ${error.message}`);
 		} finally {
@@ -85,11 +79,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<FirebaseRecaptchaVerifierModal
-				ref={recaptchaVerifier}
-				firebaseConfig={app.options}
-				attemptInvisibleVerification={true}
-			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}

@@ -7,18 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "scheme": "scerv",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.scerv.app"
+      "bundleIdentifier": "com.scerv.app",
+      "newArchEnabled": false,
+      "googleServicesFile": "./GoogleService-Info.plist"
      
     },
     "android": {
@@ -27,7 +24,9 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.scerv.eat"
+      "package": "com.scerv.eat",
+      "newArchEnabled": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,7 +40,9 @@
         "image": "./assets/splash.png",
         "resizeMode": "contain"
       }
-    ]
+    ],
+     "@react-native-firebase/app",
+      "@react-native-firebase/auth"
     ],
     "extra": {
       "eas": {
