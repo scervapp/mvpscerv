@@ -14,7 +14,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.scerv.app",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+      "googleServicesFile": "./GoogleService-Info.plist"
 
      
     },
@@ -25,7 +26,8 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.scerv.eat",
-      "newArchEnabled": false
+      "newArchEnabled": false,
+      "googleServicesFile": "./google-services.json"
 
     
     },
@@ -33,7 +35,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-     
+     "@react-native-firebase/app",
+      "@react-native-firebase/auth",
       "expo-router",
       "expo-web-browser",
       [

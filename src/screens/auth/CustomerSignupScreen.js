@@ -17,30 +17,23 @@ import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import { getAuth, PhoneAuthProvider } from "firebase/auth";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
-import app from "../../config/firebase";
+import { auth } from "../../config/firebase";
 
 const CustomerSignupScreen = ({ navigation }) => {
-	const { signInWithPhoneCredential, isLoading, auth } =
-		useContext(AuthContext);
+	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [verificationId, setVerificationId] = useState(null);
+	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [formValues, setFormValues] = useState(null);
-	const recaptchaVerifier = useRef(null);
 
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
 			const phoneNumber = `+1${values.phoneNumber}`;
-			const phoneProvider = new PhoneAuthProvider(auth);
-			const verId = await phoneProvider.verifyPhoneNumber(
-				phoneNumber,
-				recaptchaVerifier.current
-			);
+			// Use the native auth service to send the code
+			const confirmationResult = await auth.signInWithPhoneNumber(phoneNumber);
 			setFormValues(values);
-			setVerificationId(verId);
+			setConfirmation(confirmationResult);
 		} catch (error) {
 			Alert.alert(
 				"Error",
@@ -52,10 +45,11 @@ const CustomerSignupScreen = ({ navigation }) => {
 	};
 
 	const handleConfirmCode = async () => {
-		if (isLoading) return;
+		if (isLoading || !confirmation) return;
 		setIsSubmitting(true);
 		try {
-			await signInWithPhoneCredential(verificationId, verificationCode, {
+			// Pass the confirmation object and code to the context
+			await signInWithPhoneCredential(confirmation, verificationCode, {
 				firstName: formValues.firstName,
 				lastName: formValues.lastName,
 				phoneNumber: formValues.phoneNumber,
@@ -77,11 +71,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<FirebaseRecaptchaVerifierModal
-				ref={recaptchaVerifier}
-				firebaseConfig={app.options}
-				attemptInvisibleVerification={true}
-			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}
@@ -89,16 +78,16 @@ const CustomerSignupScreen = ({ navigation }) => {
 				<ScrollView contentContainerStyle={styles.scrollContentContainer}>
 					<View style={styles.header}>
 						<Text style={styles.title}>
-							{!verificationId ? "Create Your Account" : "Verify Your Phone"}
+							{!confirmation ? "Create Your Account" : "Verify Your Phone"}
 						</Text>
 						<Text style={styles.subtitle}>
-							{!verificationId
+							{!confirmation
 								? "Enter your name and phone number to begin."
 								: `Enter the 6-digit code sent to +1 ${formValues?.phoneNumber}`}
 						</Text>
 					</View>
 
-					{!verificationId ? (
+					{!confirmation ? (
 						<Formik
 							initialValues={{ firstName: "", lastName: "", phoneNumber: "" }}
 							validationSchema={validationSchema}
@@ -169,7 +158,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 							>
 								Verify & Continue
 							</Button>
-							<Button mode="text" onPress={() => setVerificationId(null)}>
+							<Button mode="text" onPress={() => setConfirmation(null)}>
 								Use a different number
 							</Button>
 						</View>

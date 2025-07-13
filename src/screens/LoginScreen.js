@@ -16,10 +16,10 @@ import * as Yup from "yup";
 import { AuthContext } from "../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../utils/styles/appStyles";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
-import app from "../config/firebase";
+
 import { Button } from "react-native-paper";
-import { PhoneAuthProvider } from "firebase/auth";
+
+import { auth } from "../config/firebase";
 
 const CustomerLoginForm = ({
 	verificationId,
@@ -141,14 +141,13 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
 );
 
 const LoginScreen = ({ navigation }) => {
-	const { login, isLoading, authError, signInWithPhoneCredential, auth } =
+	const { login, isLoading, authError, signInWithPhoneCredential } =
 		useContext(AuthContext);
 	const [activeTab, setActiveTab] = useState("customer");
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [verificationId, setVerificationId] = useState(null);
+	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [phoneNumber, setPhoneNumber] = useState("");
-	const recaptchaVerifier = useRef(null);
 
 	const handleSendCode = async () => {
 		if (!/^[0-9]{10}$/.test(phoneNumber)) {
@@ -161,12 +160,11 @@ const LoginScreen = ({ navigation }) => {
 		setIsSubmitting(true);
 		try {
 			const fullPhoneNumber = `+1${phoneNumber}`;
-			const phoneProvider = new PhoneAuthProvider(auth);
-			const verId = await phoneProvider.verifyPhoneNumber(
-				fullPhoneNumber,
-				recaptchaVerifier.current
+			// Use the native auth service to send the code
+			const confirmationResult = await auth.signInWithPhoneNumber(
+				fullPhoneNumber
 			);
-			setVerificationId(verId);
+			setConfirmation(confirmationResult);
 		} catch (error) {
 			Alert.alert("Error", `Could not send code: ${error.message}`);
 		} finally {
@@ -175,10 +173,11 @@ const LoginScreen = ({ navigation }) => {
 	};
 
 	const handleConfirmCode = async () => {
-		if (isLoading) return;
+		if (isLoading || !confirmation) return;
 		setIsSubmitting(true);
 		try {
-			await signInWithPhoneCredential(verificationId, verificationCode);
+			// Pass the confirmation object and code to the context
+			await signInWithPhoneCredential(confirmation, verificationCode, null);
 		} catch (error) {
 			Alert.alert("Login Failed", `Could not verify code: ${error.message}`);
 		} finally {
@@ -191,7 +190,7 @@ const LoginScreen = ({ navigation }) => {
 		try {
 			await login(values.email, values.password);
 		} catch (error) {
-			// Error is set in context
+			// Error is handled in context
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -199,11 +198,6 @@ const LoginScreen = ({ navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<FirebaseRecaptchaVerifierModal
-				ref={recaptchaVerifier}
-				firebaseConfig={app.options}
-				attemptInvisibleVerification={true}
-			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 				style={styles.keyboardAvoidingContainer}
@@ -221,6 +215,7 @@ const LoginScreen = ({ navigation }) => {
 						<Text style={styles.title}>Welcome Back</Text>
 						<Text style={styles.subtitle}>Sign in to access your account</Text>
 					</View>
+
 					<View style={styles.tabContainer}>
 						<TouchableOpacity
 							style={[styles.tab, activeTab === "customer" && styles.activeTab]}
@@ -252,20 +247,59 @@ const LoginScreen = ({ navigation }) => {
 							</Text>
 						</TouchableOpacity>
 					</View>
+
 					{authError && <Text style={styles.errorText}>{authError}</Text>}
+
 					{activeTab === "customer" ? (
-						<CustomerLoginForm
-							verificationId={verificationId}
-							setVerificationId={setVerificationId}
-							phoneNumber={phoneNumber}
-							setPhoneNumber={setPhoneNumber}
-							handleSendCode={handleSendCode}
-							verificationCode={verificationCode}
-							setVerificationCode={setVerificationCode}
-							handleConfirmCode={handleConfirmCode}
-							isSubmitting={isSubmitting}
-							isLoading={isLoading}
-						/>
+						<View style={styles.form}>
+							{!confirmation ? (
+								<>
+									<TextInput
+										style={styles.input}
+										placeholder="10-Digit Phone Number"
+										value={phoneNumber}
+										onChangeText={setPhoneNumber}
+										keyboardType="phone-pad"
+										maxLength={10}
+									/>
+									<Button
+										mode="contained"
+										onPress={handleSendCode}
+										disabled={isSubmitting}
+										loading={isSubmitting}
+										style={styles.button}
+									>
+										Send Code
+									</Button>
+								</>
+							) : (
+								<>
+									<TextInput
+										style={styles.input}
+										placeholder="6-Digit Code"
+										value={verificationCode}
+										onChangeText={setVerificationCode}
+										keyboardType="number-pad"
+										maxLength={6}
+										textAlign="center"
+									/>
+									<Button
+										mode="contained"
+										onPress={handleConfirmCode}
+										disabled={
+											isLoading || isSubmitting || verificationCode.length < 6
+										}
+										loading={isLoading || isSubmitting}
+										style={styles.button}
+									>
+										Sign In
+									</Button>
+									<Button mode="text" onPress={() => setConfirmation(null)}>
+										Use a different number
+									</Button>
+								</>
+							)}
+						</View>
 					) : (
 						<RestaurantLoginForm
 							handleEmailLogin={handleEmailLogin}
@@ -273,11 +307,13 @@ const LoginScreen = ({ navigation }) => {
 							isLoading={isLoading}
 						/>
 					)}
+
 					<TouchableOpacity
 						onPress={() => navigation.navigate("PasswordReset")}
 					>
 						<Text style={styles.linkText}>Forgot Password?</Text>
 					</TouchableOpacity>
+
 					<View style={styles.footer}>
 						<Text style={styles.footerText}>Don't have an account?</Text>
 						<TouchableOpacity
@@ -323,22 +359,10 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		padding: 4,
 	},
-	tab: {
-		flex: 1,
-		paddingVertical: 10,
-		borderRadius: 6,
-	},
-	activeTab: {
-		backgroundColor: colors.primary,
-	},
-	tabText: {
-		textAlign: "center",
-		fontWeight: "600",
-		color: colors.textMedium,
-	},
-	activeTabText: {
-		color: colors.surfaceWhite,
-	},
+	tab: { flex: 1, paddingVertical: 10, borderRadius: 6 },
+	activeTab: { backgroundColor: colors.primary },
+	tabText: { textAlign: "center", fontWeight: "600", color: colors.textMedium },
+	activeTabText: { color: colors.surfaceWhite },
 	form: { width: "100%" },
 	input: {
 		height: 55,
