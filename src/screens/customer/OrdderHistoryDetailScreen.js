@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useContext } from "react";
-import { doc, getDoc, onSnapshot, Timestamp } from "firebase/firestore";
 import {
 	View,
 	Text,
@@ -14,7 +13,6 @@ import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useRoute } from "@react-navigation/native";
-import { httpsCallable } from "firebase/functions";
 import { AirbnbRating, Rating } from "react-native-ratings";
 
 const OrderHistoryDetailScreen = () => {

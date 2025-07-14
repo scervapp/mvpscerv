@@ -29,7 +29,7 @@ import {
 import colors from "../../utils/styles/appStyles";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
-import { collection, onSnapshot } from "firebase/firestore";
+
 import { db } from "../../config/firebase";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";

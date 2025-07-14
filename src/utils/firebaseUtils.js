@@ -1,23 +1,8 @@
 import React from "react";
 import app, { db } from "../config/firebase";
-import {
-	getDownloadURL,
-	getStorage,
-	ref,
-	uploadBytes,
-	uploadString,
-} from "firebase/storage";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import * as ImagePicker from "expo-image-picker";
-import {
-	addDoc,
-	collection,
-	query,
-	where,
-	getDocs,
-	updateDoc,
-	onSnapshot,
-	orderBy,
-} from "firebase/firestore";
+
 import { doc } from "firebase/firestore";
 
 const storage = getStorage(app);
@@ -126,7 +111,7 @@ export const clearTable = async (tableId, restaurantId) => {
 	}
 
 	// Path to the specific table document in the subcollection
-	const tableRef = doc(db, "restaurants", restaurantId, "tables", tableId);
+	const tableRef = db.collection("restaurants").doc(restaurantId).collection("tables").doc(tableId);
 
 	console.log(`clearTable: Resetting table ${tableId} to 'available'.`);
 
@@ -161,18 +146,9 @@ export const fetchTables = (restaurantId, callback, onError) => {
 	try {
 		// --- CORRECTED PATH TO SUBCOLLECTION ---
 		// Instead of collection(db, "tables"), we point to the subcollection.
-		const tablesSubcollectionRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"tables"
-		);
+		const tablesQuery = db.collection("restaurants").doc(restaurantId).collection("tables").orderBy("name", "asc");
 
-		// The 'where("restaurantId", "==",...)' clause is no longer needed as we are already inside the correct restaurant doc.
-		const tablesQuery = query(tablesSubcollectionRef, orderBy("name", "asc")); // Example: order by table name
-
-		const unsubscribe = onSnapshot(
-			tablesQuery,
+		const unsubscribe = tablesQuery.onSnapshot(
 			(snapshot) => {
 				const allTables = snapshot.docs
 					.map((doc) => ({
@@ -224,17 +200,10 @@ export const fetchEmployeesByRole = async (restaurantId, roles) => {
 	}
 
 	try {
-		const employeesRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"employees"
-		);
+		const employeesRef = db.collection("restaurants").doc(restaurantId).collection("employees");
 
 		// Use the 'in' operator to find any employee whose role is in the provided array
-		const q = query(employeesRef, where("role", "in", roles));
-
-		const snapshot = await getDocs(q);
+		const snapshot = await employeesRef.where("role", "in", roles).get();
 		const employeesList = snapshot.docs.map((doc) => ({
 			id: doc.id,
 			...doc.data(),
@@ -267,17 +236,10 @@ export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
 	}
 
 	try {
-		const employeesRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"employees"
-		);
+		const employeesRef = db.collection("restaurants").doc(restaurantId).collection("employees");
 
 		// Use the '==' operator to find all employees with a specific job title
-		const q = query(employeesRef, where("jobTitle", "==", jobTitle));
-
-		const snapshot = await getDocs(q);
+		const snapshot = await employeesRef.where("jobTitle", "==", jobTitle).get();
 		const employeesList = snapshot.docs.map((doc) => ({
 			id: doc.id,
 			...doc.data(),
@@ -315,31 +277,19 @@ export const fetchEmployees = async (restaurantId, jobTitles) => {
 	}
 
 	try {
-		const employeesSubcollectionRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"employees"
-		);
+		const employeesSubcollectionRef = db.collection("restaurants").doc(restaurantId).collection("employees");
 		let employeesQuery;
 
 		// The logic remains the same, but the field name is updated.
 		if (Array.isArray(jobTitles) && jobTitles.length > 0) {
 			console.log("... using 'in' query for multiple job titles.");
-			employeesQuery = query(
-				employeesSubcollectionRef,
-				where("jobTitle", "in", jobTitles)
-			);
+			employeesQuery = employeesSubcollectionRef.where("jobTitle", "in", jobTitles);
 		} else if (typeof jobTitles === "string" && jobTitles) {
 			console.log("... using '==' query for a single job title.");
-			employeesQuery = query(
-				employeesSubcollectionRef,
-				where("jobTitle", "==", jobTitles)
-			);
+			employeesQuery = employeesSubcollectionRef.where("jobTitle", "==", jobTitles);
 		} else {
 			console.log("... no job title filter, fetching all employees.");
-			employeesQuery = query(employeesSubcollectionRef);
-		}
+			employeesQuery = employeesSubcollectionRef;
 
 		const snapshot = await getDocs(employeesQuery);
 		const employeesList = snapshot.docs.map((doc) => ({

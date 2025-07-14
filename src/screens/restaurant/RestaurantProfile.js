@@ -13,7 +13,7 @@ import {
 	KeyboardAvoidingView,
 	Platform,
 } from "react-native";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -85,9 +85,9 @@ const RestaurantProfile = () => {
 	useEffect(() => {
 		const fetchProfile = async () => {
 			if (!currentUserData?.uid) return;
-			const docRef = doc(db, "restaurants", currentUserData.uid);
+			const docRef = db.collection("restaurants").doc(currentUserData.uid);
 			try {
-				const docSnap = await getDoc(docRef);
+				const docSnap = await docRef.get();
 				if (docSnap.exists()) {
 					setFormData((prev) => ({ ...prev, ...docSnap.data() }));
 				} else {
@@ -143,8 +143,8 @@ const RestaurantProfile = () => {
 				finalData.imageUri = downloadUrl;
 			}
 
-			const docRef = doc(db, "restaurants", currentUserData.uid);
-			await setDoc(docRef, finalData, { merge: true }); // Use merge to avoid overwriting other fields
+			const docRef = db.collection("restaurants").doc(currentUserData.uid);
+			await docRef.set(finalData, { merge: true }); // Use merge to avoid overwriting other fields
 
 			Alert.alert("Success", "Your profile has been saved.");
 		} catch (error) {

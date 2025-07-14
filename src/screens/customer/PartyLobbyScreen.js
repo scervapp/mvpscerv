@@ -35,7 +35,7 @@ import {
 	handlePartyCheckInRequest,
 	useCheckInStatus,
 } from "../../utils/customerUtils";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+
 import { db, functions } from "../../config/firebase";
 
 import { IconButton } from "react-native-paper";

@@ -10,7 +10,7 @@ import {
 	SafeAreaView,
 	ActivityIndicator,
 } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
 
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -132,7 +132,7 @@ const SalesReportScreen = ({ navigation }) => {
 		const fetchReport = async () => {
 			setIsFetching(true);
 			try {
-				const getReport = httpsCallable(functions, "getDashboardReport");
+				const getReport = functions.httpsCallable("getDashboardReport");
 				const response = await getReport({
 					restaurantId: currentUserData.uid,
 					period: selectedPeriod.toLowerCase(),

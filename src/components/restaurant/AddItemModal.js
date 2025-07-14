@@ -16,7 +16,7 @@ import {
 	Image,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
-import { doc, setDoc, addDoc, collection, updateDoc } from "firebase/firestore";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AuthContext } from "../../context/authContext";
@@ -121,13 +121,11 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		try {
 			if (isEditMode) {
 				// Update existing document
-				const itemRef = doc(db, "menuItems", itemToEdit.id);
-				await updateDoc(itemRef, menuItemData);
+				await db.collection("menuItems").doc(itemToEdit.id).update(menuItemData);
 				Alert.alert("Success", "Menu item has been updated.");
 			} else {
 				// Create new document
-				const menuItemsRef = collection(db, "menuItems");
-				await addDoc(menuItemsRef, menuItemData);
+				await db.collection("menuItems").add(menuItemData);
 				Alert.alert("Success", "New menu item has been added.");
 			}
 			onClose(); // Close the modal on success

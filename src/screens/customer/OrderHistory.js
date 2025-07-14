@@ -10,14 +10,6 @@ import {
 	RefreshControl,
 } from "react-native";
 
-import {
-	collection,
-	query,
-	where,
-	orderBy,
-	getDocs,
-	Timestamp,
-} from "firebase/firestore";
 import { useNavigation } from "@react-navigation/native";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";

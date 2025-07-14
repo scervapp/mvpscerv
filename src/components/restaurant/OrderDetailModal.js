@@ -11,15 +11,7 @@ import {
 	SafeAreaView,
 } from "react-native";
 import { Button } from "react-native-paper";
-import {
-	collection,
-	query,
-	where,
-	onSnapshot,
-	doc,
-	getDoc,
-} from "firebase/firestore";
-import { httpsCallable } from "firebase/functions"; // Import for cloud function
+
 import { db, functions } from "../../config/firebase"; // Adjust path
 import formatCurrency from "../../utils/currencyFormatter";
 import colors from "../../utils/styles/appStyles"; // Adjust path
@@ -76,12 +68,12 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 		setIsLoading(true);
 		setError(null);
 
-		const checkInRef = doc(db, "checkIns", table.currentCheckInId);
+		const checkInRef = db.collection("checkIns").doc(table.currentCheckInId);
 		let unsubscribe = () => {};
 
 		const setupSubscription = async () => {
 			try {
-				const checkInSnap = await getDoc(checkInRef);
+				const checkInSnap = await checkInRef.get();
 				if (!checkInSnap.exists()) {
 					throw new Error("Associated check-in document could not be found.");
 				}
@@ -94,12 +86,8 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				}
 
 				if (checkInData.type === "party" && checkInData.associatedPartyId) {
-					const sharedBasketRef = doc(
-						db,
-						"shared_baskets",
-						checkInData.associatedPartyId
-					);
-					unsubscribe = onSnapshot(sharedBasketRef, (basketSnap) => {
+					const sharedBasketRef = db.collection("shared_baskets").doc(checkInData.associatedPartyId);
+					unsubscribe = sharedBasketRef.onSnapshot((basketSnap) => {
 						const items = basketSnap.exists()
 							? (basketSnap.data().items || []).map(normalizePartyItem)
 							: [];
@@ -107,11 +95,8 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 						setIsLoading(false);
 					});
 				} else {
-					const itemsQuery = query(
-						collection(db, "baskets"),
-						where("checkInId", "==", table.currentCheckInId)
-					);
-					unsubscribe = onSnapshot(itemsQuery, (snapshot) => {
+					const itemsQuery = db.collection("baskets").where("checkInId", "==", table.currentCheckInId);
+					unsubscribe = itemsQuery.onSnapshot((snapshot) => {
 						const items = snapshot.docs.map(normalizeIndividualItem);
 						setOrderedItems(items);
 						setIsLoading(false);
@@ -171,7 +156,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 
 		setIsDiscounting(true);
 		try {
-			const discountFunction = httpsCallable(functions, "discountOrderItem");
+			const discountFunction = functions.httpsCallable("discountOrderItem");
 
 			// This payload now reliably uses the stored context from state
 			const payload = {

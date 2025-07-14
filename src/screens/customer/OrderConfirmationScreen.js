@@ -5,15 +5,7 @@ import {
 } from "@react-navigation/native";
 import React, { useState, useEffect, useContext } from "react";
 import { db } from "../../config/firebase";
-import {
-	collection,
-	doc,
-	getDocs,
-	limit,
-	onSnapshot,
-	query,
-	where,
-} from "firebase/firestore";
+
 import colors from "../../utils/styles/appStyles";
 import {
 	Text,
@@ -128,7 +120,7 @@ const OrderConfirmationScreen = () => {
 			// We don't need an unsubscribe function here.
 			return;
 		} else if (mode === "party" && partyId && currentUserData?.uid) {
-			docRef = doc(db, "parties", partyId);
+			docRef = db.collection("parties").doc(partyId);
 		} else {
 			console.error(
 				"OrderConfirmationScreen: Missing required params for listener.",

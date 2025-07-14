@@ -10,7 +10,7 @@ import {
 	SafeAreaView,
 	Alert,
 } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 

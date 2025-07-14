@@ -18,15 +18,7 @@ import {
 	RefreshControl,
 	Alert,
 } from "react-native";
-import {
-	collection,
-	where,
-	query,
-	onSnapshot,
-	orderBy,
-	doc,
-	updateDoc,
-} from "firebase/firestore";
+
 
 import moment from "moment";
 import { Audio } from "expo-av";
@@ -219,12 +211,10 @@ const ChefsQScreen = () => {
 			return;
 		}
 
-		const q = query(
-			collection(db, "kitchen_orders"),
-			where("restaurantId", "==", restaurantId),
-			where("status", "in", ["new", "preparing", "ready"]),
-			orderBy("createdAt", "desc")
-		);
+				const q = db.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "in", ["new", "preparing", "ready"])
+			.orderBy("createdAt", "desc");
 
 		const unsubscribe = onSnapshot(
 			q,

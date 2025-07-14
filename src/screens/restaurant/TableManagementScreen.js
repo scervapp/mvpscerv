@@ -24,7 +24,7 @@ import { Button, Divider, Switch, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 import { clearTable, fetchTables } from "../../utils/firebaseUtils";
 import TableItem from "../../components/restaurant/TableItem";
-import { httpsCallable } from "firebase/functions";
+
 import { functions } from "../../config/firebase";
 import * as Yup from "yup";
 import { Formik } from "formik";

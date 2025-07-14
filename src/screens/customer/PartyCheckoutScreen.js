@@ -26,7 +26,7 @@ import { Button, Divider } from "react-native-paper";
 import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { httpsCallable } from "firebase/functions";
+
 
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";

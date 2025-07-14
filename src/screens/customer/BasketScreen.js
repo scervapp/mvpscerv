@@ -21,19 +21,11 @@ import {
 	Snackbar,
 	IconButton,
 } from "react-native-paper";
-
-import {
-	transformBasketData,
-	useCheckInStatus,
-} from "../../utils/customerUtils";
-import { AuthContext } from "../../context/authContext";
-import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../../config/firebase";
-import { jsx } from "react/jsx-runtime";
-import formatCurrency from "../../utils/currencyFormatter";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Use consistent icon set if possible
-import { Divider } from "react-native-elements";
-import { doc, getDoc } from "firebase/firestore";
+
+import { transformBasketData, useCheckInStatus, } from "../../utils/customerUtils";
+import { AuthContext } from "../../context/authContext";
+
 import { useParty } from "../../context/customer/PartyContext";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 
@@ -75,8 +67,7 @@ const BasketScreen = ({ route, navigation }) => {
 	useEffect(() => {
 		const fetchFeeConfig = async () => {
 			try {
-				const feesDocRef = doc(db, "appConfig", "general"); // Adjust if path differs
-				const docSnap = await getDoc(feesDocRef);
+				const docSnap = await db.collection('appConfig').doc('general').get();
 				if (docSnap.exists()) {
 					const fetchedFees = parseFloat(docSnap.data().fees);
 					if (!isNaN(fetchedFees)) setFees(fetchedFees);

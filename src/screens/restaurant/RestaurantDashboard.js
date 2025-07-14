@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useContext } from "react";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Text, View, Button } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import app from "../../config/firebase";
+import { db } from "../../config/firebase";
 import { StyleSheet } from "react-native";
 
 const RestaurantDashboard = ({ navigation }) => {
   const { isLoading, currentUserData, logout } = useContext(AuthContext);
   const [isSetupButtonVisible, setIsSetupButtonVisible] = useState(true);
-  const db = getFirestore(app);
+  
 
   useEffect(() => {
     const checkProfileCompleted = async () => {

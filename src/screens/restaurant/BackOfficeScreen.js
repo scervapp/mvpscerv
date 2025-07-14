@@ -16,7 +16,7 @@ import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-import { collection, doc, getDoc } from "firebase/firestore";
+
 import { httpsCallable } from "firebase/functions";
 import colors from "../../utils/styles/appStyles";
 

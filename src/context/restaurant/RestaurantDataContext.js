@@ -7,7 +7,7 @@ import React, {
 	useRef,
 	useCallback,
 } from "react";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+
 import { AuthContext } from "../authContext";
 import { db } from "../../config/firebase";
 
@@ -86,14 +86,11 @@ export const RestaurantDataProvider = ({ children }) => {
 			return;
 		}
 
-		const checkInsRef = collection(db, "checkIns");
-		const q = query(
-			checkInsRef,
-			where("restaurantId", "==", restaurantId),
-			where("status", "==", "REQUESTED")
-		);
+		const checkInsRef = db.collection("checkIns");
+		const q = checkInsRef.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "REQUESTED");
 
-		const unsubscribe = onSnapshot(q, (snapshot) => {
+		const unsubscribe = q.onSnapshot((snapshot) => {
 			console.log(
 				"[RestaurantDataContext] New Check-In Count from Firestore:",
 				snapshot.size
@@ -112,14 +109,11 @@ export const RestaurantDataProvider = ({ children }) => {
 			return;
 		}
 
-		const kitchenOrdersRef = collection(db, "kitchen_orders");
-		const q = query(
-			kitchenOrdersRef,
-			where("restaurantId", "==", restaurantId),
-			where("status", "==", "new")
-		);
+		const kitchenOrdersRef = db.collection("kitchen_orders");
+		const q = kitchenOrdersRef.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "new");
 
-		const unsubscribe = onSnapshot(q, (snapshot) => {
+		const unsubscribe = q.onSnapshot((snapshot) => {
 			setNewKitchenOrderCount(snapshot.size);
 		});
 

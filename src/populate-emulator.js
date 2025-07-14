@@ -1,8 +1,8 @@
 import admin from "firebase-admin";
-import { getFirestore } from "firebase/firestore";
+
 
 // Import your Firebase app instance from firebase.js
-import { db } from "./config/firebase.js";
+import { db } from "./config/firebase";
 
 async function populateEmulator() {
 	try {

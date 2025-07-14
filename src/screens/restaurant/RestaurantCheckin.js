@@ -8,14 +8,7 @@ import {
 	Alert,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import {
-	collection,
-	where,
-	query,
-	getDocs,
-	onSnapshot,
-	orderBy,
-} from "firebase/firestore";
+
 
 import { db, functions } from "../../config/firebase";
 import { StyleSheet } from "react-native";
@@ -50,12 +43,10 @@ const RestaurantCheckin = () => {
 			return;
 		}
 
-		const q = query(
-			collection(db, "checkIns"),
-			where("restaurantId", "==", restaurantId),
-			where("status", "==", "REQUESTED"),
-			orderBy("timestamp", "asc")
-		);
+		const q = db.collection("checkIns")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "REQUESTED")
+			.orderBy("timestamp", "asc");
 
 		const unsubscribe = onSnapshot(
 			q,

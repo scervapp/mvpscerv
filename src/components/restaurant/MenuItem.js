@@ -9,23 +9,11 @@ import {
 	TouchableOpacity,
 } from "react-native";
 import AddItemModal from "./AddItemModal";
-import {
-	getFirestore,
-	doc,
-	getDoc,
-	setDoc,
-	addDoc,
-	collection,
-	updateDoc,
-	getDocs,
-	onSnapshot,
-} from "firebase/firestore";
-import app from "../../config/firebase";
-import { deleteDoc } from "firebase/firestore";
+import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
 const MenuItem = ({ item, restaurantId, onEdit }) => {
-	const db = getFirestore(app);
+	
 	const [showModal, setShowModal] = useState(false);
 
 	const handleEdit = () => {
@@ -55,8 +43,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 
 	const deleteMenuItem = async (restaurantId, menuItem) => {
 		try {
-			const menuItemRef = doc(db, "menuItems", menuItem.id);
-			await deleteDoc(menuItemRef);
+			await db.collection("menuItems").doc(menuItem.id).delete();
 		} catch (error) {
 			console.log("Error deleting menu item:", error);
 			Alert.alert("Error", "There was an error deleting the menu item.");
@@ -66,8 +53,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 	// Handle item update
 	const updateMenuItem = async (restaurantId, menuItemId, menuItemData) => {
 		try {
-			const menuItemRef = doc(db, "menuItems", menuItemId);
-			const menuItemSnapshot = await getDoc(menuItemRef);
+			const menuItemSnapshot = await db.collection("menuItems").doc(menuItemId).get();
 			if (!menuItemSnapshot.exists()) {
 				throw new Error("Menu Item not found");
 			}
@@ -75,7 +61,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 			if (menuItemData.restaurantId !== restaurantId) {
 				throw new Error("Menu Item not found");
 			}
-			await updateDoc(menuItemRef, menuItemData);
+			await db.collection("menuItems").doc(menuItemId).update(menuItemData);
 			console.log("Menu Item updated successfully");
 		} catch (error) {
 			console.log("Error updating menu item:", error);

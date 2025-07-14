@@ -13,7 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
 import app, { db } from "../../config/firebase";
-import { collection, onSnapshot, where, query } from "firebase/firestore";
+
 import { AuthContext } from "../../context/authContext";
 import MenuItem from "../../components/restaurant/MenuItem";
 import colors from "../../utils/styles/appStyles";
@@ -61,14 +61,9 @@ const MenuManagementScreen = () => {
 			return;
 		}
 
-		const menuItemsRef = collection(db, "menuItems");
-		const q = query(
-			menuItemsRef,
-			where("restaurantId", "==", currentUserData.uid)
-		);
-
-		const unsubscribe = onSnapshot(
-			q,
+		const unsubscribe = db.collection("menuItems")
+			.where("restaurantId", "==", currentUserData.uid)
+			.onSnapshot(
 			(snapshot) => {
 				const items = snapshot.docs.map((doc) => ({
 					id: doc.id,

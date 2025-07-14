@@ -1,25 +1,12 @@
 import React, { useState, useEffect } from "react";
-import {
-	collection,
-	getDocs,
-	query,
-	where,
-	onSnapshot,
-	doc,
-	setDoc,
-	getDoc,
-	updateDoc,
-	limit,
-	serverTimestamp,
-} from "firebase/firestore";
-import app, { db, functions } from "../config/firebase";
 import { Alert } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
+import { db, functions } from "../config/firebase";
 
 const fetchRestaurants = async () => {
 	try {
-		const restaurantRef = collection(db, "restaurants");
-		const restaurantSnapshot = await getDocs(restaurantRef);
+		const restaurantRef = db.collection("restaurants");
+		const restaurantSnapshot = await restaurantRef.get();
 
 		const restaurants = restaurantSnapshot.docs
 			.map((doc) => {
@@ -42,12 +29,9 @@ const fetchRestaurants = async () => {
 
 const fetchMenu = async (restaurantId) => {
 	try {
-		const menuItemRef = collection(db, "menuItems");
-		const querySnap = query(
-			menuItemRef,
-			where("restaurantId", "==", restaurantId)
-		);
-		const menuSnapshot = await getDocs(querySnap);
+		const menuItemRef = db.collection("menuItems");
+		const querySnap = menuItemRef.where("restaurantId", "==", restaurantId);
+		const menuSnapshot = await querySnap.get();
 
 		const menuItems = menuSnapshot.docs.map((doc) => ({
 			id: doc.id,

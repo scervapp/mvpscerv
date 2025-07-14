@@ -1,15 +1,4 @@
-import { collection, onSnapshot, where, query } from "firebase/firestore";
-import React, {
-	createContext,
-	useState,
-	useEffect,
-	useContext,
-	useCallback,
-} from "react";
-import { db, functions } from "../../config/firebase";
-import { AuthContext } from "../authContext";
-import { Alert } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
 
 const BasketContext = createContext({
 	baskets: {},
@@ -39,12 +28,10 @@ export const BasketProvider = ({ children }) => {
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const sendOrderToKitchenFunction = httpsCallable(
-		functions,
+	const sendOrderToKitchenFunction = functions.httpsCallable(
 		"sendOrderToKitchen"
 	);
-	const linkBasketToCheckInFunction = httpsCallable(
-		functions,
+	const linkBasketToCheckInFunction = functions.httpsCallable(
 		"linkBasketToCheckIn"
 	);
 
@@ -63,14 +50,11 @@ export const BasketProvider = ({ children }) => {
 				}
 
 				try {
-					const basketItemsRef = collection(db, "baskets");
+					const basketItemsRef = db.collection("baskets");
 
-					const q = query(
-						basketItemsRef,
-						where("userId", "==", currentUser.uid)
-					);
+					const q = basketItemsRef.where("userId", "==", currentUser.uid);
 
-					unsubscribe = onSnapshot(q, (querySnapshot) => {
+					unsubscribe = q.onSnapshot((querySnapshot) => {
 						const items = querySnapshot.docs.map((doc) => ({
 							id: doc.id,
 							...doc.data(),
@@ -138,7 +122,7 @@ export const BasketProvider = ({ children }) => {
 				throw new Error("Invalid dish data or quantity.");
 			}
 
-			const addItemFunction = httpsCallable(functions, "addItemToBasket"); // Your existing CF name
+			const addItemFunction = functions.httpsCallable("addItemToBasket"); // Your existing CF name
 
 			// The Cloud Function "addItemToBasket" needs to be updated to handle:
 			// 1. The 'quantity' parameter.
@@ -187,10 +171,7 @@ export const BasketProvider = ({ children }) => {
 			`BasketContext: Attempting to remove item ${basketItemId} from restaurant ${restaurantId} via removeItemFromBasket.`
 		);
 		try {
-			const removeItemFunction = httpsCallable(
-				functions,
-				"removeItemFromBasket"
-			);
+			const removeItemFunction = functions.httpsCallable("removeItemFromBasket");
 			await removeItemFunction({
 				userId: currentUser.uid,
 				restaurantId, // CF might not need this if basketItemId is globally unique
@@ -216,7 +197,7 @@ export const BasketProvider = ({ children }) => {
 				throw new Error("You need to be logged in to clear the basket.");
 			}
 
-			const clearBasketFunction = httpsCallable(functions, "clearBasket");
+			const clearBasketFunction = functions.httpsCallable("clearBasket");
 			await clearBasketFunction({
 				userId: currentUser.uid,
 				restaurantId,
@@ -252,10 +233,7 @@ export const BasketProvider = ({ children }) => {
 			newQuantity = Math.max(0, Math.min(10, newQuantity));
 
 			// Call the Cloud Function to update the quantity
-			const updateQuantityFunction = httpsCallable(
-				functions,
-				"updateBasketItemQuantity"
-			);
+			const updateQuantityFunction = functions.httpsCallable("updateBasketItemQuantity");
 			await updateQuantityFunction({
 				userId: currentUser.uid,
 				basketItemId,

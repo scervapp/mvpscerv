@@ -7,7 +7,7 @@ import {
 	StyleSheet,
 	TouchableOpacity,
 } from "react-native";
-import { collection, query, where, getDocs } from "firebase/firestore";
+
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { Picker } from "@react-native-picker/picker";

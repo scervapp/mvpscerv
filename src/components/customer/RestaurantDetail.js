@@ -37,10 +37,7 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
-import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
-import AuthPromptModal from "../global/AuthPromptModal";
-import RestaurantHeader from "./RestaurantHeader";
-import { httpsCallable } from "firebase/functions";
+
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
@@ -72,8 +69,7 @@ const RestaurantDetailScreen = () => {
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
 
-	const customerCancelSeatedCheckIn = httpsCallable(
-		functions,
+	const customerCancelSeatedCheckIn = functions.httpsCallable(
 		"customerCancelSeatedCheckIn"
 	);
 
@@ -100,9 +96,8 @@ const RestaurantDetailScreen = () => {
 	// Fetch user's PIPs (needed by MenuItemsList for SelectedItemModal)
 	useEffect(() => {
 		if (currentUserData?.uid && currentUserData.role !== "guest") {
-			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-			const unsubscribe = onSnapshot(
-				pipsRef,
+			const pipsRef = db.collection(`customers/${currentUserData.uid}/pips`);
+			const unsubscribe = pipsRef.onSnapshot(
 				(snapshot) => {
 					setUserPips(
 						snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -124,9 +119,8 @@ const RestaurantDetailScreen = () => {
 			setIsLoadingRestaurant(false);
 			return;
 		}
-		const restaurantRef = doc(db, "restaurants", restaurant.id);
-		const unsubscribe = onSnapshot(
-			restaurantRef,
+		const restaurantRef = db.collection("restaurants").doc(restaurant.id);
+		const unsubscribe = restaurantRef.onSnapshot(
 			(docSnap) => {
 				if (docSnap.exists()) {
 					// Update our state with the latest data, including the isOpen flag.
@@ -154,11 +148,10 @@ const RestaurantDetailScreen = () => {
 		console.log("Restaurant", restaurant.id);
 
 		setIsLoadingMenu(true);
-		const menuItemsRef = collection(db, "menuItems");
-		const q = query(menuItemsRef, where("restaurantId", "==", restaurant.id));
+		const menuItemsRef = db.collection("menuItems");
+		const q = menuItemsRef.where("restaurantId", "==", restaurant.id);
 
-		const unsubscribe = onSnapshot(
-			q,
+		const unsubscribe = q.onSnapshot(
 			(snapshot) => {
 				// snapshot.docs.map() correctly returns a flat array: [item1, item2, ...]
 				const fetchedMenu = snapshot.docs.map((doc) => ({

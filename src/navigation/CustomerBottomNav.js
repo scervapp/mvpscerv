@@ -24,15 +24,7 @@ import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
 import PartyLobbyScreen from "../screens/customer/PartyLobbyScreen";
-import {
-	collection,
-	query,
-	where,
-	onSnapshot,
-	doc,
-	updateDoc,
-	Timestamp, // <<< Import Timestamp if needed for filtering
-} from "firebase/firestore"; // <<< Import Firestore functions
+
 import { db } from "../config/firebase";
 import { useParty } from "../context/customer/PartyContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -256,15 +248,11 @@ const CustomerBottomNavigation = () => {
 		console.log(
 			`Notification Listener: Setting up for user ${currentUserData.uid}`
 		);
-		const notificationsRef = collection(db, "notifications");
-		const q = query(
-			notificationsRef,
-			where("recipientUserId", "==", currentUserData.uid),
-			where("type", "==", "partyInvite"),
-			where("isRead", "==", false)
-		);
-		const unsubscribe = onSnapshot(
-			q,
+		const notificationsRef = db.collection("notifications");
+		const q = notificationsRef.where("recipientUserId", "==", currentUserData.uid)
+			.where("type", "==", "partyInvite")
+			.where("isRead", "==", false);
+		const unsubscribe = q.onSnapshot(
 			(snapshot) => {
 				snapshot.docChanges().forEach(async (change) => {
 					if (change.type === "added") {
@@ -282,16 +270,16 @@ const CustomerBottomNavigation = () => {
 								{
 									text: "Decline",
 									onPress: async () => {
-										const notifRef = doc(db, "notifications", notification.id);
-										await updateDoc(notifRef, { isRead: true });
+										const notifRef = db.collection("notifications").doc(notification.id);
+										await notifRef.update({ isRead: true });
 									},
 									style: "cancel",
 								},
 								{
 									text: "Join Party",
 									onPress: async () => {
-										const notifRef = doc(db, "notifications", notification.id);
-										await updateDoc(notifRef, { isRead: true });
+										const notifRef = db.collection("notifications").doc(notification.id);
+										await notifRef.update({ isRead: true });
 										const joinedPartyId = await joinParty({
 											partyId: notification.partyId,
 										});

@@ -9,7 +9,7 @@ import {
 	ActivityIndicator,
 	Alert,
 } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
 import { functions } from "../../config/firebase"; // Adjust path
 
 import colors from "../../utils/styles/appStyles"; // Adjust path
@@ -32,7 +32,7 @@ const ManagerPinModal = ({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
 
-	const verifyPinFunction = httpsCallable(functions, "verifyEmployeePin");
+	const verifyPinFunction = functions.httpsCallable("verifyEmployeePin");
 	const [hasVerified, setHasVerified] = useState(false);
 
 	// Reset PIN when modal becomes visible or employee changes

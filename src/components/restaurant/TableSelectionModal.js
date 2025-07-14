@@ -10,7 +10,7 @@ import {
 import { AuthContext } from "../../context/authContext";
 import TableItem from "./TableItem";
 import { Button } from "react-native";
-import { httpsCallable } from "firebase/functions";
+
 import ServerAssignmentModal from "./ServerAssignmentModal";
 import { functions } from "../../config/firebase";
 
@@ -81,8 +81,7 @@ const TableSelectionModal = ({
 	const handleConfirm = async () => {
 		if (table && server) {
 			try {
-				const handleCheckInResponseFunction = httpsCallable(
-					functions,
+				const handleCheckInResponseFunction = functions.httpsCallable(
 					"handleCheckInResponse"
 				);
 

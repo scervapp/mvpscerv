@@ -14,15 +14,7 @@ import {
 	SafeAreaView,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import {
-	addDoc,
-	collection,
-	deleteDoc,
-	doc,
-	onSnapshot,
-	orderBy,
-	query,
-} from "firebase/firestore";
+
 import { db, functions } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
@@ -55,7 +47,7 @@ const PIPSListScreen = () => {
 			return;
 		}
 		try {
-			const pipsRef = collection(db, "customers", currentUserData.uid, "pips");
+			const pipsRef = db.collection("customers").doc(currentUserData.uid).collection("pips");
 			await addDoc(pipsRef, {
 				name: newPipName,
 			});

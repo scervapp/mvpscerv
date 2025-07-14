@@ -12,7 +12,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { fetchRestaurants } from "../../utils/customerUtils";
 import RestaurantCard from "./RestaurantCard";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
@@ -32,7 +32,7 @@ const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) 
 		}
 
 		setIsLoading(true);
-		const restaurantsRef = collection(db, "restaurants");
+		const restaurantsRef = db.collection("restaurants");
 
 		let q;
 
@@ -40,17 +40,16 @@ const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) 
 		if (canViewAll) {
 			// 2. If they have permission, create a query to fetch ALL restaurants.
 			console.log("User has permission. Fetching all restaurants.");
-			q = query(restaurantsRef);
+			q = restaurantsRef;
 		} else {
 			// 3. Otherwise, create a query to fetch ONLY live restaurants.
 			console.log(
 				"User does not have permission. Fetching only live restaurants."
 			);
-			q = query(restaurantsRef, where("isLive", "==", true));
+			q = restaurantsRef.where("isLive", "==", true);
 		}
 
-		const unsubscribe = onSnapshot(
-			q,
+		const unsubscribe = q.onSnapshot(
 			(snapshot) => {
 				const liveRestaurants = snapshot.docs.map((doc) => ({
 					id: doc.id,

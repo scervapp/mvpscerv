@@ -15,7 +15,6 @@ import {
 import { useBasket } from "../../context/customer/BasketContext";
 import { Button, Snackbar } from "react-native-paper";
 import { AuthContext } from "../../context/authContext";
-import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../config/firebase";
 import SelectedItemModal from "./SelectedItemModal";
 import colors from "../../utils/styles/appStyles";

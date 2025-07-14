@@ -7,14 +7,7 @@ import React, {
 	useCallback,
 } from "react";
 import { Alert } from "react-native";
-import {
-	collection,
-	query,
-	where,
-	limit,
-	onSnapshot,
-} from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
+
 import { AuthContext } from "../authContext";
 import { db, functions } from "../../config/firebase";
 
@@ -32,8 +25,8 @@ export const WorkDayProvider = ({ children }) => {
 	const [currentWorkDay, setCurrentWorkDay] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const startWorkDayFunction = httpsCallable(functions, "startWorkDay");
-	const endWorkDayFunction = httpsCallable(functions, "endWorkDay");
+	const startWorkDayFunction = functions.httpsCallable("startWorkDay");
+	const endWorkDayFunction = functions.httpsCallable("endWorkDay");
 
 	// This listener automatically finds the current open work day for the restaurant
 	useEffect(() => {
@@ -45,16 +38,10 @@ export const WorkDayProvider = ({ children }) => {
 		}
 
 		setIsLoading(true);
-		const workDaysRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"work_days"
-		);
-		const q = query(workDaysRef, where("status", "==", "OPEN"), limit(1));
+		const workDaysRef = db.collection("restaurants").doc(restaurantId).collection("work_days");
+		const q = workDaysRef.where("status", "==", "OPEN").limit(1);
 
-		const unsubscribe = onSnapshot(
-			q,
+		const unsubscribe = q.onSnapshot(
 			(snapshot) => {
 				if (!snapshot.empty) {
 					const workDayDoc = snapshot.docs[0];

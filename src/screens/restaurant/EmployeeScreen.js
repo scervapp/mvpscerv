@@ -15,16 +15,9 @@ import {
 	Platform,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import {
-	collection,
-	onSnapshot,
-	query,
-	orderBy,
-	doc,
-	updateDoc,
-} from "firebase/firestore";
+
 import { db, functions } from "../../config/firebase";
-import { httpsCallable } from "firebase/functions";
+
 import { Button, Card, Avatar, IconButton } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Formik } from "formik";
@@ -276,8 +269,8 @@ const EmployeeScreen = () => {
 	const [isActionLoading, setIsActionLoading] = useState(false);
 	const [isModalVisible, setIsModalVisible] = useState(false);
 
-	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
-	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
+	const addEmployeeFunction = functions.httpsCallable("addEmployee");
+	const deleteEmployeeFunction = functions.httpsCallable("deleteEmployee");
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
@@ -286,19 +279,21 @@ const EmployeeScreen = () => {
 			return;
 		}
 
-		const employeesRef = collection(
-			db,
-			"restaurants",
-			restaurantId,
-			"employees"
-		);
-		const q = query(employeesRef, orderBy("lastName", "asc"));
-		const unsubscribe = onSnapshot(
-			q,
-			(snapshot) => {
-				setEmployees(
-					snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-				);
+		// --- REFACTORED FIRESTORE QUERY ---
+		// Use the native SDK's collection().where().orderBy().onSnapshot() chain
+		const employeesQuery = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.orderBy("lastName", "asc");
+
+		const unsubscribe = employeesQuery.onSnapshot(
+			(querySnapshot) => {
+				const fetchedEmployees = querySnapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setEmployees(fetchedEmployees);
 				setIsLoading(false);
 			},
 			(error) => {
@@ -306,15 +301,14 @@ const EmployeeScreen = () => {
 				setIsLoading(false);
 			}
 		);
+
 		return () => unsubscribe();
 	}, [currentUserData?.uid]);
 
 	const handleAddEmployee = async (values) => {
 		setIsActionLoading(true);
-
 		const restaurantId = currentUserData?.uid;
 
-		// Add a guard clause for safety.
 		if (!restaurantId) {
 			Alert.alert(
 				"Error",
@@ -328,17 +322,13 @@ const EmployeeScreen = () => {
 				restaurantId: currentUserData.uid,
 				...values,
 			});
+
 			if (employees.length === 0 && result.data.success) {
-				console.log(
-					"EmployeeScreen: First employee created. Updating restaurant setup status."
-				);
-				const restaurantDocRef = doc(db, "restaurants", restaurantId);
-				await updateDoc(restaurantDocRef, {
+				// --- REFACTORED FIRESTORE UPDATE ---
+				const restaurantDocRef = db.collection("restaurants").doc(restaurantId);
+				await restaurantDocRef.update({
 					hasSetupEmployees: true,
 				});
-				console.log(
-					"EmployeeScreen: Restaurant hasSetupEmployees flag set to true."
-				);
 			}
 			Alert.alert("Success", "Employee added successfully.");
 			setIsModalVisible(false);
@@ -608,3 +598,4 @@ const styles = StyleSheet.create({
 });
 
 export default EmployeeScreen;
+

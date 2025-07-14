@@ -12,8 +12,6 @@ import {
 	Platform, // --- NEW: Import Platform (Optional but good for platform-specific logic)
 	TouchableOpacity,
 } from "react-native";
-import { httpsCallable } from "firebase/functions";
-import { doc, getDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { functions, db } from "../../config/firebase"; // Your Firebase config
 import { AuthContext } from "../../context/authContext";
 import { Picker } from "@react-native-picker/picker";
@@ -81,8 +79,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const fetchInitialData = async () => {
 			setIsDataLoading(true);
 			try {
-				const feesDocRef = doc(db, "appConfig", "general"); // Adjust path
-				const feesSnap = await getDoc(feesDocRef);
+				const feesSnap = await db.collection("appConfig").doc("general").get();
 				if (isMounted && feesSnap.exists()) {
 					setFees(feesSnap.data().fees); // Make sure this is number like 0.05
 				} else if (isMounted) {
@@ -253,8 +250,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 			try {
 				let stripeCustomerId = null;
-				const userDocRef = doc(db, "customers", currentUserData.uid);
-				const userDocSnapshot = await getDoc(userDocRef);
+				const userDocRef = db.collection("customers").doc(currentUserData.uid);
+				const userDocSnapshot = await userDocRef.get();
 				if (
 					userDocSnapshot.exists() &&
 					userDocSnapshot.data().stripeCustomerId

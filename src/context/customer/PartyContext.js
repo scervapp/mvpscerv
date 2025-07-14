@@ -7,16 +7,7 @@ import React, {
 	useCallback,
 } from "react";
 import { Alert } from "react-native";
-import {
-	doc,
-	onSnapshot,
-	collection,
-	query,
-	where,
-	limit,
-	getDocs,
-} from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
+
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../authContext";
 
@@ -63,43 +54,35 @@ export const PartyProvider = ({ children }) => {
 
 	const [uiItemIsUpdating, setUiItemUpdateLoading] = useState(false);
 	// --- Cloud Function References ---
-	const createPartyFunction = httpsCallable(functions, "createParty");
-	const joinPartyFunction = httpsCallable(functions, "joinParty");
-	const leavePartyFunction = httpsCallable(functions, "leaveParty");
-	const activatePartyCheckInFunction = httpsCallable(
-		functions,
+	const createPartyFunction = functions.httpsCallable("createParty");
+	const joinPartyFunction = functions.httpsCallable("joinParty");
+	const leavePartyFunction = functions.httpsCallable("leaveParty");
+	const activatePartyCheckInFunction = functions.httpsCallable(
 		"activatePartyCheckIn"
 	);
-	const cancelPartyCheckInFunction = httpsCallable(
-		functions,
+	const cancelPartyCheckInFunction = functions.httpsCallable(
 		"cancelPartyCheckIn"
 	);
-	const cancelPartyFunction = httpsCallable(functions, "cancelParty");
-	const inviteToPartyFunction = httpsCallable(functions, "inviteToParty");
-	const addLocalPIPToPartyFunction = httpsCallable(
-		functions,
+	const cancelPartyFunction = functions.httpsCallable("cancelParty");
+	const inviteToPartyFunction = functions.httpsCallable("inviteToParty");
+	const addLocalPIPToPartyFunction = functions.httpsCallable(
 		"addLocalPIPToParty"
 	);
-	const addItemToSharedBasketFunction = httpsCallable(
-		functions,
+	const addItemToSharedBasketFunction = functions.httpsCallable(
 		"addItemToSharedBasket"
 	);
-	const updatePartyBasketItemQuantityFunction = httpsCallable(
-		functions,
+	const updatePartyBasketItemQuantityFunction = functions.httpsCallable(
 		"updateSharedBasketItemQuantity"
 	);
-	const removePartyBasketItemFunction = httpsCallable(
-		functions,
+	const removePartyBasketItemFunction = functions.httpsCallable(
 		"removeSharedBasketItem"
 	);
 
-	const sendItemsToChefsQFunction = httpsCallable(
-		functions,
+	const sendItemsToChefsQFunction = functions.httpsCallable(
 		"sendItemsToChefsQ"
 	);
 
-	const sendOrderToKitchenFunction = httpsCallable(
-		functions,
+	const sendOrderToKitchenFunction = functions.httpsCallable(
 		"sendOrderToKitchen"
 	);
 
@@ -159,17 +142,14 @@ export const PartyProvider = ({ children }) => {
 
 		// This query finds any party where the user is listed as a guest (the host is also a guest).
 		// It only looks for parties that are not yet completed or cancelled.
-		const userPartiesQuery = query(
-			collection(db, "parties"),
-			where("guestUserIds", "array-contains", currentUserData.uid),
-			where("status", "in", ["pending", "AWAITING_TABLE", "active"]),
-			limit(1)
-		);
+		const userPartiesQuery = db.collection("parties")
+			.where("guestUserIds", "array-contains", currentUserData.uid)
+			.where("status", "in", ["pending", "AWAITING_TABLE", "active"])
+			.limit(1);
 
 		// --- THE FIX: Use onSnapshot for real-time updates ---
 		// This listener will fire when the app loads, AND when the document it finds is modified or deleted.
-		const unsubscribeUserParty = onSnapshot(
-			userPartiesQuery,
+		const unsubscribeUserParty = userPartiesQuery.onSnapshot(
 			(snapshot) => {
 				if (!snapshot.empty) {
 					// Found an active party for the user
@@ -212,8 +192,8 @@ export const PartyProvider = ({ children }) => {
 		console.log(
 			`PartyContext: Attaching listener to party document: ${currentPartyId}`
 		);
-		const partyRef = doc(db, "parties", currentPartyId);
-		const unsubscribePartyDetails = onSnapshot(partyRef, (docSnap) => {
+		const partyRef = db.collection("parties").doc(currentPartyId);
+		const unsubscribePartyDetails = partyRef.onSnapshot((docSnap) => {
 			if (docSnap.exists()) {
 				setPartyDetails({ id: docSnap.id, ...docSnap.data() });
 			} else {
@@ -236,8 +216,8 @@ export const PartyProvider = ({ children }) => {
 		console.log(
 			`PartyContext: Attaching listener to shared basket: ${currentPartyId}`
 		);
-		const basketRef = doc(db, "shared_baskets", currentPartyId);
-		const unsubscribeBasket = onSnapshot(basketRef, (docSnap) => {
+		const basketRef = db.collection("shared_baskets").doc(currentPartyId);
+		const unsubscribeBasket = basketRef.onSnapshot((docSnap) => {
 			if (docSnap.exists()) {
 				setSharedBasketItems(docSnap.data().items || []);
 			} else {
