@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useContext } from "react";
-import { doc, getDoc } from "firebase/firestore";
+
 import { Text, View, Button } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
@@ -12,8 +12,7 @@ const RestaurantDashboard = ({ navigation }) => {
 
   useEffect(() => {
     const checkProfileCompleted = async () => {
-      const userDoc = doc(db, "users", currentUserData.uid);
-      const userDocSnap = await getDoc(userDoc);
+      const userDocSnap = await db.collection("users").doc(currentUserData.uid).get();
       if (userDocSnap.exists() && userDocSnap.data().completedProfile) {
         // Hide setup button if the profile is already completed
         setIsSetupButtonVisible(false);

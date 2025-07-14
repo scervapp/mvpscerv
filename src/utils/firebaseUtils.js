@@ -1,40 +1,41 @@
 import React from "react";
-import app, { db } from "../config/firebase";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+
 import * as ImagePicker from "expo-image-picker";
+import { nativeStorage, db } from "../config/firebase.native";
 
-import { doc } from "firebase/firestore";
+/* Uploads an image file to Firebase Storage and returns the download URL.
 
-const storage = getStorage(app);
-/**
- * Uploads an image file to a specified path in Firebase Storage.
- * @param {string} localUri The local URI of the file to upload.
- * @param {string} path The path in Firebase Storage (e.g., 'menuItemImages').
- * @returns {Promise<string>} The public download URL of the uploaded image.
+ *
+ * @param {string} uri The local file URI of the image (e.g., from the image picker).
+ * @param {string} path The desired path in Firebase Storage (e.g., 'profile-pictures/user123.jpg').
+ * @returns {Promise<string>} A promise that resolves with the public download URL of the uploaded image.
  */
-export const uploadImage = async (localUri, path) => {
+export const uploadImageAndGetDownloadURL = async (uri, path) => {
+	if (!uri || !path) {
+		throw new Error("Image URI and storage path are required.");
+	}
+
 	try {
-		const response = await fetch(localUri);
-		const blob = await response.blob();
-		const fileRef = ref(
-			storage,
-			`${path}/${Date.now()}-${Math.random().toString(36).substring(7)}`
-		);
+		// --- REFACTORED STORAGE UPLOAD ---
+		// 1. Create a reference directly from the storage object.
+		const storageRef = nativeStorage.ref(path);
 
-		await uploadBytes(fileRef, blob);
+		// 2. Upload the file from the local URI using .putFile().
+		// This automatically handles the file type and upload process on native.
+		await storageRef.putFile(uri);
 
-		// We're done with the blob, close and release it
-		blob.close();
+		// 3. Get the public download URL for the file.
+		const url = await storageRef.getDownloadURL();
 
-		const downloadURL = await getDownloadURL(fileRef);
-		return downloadURL;
+		console.log("Successfully uploaded image. URL:", url);
+		return url;
 	} catch (error) {
-		console.error("Error uploading image to Firebase Storage:", error);
-		Alert.alert(
-			"Upload Failed",
-			"There was a problem uploading your image. Please try again."
-		);
-		throw error; // Re-throw the error to be caught by the caller
+		console.error("Error uploading image:", error);
+		// Handle specific storage errors if needed
+		if (error.code === "storage/unauthorized") {
+			throw new Error("You do not have permission to upload to this location.");
+		}
+		throw new Error("Image upload failed. Please try again.");
 	}
 };
 
@@ -111,7 +112,11 @@ export const clearTable = async (tableId, restaurantId) => {
 	}
 
 	// Path to the specific table document in the subcollection
-	const tableRef = db.collection("restaurants").doc(restaurantId).collection("tables").doc(tableId);
+	const tableRef = db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("tables")
+		.doc(tableId);
 
 	console.log(`clearTable: Resetting table ${tableId} to 'available'.`);
 
@@ -146,7 +151,11 @@ export const fetchTables = (restaurantId, callback, onError) => {
 	try {
 		// --- CORRECTED PATH TO SUBCOLLECTION ---
 		// Instead of collection(db, "tables"), we point to the subcollection.
-		const tablesQuery = db.collection("restaurants").doc(restaurantId).collection("tables").orderBy("name", "asc");
+		const tablesQuery = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.orderBy("name", "asc");
 
 		const unsubscribe = tablesQuery.onSnapshot(
 			(snapshot) => {
@@ -200,7 +209,10 @@ export const fetchEmployeesByRole = async (restaurantId, roles) => {
 	}
 
 	try {
-		const employeesRef = db.collection("restaurants").doc(restaurantId).collection("employees");
+		const employeesRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees");
 
 		// Use the 'in' operator to find any employee whose role is in the provided array
 		const snapshot = await employeesRef.where("role", "in", roles).get();
@@ -236,7 +248,10 @@ export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
 	}
 
 	try {
-		const employeesRef = db.collection("restaurants").doc(restaurantId).collection("employees");
+		const employeesRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees");
 
 		// Use the '==' operator to find all employees with a specific job title
 		const snapshot = await employeesRef.where("jobTitle", "==", jobTitle).get();
@@ -255,16 +270,14 @@ export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
 	}
 };
 /**
- * Fetches employees for a given restaurant, optionally filtering by a single role or an array of roles.
+ * Fetches employees for a given restaurant, optionally filtering by a single job title or an array of job titles.
+ * This function now uses the @react-native- API.
  *
  * @param {string} restaurantId The ID of the restaurant.
- * @param {string|Array<string>} [roles] Optional. A single role string or an array of role strings to filter by.
+ * @param {string|Array<string>} [jobTitles] Optional. A single job title string or an array of job title strings to filter by.
  * @returns {Promise<Array>} A promise that resolves with an array of employee objects.
  */
 export const fetchEmployees = async (restaurantId, jobTitles) => {
-	// --- THIS IS THE FIX ---
-	// The function now queries by `jobTitle` instead of `role`.
-
 	console.log(
 		`firebaseUtils.fetchEmployees: Fetching for restaurant "${restaurantId}" with jobTitles: "${
 			jobTitles || "any"
@@ -277,21 +290,37 @@ export const fetchEmployees = async (restaurantId, jobTitles) => {
 	}
 
 	try {
-		const employeesSubcollectionRef = db.collection("restaurants").doc(restaurantId).collection("employees");
+		const employeesSubcollectionRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees");
 		let employeesQuery;
 
-		// The logic remains the same, but the field name is updated.
+		// The logic for building the query remains the same.
 		if (Array.isArray(jobTitles) && jobTitles.length > 0) {
 			console.log("... using 'in' query for multiple job titles.");
-			employeesQuery = employeesSubcollectionRef.where("jobTitle", "in", jobTitles);
+			employeesQuery = employeesSubcollectionRef.where(
+				"jobTitle",
+				"in",
+				jobTitles
+			);
 		} else if (typeof jobTitles === "string" && jobTitles) {
 			console.log("... using '==' query for a single job title.");
-			employeesQuery = employeesSubcollectionRef.where("jobTitle", "==", jobTitles);
+			employeesQuery = employeesSubcollectionRef.where(
+				"jobTitle",
+				"==",
+				jobTitles
+			);
 		} else {
 			console.log("... no job title filter, fetching all employees.");
 			employeesQuery = employeesSubcollectionRef;
+		}
 
-		const snapshot = await getDocs(employeesQuery);
+		// --- REFACTORED QUERY EXECUTION ---
+
+		const snapshot = await employeesQuery.get();
+
+		// The logic for mapping the results remains the same.
 		const employeesList = snapshot.docs.map((doc) => ({
 			id: doc.id,
 			...doc.data(),
@@ -317,8 +346,11 @@ export const updateCheckIn = async (checkInId, tableId) => {
 	console.log("Updating checkin with checkin id", checkInId);
 	console.log("Updating checkin with table id", tableId);
 	try {
-		const checkInRef = doc(db, "checkIns", checkInId);
-		await updateDoc(checkInRef, {
+		// --- REFACTORED FIRESTORE UPDATE ---
+		// Create the document reference using the native SDK's chained methods
+		const checkInRef = db.collection("checkIns").doc(checkInId);
+		// Call .update() directly on the reference
+		await checkInRef.update({
 			status: "ACCEPTED",
 			tableId: tableId,
 		});
@@ -330,8 +362,9 @@ export const updateCheckIn = async (checkInId, tableId) => {
 // Update a table document
 export const updateTableStatus = async (tableId) => {
 	try {
-		const tableRef = doc(db, "tables", tableId);
-		await updateDoc(tableRef, {
+		// --- REFACTORED FIRESTORE UPDATE ---
+		const tableRef = db.collection("tables").doc(tableId);
+		await tableRef.update({
 			status: "OCCUPIED",
 		});
 	} catch (error) {
@@ -344,16 +377,19 @@ export const sendNotification = async (customerId, tableId) => {
 		`Sending notifications with this customerId: ${customerId} and TableID: ${tableId}`
 	);
 	try {
-		const notificationQuery = query(
-			collection(db, "notifications"),
-			where("customerId", "==", customerId),
-			where("type", "==", "checkIn")
-		);
+		// --- REFACTORED FIRESTORE QUERY ---
+		// Build the query using chained .where() calls
+		const notificationQuery = db
+			.collection("notifications")
+			.where("customerId", "==", customerId)
+			.where("type", "==", "checkIn");
 
-		const notificationSnapshot = await getDocs(notificationQuery);
+		// Execute the query by calling .get()
+		const notificationSnapshot = await notificationQuery.get();
 
+		// The loop logic remains the same, but doc.ref is already a valid reference
 		notificationSnapshot.forEach(async (doc) => {
-			await updateDoc(doc.ref, {
+			await doc.ref.update({
 				tableId: tableId,
 				status: "confirmed",
 			});
@@ -362,3 +398,4 @@ export const sendNotification = async (customerId, tableId) => {
 		console.log("Error sending notification", error);
 	}
 };
+

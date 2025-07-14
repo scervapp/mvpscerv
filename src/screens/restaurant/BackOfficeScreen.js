@@ -12,12 +12,10 @@ import {
 	Dimensions,
 	ActivityIndicator,
 } from "react-native";
-import { db, functions } from "../../config/firebase";
+import { db, functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-
-import { httpsCallable } from "firebase/functions";
 import colors from "../../utils/styles/appStyles";
 
 const { width } = Dimensions.get("window");
@@ -82,7 +80,7 @@ const BackOfficeScreen = ({ navigation }) => {
 
 	const handleCreateConnectedAccount = async () => {
 		try {
-			const createAccount = httpsCallable(functions, "createConnectedAccount");
+			const createAccount = functions.httpsCallable("createConnectedAccount");
 			await createAccount(currentUserData);
 			Alert.alert("Successfully Initialized");
 		} catch (error) {
@@ -96,8 +94,7 @@ const BackOfficeScreen = ({ navigation }) => {
 		setIsStripeLoading(true);
 
 		try {
-			const checkOnboardingStatus = httpsCallable(
-				functions,
+			const checkOnboardingStatus = functions.httpsCallable(
 				"checkOnboardingStatus"
 			);
 			const response = await checkOnboardingStatus({
@@ -128,7 +125,7 @@ const BackOfficeScreen = ({ navigation }) => {
 
 	const handleConnectAccount = async () => {
 		// Redirect to Stripe onboarding URL
-		const createLoginLink = httpsCallable(functions, "createLoginLink");
+		const createLoginLink = functions.httpsCallable("createLoginLink");
 		const response = await createLoginLink({
 			accountId: currentUserData.stripeAccountId,
 		});
@@ -296,3 +293,4 @@ const styles = StyleSheet.create({
 });
 
 export default BackOfficeScreen;
+

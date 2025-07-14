@@ -1,4 +1,14 @@
+import React, {
+	createContext,
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+} from "react";
+import { Alert } from "react-native";
 
+import { AuthContext } from "../authContext";
+import { db, functions } from "../../config/firebase";
 
 const BasketContext = createContext({
 	baskets: {},
@@ -28,9 +38,8 @@ export const BasketProvider = ({ children }) => {
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const sendOrderToKitchenFunction = functions.httpsCallable(
-		"sendOrderToKitchen"
-	);
+	const sendOrderToKitchenFunction =
+		functions.httpsCallable("sendOrderToKitchen");
 	const linkBasketToCheckInFunction = functions.httpsCallable(
 		"linkBasketToCheckIn"
 	);
@@ -171,7 +180,9 @@ export const BasketProvider = ({ children }) => {
 			`BasketContext: Attempting to remove item ${basketItemId} from restaurant ${restaurantId} via removeItemFromBasket.`
 		);
 		try {
-			const removeItemFunction = functions.httpsCallable("removeItemFromBasket");
+			const removeItemFunction = functions.httpsCallable(
+				"removeItemFromBasket"
+			);
 			await removeItemFunction({
 				userId: currentUser.uid,
 				restaurantId, // CF might not need this if basketItemId is globally unique
@@ -233,7 +244,9 @@ export const BasketProvider = ({ children }) => {
 			newQuantity = Math.max(0, Math.min(10, newQuantity));
 
 			// Call the Cloud Function to update the quantity
-			const updateQuantityFunction = functions.httpsCallable("updateBasketItemQuantity");
+			const updateQuantityFunction = functions.httpsCallable(
+				"updateBasketItemQuantity"
+			);
 			await updateQuantityFunction({
 				userId: currentUser.uid,
 				basketItemId,
@@ -333,3 +346,4 @@ export const BasketProvider = ({ children }) => {
 };
 
 export const useBasket = () => useContext(BasketContext);
+

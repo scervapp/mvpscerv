@@ -17,6 +17,7 @@ import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // For icons
 import colors from "../../utils/styles/appStyles";
 
+
 const OrderHistoryScreen = () => {
 	const [orders, setOrders] = useState([]);
 	const [loading, setLoading] = useState(true);
@@ -28,40 +29,41 @@ const OrderHistoryScreen = () => {
 	const fetchOrders = useCallback(async () => {
 		if (!currentUserData?.uid) {
 			setError("User not available.");
-			setOrders([]); // Clear orders if user is not available
+			setOrders([]);
 			setLoading(false);
 			setRefreshing(false);
 			return;
 		}
 
-		setError(null); // Clear previous errors on fetch
+		setError(null);
 
 		try {
-			const q = query(
-				collection(db, "orders"),
-				where("customerId", "==", currentUserData.uid),
-				where("paymentStatus", "==", "paid"),
-				orderBy("timestamp", "desc") // Show newest first
-			);
+			// The query construction is already using the native SDK syntax, which is correct.
+			const q = db
+				.collection("orders")
+				.where("customerId", "==", currentUserData.uid)
+				.where("paymentStatus", "==", "paid")
+				.orderBy("timestamp", "desc");
 
-			const querySnapshot = await getDocs(q);
+			// --- REFACTORED QUERY EXECUTION ---
+
+			const querySnapshot = await q.get();
+
 			const orderList = querySnapshot.docs.map((doc) => {
 				const data = doc.data();
-				// Basic formatting for display in the list
+				// Use the imported firestore object to check the Timestamp type
+				const timestamp = data.timestamp;
 				return {
-					docId: doc.id, // Pass the actual Firestore document ID
-					orderId: data.orderId || "N/A", // Your human-readable ID
+					docId: doc.id,
+					orderId: data.orderId || "N/A",
 					restaurantName:
 						data.items?.[0]?.dish?.restaurantName ||
 						data.restaurantName ||
-						"Restaurant", // Try getting from item or store directly
-					status: data.paymentStatus || "Unknown", // Use paymentStatus
-					totalPrice: data.totalPrice || 0, // Final total paid (in cents)
-					// Convert Firestore Timestamp to JS Date for formatting
-					orderDate:
-						data.timestamp instanceof Timestamp
-							? data.timestamp.toDate()
-							: new Date(),
+						"Restaurant",
+					status: data.paymentStatus || "Unknown",
+					totalPrice: data.totalPrice || 0,
+					// Use the native SDK's toDate() method on the timestamp object
+					orderDate: timestamp ? timestamp.toDate() : new Date(),
 				};
 			});
 
@@ -73,28 +75,25 @@ const OrderHistoryScreen = () => {
 			setLoading(false);
 			setRefreshing(false);
 		}
-	}, [currentUserData?.uid]); // Dependency: re-fetch if user changes
+	}, [currentUserData?.uid]);
 
 	useEffect(() => {
-		setLoading(true); // Set loading true on initial mount
+		setLoading(true);
 		fetchOrders();
-	}, [fetchOrders]); // Run fetchOrders on mount and when it changes (due to user change)
+	}, [fetchOrders]);
 
 	const onRefresh = () => {
 		setRefreshing(true);
 		fetchOrders();
 	};
 
-	// Navigate to the detail screen, passing the FIRESTORE DOCUMENT ID
 	const handleOrderPress = (orderDocId) => {
 		if (!orderDocId) {
 			console.error("Cannot navigate: Missing order document ID");
 			return;
 		}
-		// Navigate to the *new* details screen name
 		navigation.navigate("OrderHistoryDetail", { orderDocId: orderDocId });
 	};
-
 	const renderOrderItem = ({ item }) => {
 		let statusColor = colors.textLight;
 		let statusIcon = "progress-clock"; // Default icon
@@ -109,8 +108,7 @@ const OrderHistoryScreen = () => {
 						{item.restaurantName}
 					</Text>
 					<Text style={styles.orderDate}>
-						{item.orderDate.toLocaleDateString()}
-						3
+						{item.orderDate.toLocaleDateString()}3
 						{item.orderDate.toLocaleTimeString([], {
 							hour: "numeric",
 							minute: "2-digit",
@@ -269,3 +267,4 @@ const styles = StyleSheet.create({
 });
 
 export default OrderHistoryScreen;
+

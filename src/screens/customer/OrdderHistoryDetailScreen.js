@@ -31,8 +31,8 @@ const OrderHistoryDetailScreen = () => {
 	useEffect(() => {
 		let isMounted = true;
 		if (orderDetails?.restaurantId) {
-			const restRef = doc(db, "restaurants", orderDetails.restaurantId);
-			getDoc(restRef)
+			const restRef = db.collection("restaurants").doc(orderDetails.restaurantId);
+			restRef.get()
 				.then((docSnap) => {
 					if (isMounted && docSnap.exists()) {
 						setRestaurantName(docSnap.data().restaurantName || "Restaurant");
@@ -62,9 +62,8 @@ const OrderHistoryDetailScreen = () => {
 		setLoading(true);
 		setError(null);
 
-		const orderRef = doc(db, "orders", orderDocId);
-		const unsubscribe = onSnapshot(
-			orderRef,
+		const orderRef = db.collection("orders").doc(orderDocId);
+		const unsubscribe = orderRef.onSnapshot(
 			(docSnap) => {
 				if (docSnap.exists()) {
 					const data = docSnap.data();

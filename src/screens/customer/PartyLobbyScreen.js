@@ -40,7 +40,6 @@ import { db, functions } from "../../config/firebase";
 
 import { IconButton } from "react-native-paper";
 import PartyLobbyFooter from "../../components/customer/Party/PartyLobbyFooter";
-import { httpsCallable } from "firebase/functions";
 import PartyLobbyHeaderContent from "../../components/customer/Party/PartyLobbyHeaderContent";
 import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
 import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";
@@ -120,14 +119,6 @@ const PartyLobbyScreen = () => {
 	}, []);
 	// --- Effect to handle navigation if party context doesn't match route param ---
 	useEffect(() => {
-		console.log(
-			"PartyLobbyScreen: useEffect for navigation/party mismatch check RUNNING. isLoadingParty:",
-			isLoadingParty,
-			"currentPartyId:",
-			currentPartyId,
-			"initialPartyIdFromRoute:",
-			initialPartyIdFromRoute
-		);
 		// This effect runs when the context's idea of the party changes,
 		// or when the initial loading state of the context resolves.
 		if (!isLoadingParty && partyDetails && currentPartyId) {
@@ -186,10 +177,6 @@ const PartyLobbyScreen = () => {
 
 	// --- NEW: Group Shared Basket Items for Display ---
 	const groupedBasketItems = useMemo(() => {
-		console.log(
-			"PartyLobbyScreen: useMemo for groupedBasketItems RUNNING. sharedBasketItems length:",
-			sharedBasketItems?.length
-		); // Log 10
 		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
 		const groups = {};
 		sharedBasketItems.forEach((item) => {
@@ -221,27 +208,25 @@ const PartyLobbyScreen = () => {
 
 	const fetchPips = async () => {
 		if (!currentUserData?.uid) return;
-		console.log("PartyLobby: Fetching PIPs...");
 		setIsLoadingPips(true);
 		try {
-			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-			const q = query(pipsRef, orderBy("name")); // Order alphabetically
-			const querySnapshot = await getDocs(q);
+			// --- REFACTORED FIRESTORE QUERY ---
+			const pipsQuery = db
+				.collection(`customers/${currentUserData.uid}/pips`)
+				.orderBy("name");
+			const querySnapshot = await pipsQuery.get();
 			const pipsArray = querySnapshot.docs.map((doc) => ({
-				id: doc.id, // Use the Firestore document ID as the PIP's unique ID
+				id: doc.id,
 				...doc.data(),
 			}));
 			setPips(pipsArray);
-			console.log("PartyLobby: PIPs fetched:", pipsArray);
 		} catch (error) {
 			console.error("PartyLobby: Error fetching PIPs:", error);
 			Alert.alert("Error", "Could not load your PIPs list.");
 		} finally {
 			setIsLoadingPips(false);
-			console.log("PartyLobby: fetchPips - Finished."); // <-- Log finish
 		}
 	};
-
 	const handleInvitePip = async () => {
 		console.log("PartyLobby: handleInvitePip - Invite PIP button pressed."); // <-- Log start
 		// Keep existing checks
@@ -267,18 +252,12 @@ const PartyLobbyScreen = () => {
 		if (!currentPartyId || !pipUserId || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			console.log(
-				`PartyLobby: invitePipById - Calling inviteToParty function with partyId: ${currentPartyId}, inviteeUserId: ${pipUserId}`
-			);
 			const result = await inviteToParty({
 				partyId: currentPartyId,
 				inviteeUserId: pipUserId,
 			});
 
 			if (result?.success) {
-				console.log(
-					"PartyLobby: sendInviteToUserPip - inviteToParty call successful."
-				);
 				Alert.alert("Success", `Invite sent to ${pipName}!`);
 				setIsPipModalVisible(false); // Close modal
 			} else {
@@ -480,8 +459,7 @@ const PartyLobbyScreen = () => {
 		// process them, and update their sentToChefQ status.
 		setIsActionLoading(true);
 		try {
-			const sendOrderFunction = httpsCallable(
-				functions,
+			const sendOrderFunction = functions.httpsCallable(
 				"sendPartyOrderToChefsQ"
 			);
 			const result = await sendOrderFunction({ partyId: currentPartyId });
@@ -872,3 +850,4 @@ const styles = StyleSheet.create({
 });
 
 export default PartyLobbyScreen;
+

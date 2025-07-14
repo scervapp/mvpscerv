@@ -5,8 +5,12 @@ import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import functionsService from "@react-native-firebase/functions";
 
+import storage from "@react-native-firebase/storage";
+
 // The native app is initialized automatically by the google-services.json file.
 // We just export the initialized service instances.
 export const db = firestore();
 export const functions = functionsService();
 export { auth };
+
+export const nativeStorage = storage();

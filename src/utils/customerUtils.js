@@ -57,10 +57,6 @@ const fetchMenu = async (restaurantId) => {
 };
 
 const useCheckInStatus = (restaurantId, userId) => {
-	console.log(
-		`--- useCheckInStatus Hook: Initial Call --- R_ID: ${restaurantId}, U_ID: ${userId}`
-	); // Log 1: Hook called
-
 	const [checkInStatus, setStatus] = useState("NONE"); // e.g., NONE, REQUESTED, ACCEPTED, ERROR
 	const [tableNumber, setTableNumber] = useState(null);
 	const [isLoading, setIsLoading] = useState(true); // Start as true when hook is called with valid IDs
@@ -68,93 +64,52 @@ const useCheckInStatus = (restaurantId, userId) => {
 	const [error, setError] = useState(null);
 
 	useEffect(() => {
-		console.log(
-			`useCheckInStatus Effect: Running. R_ID: ${restaurantId}, U_ID: ${userId}`
-		); // Log 2: Effect runs
-
-		// --- Handle null inputs gracefully ---
 		if (!userId || !restaurantId) {
-			console.log(
-				"useCheckInStatus Effect: userId or restaurantId is null/undefined. Resetting state and exiting effect."
-			); // Log 3
 			setStatus("NONE");
 			setTableNumber(null);
-			setIsLoading(false); // No loading if no IDs
+			setIsLoading(false);
 			setCheckInObj(null);
 			setError(null);
-			return; // Don't proceed to query if IDs are missing
+			return;
 		}
-		// --- End null input handling ---
 
-		setIsLoading(true); // Set loading true when we are about to query
-		setError(null); // Clear previous errors
-		console.log(
-			`useCheckInStatus Effect: Setting up Firestore listener for R: ${restaurantId}, U: ${userId}`
-		); // Log 4
+		setIsLoading(true);
+		setError(null);
 
-		const checkInsRef = collection(db, "checkIns");
-		// Query for active check-ins (REQUESTED or ACCEPTED) for this user at this restaurant
-		const q = query(
-			checkInsRef,
-			where("restaurantId", "==", restaurantId),
-			where("customerId", "==", userId),
-			where("status", "in", ["REQUESTED", "ACCEPTED"]), // Only look for active ones
-			limit(1) // Should only be one active check-in per user per restaurant
-		);
+		// --- REFACTORED FIRESTORE QUERY ---
+		const checkInsQuery = db
+			.collection("checkIns")
+			.where("restaurantId", "==", restaurantId)
+			.where("customerId", "==", userId)
+			.where("status", "in", ["REQUESTED", "ACCEPTED"])
+			.limit(1);
 
-		const unsubscribe = onSnapshot(
-			q,
+		const unsubscribe = checkInsQuery.onSnapshot(
 			(querySnapshot) => {
-				console.log(
-					`useCheckInStatus Snapshot: Received update. Found ${querySnapshot.size} matching check-ins.`
-				); // Log 5
-
 				if (!querySnapshot.empty) {
 					const checkInDoc = querySnapshot.docs[0];
 					const checkInData = { id: checkInDoc.id, ...checkInDoc.data() };
-					console.log(
-						"useCheckInStatus Snapshot: Check-in found:",
-						checkInData
-					); // Log 6
-
-					setStatus(checkInData.status || "ERROR"); // Use status from doc, fallback to ERROR
-					setTableNumber(checkInData.table?.name || null); // Assuming table is an object with a name
+					setStatus(checkInData.status || "ERROR");
+					setTableNumber(checkInData.table?.name || null);
 					setCheckInObj(checkInData);
 					setError(null);
 				} else {
-					console.log(
-						"useCheckInStatus Snapshot: No active check-in found (REQUESTED or ACCEPTED)."
-					); // Log 7
-					setStatus("NONE"); // No active check-in means user is not checked in or request was denied/cancelled
+					setStatus("NONE");
 					setTableNumber(null);
 					setCheckInObj(null);
 				}
-				setIsLoading(false); // Finished processing snapshot
-				console.log("useCheckInStatus Snapshot: setIsLoading(false)"); // Log 8
+				setIsLoading(false);
 			},
 			(err) => {
-				console.error("useCheckInStatus Snapshot Error:", err); // Log 9
+				console.error("useCheckInStatus Snapshot Error:", err);
 				setError("Failed to get check-in status.");
 				setStatus("ERROR");
-				setTableNumber(null);
-				setCheckInObj(null);
 				setIsLoading(false);
 			}
 		);
 
-		// Cleanup function
-		return () => {
-			console.log(
-				`useCheckInStatus Effect Cleanup: Unsubscribing listener for R: ${restaurantId}, U: ${userId}`
-			); // Log 10
-			unsubscribe();
-		};
-	}, [restaurantId, userId]); // Dependencies: re-run effect if these change
-
-	// Log the state being returned by the hook
-	console.log(
-		`--- useCheckInStatus Hook: Returning State --- Status: ${checkInStatus}, Table: ${tableNumber}, Loading: ${isLoading}, Error: ${error}`
-	); // Log 11
+		return () => unsubscribe();
+	}, [restaurantId, userId]);
 
 	return { checkInStatus, tableNumber, isLoading, checkInObj, error };
 };
@@ -166,7 +121,6 @@ const checkIn = async (
 	customerName,
 	partyId = null
 ) => {
-	// --- Suggestion: Add more validation ---
 	if (!restaurantId || !customerId || !partySize || !customerName) {
 		throw new Error("Missing required check-in information.");
 	}
@@ -174,15 +128,15 @@ const checkIn = async (
 		throw new Error("Invalid party size.");
 	}
 	try {
-		const checkInRef = doc(collection(db, "checkIns"));
+		// --- REFACTORED DOCUMENT CREATION ---
+		const checkInRef = db.collection("checkIns").doc(); // Auto-generate ID
 		const checkInData = {
 			restaurantId,
 			customerId,
-
 			numberOfPeople: parseInt(partySize, 10),
 			customerName,
 			status: "REQUESTED",
-			timestamp: new Date(),
+			timestamp: firestore.FieldValue.serverTimestamp(), // Use native server timestamp
 			type: partyId ? "party" : "individual",
 		};
 
@@ -190,29 +144,16 @@ const checkIn = async (
 			checkInData.associatedPartyId = partyId;
 		}
 
-		await setDoc(checkInRef, checkInData);
+		await checkInRef.set(checkInData); // Use .set() on the document reference
 
-		console.log(`checkIn: Document ${checkInRef.id} created.`);
-
-		// Update user's active checkInStatus
-		const userRef = doc(db, "customers", customerId);
-
-		try {
-			await updateDoc(userRef, {
-				activeCheckIn: {
-					restaurantId,
-					status: "REQUESTED",
-					checkInId: checkInRef.id,
-				},
-			});
-			console.log(`checkIn: Updated activeCheckIn for user ${customerId}.`);
-		} catch (userUpdateError) {
-			// Log error but don't necessarily fail the whole check-in
-			console.error(
-				`checkIn: Failed to update activeCheckIn for user ${customerId}:`,
-				userUpdateError
-			);
-		}
+		const userRef = db.collection("customers").doc(customerId);
+		await userRef.update({
+			activeCheckIn: {
+				restaurantId,
+				status: "REQUESTED",
+				checkInId: checkInRef.id,
+			},
+		});
 
 		return { success: true, checkInId: checkInRef.id };
 	} catch (error) {
@@ -222,47 +163,30 @@ const checkIn = async (
 };
 // Function to handle canceling a check-in request
 const handleCancelCheckIn = async (restaurantId, userId) => {
-	// --- Suggestion: Add validation ---
 	if (!restaurantId || !userId) {
 		Alert.alert("Error", "Missing information to cancel check-in.");
-		return false; // Indicate failure
+		return false;
 	}
 	try {
-		// Call the cancelCheckIn Cloud Function
-		const cancelCheckInFunction = httpsCallable(functions, "cancelCheckIn");
+		// --- REFACTORED CLOUD FUNCTION CALL ---
+		const cancelCheckInFunction = functions.httpsCallable("cancelCheckIn");
 		const result = await cancelCheckInFunction({
 			userId: userId,
 			restaurantId: restaurantId,
 		});
 
 		if (result.data.success) {
-			// Update local state to reflect cancellation
-			// --- Client-side update (Optional but good UX) ---
-			// Immediately remove the activeCheckIn field from the user's doc locally.
-			// The Cloud Function should ALSO do this reliably on the backend.
-			try {
-				const userRef = doc(db, "customers", userId);
-				await updateDoc(userRef, {
-					activeCheckIn: FieldValue.delete(),
-				});
-				console.log(`Client-side: Cleared activeCheckIn for user ${userId}`);
-			} catch (clientUpdateError) {
-				// Log this error but don't necessarily fail the whole operation,
-				// as the backend function is the source of truth.
-				console.warn(
-					"Client-side activeCheckIn clear failed:",
-					clientUpdateError
-				);
-			}
-
+			// --- REFACTORED FIRESTORE UPDATE ---
+			const userRef = db.collection("customers").doc(userId);
+			await userRef.update({
+				activeCheckIn: firestore.FieldValue.delete(), // Use native delete field value
+			});
 			Alert.alert("Success", "Your check-in request has been cancelled.");
 			return true;
 		} else {
-			// Handle cancellation failure
 			Alert.alert(
 				"Cancellation Failed",
-				result.data.error ||
-					"Unable to cancel check-in request. Please try again."
+				result.data.error || "Unable to cancel check-in request."
 			);
 			return false;
 		}
@@ -289,6 +213,10 @@ const handleCancelCheckIn = async (restaurantId, userId) => {
  * @returns {Promise<boolean>} - True if the check-in request was successfully created, false otherwise.
  *
  */
+/**
+ * Handles the process of initiating a check-in request for a party.
+ * This function has been refactored to use the native Firestore API.
+ */
 export const handlePartyCheckInRequest = async (
 	currentUserData,
 	restaurantId,
@@ -296,7 +224,6 @@ export const handlePartyCheckInRequest = async (
 	currentPartyId,
 	partyStatus
 ) => {
-	// --- Validation ---
 	if (!currentUserData?.uid || !restaurantId) {
 		Alert.alert("Error", "User or restaurant data missing.");
 		return false;
@@ -306,36 +233,18 @@ export const handlePartyCheckInRequest = async (
 		return false;
 	}
 
-	// --- Check for existing check-ins at other restaurants (Copied from original handleCheckin) ---
-	const userRef = doc(db, "customers", currentUserData.uid);
+	// --- REFACTORED FIRESTORE READ ---
+	const userRef = db.collection("customers").doc(currentUserData.uid);
 	try {
-		const userSnap = await getDoc(userRef);
-		if (userSnap.exists() && userSnap.data().activeCheckIn) {
-			// Check BOTH user exists AND activeCheckIn field exists
+		const userSnap = await userRef.get(); // Use .get()
+		if (userSnap.exists && userSnap.data().activeCheckIn) {
 			const activeCheckInData = userSnap.data().activeCheckIn;
-			// Now it's safe to access properties of activeCheckInData
 			if (activeCheckInData.restaurantId !== restaurantId) {
-				// Fetch the other restaurant's name for a better message
-				let otherRestaurantName = "another restaurant";
-				try {
-					const otherRestRef = doc(
-						db,
-						"restaurants",
-						activeCheckInData.restaurantId
-					);
-					const otherRestSnap = await getDoc(otherRestRef);
-					if (otherRestSnap.exists()) {
-						otherRestaurantName =
-							otherRestSnap.data().restaurantName || otherRestaurantName;
-					}
-				} catch (e) {
-					/* ignore name fetch error */
-				}
 				Alert.alert(
 					"Check-in Blocked",
-					`You already have an active check-in request at ${otherRestaurantName}. Please cancel it or wait for it to complete before checking in here.`
+					"You already have an active check-in at another restaurant."
 				);
-				return false; // Indicate failure
+				return false;
 			}
 		}
 	} catch (error) {
@@ -343,46 +252,32 @@ export const handlePartyCheckInRequest = async (
 		Alert.alert("Error", "Could not verify current check-in status.");
 		return false;
 	}
-	// --- End check ---
 
 	const customerName = `${currentUserData.firstName || ""} ${
 		currentUserData.lastName || ""
 	}`.trim();
 
 	try {
-		// --- Step 1: Call the core checkIn utility, passing partyId ---
-		console.log(
-			`handlePartyCheckInRequest: Calling core checkIn for party ${currentPartyId}`
-		);
 		const { success, checkInId } = await checkIn(
 			restaurantId,
 			currentUserData.uid,
 			partySize,
 			customerName,
-			currentPartyId // <<< Pass partyId to core checkIn
+			currentPartyId
 		);
-
 		if (success && checkInId) {
-			// --- Step 2: Activate party using the context function ---
-			// Note: The checkIn utility already set status to REQUESTED and updated user's activeCheckIn
-			console.log(
-				`handlePartyCheckInRequest: Check-in ${checkInId} created, attempting to activate party ${currentPartyId}...`
-			);
-
-			return { success: true, checkInId: checkInId }; // Indicate overall success
+			return { success: true, checkInId: checkInId };
 		} else {
-			// checkIn utility failed (should have thrown an error, but handle just in case)
 			Alert.alert("Check-In Failed", "Could not create check-in request.");
-			return false; // Indicate failure
+			return false;
 		}
 	} catch (error) {
-		// Catch errors from checkIn or activatePartyCheckIn
 		console.error("Error during party check-in request:", error);
 		Alert.alert(
 			"Error",
 			`An error occurred while checking in the party: ${error.message}`
 		);
-		return { success: false, checkInId: null }; // Indicate failure
+		return { success: false, checkInId: null };
 	}
 };
 
@@ -402,46 +297,30 @@ const requestPartyTableCheckIn = async (
 	partySize,
 	partyId
 ) => {
-	console.log("requestPartyTableCheckIn utility called with:", {
-		restaurantId,
-		customerId: hostUserId,
-		hostName,
-		partySize,
-		partyId,
-	});
-
 	if (!restaurantId || !hostUserId || !hostName || !partySize || !partyId) {
-		console.error("requestPartyTableCheckIn: Missing required parameters.");
 		return {
 			success: false,
 			error: "Missing required information for party check-in.",
 		};
 	}
 	if (isNaN(parseInt(partySize, 10)) || parseInt(partySize, 10) <= 0) {
-		console.error("requestPartyTableCheckIn: Invalid party size.", {
-			partySize,
-		});
 		return { success: false, error: "Invalid party size provided." };
 	}
 
 	try {
-		const checkInRef = doc(collection(db, "checkIns")); // Create a new document reference with auto-generated ID
+		// --- REFACTORED DOCUMENT CREATION ---
+		const checkInRef = db.collection("checkIns").doc();
 		const checkInData = {
 			restaurantId: restaurantId,
-			customerId: hostUserId, // The user performing the check-in (the host)
-			customerName: hostName, // Name of the host
+			customerId: hostUserId,
+			customerName: hostName,
 			numberOfPeople: parseInt(partySize, 10),
-			status: "REQUESTED", // Initial status for a new check-in
-			timestamp: serverTimestamp(), // Firestore server timestamp
-			type: "party", // Differentiate from individual check-ins
-			associatedPartyId: partyId, // Link to the party document
-			// You can add other relevant fields, e.g., tableNumber: null initially
+			status: "REQUESTED",
+			timestamp: firestore.FieldValue.serverTimestamp(), // Use native server timestamp
+			type: "party",
+			associatedPartyId: partyId,
 		};
-
-		await setDoc(checkInRef, checkInData);
-		console.log(
-			`requestPartyTableCheckIn: Party check-in document ${checkInRef.id} created for party ${partyId}.`
-		);
+		await checkInRef.set(checkInData); // Use .set()
 		return { success: true, checkInId: checkInRef.id };
 	} catch (error) {
 		console.error(
@@ -547,3 +426,4 @@ export {
 	transformBasketData,
 	requestPartyTableCheckIn,
 };
+

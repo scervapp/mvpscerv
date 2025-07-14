@@ -7,7 +7,7 @@ import React, {
 	useCallback,
 } from "react";
 
-import { auth, db, functions } from "../config/firebase";
+import { auth, db, functions } from "../config/firebase.native";
 
 export const AuthContext = createContext();
 

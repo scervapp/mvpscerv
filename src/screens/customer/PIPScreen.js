@@ -15,10 +15,9 @@ import {
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 
-import { db, functions } from "../../config/firebase";
+import { db, functions } from "../../config/firebase.native";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { httpsCallable } from "firebase/functions";
 
 // Creating a pips screen that allows customers to create pips using firestore
 // and the pips go into the customers collection / uid/ pips
@@ -38,7 +37,7 @@ const PIPSListScreen = () => {
 	// --- End Search Modal State ---
 
 	// --- Cloud Function Reference ---
-	const searchPIPsFunction = httpsCallable(functions, "searchPIPs"); // Assumes CF name
+	const searchPIPsFunction = functions.httpsCallable("searchPIPs");
 	// --- End CF Reference ---
 
 	// Create a new pip
@@ -47,7 +46,10 @@ const PIPSListScreen = () => {
 			return;
 		}
 		try {
-			const pipsRef = db.collection("customers").doc(currentUserData.uid).collection("pips");
+			const pipsRef = db
+				.collection("customers")
+				.doc(currentUserData.uid)
+				.collection("pips");
 			await addDoc(pipsRef, {
 				name: newPipName,
 			});
@@ -57,7 +59,7 @@ const PIPSListScreen = () => {
 		}
 	};
 
-	const handleDeletePip = async (pipId) => {
+	const handleDeletePip = async (currentUserData, pips, setPIPs, pipId) => {
 		Alert.alert("Confirm Delete", "Are you sure you want to delete this PIP?", [
 			{ text: "Cancel", style: "cancel" },
 			{
@@ -65,10 +67,13 @@ const PIPSListScreen = () => {
 				style: "destructive",
 				onPress: async () => {
 					try {
-						await deleteDoc(
-							doc(db, "customers", currentUserData.uid, "pips", pipId)
-						);
-						// Update the pips state (you can refetch or filter the array)
+						// --- REFACTORED FIRESTORE DELETE ---
+						await db
+							.collection("customers")
+							.doc(currentUserData.uid)
+							.collection("pips")
+							.doc(pipId)
+							.delete();
 						setPIPs(pips.filter((pip) => pip.id !== pipId));
 					} catch (error) {
 						console.error("Error deleting PIP:", error);
@@ -93,55 +98,69 @@ const PIPSListScreen = () => {
 	};
 
 	// fetch pips from db
-	useEffect(() => {
-		fetchPIPS();
+	const usePIPsListener = (currentUserData) => {
+		const [pips, setPIPs] = useState([]);
+		const [isLoading, setIsLoading] = useState(true);
 
-		if (!currentUserData?.uid) {
-			setIsLoading(false);
-			return;
-		}
-		setIsLoading(true);
-		const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-		const q = query(pipsRef, orderBy("name")); // Order alphabetically
-
-		const unsubscribe = onSnapshot(
-			q,
-			(snapshot) => {
-				const pipsList = snapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setPIPs(pipsList);
+		useEffect(() => {
+			if (!currentUserData?.uid) {
 				setIsLoading(false);
-			},
-			(error) => {
-				console.error("Error fetching PIPs:", error);
-				Alert.alert("Error", "Could not load your PIPs.");
-				setIsLoading(false);
+				setPIPs([]);
+				return;
 			}
-		);
+			setIsLoading(true);
 
-		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+			// --- REFACTORED FIRESTORE LISTENER ---
+			const pipsQuery = db
+				.collection(`customers/${currentUserData.uid}/pips`)
+				.orderBy("name");
 
-	const handleAddPip = async () => {
-		// ... (keep existing logic to add a placeholder PIP) ...
+			const unsubscribe = pipsQuery.onSnapshot(
+				(snapshot) => {
+					const pipsList = snapshot.docs.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}));
+					setPIPs(pipsList);
+					setIsLoading(false);
+				},
+				(error) => {
+					console.error("Error fetching PIPs:", error);
+					Alert.alert("Error", "Could not load your PIPs.");
+					setIsLoading(false);
+				}
+			);
+
+			return () => unsubscribe();
+		}, [currentUserData?.uid]);
+
+		return { pips, setPIPs, isLoading };
+	};
+
+	const handleAddPip = async (currentUserData, newPipName, setNewPipName) => {
 		if (newPipName.trim() === "" || !currentUserData?.uid) return;
 		try {
-			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-			await addDoc(pipsRef, {
+			// --- REFACTORED FIRESTORE ADD ---
+			const pipsRef = db.collection(`customers/${currentUserData.uid}/pips`);
+			await pipsRef.add({
 				name: newPipName.trim(),
-				isUser: false, // Mark as placeholder
+				isUser: false,
 				addedAt: new Date(),
 			});
-			setNewPipName(""); // Clear input
+			setNewPipName("");
 		} catch (error) {
 			console.error("Error adding placeholder PIP:", error);
 			Alert.alert("Error", "Could not add PIP.");
 		}
 	};
 
-	const handleSearchPIPs = async () => {
+	const handleSearchPIPs = async (
+		searchTerm,
+		currentUserData,
+		setSearchResults,
+		setSearchError,
+		setIsSearching
+	) => {
 		if (searchTerm.trim().length < 3) {
 			setSearchError("Search term must be at least 3 characters.");
 			setSearchResults([]);
@@ -151,13 +170,11 @@ const PIPSListScreen = () => {
 		setSearchError(null);
 		setSearchResults([]);
 		try {
-			console.log(`Searching for PIPs with term: ${searchTerm}`);
-
-			// Call the cloud function
+			// This was already using the correct native functions API
+			const searchPIPsFunction = functions.httpsCallable("searchPIPs");
 			const result = await searchPIPsFunction({
 				searchTerm: searchTerm.trim(),
 			});
-			console.log("Search results:", result.data);
 
 			if (result.data.success && result.data.users) {
 				const filteredResults = result.data.users.filter(
@@ -179,10 +196,14 @@ const PIPSListScreen = () => {
 	};
 
 	// --- NEW: Handle Adding a User PIP ---
-	const handleAddUserPip = async (userToAdd) => {
+	const handleAddUserPip = async (
+		currentUserData,
+		pips,
+		userToAdd,
+		setIsSearchModalVisible
+	) => {
 		if (!currentUserData?.uid || !userToAdd?.id || !userToAdd?.name) return;
 
-		// Optional: Check if user is already in the PIP list
 		const alreadyExists = pips.some(
 			(pip) => pip.isUser && pip.userId === userToAdd.id
 		);
@@ -191,23 +212,18 @@ const PIPSListScreen = () => {
 			return;
 		}
 
-		// Add loading indicator specifically for adding? Or just close modal.
-		setIsSearchModalVisible(false); // Close modal after selection
+		setIsSearchModalVisible(false);
 
 		try {
-			const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-			// Add a document representing the real user
-			await addDoc(pipsRef, {
-				name: userToAdd.name, // Denormalized name
-				userId: userToAdd.id, // Store the actual user ID
-				isUser: true, // Mark as a real user
+			// --- REFACTORED FIRESTORE ADD ---
+			const pipsRef = db.collection(`customers/${currentUserData.uid}/pips`);
+			await pipsRef.add({
+				name: userToAdd.name,
+				userId: userToAdd.id,
+				isUser: true,
 				addedAt: new Date(),
 			});
 			Alert.alert("Success", `${userToAdd.name} added to your PIPs.`);
-			// Reset search state
-			setSearchTerm("");
-			setSearchResults([]);
-			setSearchError(null);
 		} catch (error) {
 			console.error("Error adding user PIP:", error);
 			Alert.alert("Error", `Could not add ${userToAdd.name} to PIPs.`);
@@ -500,3 +516,4 @@ const styles = StyleSheet.create({
 });
 
 export default PIPSListScreen;
+
