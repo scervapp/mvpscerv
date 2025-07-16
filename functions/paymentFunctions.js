@@ -116,46 +116,89 @@ const createOrderFromPartyPayment = async (
 	);
 
 	try {
-		// We will perform all database operations inside a single, atomic transaction.
 		await db.runTransaction(async (transaction) => {
-			// --- STEP 1: Fetch all necessary documents ---
+			// 1. Fetch all necessary documents
 			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 			const pendingOrderDoc = await transaction.get(pendingOrderRef);
-			if (!pendingOrderDoc.exists) {
+			if (!pendingOrderDoc.exists)
 				throw new Error(`Pending order ${orderId} not found.`);
-			}
+
 			const orderDetails = pendingOrderDoc.data();
-			const { partyId, customerId, restaurantId, items } = orderDetails;
+			const {
+				partyId,
+				customerId,
+				restaurantId,
+				items,
+				table,
+				server,
+				checkInId,
+				checkInTimestamp: rawTimestamp,
+				subtotal,
+				gratuity,
+			} = orderDetails;
 
 			const partyRef = db.collection("parties").doc(partyId);
 			const partyDoc = await transaction.get(partyRef);
-			if (!partyDoc.exists) {
-				throw new Error(`Party ${partyId} not found.`);
-			}
+			if (!partyDoc.exists) throw new Error(`Party ${partyId} not found.`);
 			const partyData = partyDoc.data();
 
-			// --- STEP 2: Create the final 'orders' document ---
+			// 2. Find the active workday for the restaurant.
+			const workDaysRef = db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.collection("work_days");
+			const openWorkDayQuery = workDaysRef
+				.where("status", "==", "OPEN")
+				.limit(1);
+			const openWorkDaySnapshot = await transaction.get(openWorkDayQuery);
+			const activeWorkDayId = openWorkDaySnapshot.empty
+				? null
+				: openWorkDaySnapshot.docs[0].id;
+
+			// 3. Create the final 'orders' document with a consistent structure
 			const finalOrderRef = db.collection("orders").doc(orderId);
 			const generatedOrderId = await generateOrderId(restaurantId, customerId);
-			transaction.set(finalOrderRef, {
-				...orderDetails,
+
+			let finalCheckInTimestamp = null;
+			if (rawTimestamp && rawTimestamp._seconds) {
+				finalCheckInTimestamp = new admin.firestore.Timestamp(
+					rawTimestamp._seconds,
+					rawTimestamp._nanoseconds || 0
+				);
+			}
+
+			// --- THIS IS THE FIX ---
+			// We now build the orderData object field-by-field to match the individual order format exactly.
+			const orderData = {
+				id: finalOrderRef.id,
 				orderId: generatedOrderId,
-				status: "paid",
-				paymentIntentId: paymentIntent.id,
-				paidAt: admin.firestore.FieldValue.serverTimestamp(),
+				restaurantId: restaurantId,
+				userId: customerId,
+				workdayId: activeWorkDayId, // This makes it appear in reports
+				items: items,
+				table: table || null,
+				server: server || null,
+				checkInId: checkInId || null,
+				checkInTimestamp: finalCheckInTimestamp,
+				subtotal: subtotal,
+				gratuity: gratuity,
+				platformFeeActual: paymentIntent.application_fee_amount || 0,
 				stripeFeeActual: stripeFeeActual,
 				totalPrice: paymentIntent.amount,
-			});
+				paymentStatus: "paid",
+				orderStatus: "confirmed",
+				timestamp: admin.firestore.FieldValue.serverTimestamp(),
+			};
 
+			transaction.set(finalOrderRef, orderData);
 			// --- STEP 3: Update the user's payment status within the party ---
 			const guestPips = partyData.guestPips || [];
-			let allMembersHavePaid = true; // Assume true, prove false
+			let allMembersHavePaid = true;
 			const updatedGuestPips = guestPips.map((pip) => {
 				let updatedPip = { ...pip };
 				if (pip.userId === customerId) {
 					updatedPip.paymentStatus = "paid";
 				}
-				// Check if any other paying member has not paid yet
 				if (updatedPip.userId && updatedPip.paymentStatus !== "paid") {
 					allMembersHavePaid = false;
 				}
@@ -185,16 +228,14 @@ const createOrderFromPartyPayment = async (
 			// --- STEP 5: Delete the pending order document ---
 			transaction.delete(pendingOrderRef);
 
-			// --- STEP 6: Check if the party is now complete and perform final cleanup ---
+			// --- STEP 6: If all members have paid, perform final cleanup ---
 			if (allMembersHavePaid) {
 				console.log(
 					`All members of party ${partyId} have now paid. Performing final cleanup.`
 				);
 
-				// Delete the main party document
-				transaction.delete(partyRef);
+				transaction.delete(partyRef); // Delete the main party document
 
-				// Update the table status
 				if (partyData.table.id && partyData.restaurantId) {
 					const tableRef = db
 						.collection("restaurants")
@@ -208,7 +249,6 @@ const createOrderFromPartyPayment = async (
 					});
 				}
 
-				// Update the check-in status
 				if (partyData.checkInId) {
 					const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
 					transaction.update(checkInRef, {
@@ -217,7 +257,6 @@ const createOrderFromPartyPayment = async (
 					});
 				}
 
-				// Clear activeCheckIn for all paying members
 				updatedGuestPips.forEach((member) => {
 					if (member.userId) {
 						const customerRef = db.collection("customers").doc(member.userId);
@@ -232,7 +271,6 @@ const createOrderFromPartyPayment = async (
 		);
 	} catch (error) {
 		console.error("Error in createOrderFromPartyPayment:", error);
-		// We log the error but don't re-throw, so the webhook can still return a 200 to Stripe.
 	}
 };
 
@@ -249,126 +287,155 @@ const createOrderFromIndividualPayment = async (
 	stripeFeeActual
 ) => {
 	console.log(
-		`[Webhook Log] Starting createOrderFromIndividualPayment Second for pending order: ${orderId}`
+		`[Webhook Log] 1. Starting createOrderFromIndividualPayment for pending order: ${orderId}`
 	);
 
 	try {
-		// --- THIS IS THE FIX ---
-		// STEP 1: Fetch the complete order data from the 'pending_orders' collection.
+		// STEP 1: Fetch the pending order document.
 		const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 		const pendingOrderDoc = await pendingOrderRef.get();
 
 		if (!pendingOrderDoc.exists) {
+			// This is a critical failure point.
 			console.error(
-				`CRITICAL: Pending order ${orderId} not found. Cannot create final order.`
+				`[Webhook Log] 2. CRITICAL: Pending order ${orderId} not found. Aborting.`
 			);
-			return; // Exit the function if the pending order doesn't exist.
+			return; // Exit the function.
 		}
+		console.log(
+			`[Webhook Log] 2. Successfully fetched pending order ${orderId}.`
+		);
 
 		const orderDetails = pendingOrderDoc.data();
 
-		// Now we have all the correct data, including items, checkInId, etc.
 		const {
 			restaurantId,
-			customerId, // Changed from userId to customerId
+			customerId,
 			items,
 			table,
 			server,
-			checkInId, // This is now guaranteed to exist
-			checkInTimestamp = null, // Default to null if undefined
+			checkInId,
+			checkInTimestamp: rawTimestamp,
 			subtotal,
 			gratuity,
 		} = orderDetails;
 
 		// STEP 2: Generate the human-readable Order ID
-		const generatedOrderId = await generateOrderId(restaurantId, customerId); // Use customerId here
-		console.log(`[Webhook Log] Generated Order ID: ${generatedOrderId}`);
+		const generatedOrderId = await generateOrderId(restaurantId, customerId);
+		console.log(
+			`[Webhook Log] 3. Generated human-readable Order ID: ${generatedOrderId}`
+		);
 
-		// STEP 3: Prepare the final order data using the fetched details
-		const newOrderRef = db.collection("orders").doc(orderId); // Use the same ID for the final order
+		// STEP 3: Convert the timestamp safely
+		let finalCheckInTimestamp = null;
+		if (rawTimestamp && typeof rawTimestamp.toDate === "function") {
+			finalCheckInTimestamp = rawTimestamp; // It's already a Firestore Timestamp
+		} else if (rawTimestamp && rawTimestamp._seconds) {
+			finalCheckInTimestamp = new admin.firestore.Timestamp(
+				rawTimestamp._seconds,
+				rawTimestamp._nanoseconds || 0
+			);
+		}
+		console.log(`[Webhook Log] 4. Processed checkInTimestamp.`);
+
+		// STEP 4: Prepare the final order data
+		const newOrderRef = db.collection("orders").doc(orderId);
 		const orderData = {
 			id: newOrderRef.id,
 			orderId: generatedOrderId,
-			restaurantId: restaurantId,
-			userId: customerId, // Store as userId in the final order
-			items: items, // Use the items from the pending order
-			table: table,
-			server: server,
-			checkInId: checkInId, // This is now correctly defined
-			checkInTimestamp: checkInTimestamp,
-			subtotal: subtotal,
-			gratuity: gratuity,
+			restaurantId,
+			userId: customerId,
+			items,
+			table: table || null,
+			server: server || null,
+			checkInId: checkInId || null,
+			checkInTimestamp: finalCheckInTimestamp,
+			subtotal,
+			gratuity,
 			platformFeeActual: paymentIntent.application_fee_amount || 0,
-			stripeFeeActual: stripeFeeActual,
+			stripeFeeActual,
 			totalPrice: paymentIntent.amount,
 			paymentStatus: "paid",
 			orderStatus: "confirmed",
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 		};
+		console.log(
+			`[Webhook Log] 5. Prepared final order data for doc ${newOrderRef.id}.`
+		);
 
-		// STEP 4: Use a batch write to perform all updates atomically
+		// STEP 5: Use a batch write to perform all database updates atomically
 		const batch = db.batch();
+		console.log("[Webhook Log] 6. Initialized Firestore batch.");
 
 		// Action 1: Create the new order document
 		batch.set(newOrderRef, orderData);
+		console.log(`[Webhook Log] 7. Queued SET for new order ${newOrderRef.id}.`);
 
-		// Action 2: Query for and delete all items from the user's basket for that restaurant.
+		// Action 2: Delete the user's basket items
 		const basketQuery = db
 			.collection("baskets")
 			.where("userId", "==", customerId)
 			.where("restaurantId", "==", restaurantId);
-
 		const basketSnapshot = await basketQuery.get();
 		if (!basketSnapshot.empty) {
+			basketSnapshot.forEach((doc) => batch.delete(doc.ref));
 			console.log(
-				`[Webhook Log] Found ${basketSnapshot.size} basket items to delete for user ${customerId}.`
+				`[Webhook Log] 8. Queued DELETE for ${basketSnapshot.size} basket items.`
 			);
-			basketSnapshot.forEach((doc) => {
-				batch.delete(doc.ref);
-			});
 		}
 
-		// Action 2: Update the table status
 		if (table && table.id) {
 			const tableRef = db
 				.collection("restaurants")
 				.doc(restaurantId)
 				.collection("tables")
 				.doc(table.id);
+
 			batch.update(tableRef, {
-				status: "checkedOut",
+				status: "checkedOut", // Correctly set the status
 				currentCheckInId: null,
 				currentCustomerId: null,
 			});
+			console.log(
+				`[Webhook Log] Queued UPDATE for table ${table.id} to 'needsCleaning'.`
+			);
 		}
 
-		// Action 3: Update the check-in status
+		// Action 3: Update check-in and customer status
 		if (checkInId) {
-			const checkInRef = db.collection("checkIns").doc(checkInId);
-			batch.update(checkInRef, {
+			batch.update(db.collection("checkIns").doc(checkInId), {
 				status: "COMPLETED",
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
+			console.log(`[Webhook Log] 9. Queued UPDATE for checkIn ${checkInId}.`);
 		}
-
-		// Action 4: Clear the customer's active check-in
 		if (customerId) {
-			// Use customerId here
-			const customerRef = db.collection("customers").doc(customerId); // Use customerId here
-			batch.update(customerRef, { activeCheckIn: null });
+			batch.update(db.collection("customers").doc(customerId), {
+				activeCheckIn: null,
+			});
+			console.log(
+				`[Webhook Log] 10. Queued UPDATE for customer ${customerId}.`
+			);
 		}
 
-		// Action 5: Delete the original pending order document
+		// Action 4: Delete the pending order document
 		batch.delete(pendingOrderRef);
+		console.log(
+			`[Webhook Log] 11. Queued DELETE for pending order ${orderId}.`
+		);
 
 		// Commit all changes at once
 		await batch.commit();
 		console.log(
-			`✅ Successfully created order ${newOrderRef.id} and cleaned up pending order.`
+			`[Webhook Log] 12. ✅ BATCH COMMITTED SUCCESSFULLY! Order ${newOrderRef.id} is now permanent.`
 		);
 	} catch (error) {
-		console.error("Error in createOrderFromIndividualPayment:", error);
-		// We log the error but don't re-throw, as the webhook should still return a 200 to Stripe.
+		// This will now catch any error from the steps above and log it clearly.
+		console.error(
+			`[Webhook Log] FINAL ERROR in createOrderFromIndividualPayment for order ${orderId}:`,
+			error
+		);
+		// We re-throw the error to ensure the calling function knows something went wrong.
+		throw error;
 	}
 };
 

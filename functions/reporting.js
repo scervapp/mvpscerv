@@ -429,15 +429,12 @@ exports.getDashboardReport = functions
 
 				if (Array.isArray(order.items)) {
 					order.items.forEach((item) => {
-						const category = (item.dish && item.dish.category) || "Other";
-						const priceInCents = Math.round(
-							((item.dish && item.dish.price) || 0) * 100
-						);
+						const category = item.category || (item.dish && item.dish.category) || "Other";
+						const priceInCents = Math.round((item.price || (item.dish && item.dish.price) || 0) * 100);
 						const revenueInCents =
 							(Math.round((Number(item.discountedPrice) || 0) * 100) ||
 								priceInCents) * (item.quantity || 1);
-						const itemName =
-							(item.dish && item.dish.name) || item.dishName || "Unknown Item";
+						const itemName = item.dishName || (item.dish && item.dish.name) || "Unknown Item";
 
 						if (BAR_CATEGORIES.includes(category))
 							salesByCategory.Bar += revenueInCents;
@@ -454,7 +451,7 @@ exports.getDashboardReport = functions
 					});
 				}
 
-				if (order.server.name && orderGratuity > 0) {
+				if (order.server && order.server.name && orderGratuity > 0) {
 					const serverName = order.server.name;
 					serverTips[serverName] =
 						(serverTips[serverName] || 0) + orderGratuity;

@@ -33,6 +33,7 @@ import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { useCheckInStatus } from "../../utils/customerUtils";
 
 const PartyCheckoutScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
@@ -40,6 +41,11 @@ const PartyCheckoutScreen = () => {
 	const { initPaymentSheet, presentPaymentSheet } = useStripe();
 	const navigation = useNavigation();
 	const route = useRoute();
+
+	const { checkInObj } = useCheckInStatus(
+		partyDetails?.restaurantId,
+		currentUserData?.uid
+	);
 
 	// --- State Management ---
 	const [isPreparing, setIsPreparing] = useState(false); // Preparing payment sheet
@@ -166,7 +172,8 @@ const PartyCheckoutScreen = () => {
 			myFinalTotal <= 0 ||
 			!partyDetails?.id ||
 			!partyDetails?.restaurantStripeAccountId ||
-			!currentUserData?.uid
+			!currentUserData?.uid ||
+			!checkInObj
 		) {
 			setIsPaymentSheetReady(false);
 			return;
@@ -201,12 +208,18 @@ const PartyCheckoutScreen = () => {
 					stripeCustomerId: stripeCustomerId,
 					connectedAccountId: partyDetails.restaurantStripeAccountId,
 					partyId: partyDetails.id,
+
 					// The server will use this payload to create the pending_order
 					orderPayload: {
 						restaurantId: partyDetails.restaurantId,
 						items: myItemsInBasket,
 						subtotal: mySubtotal,
 						gratuity: myGratuity,
+						// --- FIX: Add all necessary check-in details ---
+						checkInId: partyDetails.checkInId || null,
+						table: partyDetails.table || null,
+						server: partyDetails.server || null,
+						checkInTimestamp: checkInObj?.acceptedAt || null,
 					},
 				});
 
@@ -237,7 +250,7 @@ const PartyCheckoutScreen = () => {
 		};
 
 		prepareSheet();
-	}, [myFinalTotal, partyDetails, currentUserData]);
+	}, [myFinalTotal, partyDetails, currentUserData, checkInObj]);
 
 	// --- Handle Payment Action ---
 	const handlePayment = async () => {

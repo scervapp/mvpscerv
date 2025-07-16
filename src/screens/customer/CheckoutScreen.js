@@ -193,8 +193,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 				}, 0);
 			}
 
-		
-
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
@@ -297,6 +295,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					platformFee: platformFee, // Correctly passed as a top-level argument
 					stripeCustomerId: stripeCustomerId,
 					connectedAccountId: restaurant.stripeAccountId,
+					checkInTimestamp: checkInObj.acceptedAt,
 
 					// --- THIS IS THE FIX ---
 					// We now send the full order payload to the function.
@@ -309,7 +308,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 						checkInId: checkInObj.id,
 						table: checkInObj.table || null,
 						server: checkInObj.server || null,
-						checkInTimestamp: checkInObj.checkInTime,
+						checkInTimestamp: checkInObj.acceptedAt,
 					},
 				});
 

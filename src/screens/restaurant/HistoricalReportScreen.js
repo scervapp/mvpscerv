@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 // A reusable helper function to format currency
 const formatCurrency = (cents) => {
@@ -182,3 +183,4 @@ const styles = StyleSheet.create({
 });
 
 export default HistoricalReportsScreen;
+
