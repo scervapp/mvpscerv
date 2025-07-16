@@ -355,6 +355,9 @@ const SelectedItemModal = ({
 									</Text>
 									{/* Help icon can be added back if needed */}
 								</View>
+								<Text style={styles.managePipsHintText}>
+									Not eating alone? Add people to your party.
+								</Text>
 								<Button
 									icon="account-multiple-plus-outline"
 									mode="text"
@@ -367,7 +370,7 @@ const SelectedItemModal = ({
 									style={styles.managePipsButton}
 									labelStyle={{ color: colors.primary, fontSize: 14 }}
 								>
-									Manage Your PIPs
+									Manage Your PIPs (People In Party)
 								</Button>
 
 								{displayOptions.map((target) => {
@@ -702,19 +705,32 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 5,
 	},
 	managePipsButton: { alignSelf: "center", marginVertical: 8 },
+	managePipsHintText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 10,
+	},
 	pipEntryContainer: { marginBottom: 5 },
 	pipCheckboxItem: {
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 8,
 	},
-	pipNameText: { fontSize: 16, color: colors.textMedium, marginLeft: 10 },
+	pipNameText: { fontSize: 16, color: colors.textDark, marginLeft: 10 },
 	editInstructionsButton: {
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 4,
 		paddingLeft: 34,
 		marginTop: -5,
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		marginBottom: 10,
+		textAlign: "center",
+		color: colors.textDark,
 	},
 	editInstructionsText: {
 		fontSize: 13,
@@ -725,7 +741,7 @@ const styles = StyleSheet.create({
 	noPipsText: {
 		fontSize: 14,
 		textAlign: "center",
-		color: colors.textLight,
+		color: colors.textMedium,
 		fontStyle: "italic",
 		marginTop: 5,
 	},
@@ -748,3 +764,4 @@ const styles = StyleSheet.create({
 });
 
 export default SelectedItemModal;
+

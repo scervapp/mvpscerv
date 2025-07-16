@@ -22,8 +22,8 @@ import { Button } from "react-native-paper";
 import { auth } from "../config/firebase";
 
 const CustomerLoginForm = ({
-	verificationId,
-	setVerificationId,
+	confirmation, // Changed from verificationId to confirmation
+	setConfirmation, // New prop to allow resetting
 	phoneNumber,
 	setPhoneNumber,
 	handleSendCode,
@@ -34,11 +34,12 @@ const CustomerLoginForm = ({
 	isLoading,
 }) => (
 	<View style={styles.form}>
-		{!verificationId ? (
+		{!confirmation ? (
 			<>
 				<TextInput
 					style={styles.input}
 					placeholder="10-Digit Phone Number"
+					placeholderTextColor={colors.textLight} // Added for better visibility
 					value={phoneNumber}
 					onChangeText={setPhoneNumber}
 					keyboardType="phone-pad"
@@ -59,6 +60,7 @@ const CustomerLoginForm = ({
 				<TextInput
 					style={styles.input}
 					placeholder="6-Digit Code"
+					placeholderTextColor={colors.textLight} // Added for better visibility
 					value={verificationCode}
 					onChangeText={setVerificationCode}
 					keyboardType="number-pad"
@@ -77,7 +79,7 @@ const CustomerLoginForm = ({
 				<Button
 					mode="text"
 					onPress={() => {
-						setVerificationId(null);
+						setConfirmation(null);
 						setVerificationCode("");
 					}}
 				>
@@ -250,56 +252,21 @@ const LoginScreen = ({ navigation }) => {
 
 					{authError && <Text style={styles.errorText}>{authError}</Text>}
 
+					{/* --- THIS IS THE FIX --- */}
+					{/* We now render the standalone component and pass the state down as props. */}
 					{activeTab === "customer" ? (
-						<View style={styles.form}>
-							{!confirmation ? (
-								<>
-									<TextInput
-										style={styles.input}
-										placeholder="10-Digit Phone Number"
-										value={phoneNumber}
-										onChangeText={setPhoneNumber}
-										keyboardType="phone-pad"
-										maxLength={10}
-									/>
-									<Button
-										mode="contained"
-										onPress={handleSendCode}
-										disabled={isSubmitting}
-										loading={isSubmitting}
-										style={styles.button}
-									>
-										Send Code
-									</Button>
-								</>
-							) : (
-								<>
-									<TextInput
-										style={styles.input}
-										placeholder="6-Digit Code"
-										value={verificationCode}
-										onChangeText={setVerificationCode}
-										keyboardType="number-pad"
-										maxLength={6}
-										textAlign="center"
-									/>
-									<Button
-										mode="contained"
-										onPress={handleConfirmCode}
-										disabled={
-											isLoading || isSubmitting || verificationCode.length < 6
-										}
-										loading={isLoading || isSubmitting}
-										style={styles.button}
-									>
-										Sign In
-									</Button>
-									<Button mode="text" onPress={() => setConfirmation(null)}>
-										Use a different number
-									</Button>
-								</>
-							)}
-						</View>
+						<CustomerLoginForm
+							confirmation={confirmation}
+							setConfirmation={setConfirmation}
+							phoneNumber={phoneNumber}
+							setPhoneNumber={setPhoneNumber}
+							handleSendCode={handleSendCode}
+							verificationCode={verificationCode}
+							setVerificationCode={setVerificationCode}
+							handleConfirmCode={handleConfirmCode}
+							isSubmitting={isSubmitting}
+							isLoading={isLoading}
+						/>
 					) : (
 						<RestaurantLoginForm
 							handleEmailLogin={handleEmailLogin}
@@ -373,6 +340,7 @@ const styles = StyleSheet.create({
 		marginBottom: 15,
 		fontSize: 16,
 		backgroundColor: colors.surfaceWhite,
+		color: colors.textDark,
 	},
 	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
 	errorText: {

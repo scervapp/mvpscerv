@@ -18,6 +18,7 @@ import colors from "../../utils/styles/appStyles"; // Adjust path
 
 // Import the newly created component
 import DiscountModal from "./DiscountModal";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 // Helper function to normalize party items
 const normalizePartyItem = (item) => ({
@@ -86,7 +87,9 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				}
 
 				if (checkInData.type === "party" && checkInData.associatedPartyId) {
-					const sharedBasketRef = db.collection("shared_baskets").doc(checkInData.associatedPartyId);
+					const sharedBasketRef = db
+						.collection("shared_baskets")
+						.doc(checkInData.associatedPartyId);
 					unsubscribe = sharedBasketRef.onSnapshot((basketSnap) => {
 						const items = basketSnap.exists()
 							? (basketSnap.data().items || []).map(normalizePartyItem)
@@ -95,7 +98,9 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 						setIsLoading(false);
 					});
 				} else {
-					const itemsQuery = db.collection("baskets").where("checkInId", "==", table.currentCheckInId);
+					const itemsQuery = db
+						.collection("baskets")
+						.where("checkInId", "==", table.currentCheckInId);
 					unsubscribe = itemsQuery.onSnapshot((snapshot) => {
 						const items = snapshot.docs.map(normalizeIndividualItem);
 						setOrderedItems(items);
@@ -156,7 +161,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 
 		setIsDiscounting(true);
 		try {
-			const discountFunction = functions.httpsCallable("discountOrderItem");
+			const discountFunction = httpsCallable(functions, "discountOrderItem");
 
 			// This payload now reliably uses the stored context from state
 			const payload = {
@@ -377,3 +382,4 @@ const styles = StyleSheet.create({
 });
 
 export default OrderDetailsModal;
+

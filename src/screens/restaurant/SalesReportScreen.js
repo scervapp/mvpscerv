@@ -11,13 +11,13 @@ import {
 	ActivityIndicator,
 } from "react-native";
 
-
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const { width } = Dimensions.get("window");
 
@@ -132,7 +132,7 @@ const SalesReportScreen = ({ navigation }) => {
 		const fetchReport = async () => {
 			setIsFetching(true);
 			try {
-				const getReport = functions.httpsCallable("getDashboardReport");
+				const getReport = httpsCallable(functions, "getDashboardReport");
 				const response = await getReport({
 					restaurantId: currentUserData.uid,
 					period: selectedPeriod.toLowerCase(),
@@ -371,3 +371,4 @@ const styles = StyleSheet.create({
 });
 
 export default SalesReportScreen;
+

@@ -10,6 +10,7 @@ import { Alert } from "react-native";
 
 import { AuthContext } from "../authContext";
 import { db, functions } from "../../config/firebase";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 export const WorkDayContext = createContext({
 	currentWorkDay: null, // Will hold the 'OPEN' work day document
@@ -25,8 +26,8 @@ export const WorkDayProvider = ({ children }) => {
 	const [currentWorkDay, setCurrentWorkDay] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const startWorkDayFunction = functions.httpsCallable("startWorkDay");
-	const endWorkDayFunction = functions.httpsCallable("endWorkDay");
+	const startWorkDayFunction = httpsCallable(functions, "startWorkDay");
+	const endWorkDayFunction = httpsCallable(functions, "endWorkDay");
 
 	// This listener automatically finds the current open work day for the restaurant
 	useEffect(() => {
@@ -38,7 +39,10 @@ export const WorkDayProvider = ({ children }) => {
 		}
 
 		setIsLoading(true);
-		const workDaysRef = db.collection("restaurants").doc(restaurantId).collection("work_days");
+		const workDaysRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("work_days");
 		const q = workDaysRef.where("status", "==", "OPEN").limit(1);
 
 		const unsubscribe = q.onSnapshot(
@@ -112,3 +116,4 @@ export const WorkDayProvider = ({ children }) => {
 };
 
 export const useWorkDay = () => useContext(WorkDayContext);
+

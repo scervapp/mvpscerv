@@ -15,7 +15,6 @@ import {
 	ActivityIndicator,
 	Modal,
 	TextInput,
-	ScrollView,
 	Alert,
 	SafeAreaView, // Added SafeAreaView
 	// Removed Button from react-native
@@ -37,7 +36,15 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
-
+import { httpsCallable } from "@react-native-firebase/functions";
+import RestaurantHeader from "./RestaurantHeader";
+import AuthPromptModal from "../global/AuthPromptModal";
+import {
+	collection,
+	onSnapshot,
+	query,
+	where,
+} from "@react-native-firebase/firestore";
 
 const RestaurantDetailScreen = () => {
 	const route = useRoute();
@@ -69,7 +76,8 @@ const RestaurantDetailScreen = () => {
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
 
-	const customerCancelSeatedCheckIn = functions.httpsCallable(
+	const customerCancelSeatedCheckIn = httpsCallable(
+		functions,
 		"customerCancelSeatedCheckIn"
 	);
 
@@ -141,37 +149,35 @@ const RestaurantDetailScreen = () => {
 
 	useEffect(() => {
 		if (!restaurant?.id) {
-			setMenuItems([]);
+			setMenuError("Restaurant details are missing.");
 			setIsLoadingMenu(false);
 			return;
 		}
-		console.log("Restaurant", restaurant.id);
 
-		setIsLoadingMenu(true);
-		const menuItemsRef = db.collection("menuItems");
-		const q = menuItemsRef.where("restaurantId", "==", restaurant.id);
+		const menuQuery = query(
+			collection(db, "menuItems"),
+			where("restaurantId", "==", restaurant.id)
+		);
 
-		const unsubscribe = q.onSnapshot(
-			(snapshot) => {
-				// snapshot.docs.map() correctly returns a flat array: [item1, item2, ...]
-				const fetchedMenu = snapshot.docs.map((doc) => ({
+		const unsubscribe = onSnapshot(
+			menuQuery,
+			(querySnapshot) => {
+				const menuItems = querySnapshot.docs.map((doc) => ({
 					id: doc.id,
 					...doc.data(),
 				}));
-
-				setMenuItems(fetchedMenu);
+				setMenuItems(menuItems);
 				setIsLoadingMenu(false);
 			},
-			(error) => {
-				console.error("Error fetching menu in real-time:", error);
-				Alert.alert("Error", "Could not load the menu for this restaurant.");
+			(err) => {
+				console.error("Error fetching menu: ", err);
+				setMenuError("Failed to load the menu.");
 				setIsLoadingMenu(false);
 			}
 		);
 
-		// Clean up the listener when the component unmounts
 		return () => unsubscribe();
-	}, [restaurant?.id]);
+	}, [restaurant.id]);
 
 	// --- Effect to potentially activate party after host's individual check-in ---
 	useEffect(() => {
@@ -575,7 +581,7 @@ const RestaurantDetailScreen = () => {
 							</Text>
 						</View>
 						<TouchableOpacity
-							style={styles.actionButton}
+							style={styles.cancelButton}
 							onPress={handleCancelIndividualCheckIn}
 							disabled={isProcessingCheckInAction}
 						>
@@ -588,7 +594,7 @@ const RestaurantDetailScreen = () => {
 									color={colors.danger}
 								/>
 							)}
-							<Text style={[styles.actionButtonText, { color: colors.danger }]}>
+							<Text style={[styles.cancelButtonText, { color: colors.danger }]}>
 								Cancel
 							</Text>
 						</TouchableOpacity>
@@ -605,13 +611,11 @@ const RestaurantDetailScreen = () => {
 							/>
 							<Text style={styles.actionButtonTextCheckedIn}>Checked In!</Text>
 							{checkInObj?.table?.name && (
-								<Text style={styles.tableText}>
-									Table: {checkInObj.table.name}
-								</Text>
+								<Text style={styles.tableText}>{checkInObj.table.name}</Text>
 							)}
 						</View>
 						<TouchableOpacity
-							style={styles.actionButton}
+							style={styles.cancelButton}
 							onPress={handleLeaveTable}
 							disabled={isProcessingCheckInAction}
 						>
@@ -624,9 +628,7 @@ const RestaurantDetailScreen = () => {
 									color={colors.danger}
 								/>
 							)}
-							<Text style={[styles.actionButtonText, { color: colors.danger }]}>
-								Leave Table
-							</Text>
+							<Text style={styles.cancelButtonText}>Leave Table</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -881,6 +883,24 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderColor: colors.borderLight,
 		marginBottom: 10, // Space before menu
+		color: colors.textMedium,
+	},
+
+	cancelButton: {
+		flex: 1,
+		flexDirection: "column",
+		alignItems: "center",
+		justifyContent: "center",
+		padding: 10,
+		backgroundColor: colors.danger || "#dc3545", // Added a background color
+		borderRadius: 8,
+		marginHorizontal: 5,
+	},
+	cancelButtonText: {
+		marginTop: 4,
+		fontSize: 12,
+		color: "#ffffff", // White text for visibility on a dark/red button
+		fontWeight: "600",
 	},
 	closedMessageContainer: {
 		flex: 1,
@@ -944,6 +964,12 @@ const styles = StyleSheet.create({
 		color: colors.statusSuccess,
 		fontWeight: "bold",
 		marginTop: 2,
+	},
+	cancelButtonText: {
+		marginTop: 4,
+		fontSize: 12,
+		color: colors.danger,
+		fontWeight: "600",
 	},
 	guestMessageContainer: {
 		padding: 20,
@@ -1095,3 +1121,4 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantDetailScreen;
+

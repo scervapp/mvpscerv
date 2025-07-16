@@ -10,6 +10,7 @@ import { Alert } from "react-native";
 
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../authContext";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 // --- Create Context ---
 export const PartyContext = createContext({
@@ -54,35 +55,43 @@ export const PartyProvider = ({ children }) => {
 
 	const [uiItemIsUpdating, setUiItemUpdateLoading] = useState(false);
 	// --- Cloud Function References ---
-	const createPartyFunction = functions.httpsCallable("createParty");
-	const joinPartyFunction = functions.httpsCallable("joinParty");
-	const leavePartyFunction = functions.httpsCallable("leaveParty");
-	const activatePartyCheckInFunction = functions.httpsCallable(
+	const createPartyFunction = httpsCallable(functions, "createParty");
+	const joinPartyFunction = httpsCallable(functions, "joinParty");
+	const leavePartyFunction = httpsCallable(functions, "leaveParty");
+	const activatePartyCheckInFunction = httpsCallable(
+		functions,
 		"activatePartyCheckIn"
 	);
-	const cancelPartyCheckInFunction = functions.httpsCallable(
+	const cancelPartyCheckInFunction = httpsCallable(
+		functions,
 		"cancelPartyCheckIn"
 	);
-	const cancelPartyFunction = functions.httpsCallable("cancelParty");
-	const inviteToPartyFunction = functions.httpsCallable("inviteToParty");
-	const addLocalPIPToPartyFunction = functions.httpsCallable(
+	const cancelPartyFunction = httpsCallable(functions, "cancelParty");
+	const inviteToPartyFunction = httpsCallable(functions, "inviteToParty");
+	const addLocalPIPToPartyFunction = httpsCallable(
+		functions,
 		"addLocalPIPToParty"
 	);
-	const addItemToSharedBasketFunction = functions.httpsCallable(
+	const addItemToSharedBasketFunction = httpsCallable(
+		functions,
 		"addItemToSharedBasket"
 	);
-	const updatePartyBasketItemQuantityFunction = functions.httpsCallable(
+	const updatePartyBasketItemQuantityFunction = httpsCallable(
+		functions,
 		"updateSharedBasketItemQuantity"
 	);
-	const removePartyBasketItemFunction = functions.httpsCallable(
+	const removePartyBasketItemFunction = httpsCallable(
+		functions,
 		"removeSharedBasketItem"
 	);
 
-	const sendItemsToChefsQFunction = functions.httpsCallable(
+	const sendItemsToChefsQFunction = httpsCallable(
+		functions,
 		"sendItemsToChefsQ"
 	);
 
-	const sendOrderToKitchenFunction = functions.httpsCallable(
+	const sendOrderToKitchenFunction = httpsCallable(
+		functions,
 		"sendOrderToKitchen"
 	);
 
@@ -142,7 +151,8 @@ export const PartyProvider = ({ children }) => {
 
 		// This query finds any party where the user is listed as a guest (the host is also a guest).
 		// It only looks for parties that are not yet completed or cancelled.
-		const userPartiesQuery = db.collection("parties")
+		const userPartiesQuery = db
+			.collection("parties")
 			.where("guestUserIds", "array-contains", currentUserData.uid)
 			.where("status", "in", ["pending", "AWAITING_TABLE", "active"])
 			.limit(1);
@@ -943,3 +953,4 @@ export const PartyProvider = ({ children }) => {
 export const useParty = () => {
 	return useContext(PartyContext);
 };
+

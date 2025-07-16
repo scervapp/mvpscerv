@@ -13,6 +13,7 @@ import { Button } from "react-native";
 
 import ServerAssignmentModal from "./ServerAssignmentModal";
 import { functions } from "../../config/firebase";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const TableSelectionModal = ({
 	isVisible,
@@ -81,7 +82,8 @@ const TableSelectionModal = ({
 	const handleConfirm = async () => {
 		if (table && server) {
 			try {
-				const handleCheckInResponseFunction = functions.httpsCallable(
+				const handleCheckInResponseFunction = httpsCallable(
+					functions,
 					"handleCheckInResponse"
 				);
 
@@ -168,3 +170,4 @@ const styles = StyleSheet.create({
 });
 
 export default TableSelectionModal;
+

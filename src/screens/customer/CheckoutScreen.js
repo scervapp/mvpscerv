@@ -26,6 +26,9 @@ import colors from "../../utils/styles/appStyles";
 
 import formatCurrency from "../../utils/currencyFormatter";
 import { CommonActions } from "@react-navigation/native";
+import { httpsCallable } from "@react-native-firebase/functions";
+
+import firestore from "@react-native-firebase/firestore";
 
 const CheckoutScreen = ({ route, navigation }) => {
 	const { restaurant, baskets } = route.params;
@@ -126,16 +129,19 @@ const CheckoutScreen = ({ route, navigation }) => {
 		originalSubtotal, // Total original subtotal (before discounts) in cents
 		pipTotals, // Array of per-person calculations (useful for display)
 		totalForPayment,
+		finalTotal: memoizedFinalTotal,
 	} = useMemo(() => {
 		console.log("Memo: Recalculating Totals Running");
 		// Guard clause: Ensure necessary data is available
 		if (
 			!restaurantBasketItems ||
 			restaurantBasketItems.length === 0 ||
-			typeof fees !== "number" ||
-			typeof restaurant?.taxRate !== "number"
+			!Array.isArray(filteredBasketData) || // Ensure it's an array
+			typeof fees !== "number"
 		) {
-			console.log("Calculate Totals Memo: Skipping, missing required data");
+			console.log(
+				"Calculate Totals Memo: Skipping, missing required data or basket is not ready."
+			);
 			return {
 				subtotal: 0,
 				gratuity: 0,
@@ -144,6 +150,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 				originalSubtotal: 0,
 				pipTotals: [],
 				totalForPayment: 0,
+				finalTotal: 0,
 			};
 		}
 
@@ -168,6 +175,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 		// Calculate details per PIP
 		const calcPipTotals = filteredBasketData.map((personData) => {
+			console.log("PersonData", personData);
 			const itemsToReduce = personData?.items;
 			let pipSubtotal = 0;
 			let pipOriginalSubtotal = 0; // Original subtotal for this PIP
@@ -186,19 +194,22 @@ const CheckoutScreen = ({ route, navigation }) => {
 				}, 0);
 			}
 
+			console.log("Calc PIP TOtals", calcPipTotals);
+
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
 			const pipFee = Math.round(pipSubtotal * fees); // Platform fee for THIS PIP
 			const pipDiscount = pipOriginalSubtotal - pipSubtotal; // Discount for THIS PIP
 
+			const pipTotal = pipSubtotal + pipGratuity;
 			return {
 				...(personData || {}), // Spread person data safely
 				subtotal: pipSubtotal,
 				fee: pipFee,
 				gratuity: pipGratuity,
 				discount: pipDiscount,
-				total: pipTotals,
+				total: pipTotal,
 			};
 		});
 
@@ -220,6 +231,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			originalSubtotal: calcOriginalSubtotal,
 			pipTotals: calcPipTotals, // Include the detailed PIP array
 			totalForPayment: calcTotalForPayment,
+			finalTotal: calcTotalForPayment,
 		};
 	}, [
 		// Dependencies for recalculation
@@ -229,15 +241,21 @@ const CheckoutScreen = ({ route, navigation }) => {
 		filteredBasketData,
 	]);
 
+	useEffect(() => {
+		if (memoizedFinalTotal !== undefined) {
+			setFinalTotal(memoizedFinalTotal);
+		}
+	}, [memoizedFinalTotal]);
+
 	// --- NEW/REVISED: useEffect to Prepare Payment Sheet Data ---
 	useEffect(() => {
-		// Only run if we have the key, user, restaurant, and an amount to charge
+		// The dependencies that trigger this effect remain the same.
 		if (
 			!stripePublishableKey ||
 			!currentUserData?.uid ||
 			!restaurant?.uid ||
-			!checkInObj || // We need the full check-in object
-			subtotal <= 0 // Use subtotal, as amountBeforeTax depends on gratuity which can change
+			!checkInObj ||
+			totalForPayment <= 0
 		) {
 			setIsPaymentSheetReady(false);
 			return;
@@ -249,80 +267,67 @@ const CheckoutScreen = ({ route, navigation }) => {
 			setPaymentError(null);
 
 			try {
-				let stripeCustomerId = null;
-				const userDocRef = db.collection("customers").doc(currentUserData.uid);
-				const userDocSnapshot = await userDocRef.get();
-				if (
-					userDocSnapshot.exists() &&
-					userDocSnapshot.data().stripeCustomerId
-				) {
-					stripeCustomerId = userDocSnapshot.data().stripeCustomerId;
-				} else {
+				// --- STEP 1: Get or Create Stripe Customer ID (Your existing logic is good) ---
+				let stripeCustomerId = currentUserData.stripeCustomerId;
+				if (!stripeCustomerId) {
 					const createStripeCustomerFunction = httpsCallable(
 						functions,
 						"createStripeCustomer"
 					);
-					const {
-						data: { customerId },
-					} = await createStripeCustomerFunction({
+					const { data } = await createStripeCustomerFunction({
 						userId: currentUserData.uid,
 						restaurantId: restaurant.uid,
 					});
-					stripeCustomerId = customerId;
-					await updateDoc(userDocRef, { stripeCustomerId });
+					stripeCustomerId = data.customerId;
+					await db
+						.collection("customers")
+						.doc(currentUserData.uid)
+						.update({ stripeCustomerId });
 				}
 
-				const leanItemsForMetadata = restaurantBasketItems.map((item) => ({
-					menuItemId: item.menuItemId, // The ID of the menu item
-					quantity: item.quantity,
-					specialInstructions: item.specialInstructions || "",
-					// Include any other small, essential fields like pipId if necessary
-					pipId: item.pipId,
-					pipName: item.pipName,
-					discount: item.discount || null,
-					discountedPrice: item.discountedPrice || null,
-				}));
-
-				// This is the data that will be stored in the Stripe metadata
-				const dataToPrepare = {
-					restaurantId: restaurant.uid,
-					customerId: stripeCustomerId,
-					connectedAccountId: restaurant.stripeAccountId,
-					// Pass the calculated totals
-					subtotal,
-					gratuity,
-					platformFee,
-					// Pass the data needed for the webhook to create the order
-					items: leanItemsForMetadata, // Or your leanItemsForMetadata
-					table: checkInObj.table || null,
-					server: checkInObj.server || null,
-					checkInId: checkInObj.id,
-					checkInTimestamp: checkInObj.acceptedAt,
-				};
-
-				// 4. Call the single, updated server function
+				// --- STEP 2: Call the Cloud Function with ALL necessary data ---
+				// The Cloud Function will now be responsible for creating the order document.
 				const preparePaymentSheetFunction = httpsCallable(
 					functions,
 					"preparePaymentSheetData"
 				);
-				const result = await preparePaymentSheetFunction(dataToPrepare);
-				const prepData = result?.data;
 
-				if (!prepData || !prepData.paymentIntentClientSecret) {
-					throw new Error("Server did not return necessary Stripe secrets.");
+				const { data: prepData } = await preparePaymentSheetFunction({
+					// Payment details
+					amount: totalForPayment,
+					platformFee: platformFee, // Correctly passed as a top-level argument
+					stripeCustomerId: stripeCustomerId,
+					connectedAccountId: restaurant.stripeAccountId,
+
+					// --- THIS IS THE FIX ---
+					// We now send the full order payload to the function.
+					// The function will create the order document itself.
+					orderPayload: {
+						restaurantId: restaurant.uid,
+						items: restaurantBasketItems, // The full basket
+						subtotal: subtotal,
+						gratuity: gratuity,
+						checkInId: checkInObj.id,
+						table: checkInObj.table || null,
+						server: checkInObj.server || null,
+						checkInTimestamp: checkInObj.checkInTime,
+					},
+				});
+
+				if (!prepData || prepData.error) {
+					throw new Error(
+						prepData.error || "Server did not return necessary Stripe secrets."
+					);
 				}
-				// --- END OF FIX ---
 
-				// 5. Update UI State with Tax/Total from Serve
-				setFinalTotal(prepData.finalAmount || 0);
-
-				// 6. Initialize Payment Sheet
+				// --- STEP 3: Initialize Payment Sheet (Your existing logic is good) ---
 				const { error: initSheetError } = await initPaymentSheet({
 					merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
 					paymentIntentClientSecret: prepData.paymentIntentClientSecret,
 					customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 					customerId: prepData.customerId,
-					returnURL: "stripe://stripe-redirect",
+					allowsDelayedPaymentMethods: true,
+					returnURL: "scerv://stripe-redirect",
 				});
 
 				if (initSheetError) {
@@ -343,12 +348,11 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 		prepareSheet();
 	}, [
-		// Dependencies for preparing the payment sheet
 		stripePublishableKey,
 		currentUserData?.uid,
 		restaurant?.uid,
 		checkInObj,
-		totalForPayment,
+		totalForPayment, // Use the final total as a dependency
 	]);
 
 	// --- Handle Payment Button Press ---
@@ -430,9 +434,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 								(p) => p.personId === personData.personId
 							);
 							// Calculate estimated total for this PIP including client-estimated tax
-							const estimatedPipTotal = pipData
-								? pipData.totalBeforeTax + pipData.tax
-								: 0;
+							const estimatedPipTotal = pipData ? pipData.total : 0;
 
 							if (!pipData) return null; // Safety check
 							return (
@@ -490,19 +492,29 @@ const CheckoutScreen = ({ route, navigation }) => {
 							<Text style={styles.gratuityCurrentText}>
 								Selected: {gratuityPercentage}% ({formatCurrency(gratuity)})
 							</Text>
-							<Picker
-								selectedValue={gratuityPercentage}
-								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
-								style={styles.gratuityPicker}
-								// Add prompt etc if desired
-							>
-								<Picker.Item label="0%" value="0" />
-								<Picker.Item label="10%" value="10" />
-								<Picker.Item label="15%" value="15" />
-								<Picker.Item label="18%" value="18" />
-								<Picker.Item label="20%" value="20" />
-								<Picker.Item label="25%" value="25" />
-							</Picker>
+							<View style={styles.pickerContainer}>
+								<Picker
+									selectedValue={gratuityPercentage}
+									onValueChange={(itemValue) =>
+										setGratuityPercentage(itemValue)
+									}
+									style={styles.gratuityPicker}
+									itemStyle={styles.gratuityPickerItem}
+								>
+									<Picker.Item label="0%" value="0" />
+									<Picker.Item label="10%" value="10" />
+									<Picker.Item label="15%" value="15" />
+									<Picker.Item label="18%" value="18" />
+									<Picker.Item label="20%" value="20" />
+									<Picker.Item label="25%" value="25" />
+								</Picker>
+								<MaterialCommunityIcons
+									name="chevron-down"
+									size={24}
+									color={colors.textDark}
+									style={styles.pickerIcon}
+								/>
+							</View>
 						</View>
 					</View>
 
@@ -627,33 +639,6 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderBottomColor: colors.lightGray,
 	},
-	label: { fontSize: 15, color: "#495057" },
-	amount: { fontSize: 15, fontWeight: "500" },
-	labelItalic: { fontSize: 15, color: "#6c757d", fontStyle: "italic" },
-	amountItalic: {
-		fontSize: 15,
-		fontWeight: "500",
-		fontStyle: "italic",
-		color: "#6c757d",
-	},
-	totalRow: {
-		marginTop: 10,
-		paddingTop: 10,
-		borderTopWidth: 1,
-		borderTopColor: "#eee",
-	},
-	totalLabel: { fontSize: 16, fontWeight: "bold" },
-	totalAmount: { fontSize: 16, fontWeight: "bold" },
-	errorText: { color: "red", textAlign: "center", marginVertical: 10 },
-	gratuityContainer: {
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		marginBottom: 20,
-		padding: 10,
-		backgroundColor: "#fff",
-		borderRadius: 8,
-	},
 	// PIP Styles
 	pipSection: {
 		marginBottom: 10,
@@ -667,7 +652,13 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		paddingVertical: 5,
 	},
-	pipName: { fontSize: 16, fontWeight: "600", flexShrink: 1, marginRight: 8 }, // Allow name to shrink
+	pipName: {
+		fontSize: 16,
+		fontWeight: "600",
+		flexShrink: 1,
+		marginRight: 8,
+		color: colors.textDark,
+	}, // Allow name to shrink
 	pipHeaderTotals: { flexDirection: "row", alignItems: "center" }, // Container for total and icon
 	pipTotalDisplay: {
 		fontSize: 15,
@@ -736,22 +727,33 @@ const styles = StyleSheet.create({
 	totalAmount: { fontSize: 17, fontWeight: "bold", color: colors.primary },
 	// Gratuity Styles
 	gratuityContainer: { paddingVertical: 10 }, // Container for the whole gratuity section
-	gratuitySelectionRow: {
+	gratuityCurrentText: {
+		fontSize: 15,
+		color: colors.textDark,
+		marginBottom: 10,
+	},
+	pickerContainer: {
 		flexDirection: "row",
-		justifyContent: "space-between",
 		alignItems: "center",
-		paddingVertical: 0,
-	}, // Row layout for label, picker, amount
-	gratuityLabel: { fontSize: 15, color: colors.textDark, marginRight: 10 }, // Label for "Tip:"
+		borderWidth: 1,
+		borderColor: colors.lightGray,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+	},
 	gratuityPicker: {
-		flex: 1, // Allow picker to take available space
-		height: Platform.OS === "ios" ? 120 : 50, // iOS needs more height for wheel
-		// Add specific styling for iOS background if needed
-		// backgroundColor: Platform.OS === 'ios' ? '#f0f0f0' : 'transparent',
+		flex: 1,
+		height: Platform.OS === "ios" ? 120 : 50,
+		color: colors.textDark,
 	},
 	gratuityPickerItem: {
 		// iOS only
 		height: 120,
+		color: colors.textDark,
+	},
+	pickerIcon: {
+		position: "absolute",
+		right: 10,
+		top: Platform.OS === "ios" ? 50 : 12,
 	},
 	gratuityAmountDisplay: {
 		fontSize: 15,

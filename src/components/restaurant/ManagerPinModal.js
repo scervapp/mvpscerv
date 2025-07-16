@@ -14,6 +14,7 @@ import { functions } from "../../config/firebase"; // Adjust path
 
 import colors from "../../utils/styles/appStyles"; // Adjust path
 import { AuthContext } from "../../context/authContext";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const PinPadButton = ({ value, onPress }) => (
 	<TouchableOpacity style={styles.pinButton} onPress={() => onPress(value)}>
@@ -32,7 +33,7 @@ const ManagerPinModal = ({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
 
-	const verifyPinFunction = functions.httpsCallable("verifyEmployeePin");
+	const verifyPinFunction = httpsCallable(functions, "verifyEmployeePin");
 	const [hasVerified, setHasVerified] = useState(false);
 
 	// Reset PIN when modal becomes visible or employee changes
@@ -258,3 +259,4 @@ const styles = StyleSheet.create({
 });
 
 export default ManagerPinModal;
+

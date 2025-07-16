@@ -43,6 +43,8 @@ import PartyLobbyFooter from "../../components/customer/Party/PartyLobbyFooter";
 import PartyLobbyHeaderContent from "../../components/customer/Party/PartyLobbyHeaderContent";
 import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
 import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { collection } from "@react-native-firebase/firestore";
 
 const PartyLobbyScreen = () => {
 	const route = useRoute();
@@ -204,6 +206,7 @@ const PartyLobbyScreen = () => {
 			</View>
 		);
 	}
+
 	// --- Action Handlers ---
 
 	const fetchPips = async () => {
@@ -459,7 +462,8 @@ const PartyLobbyScreen = () => {
 		// process them, and update their sentToChefQ status.
 		setIsActionLoading(true);
 		try {
-			const sendOrderFunction = functions.httpsCallable(
+			const sendOrderFunction = httpsCallable(
+				functions,
 				"sendPartyOrderToChefsQ"
 			);
 			const result = await sendOrderFunction({ partyId: currentPartyId });

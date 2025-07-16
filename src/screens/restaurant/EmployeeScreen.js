@@ -25,6 +25,7 @@ import * as Yup from "yup";
 
 import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 MaterialCommunityIcons;
 
@@ -269,8 +270,8 @@ const EmployeeScreen = () => {
 	const [isActionLoading, setIsActionLoading] = useState(false);
 	const [isModalVisible, setIsModalVisible] = useState(false);
 
-	const addEmployeeFunction = functions.httpsCallable("addEmployee");
-	const deleteEmployeeFunction = functions.httpsCallable("deleteEmployee");
+	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
+	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;

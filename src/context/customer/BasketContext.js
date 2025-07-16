@@ -8,7 +8,8 @@ import React, {
 import { Alert } from "react-native";
 
 import { AuthContext } from "../authContext";
-import { db, functions } from "../../config/firebase";
+import { db, functions } from "../../config/firebase.native";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const BasketContext = createContext({
 	baskets: {},
@@ -38,9 +39,12 @@ export const BasketProvider = ({ children }) => {
 	const [isSendingToChefsQ, setIsSendingToChefsQ] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const sendOrderToKitchenFunction =
-		functions.httpsCallable("sendOrderToKitchen");
-	const linkBasketToCheckInFunction = functions.httpsCallable(
+	const sendOrderToKitchenFunction = httpsCallable(
+		functions,
+		"sendOrderToKitchen"
+	);
+	const linkBasketToCheckInFunction = httpsCallable(
+		functions,
 		"linkBasketToCheckIn"
 	);
 
@@ -131,7 +135,7 @@ export const BasketProvider = ({ children }) => {
 				throw new Error("Invalid dish data or quantity.");
 			}
 
-			const addItemFunction = functions.httpsCallable("addItemToBasket"); // Your existing CF name
+			const addItemFunction = httpsCallable(functions, "addItemToBasket"); // Your existing CF name
 
 			// The Cloud Function "addItemToBasket" needs to be updated to handle:
 			// 1. The 'quantity' parameter.
@@ -180,7 +184,8 @@ export const BasketProvider = ({ children }) => {
 			`BasketContext: Attempting to remove item ${basketItemId} from restaurant ${restaurantId} via removeItemFromBasket.`
 		);
 		try {
-			const removeItemFunction = functions.httpsCallable(
+			const removeItemFunction = httpsCallable(
+				functions,
 				"removeItemFromBasket"
 			);
 			await removeItemFunction({
@@ -208,7 +213,7 @@ export const BasketProvider = ({ children }) => {
 				throw new Error("You need to be logged in to clear the basket.");
 			}
 
-			const clearBasketFunction = functions.httpsCallable("clearBasket");
+			const clearBasketFunction = httpsCallable(functions, "clearBasket");
 			await clearBasketFunction({
 				userId: currentUser.uid,
 				restaurantId,
@@ -226,36 +231,35 @@ export const BasketProvider = ({ children }) => {
 		newQuantity
 	) => {
 		if (!currentUser) throw new Error("Login required.");
-		newQuantity = Math.max(0, Math.min(10, newQuantity)); // Clamp quantity
 
-		// If newQuantity is 0, it might mean removing the item.
-		// Your Cloud Function needs to handle this (either update to 0 or delete).
-		// Or, you can call removeItemFromBasket if newQuantity is 0.
-		if (newQuantity === 0) {
-			// Assuming basketItemId includes restaurantId or context is clear
-			// This needs careful handling if basketItemId is not globally unique across restaurants
-			// For now, let's assume removeItemFromBasket is called directly by UI for removal.
+		// If newQuantity is 0, it means removing the item.
+		if (newQuantity <= 0) {
 			await removeItemFromBasket(restaurantId, basketItemId);
-			return; // Item removal is handled, no need to call update quantity CF
-			// For safety, let's prevent setting quantity to 0 directly via update if remove is separate
+			return; // Exit after removing
 		}
-		try {
-			// Ensure newQuantity is within a valid range (0 to 10)
-			newQuantity = Math.max(0, Math.min(10, newQuantity));
 
+		// Clamp quantity to a max of 10 if it's not being removed
+		const finalQuantity = Math.min(10, newQuantity);
+
+		try {
 			// Call the Cloud Function to update the quantity
-			const updateQuantityFunction = functions.httpsCallable(
+			const updateQuantityFunction = httpsCallable(
+				functions,
 				"updateBasketItemQuantity"
 			);
 			await updateQuantityFunction({
 				userId: currentUser.uid,
 				basketItemId,
-				newQuantity,
+				newQuantity: finalQuantity,
 			});
 		} catch (error) {
-			console.log("Error updating quantityi", error);
-			setBasketError(error.message);
-			Alert.alert("Error", "Failed to update item quantity");
+			const errorMessage =
+				error?.message || "An unknown error occurred while updating quantity.";
+			console.error("Error updating quantity:", error); // Log the full error for debugging
+			setBasketError(errorMessage);
+			Alert.alert("Update Failed", errorMessage);
+			// Re-throw the error so the calling component knows it failed
+			throw error;
 		}
 	};
 

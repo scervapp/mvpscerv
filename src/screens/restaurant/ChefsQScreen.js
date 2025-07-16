@@ -19,7 +19,6 @@ import {
 	Alert,
 } from "react-native";
 
-
 import moment from "moment";
 import { Audio } from "expo-av";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -27,6 +26,7 @@ import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, onSnapshot, updateDoc } from "@react-native-firebase/firestore";
 
 // --- Kitchen Ticket Component ---
 const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
@@ -211,7 +211,8 @@ const ChefsQScreen = () => {
 			return;
 		}
 
-				const q = db.collection("kitchen_orders")
+		const q = db
+			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
 			.where("status", "in", ["new", "preparing", "ready"])
 			.orderBy("createdAt", "desc");
@@ -456,3 +457,4 @@ const styles = StyleSheet.create({
 });
 
 export default ChefsQScreen;
+

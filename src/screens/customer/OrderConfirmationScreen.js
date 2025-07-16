@@ -219,11 +219,13 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		textAlign: "center",
 		marginBottom: 12,
+		color: colors.textDark,
 	},
 	statusMessage: {
 		fontSize: 16,
 		color: colors.textMedium,
 		textAlign: "center",
+		color: colors.textDark,
 	},
 	detailsText: {
 		fontSize: 16,

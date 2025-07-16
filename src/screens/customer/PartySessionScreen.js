@@ -38,6 +38,7 @@ import { requestPartyTableCheckIn } from "../../utils/customerUtils";
 import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { Button } from "react-native-paper";
 import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
+import { collection, onSnapshot } from "@react-native-firebase/firestore";
 
 /**
  * A reusable button component featuring an icon and text underneath.
@@ -1528,3 +1529,4 @@ const styles = StyleSheet.create({
 });
 
 export default PartySessionScreen;
+

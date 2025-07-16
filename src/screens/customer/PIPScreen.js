@@ -18,6 +18,7 @@ import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase.native";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 // Creating a pips screen that allows customers to create pips using firestore
 // and the pips go into the customers collection / uid/ pips
@@ -37,7 +38,7 @@ const PIPSListScreen = () => {
 	// --- End Search Modal State ---
 
 	// --- Cloud Function Reference ---
-	const searchPIPsFunction = functions.httpsCallable("searchPIPs");
+	const searchPIPsFunction = httpsCallable(functions, "searchPIPs");
 	// --- End CF Reference ---
 
 	// Create a new pip
@@ -171,7 +172,7 @@ const PIPSListScreen = () => {
 		setSearchResults([]);
 		try {
 			// This was already using the correct native functions API
-			const searchPIPsFunction = functions.httpsCallable("searchPIPs");
+			const searchPIPsFunction = httpsCallable(functions, "searchPIPs");
 			const result = await searchPIPsFunction({
 				searchTerm: searchTerm.trim(),
 			});

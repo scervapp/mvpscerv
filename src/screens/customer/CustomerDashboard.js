@@ -1,21 +1,10 @@
 import React, { useContext, useEffect, useState } from "react";
-import {
-	View,
-	Text,
-	StyleSheet,
-	ScrollView,
-	Image,
-	TouchableOpacity,
-	ImageBackground,
-	FlatList,
-} from "react-native";
+import { View, Text, StyleSheet, Image, FlatList } from "react-native";
 
-import { Button, SearchBar } from "react-native-elements";
 import RestaurantList from "../../components/customer/RestaurantList";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 
-import backgroundSearchImage from "../../../assets/backgroundSearch.png";
 import CustomSearchBar from "./CustomSearchBar";
 
 const CustomerDashboard = ({ route = {}, navigation }) => {
@@ -30,13 +19,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	};
 
 	// Instead of ScrollView, use FlatList to handle both instructions and the restaurant list
-	const renderItem = ({ item }) => (
-		<RestaurantList
-			searchText={searchText}
-			navigation={navigation}
-			initialRestaurantData={initialRestaurantData}
-		/>
-	);
 
 	const instructions = [
 		{
@@ -113,10 +95,11 @@ const styles = StyleSheet.create({
 		color: colors.primary,
 		marginBottom: 10,
 		textAlign: "center",
+		color: colors.primary,
 	},
 	instructionsText: {
 		fontSize: 16,
-		color: colors.textSecondary,
+		color: colors.textDark,
 		textAlign: "center",
 		marginHorizontal: 10,
 	},

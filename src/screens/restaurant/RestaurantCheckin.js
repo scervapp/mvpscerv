@@ -17,6 +17,8 @@ import CheckInRequestCard from "../../components/restaurant/CheckInRequestCard";
 import { Ionicons } from "@expo/vector-icons";
 import { RefreshControl, ActivityIndicator } from "react-native";
 import TableAndServerSelectionModal from "../../components/restaurant/TableAndServerSelectionModal";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { collection, onSnapshot } from "@react-native-firebase/firestore";
 
 const RestaurantCheckin = () => {
 	const { currentUserData } = useContext(AuthContext);
@@ -30,7 +32,7 @@ const RestaurantCheckin = () => {
 	const [isSelectionModalVisible, setIsSelectionModalVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
 
-	const declineCheckInFunction = functions.httpsCallable("declineCheckIn");
+	const declineCheckInFunction = httpsCallable(functions, "declineCheckIn");
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
@@ -118,7 +120,8 @@ const RestaurantCheckin = () => {
 		setIsProcessing(true);
 		try {
 			// Call your Cloud Function to finalize the check-in
-			const handleCheckInResponseFunction = functions.httpsCallable(
+			const handleCheckInResponseFunction = httpsCallable(
+				functions,
 				"handleCheckInResponse"
 			);
 			const result = await handleCheckInResponseFunction({

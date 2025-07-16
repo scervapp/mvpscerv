@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Alert } from "react-native";
 
 import { db, functions } from "../config/firebase";
+import { httpsCallable } from "@react-native-firebase/functions";
+
+import firestore from "@react-native-firebase/firestore";
 
 const fetchRestaurants = async () => {
 	try {
@@ -169,7 +172,7 @@ const handleCancelCheckIn = async (restaurantId, userId) => {
 	}
 	try {
 		// --- REFACTORED CLOUD FUNCTION CALL ---
-		const cancelCheckInFunction = functions.httpsCallable("cancelCheckIn");
+		const cancelCheckInFunction = httpsCallable(functions, "cancelCheckIn");
 		const result = await cancelCheckInFunction({
 			userId: userId,
 			restaurantId: restaurantId,

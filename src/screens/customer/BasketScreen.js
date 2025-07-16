@@ -12,7 +12,11 @@ import {
 	RefreshControl, // Add SafeAreaView, RefreshControl
 } from "react-native";
 import { useBasket } from "../../context/customer/BasketContext";
-import { AntDesign, FontAwesome5 } from "@expo/vector-icons";
+import {
+	AntDesign,
+	FontAwesome5,
+	MaterialCommunityIcons,
+} from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import {
 	Provider,
@@ -20,14 +24,19 @@ import {
 	FAB,
 	Snackbar,
 	IconButton,
+	Divider,
 } from "react-native-paper";
 import { db, functions } from "../../config/firebase";
 
-import { transformBasketData, useCheckInStatus, } from "../../utils/customerUtils";
+import {
+	transformBasketData,
+	useCheckInStatus,
+} from "../../utils/customerUtils";
 import { AuthContext } from "../../context/authContext";
 
 import { useParty } from "../../context/customer/PartyContext";
 import OrderItemCard from "../../components/customer/OrderItemCard";
+import formatCurrency from "../../utils/currencyFormatter";
 
 const BasketScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
@@ -52,10 +61,27 @@ const BasketScreen = ({ route, navigation }) => {
 	const [showSnackbar, setShowSnackbar] = useState(false);
 	const [snackbarMessage, setSnackbarMessage] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+	const [updatingItemId, setUpdatingItemId] = useState(null); // Add this state
 	const { checkInStatus, checkInObj } = useCheckInStatus(
 		restaurant?.uid,
 		currentUserData?.uid
 	);
+
+	const handleLocalQuantityChange = async (
+		restaurantId,
+		basketItemId,
+		newQuantity
+	) => {
+		setUpdatingItemId(basketItemId); // Start loading indicator for this item
+		try {
+			await handleQuantityChange(restaurantId, basketItemId, newQuantity);
+		} catch (error) {
+			// Error is already alerted in the context, but you could add more UI feedback here if needed
+			console.log("BasketScreen: Failed to update quantity.");
+		} finally {
+			setUpdatingItemId(null); // Stop loading indicator for this item
+		}
+	};
 	const [fees, setFees] = useState(0.05); // Default platform fee %
 
 	// Get basket for the current restaurant
@@ -67,7 +93,7 @@ const BasketScreen = ({ route, navigation }) => {
 	useEffect(() => {
 		const fetchFeeConfig = async () => {
 			try {
-				const docSnap = await db.collection('appConfig').doc('general').get();
+				const docSnap = await db.collection("appConfig").doc("general").get();
 				if (docSnap.exists()) {
 					const fetchedFees = parseFloat(docSnap.data().fees);
 					if (!isNaN(fetchedFees)) setFees(fetchedFees);
@@ -84,10 +110,7 @@ const BasketScreen = ({ route, navigation }) => {
 		setIsLoading(true);
 		if (mode === "individual" && restaurant?.id && baskets) {
 			const itemsFromContext = baskets[restaurant.id]?.items || [];
-			console.log(
-				`BasketScreen (Individual Mode): Items from context for ${restaurant.id}:`,
-				JSON.stringify(itemsFromContext, null, 2)
-			);
+
 			setDisplayItems(itemsFromContext);
 			setIsLoading(false);
 		} else {
@@ -215,6 +238,7 @@ const BasketScreen = ({ route, navigation }) => {
 			setIsProcessing(false); // Stop loading indicator
 		}
 	};
+	
 
 	// Memoize the check for unsent items
 	const hasUnsentItems = useMemo(() => {
@@ -263,12 +287,17 @@ const BasketScreen = ({ route, navigation }) => {
 				return (
 					<OrderItemCard
 						key={basketItem.id}
-						item={itemForCard} // Pass the newly structured object
-						onQuantityChange={(itemId, newQuantity) =>
-							handleQuantityChange(restaurant.id, itemId, newQuantity)
+						item={itemForCard}
+						onQuantityChange={(newQuantity) =>
+							handleLocalQuantityChange(
+									restaurant.id,
+									basketItem.id,
+									newQuantity
+								)
 						}
 						allowEdit={!basketItem.sentToChefQ}
 						isSentToKitchen={basketItem.sentToChefQ}
+						isUpdating={updatingItemId === basketItem.id}
 					/>
 				);
 			})}
@@ -470,15 +499,14 @@ const BasketScreen = ({ route, navigation }) => {
 					{/* Show FAB if user is checked in and has items */}
 					{checkInStatus === "ACCEPTED" && displayItems.length > 0 && (
 						<FAB
-							style={[styles.fab, !canCheckout && styles.fabDisabled]} // Apply disabled style
+							style={[styles.fab, !canCheckout && styles.fabDisabled]}
 							icon="credit-card-check-outline"
-							label="Checkout"
-							color={canCheckout ? colors.white : "#a0a0a0"} // Dim text color when disabled
 							onPress={() =>
 								navigation.navigate("CheckoutScreen", { restaurant, baskets })
 							}
-							visible={!isProcessing} // Hide if processing anything (like sending to kitchen)
-							disabled={!canCheckout || isProcessing} // Disable based on canCheckout logic
+							visible={!isProcessing}
+							disabled={!canCheckout || isProcessing}
+							color={"white"} // Set icon color to white
 						/>
 					)}
 				</Portal>
@@ -568,11 +596,23 @@ const styles = StyleSheet.create({
 		marginRight: 10,
 	},
 	quantityButton: { marginHorizontal: -5 }, // Reduce spacing around icon buttons
-	quantity: { marginHorizontal: 5, fontSize: 16, fontWeight: "500" },
-	itemPrice: { fontWeight: "bold", fontSize: 15 },
-	itemQuantitySent: { fontSize: 15, color: colors.textLight, marginRight: 10 }, // Style for 'x Qty' when sent
+	quantity: {
+		marginHorizontal: 5,
+		fontSize: 16,
+		fontWeight: "500",
+		color: colors.textDark,
+	},
+	itemPrice: { fontWeight: "bold", fontSize: 15, color: colors.textDark },
+	itemQuantitySent: {
+		fontSize: 15,
+		color: colors.textLight,
+		marginRight: 10,
+	}, // Style for 'x Qty' when sent
 	sentItemVisual: { opacity: 0.6 }, // Fade sent items slightly
-	sentItemText: { textDecorationLine: "line-through", color: colors.textLight },
+	sentItemText: {
+		textDecorationLine: "line-through",
+		color: colors.textLight,
+	},
 	pipTotalContainer: {
 		marginTop: 10,
 		paddingTop: 5,
@@ -581,7 +621,7 @@ const styles = StyleSheet.create({
 		alignItems: "flex-end",
 	},
 	pipTotalLabel: { fontSize: 14, color: colors.text },
-	pipTotalAmount: { fontSize: 15, fontWeight: "bold" },
+	pipTotalAmount: { fontSize: 15, fontWeight: "bold", color: colors.textDark },
 	pipDivider: { marginTop: 5 },
 	summarySection: {
 		margin: 10,
@@ -602,7 +642,7 @@ const styles = StyleSheet.create({
 		paddingVertical: 4,
 	},
 	summaryLabel: { fontSize: 15, color: colors.textDark },
-	summaryAmount: { fontSize: 15, fontWeight: "500" },
+	summaryAmount: { fontSize: 15, fontWeight: "500", color: colors.textDark },
 	originalPrice: {
 		fontSize: 15,
 		textDecorationLine: "line-through",
@@ -620,7 +660,11 @@ const styles = StyleSheet.create({
 		borderTopColor: colors.primary,
 	},
 	grandTotalLabel: { fontSize: 16, fontWeight: "bold", color: colors.primary },
-	grandTotalAmount: { fontSize: 16, fontWeight: "bold", color: colors.primary },
+	grandTotalAmount: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: colors.primary,
+	},
 	disclaimerText: {
 		fontSize: 12,
 		color: colors.textLight,
@@ -628,7 +672,11 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginTop: 10,
 	},
-	buttonContainer: { paddingHorizontal: 10, marginTop: 10, marginBottom: 80 }, // Add bottom margin to avoid FAB overlap
+	buttonContainer: {
+		paddingHorizontal: 10,
+		marginTop: 10,
+		marginBottom: 80,
+	}, // Add bottom margin to avoid FAB overlap
 	sendButtonBase: {
 		padding: 15,
 		borderRadius: 8,

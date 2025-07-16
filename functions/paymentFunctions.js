@@ -247,117 +247,102 @@ const createOrderFromPartyPayment = async (
 };
 
 /**
- * Creates a permanent 'order' document and performs all necessary cleanup
- * after a successful individual payment.
- * @param {object} metadata The metadata object from the Stripe Payment Intent.
- * @param {object} paymentIntent The full PaymentIntent object.
+ * Fetches a pending order from Firestore, creates a permanent 'order' document,
+ * and performs all necessary cleanup after a successful individual payment.
+ * @param {string} orderId The ID of the document in the 'pending_orders' collection.
+ * @param {object} paymentIntent The full PaymentIntent object from Stripe.
  * @param {number} stripeFeeActual The calculated Stripe fee for the transaction.
  */
 const createOrderFromIndividualPayment = async (
-	metadata,
+	orderId,
 	paymentIntent,
 	stripeFeeActual
 ) => {
 	console.log(
-		"[Webhook Log] Starting createOrderFromIndividualPayment for user:",
-		metadata.userId
+		`[Webhook Log] Starting createOrderFromIndividualPayment Second for pending order: ${orderId}`
 	);
-	console.log(
-		"[Webhook Log] Full metadata received:",
-		JSON.stringify(metadata, null, 2)
-	);
-	console.log("[Webhook Log] PaymentIntent ID:", paymentIntent.id);
 
 	try {
-		// 1. Generate the human-readable Order ID
-		const generatedOrderId = await generateOrderId(
-			metadata.restaurantId,
-			metadata.userId
-		);
-		console.log(`[Webhook Log] Generated Order ID: ${generatedOrderId}`);
+		// --- THIS IS THE FIX ---
+		// STEP 1: Fetch the complete order data from the 'pending_orders' collection.
+		const pendingOrderRef = db.collection("pending_orders").doc(orderId);
+		const pendingOrderDoc = await pendingOrderRef.get();
 
-		// 2. Parse all data from metadata
-		const simplifiedItems = JSON.parse(metadata.items || "[]");
-		const menuItemsRef = db
-			.collection("menuItems")
-			.where("restaurantId", "==", metadata.restaurantId);
-		const menuSnapshot = await menuItemsRef.get();
-		const menuItemsMap = new Map();
-		menuSnapshot.forEach((doc) => menuItemsMap.set(doc.id, doc.data()));
-
-		const items = simplifiedItems.map((item) => {
-			const fullMenuItem = menuItemsMap.get(item.menuItemId);
-			return {
-				...item,
-				dish: fullMenuItem || { name: "Unknown Item", category: "Other" },
-			};
-		});
-
-		const table = JSON.parse(metadata.table || "null");
-		const server = JSON.parse(metadata.server || "null");
-		const checkInTimestampRaw = JSON.parse(metadata.checkInTimestamp || "null");
-
-		let checkInTimestamp = null;
-		if (checkInTimestampRaw && checkInTimestampRaw.seconds) {
-			checkInTimestamp = new admin.firestore.Timestamp(
-				checkInTimestampRaw.seconds,
-				checkInTimestampRaw.nanoseconds
+		if (!pendingOrderDoc.exists) {
+			console.error(
+				`CRITICAL: Pending order ${orderId} not found. Cannot create final order.`
 			);
+			return; // Exit the function if the pending order doesn't exist.
 		}
-		console.log(`[Webhook Log] Parsed items count: ${items.length}`);
-		console.log(`[Webhook Log] Parsed table:`, table ? table.name : "N/A");
 
-		// 3. Find the active workday
-		const workDaysRef = db
-			.collection("restaurants")
-			.doc(metadata.restaurantId)
-			.collection("work_days");
-		const openWorkDayQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
-		const openWorkDaySnapshot = await openWorkDayQuery.get();
-		const activeWorkDayId = openWorkDaySnapshot.empty
-			? null
-			: openWorkDaySnapshot.docs[0].id;
-		console.log(`[Webhook Log] Active Workday ID: ${activeWorkDayId}`);
+		const orderDetails = pendingOrderDoc.data();
 
-		// 4. Prepare the final order data
-		const newOrderRef = db.collection("orders").doc(); // Generate a new Firestore ID
-		const orderData = {
-			id: newOrderRef.id,
-			orderId: generatedOrderId,
-			restaurantId: metadata.restaurantId,
-			userId: metadata.userId,
-			workdayId: activeWorkDayId,
+		// Now we have all the correct data, including items, checkInId, etc.
+		const {
+			restaurantId,
+			customerId, // Changed from userId to customerId
 			items,
 			table,
 			server,
-			checkInId: metadata.checkInId,
-			checkInTimestamp,
-			subtotal: Number(metadata.subtotal),
-			gratuity: Number(metadata.gratuity),
-			taxActual: Number(metadata.taxActual),
+			checkInId, // This is now guaranteed to exist
+			checkInTimestamp = null, // Default to null if undefined
+			subtotal,
+			gratuity,
+		} = orderDetails;
+
+		// STEP 2: Generate the human-readable Order ID
+		const generatedOrderId = await generateOrderId(restaurantId, customerId); // Use customerId here
+		console.log(`[Webhook Log] Generated Order ID: ${generatedOrderId}`);
+
+		// STEP 3: Prepare the final order data using the fetched details
+		const newOrderRef = db.collection("orders").doc(orderId); // Use the same ID for the final order
+		const orderData = {
+			id: newOrderRef.id,
+			orderId: generatedOrderId,
+			restaurantId: restaurantId,
+			userId: customerId, // Store as userId in the final order
+			items: items, // Use the items from the pending order
+			table: table,
+			server: server,
+			checkInId: checkInId, // This is now correctly defined
+			checkInTimestamp: checkInTimestamp,
+			subtotal: subtotal,
+			gratuity: gratuity,
 			platformFeeActual: paymentIntent.application_fee_amount || 0,
-			stripeFeeActual,
+			stripeFeeActual: stripeFeeActual,
 			totalPrice: paymentIntent.amount,
 			paymentStatus: "paid",
 			orderStatus: "confirmed",
 			timestamp: admin.firestore.FieldValue.serverTimestamp(),
 		};
-		console.log(
-			`[Webhook Log] Prepared order data for Firestore document ${newOrderRef.id}`
-		);
 
-		// 5. Use a batch write to perform all database updates atomically
+		// STEP 4: Use a batch write to perform all updates atomically
 		const batch = db.batch();
 
 		// Action 1: Create the new order document
 		batch.set(newOrderRef, orderData);
-		console.log(`[Webhook Log] Queued creation for order ${newOrderRef.id}.`);
+
+		// Action 2: Query for and delete all items from the user's basket for that restaurant.
+		const basketQuery = db
+			.collection("baskets")
+			.where("userId", "==", customerId)
+			.where("restaurantId", "==", restaurantId);
+
+		const basketSnapshot = await basketQuery.get();
+		if (!basketSnapshot.empty) {
+			console.log(
+				`[Webhook Log] Found ${basketSnapshot.size} basket items to delete for user ${customerId}.`
+			);
+			basketSnapshot.forEach((doc) => {
+				batch.delete(doc.ref);
+			});
+		}
 
 		// Action 2: Update the table status
 		if (table && table.id) {
 			const tableRef = db
 				.collection("restaurants")
-				.doc(metadata.restaurantId)
+				.doc(restaurantId)
 				.collection("tables")
 				.doc(table.id);
 			batch.update(tableRef, {
@@ -365,64 +350,31 @@ const createOrderFromIndividualPayment = async (
 				currentCheckInId: null,
 				currentCustomerId: null,
 			});
-			console.log(
-				`[Webhook Log] Queued update for table ${table.id} to 'checkedOut'.`
-			);
-		} else {
-			console.warn(
-				"[Webhook Log] No table ID found in metadata, skipping table update."
-			);
 		}
 
 		// Action 3: Update the check-in status
-		if (metadata.checkInId) {
-			const checkInRef = db.collection("checkIns").doc(metadata.checkInId);
+		if (checkInId) {
+			const checkInRef = db.collection("checkIns").doc(checkInId);
 			batch.update(checkInRef, {
 				status: "COMPLETED",
 				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
-			console.log(
-				`[Webhook Log] Queued update for checkIn ${metadata.checkInId} to 'COMPLETED'.`
-			);
-		} else {
-			console.warn(
-				"[Webhook Log] No checkInId found in metadata, skipping check-in update."
-			);
 		}
 
-		// Action 4: Clear the customer's active check-in (CRITICAL STEP)
-		if (metadata.userId) {
-			const customerRef = db.collection("customers").doc(metadata.userId);
-			// This is the most important update for the confirmation screen.
+		// Action 4: Clear the customer's active check-in
+		if (customerId) {
+			// Use customerId here
+			const customerRef = db.collection("customers").doc(customerId); // Use customerId here
 			batch.update(customerRef, { activeCheckIn: null });
-			console.log(
-				`[Webhook Log] Queued update for customer ${metadata.userId} to set activeCheckIn to null.`
-			);
 		}
-		if (metadata.checkInId) {
-			const basketItemsQuery = db
-				.collection("baskets")
-				.where("checkInId", "==", metadata.checkInId);
-			const basketItemsSnapshot = await basketItemsQuery.get();
 
-			if (!basketItemsSnapshot.empty) {
-				console.log(
-					`[Webhook Log] Found ${basketItemsSnapshot.size} basket items to delete for checkInId ${metadata.checkInId}.`
-				);
-				basketItemsSnapshot.forEach((doc) => {
-					batch.delete(doc.ref); // Add deletion to the batch
-				});
-			}
-		} else {
-			console.error(
-				"[Webhook Log] CRITICAL: No userId found in metadata. Cannot clear activeCheckIn."
-			);
-		}
+		// Action 5: Delete the original pending order document
+		batch.delete(pendingOrderRef);
 
 		// Commit all changes at once
 		await batch.commit();
 		console.log(
-			`✅ Successfully created order ${newOrderRef.id} and completed cleanup for individual payment.`
+			`✅ Successfully created order ${newOrderRef.id} and cleaned up pending order.`
 		);
 	} catch (error) {
 		console.error("Error in createOrderFromIndividualPayment:", error);
@@ -453,9 +405,6 @@ const handleStripeEvent = async (event, stripeInstance) => {
 	switch (event.type) {
 		case "payment_intent.succeeded":
 			const paymentIntentId = paymentIntent.id;
-			console.log(
-				`Processing payment_intent.succeeded for PI: ${paymentIntentId}`
-			);
 
 			// --- 1. Retrieve Charge Details to get Exact Fees ---
 			const chargeId = paymentIntent.latest_charge;
@@ -500,9 +449,16 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				);
 			}
 
+			const orderId = metadata.orderId;
+
+			if (!orderId) {
+				console.error("Payment succeeded but metadata is missing orderId.");
+				return; // Stop processing if we don't have the ID
+			}
+
 			if (metadata.type === "individual_payment") {
 				await createOrderFromIndividualPayment(
-					metadata,
+					orderId,
 					paymentIntent,
 					stripeFeeActual
 				);
@@ -770,126 +726,82 @@ exports.preparePaymentSheetData = functions
 		}
 
 		const {
-			restaurantId,
-			customerId,
-			// Pre-tax amounts from client:
-			subtotal, // Pre-tax subtotal (after discounts) in cents
-			gratuity, // Gratuity amount in cents
-			platformFee, // Your calculated potential platform fee (e.g., 5%) in cents
-			// Data for Stripe Tax calculation:
-			items,
+			amount,
+			platformFee,
+			stripeCustomerId,
 			connectedAccountId,
-			checkInId,
-			table,
-			server,
-			checkInTimestamp,
+			orderPayload,
 		} = data;
+		const userId = context.auth.uid;
 
 		// --- Basic Validation ---
-		if (!restaurantId || !customerId || !connectedAccountId) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Missing required parameters."
-			);
-		}
 		if (
-			typeof subtotal !== "number" ||
-			typeof gratuity !== "number" ||
-			typeof platformFee !== "number"
+			!amount ||
+			!platformFee === undefined ||
+			!stripeCustomerId ||
+			!connectedAccountId ||
+			!orderPayload
 		) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Amounts must be numbers (cents)."
+				"Missing required data for payment preparation."
 			);
 		}
+
 		try {
-			// Add more validation as needed...
-			const keys = await getStripeKeys(restaurantId);
-			const stripeSecretKey = keys.stripeSecretKey;
-			const stripeInstance = stripe(stripeSecretKey, {
+			// --- STEP 1: Create the pending order document in Firestore FIRST ---
+			const pendingOrderRef = admin
+				.firestore()
+				.collection("pending_orders")
+				.doc(); // Auto-generate ID
+
+			await pendingOrderRef.set({
+				...orderPayload,
+				customerId: userId, // Ensure the UID of the calling user is set
+				status: "pending_payment",
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			const newOrderId = pendingOrderRef.id;
+			console.log(
+				`Created pending order ${newOrderId} before creating Payment Intent.`
+			);
+
+			// --- STEP 2: Get the correct Stripe instance using your helper ---
+			const keys = await getStripeKeys(orderPayload.restaurantId);
+			const stripeInstance = stripe(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
 
-			const restaurantDoc = await db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.get();
-			const isLiveMode =
-				restaurantDoc.exists && restaurantDoc.data().isTestAccount === false;
+			// --- STEP 3: Create Ephemeral Key ---
+			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
+				{ customer: stripeCustomerId },
+				{ apiVersion: "2024-04-10" }
+			);
 
-			const userDocRef = db.collection("customers").doc(context.auth.uid);
-			const userDoc = await userDocRef.get();
-			if (!userDoc.exists)
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Customer profile not found."
-				);
-			const userData = userDoc.data();
-			const customerIdField = isLiveMode
-				? "stripeCustomerId_live"
-				: "stripeCustomerId_test";
-
-			let stripeCustomerId = userData[customerIdField];
-
-			if (!stripeCustomerId) {
-				const customer = await stripeInstance.customers.create({
-					phone: userDoc.data().phoneNumber,
-					name: `${userDoc.data().firstName} ${userDoc.data().lastName}`,
-				});
-				stripeCustomerId = customer.id;
-				await userDocRef.update({ stripeCustomerId });
-			}
-
-			// --- 2. Calculate Final Amount ---
-			const finalAmount = subtotal + gratuity + platformFee;
-
-			// --- 4. Create Payment Intent ---
-			const paymentIntentParams = {
-				amount: finalAmount,
+			// --- STEP 4: Create Payment Intent with LEAN metadata ---
+			const paymentIntent = await stripeInstance.paymentIntents.create({
+				amount: amount,
 				currency: "usd",
 				customer: stripeCustomerId,
-				application_fee_amount: platformFee,
-				transfer_data: { destination: connectedAccountId },
-				on_behalf_of: connectedAccountId,
-				metadata: {
-					type: "individual_payment", // Clearly mark the type for the webhook
-					restaurantId,
-					userId: context.auth.uid,
-					subtotal,
-					gratuity,
-					platformFee,
-					checkInId: checkInId,
-					// Store complex objects as JSON strings, as metadata only accepts strings.
-					items: JSON.stringify(items),
-					table: JSON.stringify(table),
-					server: JSON.stringify(server),
-					// Convert the timestamp object to a JSON string to preserve its structure.
-					checkInTimestamp: checkInTimestamp
-						? JSON.stringify(checkInTimestamp)
-						: null,
+				application_fee_amount: platformFee, // Correctly passed as a top-level param
+				transfer_data: {
+					destination: connectedAccountId,
 				},
-			};
+				// The metadata is now clean, small, and efficient.
+				metadata: {
+					orderId: newOrderId,
+					userId: userId,
+					restaurantId: orderPayload.restaurantId,
+					type: "individual_payment",
+				},
+			});
 
-			const paymentIntent = await stripeInstance.paymentIntents.create(
-				paymentIntentParams
-			);
-			console.log(`Payment Intent ${paymentIntent.id} created.`);
-
-			// --- 5. Create Ephemeral Key ---
-			// Use a reasonably recent, supported API version
-			const apiVersion = "2023-10-16"; // Or check Stripe docs
-			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
-				{ customer: customerId },
-				{ apiVersion: apiVersion }
-			);
-			console.log("Ephemeral Key created.");
-
-			// --- 6. Return necessary data to Client ---
+			// --- STEP 5: Return secrets to the client ---
 			return {
 				paymentIntentClientSecret: paymentIntent.client_secret,
 				ephemeralKeySecret: ephemeralKey.secret,
-				customerId: customerId, // Return customerId for convenience
-				finalAmount: finalAmount, // Return final amount
+				customerId: stripeCustomerId,
 			};
 		} catch (error) {
 			console.error("preparePaymentSheetData failed:", error);

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 
 import { auth, db, functions } from "../config/firebase.native";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 export const AuthContext = createContext();
 
@@ -19,7 +20,7 @@ export const AuthProvider = ({ children }) => {
 	const [redirectPath, setRedirectPath] = useState(null);
 
 	useEffect(() => {
-		const subscriber = auth().onAuthStateChanged(async (user) => {
+		const subscriber = auth.onAuthStateChanged(async (user) => {
 			setIsLoading(true);
 			if (user) {
 				let userRole;
@@ -79,7 +80,7 @@ export const AuthProvider = ({ children }) => {
 	const login = useCallback(async (email, password) => {
 		setAuthError(null);
 		try {
-			await auth().signInWithEmailAndPassword(email, password);
+			await auth.signInWithEmailAndPassword(email, password);
 		} catch (error) {
 			setAuthError(error.message || "Invalid email or password.");
 			throw error;
@@ -90,9 +91,9 @@ export const AuthProvider = ({ children }) => {
 		setAuthError(null);
 		try {
 			// Use the native 'funcs' object to call the cloud function
-			const createUserAccount = functions.httpsCallable("createUserAccount");
+			const createUserAccount = httpsCallable(functions, "createUserAccount");
 			await createUserAccount({ email, password, role, additionalData });
-			await auth().signInWithEmailAndPassword(email, password);
+			await auth.signInWithEmailAndPassword(email, password);
 		} catch (error) {
 			setAuthError(error.message);
 			throw error;
@@ -139,7 +140,7 @@ export const AuthProvider = ({ children }) => {
 	const continueAsGuest = useCallback(async () => {
 		setAuthError(null);
 		try {
-			await auth().signInAnonymously();
+			await auth.signInAnonymously();
 		} catch (error) {
 			setAuthError("Could not start a guest session.");
 			throw error;
@@ -149,7 +150,7 @@ export const AuthProvider = ({ children }) => {
 	const logout = useCallback(async (redirectTo = null) => {
 		if (redirectTo) setRedirectPath(redirectTo);
 		try {
-			await auth().signOut();
+			await auth.signOut();
 		} catch (error) {
 			console.error("Logout Error:", error);
 		}
@@ -158,7 +159,7 @@ export const AuthProvider = ({ children }) => {
 	const sendPasswordResetEmail = useCallback(async (email) => {
 		setAuthError(null);
 		try {
-			await auth().sendPasswordResetEmail(email);
+			await auth.sendPasswordResetEmail(email);
 			Alert.alert(
 				"Password Reset",
 				"A password reset link has been sent to your email."
