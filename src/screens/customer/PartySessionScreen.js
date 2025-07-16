@@ -337,9 +337,8 @@ const PartySessionScreen = () => {
 					checkInResult.checkInId
 				);
 				if (activationSuccess) {
-					Alert.alert(
-						"Party Activated!",
-						"Your party is now active and checked in."
+					console.log(
+						"Party Activated! Your party is now active and checked in."
 					);
 				}
 				// Error alerts for activation failure are likely handled within activatePartyCheckIn context function
@@ -430,7 +429,6 @@ const PartySessionScreen = () => {
 
 	const onItemQuantityChangeCallbackForParty = useCallback(
 		async (
-			restaurantId,
 			itemId, // OrderItemCard now only sends itemId and newQuantity
 			newQuantity
 		) => {
@@ -461,7 +459,7 @@ const PartySessionScreen = () => {
 			console.log(
 				`PartySessionScreen: Calling context to update item "${itemId}" in party "${partyIdToUse}" to quantity ${newQuantity}`
 			);
-			//setUiItemUpdateLoading(true);
+			setUpdatingItemId(itemId);
 			try {
 				console.log("Entering ");
 				// Call the context function with the correct arguments
@@ -478,7 +476,7 @@ const PartySessionScreen = () => {
 				);
 				// Alert is likely handled by the context, but we log the error here.
 			} finally {
-				setUiItemUpdateLoading(false);
+				setUpdatingItemId(null);
 			}
 		},
 		[partyDetails?.id, currentUserData?.uid, handlePartyItemQuantityChange]
@@ -915,15 +913,22 @@ const PartySessionScreen = () => {
 					contentContainerStyle={styles.flatListContentContainer}
 				/>
 
-				{/* Add My Items FAB: Available if party is pending or active */}
-				{!userHasPaid && (partyIsPending || partyIsActive) && (
-					<TouchableOpacity
-						style={styles.addItemFab}
-						onPress={handleAddMyItems}
-					>
-						<Ionicons name="add" size={30} color={colors.textOnPrimaryBrand} />
-					</TouchableOpacity>
-				)}
+				{/* Add My Items FAB: Available if party is pending, active, or awaiting table */}
+				{!userHasPaid &&
+					(partyIsPending ||
+						partyIsActive ||
+						partyDetails.status === "AWAITING_TABLE") && (
+						<TouchableOpacity
+							style={styles.addItemFab}
+							onPress={handleAddMyItems}
+						>
+							<Ionicons
+								name="add"
+								size={30}
+								color={colors.textOnPrimaryBrand}
+							/>
+						</TouchableOpacity>
+					)}
 
 				{/* Modals */}
 				<Modal

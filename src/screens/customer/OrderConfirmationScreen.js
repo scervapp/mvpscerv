@@ -20,6 +20,7 @@ import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityI
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
+import { onSnapshot } from "@react-native-firebase/firestore";
 
 const StatusIndicator = ({ status, message, details, error }) => {
 	let iconName, iconColor, title;
@@ -259,3 +260,4 @@ const styles = StyleSheet.create({
 });
 
 export default OrderConfirmationScreen;
+

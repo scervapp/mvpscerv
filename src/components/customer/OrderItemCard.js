@@ -33,18 +33,18 @@ const OrderItemCard = (props) => {
 				{ text: "Cancel", style: "cancel" },
 				{
 					text: "Remove",
-					onPress: () => onQuantityChange(0), // Pass only the new quantity
+					onPress: () => onQuantityChange(item.id, 0),
 					style: "destructive",
 				},
 			]);
 		} else {
-			onQuantityChange(currentQuantity - 1); // Pass only the new quantity
+			onQuantityChange(item.id, currentQuantity - 1);
 		}
 	};
 
 	const handleIncrement = () => {
 		if (!allowEdit || isUpdating) return; // Disable if updating
-		onQuantityChange(item.quantity + 1); // Pass only the new quantity
+		onQuantityChange(item.id, item.quantity + 1);
 	};
 
 	const itemTotal =

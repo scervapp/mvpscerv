@@ -27,12 +27,12 @@ import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
-
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const PartyCheckoutScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
@@ -93,96 +93,81 @@ const PartyCheckoutScreen = () => {
 
 	// --- Data Filtering & Calculations (useMemo for performance) ---
 	const {
-		myItems,
-		subtotal,
-		originalSubtotal,
-		totalDiscount,
-		gratuity,
-		platformFee,
-		totalForPayment,
+		myItemsInBasket,
+		mySubtotal,
+		myGratuity,
+		myPlatformFee,
+		myFinalTotal,
+		myTotalDiscount,
 	} = useMemo(() => {
 		if (!sharedBasketItems || !currentUserData?.uid) {
 			return {
-				myItems: [],
-				subtotal: 0,
-				originalSubtotal: 0,
-				totalDiscount: 0,
-				gratuity: 0,
-				platformFee: 0,
-				totalForPayment: 0,
+				myItemsInBasket: [],
+				mySubtotal: 0,
+				myGratuity: 0,
+				myPlatformFee: 0,
+				myFinalTotal: 0,
+				myTotalDiscount: 0,
 			};
 		}
 
-		// 1. Filter for the current user's items that have been sent to the kitchen
-		const userItems = sharedBasketItems.filter(
-			(item) =>
-				item.orderedByUserId === currentUserData.uid && item.status === "sent"
+		const items = sharedBasketItems.filter(
+			(item) => item.orderedByUserId === currentUserData.uid
 		);
+		if (items.length === 0) {
+			return {
+				myItemsInBasket: [],
+				mySubtotal: 0,
+				myGratuity: 0,
+				myPlatformFee: 0,
+				myFinalTotal: 0,
+				myTotalDiscount: 0,
+			};
+		}
 
-		// 2. Calculate user's subtotal
+		let originalSubtotalInCents = 0;
+		let discountedSubtotalInCents = 0;
 
-		const initialTotals = { originalSubtotal: 0, finalSubtotal: 0 };
+		items.forEach((item) => {
+			const priceInCents = Math.round((item.price || 0) * 100);
+			const quantity = item.quantity || 1;
+			originalSubtotalInCents += priceInCents * quantity;
 
-		const calculatedTotals = userItems.reduce((acc, item) => {
-			const quantity = Number(item.quantity) || 1;
-			const originalPrice = (Number(item.price) || 0) * 100; // Original price in cents
+			const finalPriceInCents =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? Math.round(item.discountedPrice * 100)
+					: priceInCents;
 
-			acc.originalSubtotal += originalPrice * quantity;
+			discountedSubtotalInCents += finalPriceInCents * quantity;
+		});
 
-			// --- THIS IS THE FIX ---
-			// Check if a discount exists and use the discountedPrice if available
-			const finalPrice =
-				item.discount > 0 && typeof item.discountedPrice === "number"
-					? Math.round(item.discountedPrice * 100) // Use discounted price in cents
-					: originalPrice;
-			// --- END OF FIX ---
-
-			acc.finalSubtotal += finalPrice * quantity;
-			return acc;
-		}, initialTotals);
-
-		const userSubtotal = calculatedTotals.finalSubtotal;
-		const userOriginalSubtotal = calculatedTotals.originalSubtotal;
-		const userTotalDiscount = userOriginalSubtotal - userSubtotal;
-
-		// 3. Calculate gratuity and fees based on the user's FINAL subtotal
-		const userGratuity = Math.round(
-			userSubtotal * (parseFloat(gratuityPercentage) / 100)
+		const gratuityInCents = Math.round(
+			discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100)
 		);
-		const userPlatformFee = Math.round(userSubtotal * fees);
-
-		// 4. Calculate total amount for payment processing
-		const userTotalForPayment = userSubtotal + userGratuity + userPlatformFee;
+		const platformFeeInCents = Math.round(discountedSubtotalInCents * fees);
+		const finalTotalInCents =
+			discountedSubtotalInCents + gratuityInCents + platformFeeInCents;
+		const totalDiscountInCents =
+			originalSubtotalInCents - discountedSubtotalInCents;
 
 		return {
-			myItems: userItems,
-			subtotal: userSubtotal,
-			originalSubtotal: userOriginalSubtotal,
-			totalDiscount: userTotalDiscount,
-			gratuity: userGratuity,
-			platformFee: userPlatformFee,
-			totalForPayment: userTotalForPayment,
+			myItemsInBasket: items,
+			mySubtotal: discountedSubtotalInCents,
+			myGratuity: gratuityInCents,
+			myPlatformFee: platformFeeInCents,
+			myFinalTotal: finalTotalInCents,
+			myTotalDiscount: totalDiscountInCents,
 		};
-	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
+	}, [sharedBasketItems, currentUserData.uid, gratuityPercentage, fees]);
 
 	useEffect(() => {
-		// Guard against running without necessary data
+		// Guard clause to prevent running without necessary data
 		if (
-			totalForPayment <= 49 ||
+			myFinalTotal <= 0 ||
 			!partyDetails?.id ||
-			!partyDetails?.restaurantStripeAccountId
+			!partyDetails?.restaurantStripeAccountId ||
+			!currentUserData?.uid
 		) {
-			// Check if loading is finished before showing an error
-			if (
-				!isLoadingParty &&
-				partyDetails &&
-				!partyDetails.restaurantStripeAccountId
-			) {
-				console.error(
-					"Error: Restaurant Stripe Account ID is missing from partyDetails."
-				);
-				setPaymentError("This restaurant is not set up for payments.");
-			}
 			setIsPaymentSheetReady(false);
 			return;
 		}
@@ -191,31 +176,52 @@ const PartyCheckoutScreen = () => {
 			setIsPreparing(true);
 			setPaymentError(null);
 			try {
-				// --- Call the NEW 'preparePartyPaymentSheet' Cloud Function ---
+				// 1. Get or Create Stripe Customer ID
+				let stripeCustomerId = currentUserData.stripeCustomerId;
+				if (!stripeCustomerId) {
+					const createStripeCustomerFunction = httpsCallable(
+						functions,
+						"createStripeCustomer"
+					);
+					const { data } = await createStripeCustomerFunction({
+						userId: currentUserData.uid,
+					});
+					stripeCustomerId = data.customerId;
+					await db
+						.collection("customers")
+						.doc(currentUserData.uid)
+						.update({ stripeCustomerId });
+				}
+
+				// 2. Call the Cloud Function with the complete payload
 				const prepareFn = httpsCallable(functions, "preparePartyPaymentSheet");
-				const { data } = await prepareFn({
+				const { data: prepData } = await prepareFn({
+					amount: myFinalTotal,
+					platformFee: myPlatformFee,
+					stripeCustomerId: stripeCustomerId,
+					connectedAccountId: partyDetails.restaurantStripeAccountId,
 					partyId: partyDetails.id,
-					amount: totalForPayment, // Total in cents for this user's portion
-					platformFee: platformFee, // Your calculated fee for this user's portion
-					restaurantStripeAccountId: partyDetails.restaurantStripeAccountId,
-					subtotal: subtotal, // Pass the user's subtotal
-					gratuity: gratuity, // Pass the user's gratuity
+					// The server will use this payload to create the pending_order
+					orderPayload: {
+						restaurantId: partyDetails.restaurantId,
+						items: myItemsInBasket,
+						subtotal: mySubtotal,
+						gratuity: myGratuity,
+					},
 				});
 
-				if (!data.paymentIntent || !data.ephemeralKey || !data.customer) {
+				if (!prepData || !prepData.paymentIntentClientSecret) {
 					throw new Error("Payment details from server are incomplete.");
 				}
 
-				setFinalTotal(data.finalAmount);
-				// Initialize the Payment Sheet
+				// 3. Initialize the Payment Sheet
 				const { error } = await initPaymentSheet({
 					merchantDisplayName: `Scerv Inc. - ${partyDetails.restaurantName}`,
-					paymentIntentClientSecret: data.paymentIntent,
-					customerEphemeralKeySecret: data.ephemeralKey,
-					customerId: data.customer,
-					publishableKey: stripePublishableKey,
+					paymentIntentClientSecret: prepData.paymentIntentClientSecret,
+					customerEphemeralKeySecret: prepData.ephemeralKeySecret,
+					customerId: prepData.customerId,
 					allowsDelayedPaymentMethods: true,
-					returnURL: "stripe://stripe-redirect",
+					returnURL: "scerv://stripe-redirect",
 				});
 
 				if (error) {
@@ -231,7 +237,7 @@ const PartyCheckoutScreen = () => {
 		};
 
 		prepareSheet();
-	}, [totalForPayment, partyDetails]); // Dependency array is correct
+	}, [myFinalTotal, partyDetails, currentUserData]);
 
 	// --- Handle Payment Action ---
 	const handlePayment = async () => {
@@ -289,8 +295,8 @@ const PartyCheckoutScreen = () => {
 					{/* Your Itemized List */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>Your Items</Text>
-						{myItems.length > 0 ? (
-							myItems.map((item) => (
+						{myItemsInBasket.length > 0 ? (
+							myItemsInBasket.map((item) => (
 								<View key={item.id} style={styles.itemRow}>
 									<Text style={styles.itemName}>
 										{item.quantity}x {item.dishName}{" "}
@@ -319,6 +325,8 @@ const PartyCheckoutScreen = () => {
 								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
 								style={styles.gratuityPicker}
 							>
+								<Picker.Item label="5%" value="5" />
+								<Picker.Item label="10%" value="10" />
 								<Picker.Item label="15%" value="15" />
 								<Picker.Item label="18% (Recommended)" value="18" />
 								<Picker.Item label="20%" value="20" />
@@ -332,35 +340,35 @@ const PartyCheckoutScreen = () => {
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>Your Bill Summary</Text>
 						{/* Conditionally show original price and discount if a discount exists */}
-						{totalDiscount > 0 && (
+						{myTotalDiscount > 0 && (
 							<>
 								<View style={styles.summaryRow}>
 									<Text style={styles.label}>Original Subtotal:</Text>
 									<Text style={styles.originalPriceText}>
-										{formatCurrency(originalSubtotal)}
+										{formatCurrency(mySubtotal)}
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
 									<Text style={styles.label}>Discounts:</Text>
 									<Text style={styles.discountText}>
-										-{formatCurrency(totalDiscount)}
+										-{formatCurrency(myTotalDiscount)}
 									</Text>
 								</View>
 							</>
 						)}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>Subtotal:</Text>
-							<Text style={styles.amount}>{formatCurrency(subtotal)}</Text>
+							<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
 						</View>
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>
 								Gratuity ({gratuityPercentage}%):
 							</Text>
-							<Text style={styles.amount}>{formatCurrency(gratuity)}</Text>
+							<Text style={styles.amount}>{formatCurrency(myGratuity)}</Text>
 						</View>
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>Service Fee:</Text>
-							<Text style={styles.amount}>{formatCurrency(platformFee)}</Text>
+							<Text style={styles.amount}>{formatCurrency(myPlatformFee)}</Text>
 						</View>
 
 						<View style={styles.summaryRow}></View>
@@ -371,7 +379,7 @@ const PartyCheckoutScreen = () => {
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
 								<Text style={styles.totalAmount}>
-									{formatCurrency(finalTotal)}
+									{formatCurrency(myFinalTotal)}
 								</Text>
 							)}
 						</View>
@@ -389,7 +397,7 @@ const PartyCheckoutScreen = () => {
 							!isPaymentSheetReady ||
 							isPaying ||
 							isPreparing ||
-							myItems.length === 0
+							myItemsInBasket.length === 0
 						}
 						loading={isPreparing || isPaying}
 						style={styles.payButton}
@@ -399,7 +407,7 @@ const PartyCheckoutScreen = () => {
 							? "Preparing..."
 							: isPaying
 							? "Processing..."
-							: `Pay ${formatCurrency(finalTotal)}`}
+							: `Pay ${formatCurrency(myFinalTotal)}`}
 					</Button>
 				</View>
 			</SafeAreaView>
@@ -456,7 +464,10 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		borderRadius: 8,
 	},
-	gratuityPicker: { height: Platform.OS === "ios" ? 180 : 50 },
+	gratuityPicker: {
+		height: Platform.OS === "ios" ? 180 : 50,
+		color: colors.textDark,
+	},
 	summaryRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",

@@ -755,6 +755,7 @@ export const PartyProvider = ({ children }) => {
 		newQuantity,
 		userId
 	) => {
+		
 		// This log should now be the first thing you see when the function is successfully called.
 		console.log(
 			`PartyContext: handlePartyItemQuantityChange INVOKED with qty: ${newQuantity}`

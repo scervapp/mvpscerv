@@ -67,14 +67,10 @@ const BasketScreen = ({ route, navigation }) => {
 		currentUserData?.uid
 	);
 
-	const handleLocalQuantityChange = async (
-		restaurantId,
-		basketItemId,
-		newQuantity
-	) => {
+	const handleLocalQuantityChange = async (basketItemId, newQuantity) => {
 		setUpdatingItemId(basketItemId); // Start loading indicator for this item
 		try {
-			await handleQuantityChange(restaurantId, basketItemId, newQuantity);
+			await handleQuantityChange(restaurant.id, basketItemId, newQuantity);
 		} catch (error) {
 			// Error is already alerted in the context, but you could add more UI feedback here if needed
 			console.log("BasketScreen: Failed to update quantity.");
@@ -288,13 +284,7 @@ const BasketScreen = ({ route, navigation }) => {
 					<OrderItemCard
 						key={basketItem.id}
 						item={itemForCard}
-						onQuantityChange={(newQuantity) =>
-							handleLocalQuantityChange(
-									restaurant.id,
-									basketItem.id,
-									newQuantity
-								)
-						}
+						onQuantityChange={handleLocalQuantityChange}
 						allowEdit={!basketItem.sentToChefQ}
 						isSentToKitchen={basketItem.sentToChefQ}
 						isUpdating={updatingItemId === basketItem.id}

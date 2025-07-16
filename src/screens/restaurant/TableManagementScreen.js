@@ -29,6 +29,7 @@ import { functions } from "../../config/firebase";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const AddEditTableModal = ({
 	isVisible,
@@ -604,3 +605,4 @@ const styles = StyleSheet.create({
 });
 
 export default TableManagementScreen;
+

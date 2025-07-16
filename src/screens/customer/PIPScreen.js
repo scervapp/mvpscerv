@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 
-import { db, functions } from "../../config/firebase.native";
+import { db, functions } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -60,7 +60,41 @@ const PIPSListScreen = () => {
 		}
 	};
 
-	const handleDeletePip = async (currentUserData, pips, setPIPs, pipId) => {
+	useEffect(() => {
+		if (!currentUserData?.uid) {
+			setIsLoading(false);
+			return; // Don't do anything if we don't have a user ID
+		}
+
+		setIsLoading(true); // Set loading true when we start fetching
+
+		const pipsQuery = db
+			.collection("customers")
+			.doc(currentUserData.uid)
+			.collection("pips")
+			.orderBy("name");
+
+		const unsubscribe = pipsQuery.onSnapshot(
+			(snapshot) => {
+				const pipsList = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+				setPIPs(pipsList);
+				setIsLoading(false); // Set loading to false once we have the data
+			},
+			(error) => {
+				console.error("Error fetching PIPs:", error);
+				Alert.alert("Error", "Could not load your PIPs.");
+				setIsLoading(false); // Also stop loading on error
+			}
+		);
+
+		// This is the cleanup function that runs when the component unmounts
+		return () => unsubscribe();
+	}, [currentUserData?.uid]);
+
+	const handleDeletePip = async (pipId) => {
 		Alert.alert("Confirm Delete", "Are you sure you want to delete this PIP?", [
 			{ text: "Cancel", style: "cancel" },
 			{
@@ -138,7 +172,7 @@ const PIPSListScreen = () => {
 		return { pips, setPIPs, isLoading };
 	};
 
-	const handleAddPip = async (currentUserData, newPipName, setNewPipName) => {
+	const handleAddPip = async () => {
 		if (newPipName.trim() === "" || !currentUserData?.uid) return;
 		try {
 			// --- REFACTORED FIRESTORE ADD ---
@@ -254,23 +288,27 @@ const PIPSListScreen = () => {
 			/>
 			<Text style={styles.pipName}>{item.name}</Text>
 			<TouchableOpacity onPress={() => handleDeletePip(item.id)}>
-				<Ionicons name="trash-outline" size={24} color={colors.danger} />
+				<Ionicons name="trash-outline" size={24} color={"red"} />
 			</TouchableOpacity>
 		</View>
 	);
 
 	return (
 		<View style={styles.container}>
+			<Text style={styles.instructions}>
+				Create a local PIP for your personal party, or search for other Scerv
+				users to add them.
+			</Text>
 			{/* Input for adding placeholder PIPs (Existing) */}
 			<View style={styles.addPipContainer}>
 				<TextInput
 					style={styles.input}
-					placeholder="Enter Placeholder PIP Name"
+					placeholder="Enter Local PIP Name"
 					value={newPipName}
 					onChangeText={setNewPipName}
 				/>
 				<TouchableOpacity style={styles.addButton} onPress={handleAddPip}>
-					<Text style={styles.addButtonText}>Add Placeholder</Text>
+					<Text style={styles.addButtonText}>Add Local PIP</Text>
 				</TouchableOpacity>
 			</View>
 
@@ -387,6 +425,12 @@ const PIPSListScreen = () => {
 
 // Stylesheet
 const styles = StyleSheet.create({
+	instructions: {
+		textAlign: "center",
+		marginBottom: 15,
+		fontSize: 14,
+		color: colors.textMedium,
+	},
 	container: {
 		flex: 1,
 		padding: 15,
@@ -405,6 +449,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		marginRight: 10,
 		backgroundColor: "white",
+		color: colors.textDark,
 	},
 	addButton: {
 		backgroundColor: colors.primary,
@@ -437,6 +482,7 @@ const styles = StyleSheet.create({
 		shadowOpacity: 0.1,
 		shadowRadius: 2,
 		elevation: 2,
+		color: colors.textDark,
 	},
 	pipIcon: {
 		marginRight: 10,
@@ -444,6 +490,7 @@ const styles = StyleSheet.create({
 	pipName: {
 		flex: 1,
 		fontSize: 16,
+		color: colors.textDark,
 	},
 	emptyText: {
 		textAlign: "center",

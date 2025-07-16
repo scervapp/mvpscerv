@@ -9,6 +9,7 @@ import {
 	Alert,
 	SafeAreaView,
 	ScrollView,
+	Linking,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
@@ -101,7 +102,6 @@ const AccountScreen = () => {
 					</Text>
 					<Text style={styles.userPhone}>{currentUserData?.phoneNumber}</Text>
 				</View>
-
 				{/* --- THIS IS THE FIX (PART 1) --- */}
 				{/* The main screen now has clearer sections */}
 				<SettingsCard>
@@ -117,7 +117,6 @@ const AccountScreen = () => {
 						onPress={() => navigation.navigate("OrderHistoryScreenInner")}
 					/>
 				</SettingsCard>
-
 				<SettingsCard>
 					<AccountRow
 						label="Manage Account"
@@ -125,8 +124,15 @@ const AccountScreen = () => {
 						onPress={() => navigation.navigate("ManageAccountScreen")} // Navigate to the new screen
 					/>
 				</SettingsCard>
+				<SettingsCard>
+					<AccountRow
+						label="Contact Support"
+						iconName="mail-outline"
+						onPress={() => Linking.openURL("mailto:support@scerv.com")}
+					/>
+				</SettingsCard>
 				{/* --- END OF FIX --- */}
-
+				{/* --- END OF FIX --- */}
 				<TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
 					<Text style={styles.logoutButtonText}>Sign Out</Text>
 				</TouchableOpacity>
@@ -179,3 +185,4 @@ const styles = StyleSheet.create({
 export default AccountScreen;
 
 //AccountScreen
+

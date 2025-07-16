@@ -175,7 +175,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 		// Calculate details per PIP
 		const calcPipTotals = filteredBasketData.map((personData) => {
-			console.log("PersonData", personData);
 			const itemsToReduce = personData?.items;
 			let pipSubtotal = 0;
 			let pipOriginalSubtotal = 0; // Original subtotal for this PIP
@@ -194,7 +193,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 				}, 0);
 			}
 
-			console.log("Calc PIP TOtals", calcPipTotals);
+		
 
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
@@ -502,6 +501,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 									itemStyle={styles.gratuityPickerItem}
 								>
 									<Picker.Item label="0%" value="0" />
+									<Picker.Item label="5%" value="5" />
 									<Picker.Item label="10%" value="10" />
 									<Picker.Item label="15%" value="15" />
 									<Picker.Item label="18%" value="18" />

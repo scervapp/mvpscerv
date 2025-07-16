@@ -125,6 +125,7 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		fontSize: 18,
 		width: "70%",
+		color: colors.textDark, // Added color for input text
 	},
 	errorTextModal: {
 		color: colors.danger || "red",

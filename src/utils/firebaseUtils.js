@@ -2,6 +2,7 @@ import React from "react";
 
 import * as ImagePicker from "expo-image-picker";
 import { nativeStorage, db } from "../config/firebase.native";
+import { updateDoc } from "@react-native-firebase/firestore";
 
 /* Uploads an image file to Firebase Storage and returns the download URL.
 
