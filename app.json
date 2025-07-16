@@ -16,37 +16,34 @@
       "bundleIdentifier": "com.scerv.app",
       "newArchEnabled": false,
       "googleServicesFile": "./GoogleService-Info.plist"
-
-     
     },
     "android": {
       "versionCode": 5,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.scerv.eat",
       "newArchEnabled": false,
       "googleServicesFile": "./google-services.json"
-
-    
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-     "@react-native-firebase/app",
+      "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "expo-router",
       "expo-web-browser",
       [
-      "expo-splash-screen", {
-        "backgroundColor": "#ffffff",
-        "image": "./assets/splash.png",
-        "resizeMode": "contain"
-      }
-    ]
-   
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#ffffff",
+          "image": "./assets/splash.png",
+          "resizeMode": "cover"
+        }
+      ],
+      "expo-audio"
     ],
     "extra": {
       "eas": {

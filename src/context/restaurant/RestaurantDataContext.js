@@ -10,143 +10,117 @@ import React, {
 
 import { AuthContext } from "../authContext";
 import { db } from "../../config/firebase";
-
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
 	newKitchenOrderCount: 0,
-	loadSounds: async () => {}, // The new function to load sounds
 });
 
 export const RestaurantDataProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+
+	/* ──────────────────────────────
+     1.  State & refs
+  ────────────────────────────── */
 	const [newCheckInCount, setNewCheckInCount] = useState(0);
 	const [newKitchenOrderCount, setNewKitchenOrderCount] = useState(0);
 
-	const checkInSound = useRef(null);
-	const kitchenSound = useRef(null);
+	const checkInPlayer = useRef(null);
+	const kitchenPlayer = useRef(null);
 
-	const prevCheckInCount = useRef(0);
-	const prevKitchenOrderCount = useRef(0);
+	const prevCheckIn = useRef(0);
+	const prevKitchen = useRef(0);
 
 	const restaurantId = currentUserData?.uid;
 
+	/* ──────────────────────────────
+     2.  Configure audio + preload
+  ────────────────────────────── */
 	useEffect(() => {
-		const setAudioMode = async () => {
-			try {
-				await Audio.setAudioModeAsync({
-					playsInSilentModeIOS: true, // Allows sound to play on iOS even in silent mode
-					allowsRecordingIOS: false,
-					interruptionModeIOS: 1, // Duck others, aka Audio.INTERRUPTION_MODE_IOS_DUCK_OTHERS
-					shouldDuckAndroid: true,
-					interruptionModeAndroid: 1, // Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS
-					playThroughEarpieceAndroid: false,
-					staysActiveInBackground: true,
-				});
-				console.log("Audio mode set successfully.");
-			} catch (e) {
-				console.error("Failed to set audio mode", e);
-			}
+		// Allow playback in silent‑mode (iOS) and duck other audio (Android)
+		setAudioModeAsync({
+			playsInSilentMode: true,
+			interruptionModeAndroid: "duckOthers",
+			interruptionMode: "duckOthers",
+		});
+
+		checkInPlayer.current = createAudioPlayer(
+			require("../../../assets/checkIn.mp3")
+		);
+		kitchenPlayer.current = createAudioPlayer(
+			require("../../../assets/order.mp3")
+		);
+
+		return () => {
+			// free native resources
+			checkInPlayer.current?.remove();
+			kitchenPlayer.current?.remove();
 		};
-
-		setAudioMode();
 	}, []);
 
-	// This function loads the sound files into memory so they are ready to play instantly.
-	const loadSounds = useCallback(async () => {
-		console.log("Loading sounds...");
-		try {
-			// Load the check-in sound
-			if (!checkInSound.current) {
-				const { sound } = await Audio.Sound.createAsync(
-					// IMPORTANT: Replace this with your own hosted MP3 file for production
-					require("../../../assets/checkIn.mp3")
-				);
-				checkInSound.current = sound;
-			}
-			// Load the kitchen order sound
-			if (!kitchenSound.current) {
-				const { sound } = await Audio.Sound.createAsync(
-					// IMPORTANT: Replace this with your own hosted MP3 file for production
-					require("../../../assets/order.mp3")
-				);
-				kitchenSound.current = sound;
-			}
-			console.log("Sounds loaded successfully.");
-		} catch (error) {
-			console.error("Failed to load sounds", error);
+	/* ──────────────────────────────
+     3.  Play sounds on counter ↑
+  ────────────────────────────── */
+	useEffect(() => {
+		if (
+			checkInPlayer.current?.isLoaded &&
+			newCheckInCount > prevCheckIn.current
+		) {
+			checkInPlayer.current.seekTo(0);
+			checkInPlayer.current.play();
 		}
-	}, []);
+		prevCheckIn.current = newCheckInCount;
+	}, [newCheckInCount]);
 
-	// Listener for new check-in requests
+	useEffect(() => {
+		if (
+			kitchenPlayer.current?.isLoaded &&
+			newKitchenOrderCount > prevKitchen.current
+		) {
+			kitchenPlayer.current.seekTo(0);
+			kitchenPlayer.current.play();
+		}
+		prevKitchen.current = newKitchenOrderCount;
+	}, [newKitchenOrderCount]);
+
+	/* ──────────────────────────────
+     4.  Firestore listeners
+  ────────────────────────────── */
 	useEffect(() => {
 		if (!restaurantId) {
 			setNewCheckInCount(0);
 			return;
 		}
 
-		const checkInsRef = db.collection("checkIns");
-		const q = checkInsRef.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "REQUESTED");
+		const unsub = db
+			.collection("checkIns")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "REQUESTED")
+			.onSnapshot((snap) => setNewCheckInCount(snap.size));
 
-		const unsubscribe = q.onSnapshot((snapshot) => {
-			console.log(
-				"[RestaurantDataContext] New Check-In Count from Firestore:",
-				snapshot.size
-			);
-
-			setNewCheckInCount(snapshot.size);
-		});
-
-		return () => unsubscribe();
+		return unsub;
 	}, [restaurantId]);
 
-	// Listener for new kitchen orders
 	useEffect(() => {
 		if (!restaurantId) {
 			setNewKitchenOrderCount(0);
 			return;
 		}
 
-		const kitchenOrdersRef = db.collection("kitchen_orders");
-		const q = kitchenOrdersRef.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "new");
+		const unsub = db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "new")
+			.onSnapshot((snap) => setNewKitchenOrderCount(snap.size));
 
-		const unsubscribe = q.onSnapshot((snapshot) => {
-			setNewKitchenOrderCount(snapshot.size);
-		});
-
-		return () => unsubscribe();
+		return unsub;
 	}, [restaurantId]);
 
-	// This useEffect hook listens for changes in the counts and plays sounds.
-
-	// The sound-playing effects now use the loaded sound objects.
-	useEffect(() => {
-		if (checkInSound.current && newCheckInCount > prevCheckInCount.current) {
-			console.log("New Check-In Detected! Playing sound.");
-			checkInSound.current.replayAsync();
-		}
-		prevCheckInCount.current = newCheckInCount;
-	}, [newCheckInCount]);
-
-	useEffect(() => {
-		if (
-			kitchenSound.current &&
-			newKitchenOrderCount > prevKitchenOrderCount.current
-		) {
-			console.log("New Kitchen Order Detected! Playing sound.");
-			kitchenSound.current.replayAsync();
-		}
-		prevKitchenOrderCount.current = newKitchenOrderCount;
-	}, [newKitchenOrderCount]);
-
-	const value = {
-		newCheckInCount,
-		newKitchenOrderCount,
-		loadSounds,
-	};
+	/* ──────────────────────────────
+     5.  Context value
+  ────────────────────────────── */
+	const value = { newCheckInCount, newKitchenOrderCount };
 
 	return (
 		<RestaurantDataContext.Provider value={value}>
