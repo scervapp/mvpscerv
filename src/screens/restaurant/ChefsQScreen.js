@@ -20,7 +20,6 @@ import {
 } from "react-native";
 
 import moment from "moment";
-import { Audio } from "expo-av";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase";
@@ -176,18 +175,6 @@ const ChefsQScreen = () => {
 	const insets = useSafeAreaInsets();
 
 	const [viewMode, setViewMode] = useState("kitchen"); // 'kitchen' or 'bar'
-
-	async function playSound() {
-		try {
-			const { sound } = await Audio.Sound.createAsync(
-				require("../../../assets/bell.mp3")
-			);
-			setSound(sound);
-			await sound.playAsync();
-		} catch (e) {
-			console.warn("Could not play sound:", e);
-		}
-	}
 
 	useEffect(() => {
 		return sound
