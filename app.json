@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scerv",
     "slug": "scerv",
-    "version": "0.0.16",
+    "version": "0.0.17",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,7 +24,7 @@
 
     },
     "android": {
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
