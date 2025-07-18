@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scerv",
     "slug": "scerv",
-    "version": "0.0.17",
+    "version": "0.0.18",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,7 +20,7 @@
         "NSCameraUsageDescription": "This app uses the camera to allow you to upload profile pictures or add photos of menu items.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "2"
+      "buildNumber": "3"
 
     },
     "android": {
@@ -50,8 +50,8 @@
         {
           "backgroundColor": "#ffffff",
           "image": "./assets/splash.png",
-          "imageWidth": 200,
-          "resizeMode": "cover"
+          "imageWidth": 400
+         
         }
       ],
       [
