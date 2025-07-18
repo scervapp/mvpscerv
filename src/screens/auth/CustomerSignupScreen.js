@@ -17,7 +17,7 @@ import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import { auth } from "../../config/firebase";
+import { auth } from "../../config/firebase.native";
 
 const CustomerSignupScreen = ({ navigation }) => {
 	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
@@ -98,6 +98,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 									<TextInput
 										style={styles.input}
 										placeholder="First Name"
+										placeholderTextColor={colors.textMedium}
 										value={values.firstName}
 										onChangeText={handleChange("firstName")}
 									/>
@@ -107,6 +108,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 									<TextInput
 										style={styles.input}
 										placeholder="Last Name"
+										placeholderTextColor={colors.textMedium}
 										value={values.lastName}
 										onChangeText={handleChange("lastName")}
 									/>
@@ -116,6 +118,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 									<TextInput
 										style={styles.input}
 										placeholder="10-Digit Phone Number"
+										placeholderTextColor={colors.textMedium}
 										value={values.phoneNumber}
 										onChangeText={handleChange("phoneNumber")}
 										keyboardType="phone-pad"
@@ -203,6 +206,7 @@ const styles = StyleSheet.create({
 		marginBottom: 15,
 		fontSize: 16,
 		backgroundColor: colors.surfaceWhite,
+		color: colors.textDark,
 	},
 	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
 	errorText: {

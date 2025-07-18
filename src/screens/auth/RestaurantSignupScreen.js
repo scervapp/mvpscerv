@@ -108,6 +108,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Restaurant Name"
+									placeholderTextColor={colors.textMedium}
 									value={values.restaurantName}
 									onChangeText={handleChange("restaurantName")}
 									onBlur={handleBlur("restaurantName")}
@@ -119,6 +120,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Owner's First Name"
+									placeholderTextColor={colors.textMedium}
 									value={values.firstName}
 									onChangeText={handleChange("firstName")}
 									onBlur={handleBlur("firstName")}
@@ -130,6 +132,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Owner's Last Name"
+									placeholderTextColor={colors.textMedium}
 									value={values.lastName}
 									onChangeText={handleChange("lastName")}
 									onBlur={handleBlur("lastName")}
@@ -141,6 +144,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Business Email"
+									placeholderTextColor={colors.textMedium}
 									value={values.email}
 									onChangeText={handleChange("email")}
 									keyboardType="email-address"
@@ -153,6 +157,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Business Phone"
+									placeholderTextColor={colors.textMedium}
 									value={values.phoneNumber}
 									onChangeText={handleChange("phoneNumber")}
 									keyboardType="phone-pad"
@@ -165,6 +170,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Password"
+									placeholderTextColor={colors.textMedium}
 									value={values.password}
 									onChangeText={handleChange("password")}
 									secureTextEntry
@@ -176,6 +182,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Street Address"
+									placeholderTextColor={colors.textMedium}
 									value={values.address}
 									onChangeText={handleChange("address")}
 								/>
@@ -189,6 +196,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 										<TextInput
 											style={styles.input}
 											placeholder="City"
+											placeholderTextColor={colors.textMedium}
 											value={values.city}
 											onChangeText={handleChange("city")}
 										/>
@@ -200,6 +208,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 										<TextInput
 											style={styles.input}
 											placeholder="State"
+											placeholderTextColor={colors.textMedium}
 											value={values.state}
 											onChangeText={handleChange("state")}
 											maxLength={2}
@@ -214,6 +223,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								<TextInput
 									style={styles.input}
 									placeholder="Zip Code"
+									placeholderTextColor={colors.textMedium}
 									value={values.zipcode}
 									onChangeText={handleChange("zipcode")}
 									keyboardType="number-pad"
@@ -274,6 +284,7 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 15,
 		fontSize: 16,
 		backgroundColor: colors.surfaceWhite,
+		
 	},
 	inputGroup: { marginBottom: 15 },
 	row: {

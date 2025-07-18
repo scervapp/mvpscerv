@@ -15,7 +15,13 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.scerv.app",
       "newArchEnabled": false,
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to allow you to upload profile pictures or add photos of menu items.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "2"
+
     },
     "android": {
       "versionCode": 5,
@@ -25,7 +31,11 @@
       },
       "package": "com.scerv.eat",
       "newArchEnabled": false,
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -42,6 +52,14 @@
           "image": "./assets/splash.png",
           "imageWidth": 200,
           "resizeMode": "cover"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ],
       "expo-audio"
