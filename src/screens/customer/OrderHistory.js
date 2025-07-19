@@ -17,7 +17,6 @@ import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // For icons
 import colors from "../../utils/styles/appStyles";
 
-
 const OrderHistoryScreen = () => {
 	const [orders, setOrders] = useState([]);
 	const [loading, setLoading] = useState(true);
@@ -41,7 +40,7 @@ const OrderHistoryScreen = () => {
 			// The query construction is already using the native SDK syntax, which is correct.
 			const q = db
 				.collection("orders")
-				.where("customerId", "==", currentUserData.uid)
+				.where("userId", "==", currentUserData.uid)
 				.where("paymentStatus", "==", "paid")
 				.orderBy("timestamp", "desc");
 
@@ -57,7 +56,7 @@ const OrderHistoryScreen = () => {
 					docId: doc.id,
 					orderId: data.orderId || "N/A",
 					restaurantName:
-						data.items?.[0]?.dish?.restaurantName ||
+						data.items?.[0]?.dish?.nrestaurantName ||
 						data.restaurantName ||
 						"Restaurant",
 					status: data.paymentStatus || "Unknown",
@@ -267,4 +266,3 @@ const styles = StyleSheet.create({
 });
 
 export default OrderHistoryScreen;
-

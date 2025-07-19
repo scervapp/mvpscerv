@@ -14,6 +14,8 @@ import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useRoute } from "@react-navigation/native";
 import { AirbnbRating, Rating } from "react-native-ratings";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { Timestamp } from "@react-native-firebase/firestore";
 
 const OrderHistoryDetailScreen = () => {
 	const route = useRoute();
@@ -31,8 +33,11 @@ const OrderHistoryDetailScreen = () => {
 	useEffect(() => {
 		let isMounted = true;
 		if (orderDetails?.restaurantId) {
-			const restRef = db.collection("restaurants").doc(orderDetails.restaurantId);
-			restRef.get()
+			const restRef = db
+				.collection("restaurants")
+				.doc(orderDetails.restaurantId);
+			restRef
+				.get()
 				.then((docSnap) => {
 					if (isMounted && docSnap.exists()) {
 						setRestaurantName(docSnap.data().restaurantName || "Restaurant");
@@ -220,6 +225,8 @@ const OrderHistoryDetailScreen = () => {
 			? orderDetails.timestamp.toDate()
 			: new Date();
 
+	console.log("Items", orderDetails.items);
+
 	return (
 		<ScrollView style={styles.container}>
 			{/* --- Header Info --- */}
@@ -253,7 +260,7 @@ const OrderHistoryDetailScreen = () => {
 							>
 								<View style={styles.itemDetails}>
 									<Text style={styles.itemName}>
-										{item.quantity}x {item.dish?.name || "Unknown Item"}
+										{item.quantity}x {item.dishName || "Unknown Item"}
 									</Text>
 									{/* Add modifier display if needed */}
 									{item.specialInstructions && (
@@ -268,7 +275,7 @@ const OrderHistoryDetailScreen = () => {
 										Math.round(
 											(item.discount
 												? parseFloat(item.discountedPrice)
-												: item.dish?.price || 0) * 100
+												: item.price || 0) * 100
 										) * item.quantity
 									)}
 								</Text>

@@ -7,6 +7,7 @@ import {
 	Text,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import colors from "../../utils/styles/appStyles";
 
 const CustomSearchBar = ({ placeholder, onSearch }) => {
 	const [searchText, setSearchText] = useState("");
@@ -25,6 +26,7 @@ const CustomSearchBar = ({ placeholder, onSearch }) => {
 				value={searchText}
 				onChangeText={handleSearch}
 				clearButtonMode="while-editing"
+				placeholderTextColor={colors.textMedium}
 			/>
 			{searchText.length > 0 && (
 				<TouchableOpacity onPress={() => handleSearch("")}>

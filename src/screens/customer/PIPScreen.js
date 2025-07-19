@@ -306,6 +306,7 @@ const PIPSListScreen = () => {
 					placeholder="Enter Local PIP Name"
 					value={newPipName}
 					onChangeText={setNewPipName}
+					placeholderTextColor={colors.textMedium}
 				/>
 				<TouchableOpacity style={styles.addButton} onPress={handleAddPip}>
 					<Text style={styles.addButtonText}>Add Local PIP</Text>
@@ -366,6 +367,7 @@ const PIPSListScreen = () => {
 							onChangeText={setSearchTerm}
 							autoCapitalize="none"
 							autoCorrect={false}
+							placeholderTextColor={colors.textMedium}
 						/>
 						<TouchableOpacity
 							style={[
@@ -513,6 +515,7 @@ const styles = StyleSheet.create({
 	modalTitle: {
 		fontSize: 20,
 		fontWeight: "bold",
+		color: colors.textDark,
 	},
 	searchContainer: {
 		flexDirection: "row",
@@ -526,6 +529,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		marginRight: 10,
 		backgroundColor: "white",
+		color: colors.textDark,
 	},
 	searchButton: {
 		backgroundColor: colors.primary,
@@ -564,4 +568,3 @@ const styles = StyleSheet.create({
 });
 
 export default PIPSListScreen;
-
