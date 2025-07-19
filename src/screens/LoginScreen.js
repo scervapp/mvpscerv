@@ -113,6 +113,7 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
 					onBlur={handleBlur("email")}
 					keyboardType="email-address"
 					autoCapitalize="none"
+					placeholderTextColor={colors.textMedium}
 				/>
 				{touched.email && errors.email && (
 					<Text style={styles.errorText}>{errors.email}</Text>
@@ -124,6 +125,7 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
 					onChangeText={handleChange("password")}
 					onBlur={handleBlur("password")}
 					secureTextEntry
+					placeholderTextColor={colors.textMedium}
 				/>
 				{touched.password && errors.password && (
 					<Text style={styles.errorText}>{errors.password}</Text>
@@ -228,6 +230,7 @@ const LoginScreen = ({ navigation }) => {
 									styles.tabText,
 									activeTab === "customer" && styles.activeTabText,
 								]}
+								placeholderTextColor={colors.textMedium}
 							>
 								Customer
 							</Text>

@@ -284,7 +284,8 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 15,
 		fontSize: 16,
 		backgroundColor: colors.surfaceWhite,
-		
+		color: colors.textDark,
+		marginBottom: 8,
 	},
 	inputGroup: { marginBottom: 15 },
 	row: {
@@ -319,3 +320,4 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantSignupScreen;
+
