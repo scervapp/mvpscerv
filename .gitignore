@@ -9,6 +9,9 @@ node_modules/
 dist/
 web-build/
 
+# EAS Submit Key
+eas-submit-key.json
+
 # Native
 *.orig.*
 *.jks

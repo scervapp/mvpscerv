@@ -15,7 +15,7 @@
   "submit": {
     "production": {
       "android": {
-          "serviceAccountKeyPath": "./scervmvp-ae90e8720197.json"
+          "serviceAccountKeyPath": "./eas-submit-key.json"
       }
       
     }
