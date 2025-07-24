@@ -121,7 +121,7 @@ const BackOfficeScreen = ({ navigation }) => {
 				"Failed to check onboarding status. Please try again."
 			);
 		} finally {
-			setIsLoading(false);
+			setIsStripeLoading(false);
 		}
 	};
 
@@ -295,4 +295,3 @@ const styles = StyleSheet.create({
 });
 
 export default BackOfficeScreen;
-

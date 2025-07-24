@@ -13,7 +13,6 @@ import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
 const MenuItem = ({ item, restaurantId, onEdit }) => {
-	
 	const [showModal, setShowModal] = useState(false);
 
 	const handleEdit = () => {
@@ -53,7 +52,10 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 	// Handle item update
 	const updateMenuItem = async (restaurantId, menuItemId, menuItemData) => {
 		try {
-			const menuItemSnapshot = await db.collection("menuItems").doc(menuItemId).get();
+			const menuItemSnapshot = await db
+				.collection("menuItems")
+				.doc(menuItemId)
+				.get();
 			if (!menuItemSnapshot.exists()) {
 				throw new Error("Menu Item not found");
 			}
@@ -121,6 +123,7 @@ const styles = StyleSheet.create({
 	title: {
 		fontSize: 18, // Increased font size
 		fontWeight: "bold",
+		color: colors.textDark,
 	},
 	category: {
 		fontSize: 14,

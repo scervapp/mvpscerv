@@ -545,6 +545,60 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				}
 			}
 			break;
+		case "account.updated":
+			const account = eventObject;
+			const accountId = account.id;
+
+			console.log(
+				`Webhook: Received 'account.updated' event for Stripe Account: ${accountId}`
+			);
+
+			// Check if the account is now fully onboarded and ready for payments.
+			const isOnboarded = account.charges_enabled && account.details_submitted;
+			const newStatus = isOnboarded ? "verified" : "pending";
+
+			if (isOnboarded) {
+				console.log(
+					`Stripe Account ${accountId} is now fully onboarded and verified.`
+				);
+			}
+
+			try {
+				// Find the restaurant document that has this stripeAccountId.
+				const restaurantsRef = db.collection("restaurants");
+				const q = restaurantsRef
+					.where("stripeAccountId", "==", accountId)
+					.limit(1);
+				const snapshot = await q.get();
+
+				if (snapshot.empty) {
+					console.warn(
+						`Webhook: Received account update for ${accountId}, but no matching restaurant was found.`
+					);
+					return; // Stop processing if no restaurant is found
+				}
+
+				const restaurantDoc = snapshot.docs[0];
+				const restaurantRef = restaurantDoc.ref;
+
+				// Update the restaurant's status in your Firestore database.
+				await restaurantRef.update({
+					stripeAccountStatus: newStatus,
+					// You can also update your internal onboarding status here.
+					// For example, if they were 'pending_stripe', move them to the next step.
+					onboardingStatus: isOnboarded ? "pending_menu" : "pending_stripe",
+				});
+
+				console.log(
+					`✅ Successfully updated restaurant ${restaurantDoc.id} with Stripe status: ${newStatus}`
+				);
+			} catch (error) {
+				console.error(
+					`Error updating restaurant status for Stripe account ${accountId}:`,
+					error
+				);
+			}
+			break;
 
 		case "payment_intent.payment_failed":
 			// ... (Your existing logic for handling payment failures for both types) ...
@@ -967,4 +1021,3 @@ exports.createEphemeralKey = functions
 			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
-

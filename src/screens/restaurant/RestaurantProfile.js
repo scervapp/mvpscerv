@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AuthContext } from "../../context/authContext";
-import { uploadImage, pickImage } from "../../utils/firebaseUtils";
+import { uploadImageAndGetDownloadURL, pickImage } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
 import { stateOptions } from "../../utils/data/states"; // Assuming you have this
 import { Picker } from "@react-native-picker/picker";
@@ -47,7 +47,7 @@ const LabeledInput = ({
 			value={value}
 			onChangeText={onChangeText}
 			placeholder={placeholder}
-			placeholderTextColor={colors.textLight}
+			placeholderTextColor={colors.textDark}
 			{...props}
 		/>
 	</View>
@@ -136,9 +136,11 @@ const RestaurantProfile = () => {
 		try {
 			// Check if the imageUri is a local file (starts with 'file://')
 			if (finalData.imageUri && finalData.imageUri.startsWith("file://")) {
-				const downloadUrl = await uploadImage(
+				const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+				const path = `restaurantProfileImages/${currentUserData.uid}/${uniqueId}.jpg`;
+				const downloadUrl = await uploadImageAndGetDownloadURL(
 					finalData.imageUri,
-					"restaurantProfileImages"
+					path
 				);
 				finalData.imageUri = downloadUrl;
 			}
@@ -263,12 +265,14 @@ const RestaurantProfile = () => {
 								selectedValue={formData.state}
 								onValueChange={(val) => handleInputChange("state", val)}
 								style={styles.picker}
+								placeHolderTextColor={colors.textDark}
 							>
 								{stateOptions.map((state) => (
 									<Picker.Item
 										label={state.label}
 										value={state.value}
 										key={state.value}
+										style={{ color: colors.textDark }}
 									/>
 								))}
 							</Picker>
@@ -393,6 +397,7 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		borderRadius: 8,
 		justifyContent: "center",
+		color: colors.textDark,
 	},
 	picker: { height: 50 },
 	dayRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
@@ -413,6 +418,7 @@ const styles = StyleSheet.create({
 		padding: 10,
 		marginHorizontal: 5,
 		textAlign: "center",
+		color: colors.textDark,
 	},
 	timeInputInactive: {
 		backgroundColor: colors.background,

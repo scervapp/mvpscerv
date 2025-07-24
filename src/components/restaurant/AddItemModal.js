@@ -23,7 +23,7 @@ import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons";
-import { pickImage, uploadImage } from "../../utils/firebaseUtils";
+import { pickImage, uploadImageAndGetDownloadURL } from "../../utils/firebaseUtils";
 
 // NOTE: The image upload functionality is removed for this example to focus on the core logic.
 // You can re-integrate your 'pickImage' and 'uploadImage' utilities.
@@ -71,8 +71,10 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		try {
 			const result = await pickImage();
 
-			if (result.success) {
-				const downloadURL = await uploadImage(result.uri, "menuItemImages");
+							if (result.success) {
+				const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+				const path = `menuItemImages/${currentUserData.uid}/${uniqueId}.jpg`;
+				const downloadURL = await uploadImageAndGetDownloadURL(result.uri, path);
 				setImageUri(downloadURL);
 			}
 		} catch (error) {
@@ -121,7 +123,10 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		try {
 			if (isEditMode) {
 				// Update existing document
-				await db.collection("menuItems").doc(itemToEdit.id).update(menuItemData);
+				await db
+					.collection("menuItems")
+					.doc(itemToEdit.id)
+					.update(menuItemData);
 				Alert.alert("Success", "Menu item has been updated.");
 			} else {
 				// Create new document
@@ -197,6 +202,7 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 							onChangeText={setName}
 							placeholder="e.g., Classic Burger"
 							style={styles.input}
+							placeholderTextColor={colors.textLight}
 						/>
 
 						<Text style={styles.label}>Description</Text>
@@ -206,6 +212,7 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 							placeholder="Juicy beef patty, fresh lettuce, tomato..."
 							style={[styles.input, styles.descriptionInput]}
 							multiline
+							placeholderTextColor={colors.textLight}
 						/>
 
 						<Text style={styles.label}>Price</Text>
@@ -215,6 +222,7 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 							placeholder="e.g., 12.99"
 							style={styles.input}
 							keyboardType="numeric"
+							placeholderTextColor={colors.textLight}
 						/>
 
 						<Text style={styles.label}>Category</Text>
@@ -318,7 +326,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		justifyContent: "center",
 	},
-	picker: { height: 50 },
+	picker: { height: 50, color: colors.textLight },
 	switchContainer: {
 		flexDirection: "row",
 		justifyContent: "space-between",

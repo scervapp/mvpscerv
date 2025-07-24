@@ -25,7 +25,7 @@ import {
 	fetchEmployeesByRole,
 } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
-import * as Tone from "tone";
+
 import { useRestaurantData } from "../../context/restaurant/RestaurantDataContext";
 
 // Reusable card component for the navigation grid
@@ -87,8 +87,6 @@ const RestaurantDashboardScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
 		useWorkDay();
-
-	const { loadSounds } = useRestaurantData();
 
 	const [isManagerListVisible, setIsManagerListVisible] = useState(false);
 	const [managers, setManagers] = useState([]);
@@ -178,8 +176,6 @@ const RestaurantDashboardScreen = () => {
 		try {
 			// 2. Await Tone.start() to activate the audio engine.
 			// This must be triggered by a direct user press.
-			await loadSounds();
-			console.log("Audio context started successfully.");
 
 			// 3. Then, proceed with starting the workday as before.
 			await startWorkDay();
@@ -415,8 +411,14 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginBottom: 10,
 		textAlign: "center",
+		color: colors.textDark,
 	},
-	modalSubtitle: { fontSize: 15, textAlign: "center", marginBottom: 20 },
+	modalSubtitle: {
+		fontSize: 15,
+		textAlign: "center",
+		marginBottom: 20,
+		color: colors.textMedium,
+	},
 	managerRow: {
 		paddingVertical: 18,
 		borderBottomWidth: 1,

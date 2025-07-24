@@ -1,4 +1,3 @@
-// functions/paymentFunctions.js
 const functions = require("firebase-functions");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
@@ -105,7 +104,9 @@ exports.checkOnboardingStatus = functions
 			const account = await stripeInstance.accounts.retrieve(accountId);
 
 			// Check if the account is fully onboarded
-			const isOnboarded = account.charges_enabled && account.details_submitted;
+			const isOnboarded =
+				account.requirements.currently_due.length === 0 &&
+				account.charges_enabled;
 
 			// if not onbaorded, create a new account link
 			let accountLinkUrl = null;

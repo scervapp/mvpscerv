@@ -9,6 +9,7 @@ import React, {
 
 import { auth, db, functions } from "../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { doc, getDoc, setDoc } from "@react-native-firebase/firestore";
 
 export const AuthContext = createContext();
 
@@ -102,27 +103,38 @@ export const AuthProvider = ({ children }) => {
 
 	const signInWithPhoneCredential = useCallback(
 		async (confirmation, verificationCode, additionalData) => {
+			console.log("Additional Data", additionalData);
 			setAuthError(null);
 			setIsLoading(true);
 			try {
+				// 1. Confirm the verification code to sign the user in
 				const userCredential = await confirmation.confirm(verificationCode);
 				const user = userCredential.user;
 
+				// 2. This now runs only if `additionalData` (first name, last name) is provided,
+				// which happens during the initial signup flow.
 				if (additionalData) {
-					const userDocRef = db.collection("customers").doc(user.uid);
-					const userDoc = await userDocRef.get();
+					const userDocRef = doc(db, "customers", user.uid);
 
-					if (!userDoc.exists) {
-						await userDocRef.set({
-							uid: user.uid,
-							phoneNumber: user.phoneNumber,
+					// 3. Use `setDoc` with `{ merge: true }`.
+					// This will CREATE the document if it doesn't exist, or
+					// UPDATE the firstName and lastName fields if it already exists.
+					// This resolves the race condition permanently.
+					await setDoc(
+						userDocRef,
+						{
 							firstName: additionalData.firstName,
 							lastName: additionalData.lastName,
+							// We also include the other essential fields in case this runs first.
+							uid: user.uid,
+							phoneNumber: user.phoneNumber,
 							role: "customer",
 							createdAt: new Date(),
-						});
-					}
+						},
+						{ merge: true }
+					);
 				}
+				// The onAuthStateChanged listener will handle setting the final user data in state.
 			} catch (error) {
 				if (error.code === "auth/invalid-verification-code") {
 					setAuthError("Invalid code. Please try again.");
@@ -195,4 +207,3 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => useContext(AuthContext);
-

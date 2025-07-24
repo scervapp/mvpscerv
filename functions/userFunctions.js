@@ -216,7 +216,6 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
  * It creates their corresponding document in the 'customers' collection.
  */
 exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
-	// This function will now only run for users who do not have an email/password provider.
 	const isEmailProvider = user.providerData.some(
 		(provider) => provider.providerId === "password"
 	);
@@ -228,27 +227,35 @@ exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
 		return null;
 	}
 
-	// This logic now only runs for users from Google, etc.
+	// --- THIS IS THE FIX ---
+	// This logic now correctly handles users from any non-password provider (Phone, Google, etc.).
 	console.log(
-		`onUserCreate: New federated user created: ${user.uid}. Assigning 'customer' role.`
+		`onUserCreate: New non-email user created: ${user.uid}. Assigning 'customer' role.`
 	);
 
+	// 1. Set the custom role claim for the user.
 	await admin.auth().setCustomUserClaims(user.uid, { role: "customer" });
 
+	// 2. Prepare the data for the new customer document.
 	const userDocRef = db.collection("customers").doc(user.uid);
-	await userDocRef.set(
-		{
-			uid: user.uid,
-			email: user.email,
-			displayName: user.displayName || "",
-			firstName: user.displayName.split(" ")[0] || "",
-			lastName: user.displayName.split(" ")[1] || "",
-			role: "customer",
-			createdAt: admin.firestore.FieldValue.serverTimestamp(),
-		},
-		{ merge: true }
-	); // Use merge to avoid overwriting if a doc somehow exists
+	const userData = {
+		uid: user.uid,
+		role: "customer",
+		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		// Safely handle different user properties from different providers.
+		phoneNumber: user.phoneNumber || null, // Will exist for phone users
+		email: user.email || null, // Will exist for Google users
+		firstName: user.displayName ? user.displayName.split(" ")[0] : null,
+		lastName: user.displayName
+			? user.displayName.split(" ").slice(1).join(" ")
+			: null,
+	};
 
+	// 3. Create the document in Firestore.
+	await userDocRef.set(userData);
+	// --- END OF FIX ---
+
+	console.log(`Successfully created customer document for user ${user.uid}`);
 	return null;
 });
 

@@ -117,6 +117,7 @@ const AddEditEmployeeModal = ({
 										placeholder="First Name"
 										value={values.firstName}
 										onChangeText={handleChange("firstName")}
+										placeholderTextColor={colors.textMedium}
 									/>
 									{touched.firstName && errors.firstName && (
 										<Text style={styles.errorText}>{errors.firstName}</Text>
@@ -126,6 +127,7 @@ const AddEditEmployeeModal = ({
 										placeholder="Last Name"
 										value={values.lastName}
 										onChangeText={handleChange("lastName")}
+										placeholderTextColor={colors.textMedium}
 									/>
 									{touched.lastName && errors.lastName && (
 										<Text style={styles.errorText}>{errors.lastName}</Text>
@@ -195,6 +197,7 @@ const AddEditEmployeeModal = ({
 													onValueChange={(itemValue) =>
 														setFieldValue("jobTitle", itemValue)
 													}
+													style={styles.picker}
 												>
 													<Picker.Item label="Server" value="server" />
 													<Picker.Item label="Host / Hostess" value="host" />
@@ -537,6 +540,7 @@ const styles = StyleSheet.create({
 		marginBottom: 15,
 		fontSize: 16,
 		backgroundColor: colors.backgroundLight,
+		color: colors.textMedium,
 	},
 	inputLabel: {
 		fontSize: 14,
@@ -560,7 +564,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.backgroundLight,
 		justifyContent: "center",
 	},
-	picker: { height: 55, width: "100%" },
+	picker: { height: 55, width: "100%", color: colors.textMedium },
 	modalActions: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -586,6 +590,7 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 12,
+		color: colors.textMedium,
 	},
 	roleLabel: {
 		fontSize: 16,
@@ -599,4 +604,3 @@ const styles = StyleSheet.create({
 });
 
 export default EmployeeScreen;
-

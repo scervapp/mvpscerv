@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
 		marginHorizontal: 15,
 		backgroundColor: colors.surfaceWhite,
 	},
-	picker: { height: 50 }, // For Android consistency
+	picker: { height: 50, color: colors.textMedium }, // For Android consistency
 	errorText: {
 		textAlign: "center",
 		color: colors.statusDanger,
