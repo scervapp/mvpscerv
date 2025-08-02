@@ -546,12 +546,14 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			}
 			break;
 		case "account.updated":
-			const account = eventObject;
+			const account = event.data.object;
 			const accountId = account.id;
 
 			console.log(
 				`Webhook: Received 'account.updated' event for Stripe Account: ${accountId}`
 			);
+
+			console.log("account object:", JSON.stringify(account, null, 2));
 
 			// Check if the account is now fully onboarded and ready for payments.
 			const isOnboarded = account.charges_enabled && account.details_submitted;
