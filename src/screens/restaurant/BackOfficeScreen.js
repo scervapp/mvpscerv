@@ -126,12 +126,25 @@ const BackOfficeScreen = ({ navigation }) => {
 	};
 
 	const handleConnectAccount = async () => {
-		// Redirect to Stripe onboarding URL
-		const createLoginLink = httpsCallable(functions, "createLoginLink");
-		const response = await createLoginLink({
-			accountId: currentUserData.stripeAccountId,
-		});
-		await Linking.openURL(response.data.url);
+		try {
+			const createLoginLink = httpsCallable(functions, "createLoginLink");
+			const response = await createLoginLink({
+				accountId: currentUserData.stripeAccountId,
+				restaurantId: currentUserData.uid, // This was the missing piece
+			});
+
+			if (response.data.url) {
+				await Linking.openURL(response.data.url);
+			} else {
+				throw new Error("Login link was not returned from the server.");
+			}
+		} catch (error) {
+			console.error("Error creating Stripe login link:", error);
+			Alert.alert("Error", "Could not open the Stripe Dashboard.");
+		} finally {
+			// This ensures the loading spinner is always turned off.
+			setIsStripeLoading(false);
+		}
 	};
 
 	const handleScreenPress = (screenName) => {

@@ -106,7 +106,31 @@ exports.checkOnboardingStatus = functions
 			// Check if the account is fully onboarded
 			const isOnboarded =
 				account.requirements.currently_due.length === 0 &&
+				account.requirements.eventually_due.length === 0 &&
 				account.charges_enabled;
+
+			console.log(
+				`Onboarding Check Result: charges_enabled: ${account.charges_enabled}, currently_due: ${account.requirements.currently_due.length}, eventually_due: ${account.requirements.eventually_due.length}. Final isOnboarded status: ${isOnboarded}`
+			);
+
+			if (isOnboarded) {
+				const restaurantRef = db.collection("restaurants").doc(restaurantId);
+				const restaurantDoc = await restaurantRef.get();
+
+				if (restaurantDoc.exists) {
+					const currentStatus = restaurantDoc.data().stripeAccountStatus;
+					// Only write to the database if the status is not already 'verified'.
+					if (currentStatus !== "verified") {
+						console.log(
+							`Syncing Firestore. Stripe account ${accountId} is verified, updating local status.`
+						);
+						await restaurantRef.update({
+							stripeAccountStatus: "verified",
+							onboardingStatus: "pending_menu", // Move them to the next step
+						});
+					}
+				}
+			}
 
 			// if not onbaorded, create a new account link
 			let accountLinkUrl = null;

@@ -546,57 +546,57 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			}
 			break;
 		case "account.updated":
-			const account = event.data.object;
+			const account = eventObject;
 			const accountId = account.id;
 
+			// --- THIS IS THE FIX ---
+			// We add detailed logs to trace the entire process.
 			console.log(
-				`Webhook: Received 'account.updated' event for Stripe Account: ${accountId}`
+				`[Webhook Log] 1. Received 'account.updated' for Stripe Account: ${accountId}`
 			);
 
-			console.log("account object:", JSON.stringify(account, null, 2));
-
-			// Check if the account is now fully onboarded and ready for payments.
 			const isOnboarded = account.charges_enabled && account.details_submitted;
 			const newStatus = isOnboarded ? "verified" : "pending";
 
-			if (isOnboarded) {
-				console.log(
-					`Stripe Account ${accountId} is now fully onboarded and verified.`
-				);
-			}
+			console.log(
+				`[Webhook Log] 2. Determined onboarding status. charges_enabled: ${account.charges_enabled}, details_submitted: ${account.details_submitted}. New status will be: ${newStatus}`
+			);
 
 			try {
-				// Find the restaurant document that has this stripeAccountId.
 				const restaurantsRef = db.collection("restaurants");
 				const q = restaurantsRef
 					.where("stripeAccountId", "==", accountId)
 					.limit(1);
+
+				console.log(
+					`[Webhook Log] 3. Querying Firestore for restaurant with stripeAccountId: ${accountId}`
+				);
 				const snapshot = await q.get();
 
 				if (snapshot.empty) {
-					console.warn(
-						`Webhook: Received account update for ${accountId}, but no matching restaurant was found.`
+					console.error(
+						`[Webhook Log] 4. CRITICAL: No matching restaurant found for Stripe account ${accountId}. Aborting update.`
 					);
-					return; // Stop processing if no restaurant is found
+					return; // Stop processing
 				}
 
 				const restaurantDoc = snapshot.docs[0];
 				const restaurantRef = restaurantDoc.ref;
+				console.log(
+					`[Webhook Log] 4. Found matching restaurant document: ${restaurantRef.id}`
+				);
 
-				// Update the restaurant's status in your Firestore database.
 				await restaurantRef.update({
 					stripeAccountStatus: newStatus,
-					// You can also update your internal onboarding status here.
-					// For example, if they were 'pending_stripe', move them to the next step.
 					onboardingStatus: isOnboarded ? "pending_menu" : "pending_stripe",
 				});
 
 				console.log(
-					`✅ Successfully updated restaurant ${restaurantDoc.id} with Stripe status: ${newStatus}`
+					`[Webhook Log] 5. ✅ Successfully updated restaurant ${restaurantRef.id} with Stripe status: ${newStatus}`
 				);
 			} catch (error) {
 				console.error(
-					`Error updating restaurant status for Stripe account ${accountId}:`,
+					`[Webhook Log] 5. CRITICAL ERROR while updating restaurant for Stripe account ${accountId}:`,
 					error
 				);
 			}
