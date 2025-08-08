@@ -28,19 +28,37 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
+		console.log(
+			"[DEBUG] 1. handleSendVerificationCode called with values:",
+			values
+		);
 		try {
 			const phoneNumber = `+1${values.phoneNumber}`;
-			// Use the native auth service to send the code
+			console.log(`[DEBUG] 2. Attempting to send SMS to: ${phoneNumber}`);
+
+			// This is the core Firebase call
 			const confirmationResult = await auth.signInWithPhoneNumber(phoneNumber);
+
+			console.log(
+				"[DEBUG] 3. Successfully received confirmation object from Firebase:",
+				confirmationResult
+			);
+
 			setFormValues(values);
 			setConfirmation(confirmationResult);
 		} catch (error) {
+			// This will now print the full, detailed error object from Firebase.
+			console.error(
+				"[DEBUG] 3. CRITICAL ERROR sending verification code:",
+				error
+			);
 			Alert.alert(
 				"Error",
-				`Could not send verification code: ${error.message}`
+				`Could not send verification code. Please check the console for details. Code: ${error.code}`
 			);
 		} finally {
 			setIsSubmitting(false);
+			console.log("[DEBUG] 4. handleSendVerificationCode finished.");
 		}
 	};
 

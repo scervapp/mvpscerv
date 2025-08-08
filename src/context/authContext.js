@@ -103,7 +103,6 @@ export const AuthProvider = ({ children }) => {
 
 	const signInWithPhoneCredential = useCallback(
 		async (confirmation, verificationCode, additionalData) => {
-			console.log("Additional Data", additionalData);
 			setAuthError(null);
 			setIsLoading(true);
 			try {
