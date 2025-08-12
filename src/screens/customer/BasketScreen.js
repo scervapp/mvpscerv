@@ -234,7 +234,6 @@ const BasketScreen = ({ route, navigation }) => {
 			setIsProcessing(false); // Stop loading indicator
 		}
 	};
-	
 
 	// Memoize the check for unsent items
 	const hasUnsentItems = useMemo(() => {
@@ -415,7 +414,7 @@ const BasketScreen = ({ route, navigation }) => {
 											</View>
 										)}
 										<View style={styles.summaryRow}>
-											<Text style={styles.summaryLabel}>Est. Service Fee:</Text>
+											<Text style={styles.summaryLabel}>Platform Fee:</Text>
 											<Text style={styles.summaryAmount}>
 												{formatCurrency(platformFeeEstimate)}
 											</Text>

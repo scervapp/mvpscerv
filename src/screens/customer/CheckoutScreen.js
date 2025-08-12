@@ -59,6 +59,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [calculatedTax, setCalculatedTax] = useState(0); // Tax from server
 	const [finalTotal, setFinalTotal] = useState(0); // Final total from server
 	const [selectedCard, setSelectedCard] = useState(null); // State for saved card selection
+	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe(); // <<< ADD BACK
 
@@ -87,7 +88,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					setFees(feesSnap.data().fees); // Make sure this is number like 0.05
 				} else if (isMounted) {
 					console.warn("Fee configuration not found, using default.");
-					setFees(0.05); // Set default if not found
+					setFees(0.03); // Set default if not found
 				}
 			} catch (error) {
 				/* ... error handling ... */
@@ -217,7 +218,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 		);
 
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
-		const calcTotalForPayment =
+		const calcTotalForPayment = calcSubtotal + calcGratuityAmount;
+		const calcFinalAmount =
 			calcSubtotal + calcGratuityAmount + calculated_platform_fee;
 
 		return {
@@ -228,7 +230,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			originalSubtotal: calcOriginalSubtotal,
 			pipTotals: calcPipTotals, // Include the detailed PIP array
 			totalForPayment: calcTotalForPayment,
-			finalTotal: calcTotalForPayment,
+			finalTotal: calcFinalAmount,
 		};
 	}, [
 		// Dependencies for recalculation
@@ -244,159 +246,105 @@ const CheckoutScreen = ({ route, navigation }) => {
 		}
 	}, [memoizedFinalTotal]);
 
-	// --- NEW/REVISED: useEffect to Prepare Payment Sheet Data ---
 	useEffect(() => {
-		// The dependencies that trigger this effect remain the same.
-		if (
-			!stripePublishableKey ||
-			!currentUserData?.uid ||
-			!restaurant?.uid ||
-			!checkInObj ||
-			totalForPayment <= 0
-		) {
-			setIsPaymentSheetReady(false);
-			return;
-		}
+		console.log("--- Debugging Pay Button Status ---");
+		console.log("1. Has currentUserData:", !!currentUserData?.uid);
+		console.log("2. Has restaurantData:", !!restaurant?.uid);
+		console.log("3. Has checkInObj:", !!checkInObj?.id);
+		console.log(
+			"4. Is finalTotal > 0:",
+			finalTotal > 0,
+			`(Value: ${finalTotal})`
+		);
+		const canPay =
+			currentUserData?.uid &&
+			restaurant?.uid &&
+			checkInObj?.id &&
+			finalTotal > 0;
 
-		const prepareSheet = async () => {
-			setIsPreparing(true);
-			setIsPaymentSheetReady(false);
-			setPaymentError(null);
+		setIsReadyToPay(canPay);
+	}, [currentUserData, restaurant, checkInObj, finalTotal]);
+	// --- NEW/REVISED: useEffect to Prepare Payment Sheet Data ---
 
-			try {
-				// --- STEP 1: Get or Create Stripe Customer ID (Your existing logic is good) ---
-				let stripeCustomerId = currentUserData.stripeCustomerId;
-				if (!stripeCustomerId) {
-					const createStripeCustomerFunction = httpsCallable(
-						functions,
-						"createStripeCustomer"
-					);
-					const { data } = await createStripeCustomerFunction({
-						userId: currentUserData.uid,
-						restaurantId: restaurant.uid,
-					});
-					stripeCustomerId = data.customerId;
-					await db
-						.collection("customers")
-						.doc(currentUserData.uid)
-						.update({ stripeCustomerId });
-				}
-
-				// --- STEP 2: Call the Cloud Function with ALL necessary data ---
-				// The Cloud Function will now be responsible for creating the order document.
-				const preparePaymentSheetFunction = httpsCallable(
-					functions,
-					"preparePaymentSheetData"
-				);
-
-				const { data: prepData } = await preparePaymentSheetFunction({
-					// Payment details
-					amount: totalForPayment,
-					platformFee: platformFee, // Correctly passed as a top-level argument
-					stripeCustomerId: stripeCustomerId,
-					connectedAccountId: restaurant.stripeAccountId,
-					checkInTimestamp: checkInObj.acceptedAt,
-
-					// --- THIS IS THE FIX ---
-					// We now send the full order payload to the function.
-					// The function will create the order document itself.
-					orderPayload: {
-						restaurantId: restaurant.uid,
-						items: restaurantBasketItems, // The full basket
-						subtotal: subtotal,
-						gratuity: gratuity,
-						checkInId: checkInObj.id,
-						table: checkInObj.table || null,
-						server: checkInObj.server || null,
-						checkInTimestamp: checkInObj.acceptedAt,
-					},
-				});
-
-				if (!prepData || prepData.error) {
-					throw new Error(
-						prepData.error || "Server did not return necessary Stripe secrets."
-					);
-				}
-
-				// --- STEP 3: Initialize Payment Sheet (Your existing logic is good) ---
-				const { error: initSheetError } = await initPaymentSheet({
-					merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
-					paymentIntentClientSecret: prepData.paymentIntentClientSecret,
-					customerEphemeralKeySecret: prepData.ephemeralKeySecret,
-					customerId: prepData.customerId,
-					allowsDelayedPaymentMethods: true,
-					returnURL: "scerv://stripe-redirect",
-				});
-
-				if (initSheetError) {
-					throw initSheetError;
-				} else {
-					setIsPaymentSheetReady(true);
-				}
-			} catch (error) {
-				console.error("Error preparing payment sheet:", error);
-				setPaymentError(
-					`Error: ${error.message || "Failed to prepare payment."}`
-				);
-				setIsPaymentSheetReady(false);
-			} finally {
-				setIsPreparing(false);
-			}
-		};
-
-		prepareSheet();
-	}, [
-		stripePublishableKey,
-		currentUserData?.uid,
-		restaurant?.uid,
-		checkInObj,
-		totalForPayment, // Use the final total as a dependency
-	]);
-
-	// --- Handle Payment Button Press ---
 	const handlePayment = async () => {
-		if (!isPaymentSheetReady || isPaying) return;
-		setIsPaying(true);
+		if (!isReadyToPay || isPreparing) {
+			return; // Prevent multiple presses
+		}
+		setIsPreparing(true);
 		setPaymentError(null);
 
-		console.log("Presenting Payment Sheet...");
-		const { error } = await presentPaymentSheet();
+		try {
+			// --- Step A: Call the single 'preparePayment' Cloud Function ---
+			console.log("Button pressed. Calling 'preparePayment' function...");
+			const preparePayment = httpsCallable(functions, "preparePayment");
 
-		if (error) {
-			// This part is correct. It handles cancellations and declines.
-			if (error.code !== "Canceled") {
-				console.error("Payment failed:", error);
-				setPaymentError(
-					`Payment failed: ${error.localizedMessage || error.message}`
+			// --- This is the new, secure payload ---
+			// We send item IDs and quantities, NOT the final total.
+			// The backend will calculate the authoritative total.
+			const { data: prepData } = await preparePayment({
+				paymentType: "individual",
+				restaurantId: restaurant.uid,
+				items: restaurantBasketItems.map((item) => ({
+					id: item.id,
+					quantity: item.quantity,
+				})),
+				gratuity: gratuity, // Send the calculated gratuity amount in cents
+				stripeCustomerId: currentUserData.stripeCustomerId, // Assumes you have this
+				checkInId: checkInObj.id,
+				table: checkInObj.table || null, // Add this line
+				server: checkInObj.server || null,
+			});
+
+			console.log("This is the data passed", prepData);
+			if (!prepData?.paymentIntentClientSecret) {
+				throw new Error("Failed to get payment details from server.");
+			}
+
+			// --- Step B: Initialize the Stripe Payment Sheet ---
+			const { error: initError } = await initPaymentSheet({
+				merchantDisplayName: `Scerv Inc. - ${restaurant.restaurantName}`,
+				paymentIntentClientSecret: prepData.paymentIntentClientSecret,
+				customerEphemeralKeySecret: prepData.ephemeralKeySecret,
+				customerId: prepData.customerId,
+				allowsDelayedPaymentMethods: true,
+				returnURL: "scerv://stripe-redirect", // Your app's custom URL scheme
+			});
+
+			if (initError) {
+				throw new Error(
+					`Failed to initialize payment sheet: ${initError.message}`
 				);
 			}
-			setIsPaying(false);
-		} else {
-			// --- PAYMENT SUCCEEDED ---
-			// We no longer look for a pending document ID.
-			// We simply navigate to a confirmation screen. The webhook will handle the rest.
-			console.log(
-				"Payment Sheet completed successfully! Navigating to confirmation."
-			);
 
-			navigation.dispatch(
-				CommonActions.reset({
-					index: 0,
-					routes: [
-						{
-							name: "OrderConfirmation",
-							params: {
-								// We pass a status to tell the screen to show a "processing" message
-								// while it waits for the webhook.
-								initialStatus: "processing",
-								// We no longer pass an orderDocId
+			// --- Step C: Present the Payment Sheet to the User ---
+			const { error: presentError } = await presentPaymentSheet();
+
+			if (presentError) {
+				if (presentError.code !== "Canceled") {
+					throw new Error(`Payment failed: ${presentError.message}`);
+				}
+				// If user cancels, we simply do nothing.
+			} else {
+				// --- Step D: Handle Successful Payment ---
+				console.log("Payment successful! Navigating to confirmation screen.");
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 0,
+						routes: [
+							{
+								name: "OrderConfirmation",
+								params: { initialStatus: "processing" },
 							},
-						},
-					],
-				})
-			);
-
-			// Note: We don't set isPaying to false here because we are navigating away.
+						],
+					})
+				);
+			}
+		} catch (error) {
+			console.error("Payment process failed:", error);
+			setPaymentError(error.message);
+			Alert.alert("Payment Error", error.message);
+		} finally {
+			setIsPreparing(false);
 		}
 	};
 
@@ -588,7 +536,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 									: "Pay Now"
 							}
 							onPress={handlePayment}
-							disabled={!isPaymentSheetReady || isPreparing || isPaying} // Disable until ready & not processing
+							disabled={!isReadyToPay || isPreparing} // Disable until ready & not processing
 							color={colors.primary} // Use theme color
 						/>
 					</View>
@@ -770,4 +718,3 @@ const styles = StyleSheet.create({
 });
 
 export default CheckoutScreen;
-

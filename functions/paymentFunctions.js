@@ -8,7 +8,7 @@ const db = admin.firestore();
 const { updateDoc } = require("firebase-admin/firestore");
 const { FieldValue } = require("firebase-admin/firestore");
 const { generateOrderId } = require("./orderFunctions");
-const { getStripeKeys } = require("./stripeUtils");
+const { getStripeKeys, createStripeCustomerHelper } = require("./stripeUtils");
 
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -18,426 +18,66 @@ const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
 const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
 /**
- * Checks if all members of a party have paid. If so, updates the
- * party's main status to 'completed'.
- * @param {FirebaseFirestore.DocumentReference} partyRef Reference to the party document.
- * @param {FirebaseFirestore.Transaction} transaction The transaction to run the check within.
+ * @async
+ * @function getRestaurantTier
+ * @description Fetches the pricing tier configuration for a given restaurant.
+ * It reads the restaurant's assigned tier and looks up the corresponding
+ * details (like payoutPercentage) from a central configuration document.
+ *
+ * @param {string} restaurantId The ID of the restaurant to look up.
+ * @returns {Promise<object>} A promise that resolves to the configuration
+ * object for the restaurant's pricing tier (e.g., { payoutPercentage: 0.97, ... }).
+ * @throws Will throw an error if the restaurant or pricing configuration is not found,
+ * ensuring the calling function does not proceed with incorrect data.
  */
-const checkAndCloseParty = async (partyRef, partyData) => {
-	console.log(`--- Starting checkAndCloseParty for party ${partyRef.id} ---`);
-
-	const guestPips = partyData.guestPips || [];
-	const payingMembers = guestPips.filter((pip) => pip.userId); // Filter for actual users
-
-	// Check if every single paying member has the status 'paid'
-	const allPayingMembersHavePaid =
-		payingMembers.length > 0 &&
-		payingMembers.every((pip) => pip.paymentStatus === "paid");
-
-	if (allPayingMembersHavePaid) {
-		console.log(
-			`All members of party ${partyRef.id} have paid. Starting final cleanup...`
-		);
-		const batch = db.batch();
-
-		// Delete the main party document
-		batch.delete(partyRef);
-
-		// Delete the associated shared basket and its items (if it exists)
-		if (partyData.sharedBasketId) {
-			const sharedBasketItemsRef = db
-				.collection("shared_baskets")
-				.doc(partyData.sharedBasketId)
-				.collection("items");
-			const itemsSnapshot = await sharedBasketItemsRef.get();
-			itemsSnapshot.forEach((doc) => batch.delete(doc.ref));
-			batch.delete(
-				db.collection("shared_baskets").doc(partyData.sharedBasketId)
-			);
-		}
-
-		// Update the table status
-		if (partyData.table.id && partyData.restaurantId) {
-			const tableRef = db
-				.collection("restaurants")
-				.doc(partyData.restaurantId)
-				.collection("tables")
-				.doc(partyData.table.id);
-			batch.update(tableRef, {
-				status: "checkedOut",
-				currentCheckInId: null,
-				currentCustomerId: null,
-			});
-		}
-
-		// Update the check-in status
-		if (partyData.checkInId) {
-			const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
-			batch.update(checkInRef, {
-				status: "COMPLETED",
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-			});
-		}
-
-		// Clear activeCheckIn for all paying members
-		payingMembers.forEach((member) => {
-			if (member.userId) {
-				const customerRef = db.collection("customers").doc(member.userId);
-				batch.update(customerRef, { activeCheckIn: null });
-			}
-		});
-
-		await batch.commit();
-		console.log(`✅ Successfully closed and cleaned up party ${partyRef.id}.`);
-	} else {
-		console.log(
-			`Party ${partyRef.id} is not yet fully paid. No cleanup action taken.`
+async function getRestaurantTier(restaurantId) {
+	if (!restaurantId) {
+		throw new Error(
+			"getRestaurantTier Error: restaurantId cannot be null or empty."
 		);
 	}
-};
 
-// --- NEW HELPER FUNCTION ---
-/**
- * Creates a permanent 'order' document from a successful party payment.
- * This is crucial for sales reporting.
- * @param {object} partyData The data from the /parties/{partyId} document.
- * @param {string} payingUserId The ID of the user who just paid.
- * @param {object} paymentIntent The successful PaymentIntent object from Stripe.
- * @param {number} stripeFeeActual The actual fee charged by Stripe for this transaction.
- * @returns {Promise<void>}
- */
-const createOrderFromPartyPayment = async (
-	orderId,
-	paymentIntent,
-	stripeFeeActual
-) => {
-	console.log(
-		`[Webhook Log] Starting combined party payment processing for pending order: ${orderId}`
-	);
+	// 1. Fetch the restaurant document to find its pricingTier string.
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const restaurantDoc = await restaurantRef.get();
 
-	try {
-		await db.runTransaction(async (transaction) => {
-			// 1. Fetch all necessary documents
-			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
-			const pendingOrderDoc = await transaction.get(pendingOrderRef);
-			if (!pendingOrderDoc.exists)
-				throw new Error(`Pending order ${orderId} not found.`);
-
-			const orderDetails = pendingOrderDoc.data();
-			const {
-				partyId,
-				customerId,
-				restaurantId,
-				items,
-				table,
-				server,
-				checkInId,
-				checkInTimestamp: rawTimestamp,
-				subtotal,
-				gratuity,
-			} = orderDetails;
-
-			const partyRef = db.collection("parties").doc(partyId);
-			const partyDoc = await transaction.get(partyRef);
-			if (!partyDoc.exists) throw new Error(`Party ${partyId} not found.`);
-			const partyData = partyDoc.data();
-
-			// 2. Find the active workday for the restaurant.
-			const workDaysRef = db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.collection("work_days");
-			const openWorkDayQuery = workDaysRef
-				.where("status", "==", "OPEN")
-				.limit(1);
-			const openWorkDaySnapshot = await transaction.get(openWorkDayQuery);
-			const activeWorkDayId = openWorkDaySnapshot.empty
-				? null
-				: openWorkDaySnapshot.docs[0].id;
-
-			// 3. Create the final 'orders' document with a consistent structure
-			const finalOrderRef = db.collection("orders").doc(orderId);
-			const generatedOrderId = await generateOrderId(restaurantId, customerId);
-
-			let finalCheckInTimestamp = null;
-			if (rawTimestamp && rawTimestamp._seconds) {
-				finalCheckInTimestamp = new admin.firestore.Timestamp(
-					rawTimestamp._seconds,
-					rawTimestamp._nanoseconds || 0
-				);
-			}
-
-			// --- THIS IS THE FIX ---
-			// We now build the orderData object field-by-field to match the individual order format exactly.
-			const orderData = {
-				id: finalOrderRef.id,
-				orderId: generatedOrderId,
-				restaurantId: restaurantId,
-				userId: customerId,
-				workdayId: activeWorkDayId, // This makes it appear in reports
-				items: items,
-				table: table || null,
-				server: server || null,
-				checkInId: checkInId || null,
-				checkInTimestamp: finalCheckInTimestamp,
-				subtotal: subtotal,
-				gratuity: gratuity,
-				platformFeeActual: paymentIntent.application_fee_amount || 0,
-				stripeFeeActual: stripeFeeActual,
-				totalPrice: paymentIntent.amount,
-				paymentStatus: "paid",
-				orderStatus: "confirmed",
-				timestamp: admin.firestore.FieldValue.serverTimestamp(),
-			};
-
-			transaction.set(finalOrderRef, orderData);
-			// --- STEP 3: Update the user's payment status within the party ---
-			const guestPips = partyData.guestPips || [];
-			let allMembersHavePaid = true;
-			const updatedGuestPips = guestPips.map((pip) => {
-				let updatedPip = { ...pip };
-				if (pip.userId === customerId) {
-					updatedPip.paymentStatus = "paid";
-				}
-				if (updatedPip.userId && updatedPip.paymentStatus !== "paid") {
-					allMembersHavePaid = false;
-				}
-				return updatedPip;
-			});
-			transaction.update(partyRef, { guestPips: updatedGuestPips });
-			console.log(
-				`Updated payment status for user ${customerId} in party ${partyId}.`
-			);
-
-			// --- STEP 4: Delete the user's items from the shared basket ---
-			if (partyData.sharedBasketId && items && items.length > 0) {
-				const itemIdsToDelete = items.map((item) => item.id);
-				console.log(
-					`Queuing deletion of ${itemIdsToDelete.length} items from shared basket for user ${customerId}.`
-				);
-				for (const itemId of itemIdsToDelete) {
-					const itemRef = db
-						.collection("shared_baskets")
-						.doc(partyData.sharedBasketId)
-						.collection("items")
-						.doc(itemId);
-					transaction.delete(itemRef);
-				}
-			}
-
-			// --- STEP 5: Delete the pending order document ---
-			transaction.delete(pendingOrderRef);
-
-			// --- STEP 6: If all members have paid, perform final cleanup ---
-			if (allMembersHavePaid) {
-				console.log(
-					`All members of party ${partyId} have now paid. Performing final cleanup.`
-				);
-
-				transaction.delete(partyRef); // Delete the main party document
-
-				if (partyData.table.id && partyData.restaurantId) {
-					const tableRef = db
-						.collection("restaurants")
-						.doc(partyData.restaurantId)
-						.collection("tables")
-						.doc(partyData.table.id);
-					transaction.update(tableRef, {
-						status: "checkedOut",
-						currentCheckInId: null,
-						currentCustomerId: null,
-					});
-				}
-
-				if (partyData.checkInId) {
-					const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
-					transaction.update(checkInRef, {
-						status: "COMPLETED",
-						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-					});
-				}
-
-				updatedGuestPips.forEach((member) => {
-					if (member.userId) {
-						const customerRef = db.collection("customers").doc(member.userId);
-						transaction.update(customerRef, { activeCheckIn: null });
-					}
-				});
-			}
-		});
-
-		console.log(
-			`✅ Successfully processed and cleaned up for order ${orderId}.`
+	if (!restaurantDoc.exists) {
+		// This is a critical failure, as we cannot determine the pricing.
+		throw new Error(
+			`getRestaurantTier Error: Restaurant ${restaurantId} not found.`
 		);
-	} catch (error) {
-		console.error("Error in createOrderFromPartyPayment:", error);
 	}
-};
 
-/**
- * Fetches a pending order from Firestore, creates a permanent 'order' document,
- * and performs all necessary cleanup after a successful individual payment.
- * @param {string} orderId The ID of the document in the 'pending_orders' collection.
- * @param {object} paymentIntent The full PaymentIntent object from Stripe.
- * @param {number} stripeFeeActual The calculated Stripe fee for the transaction.
- */
-const createOrderFromIndividualPayment = async (
-	orderId,
-	paymentIntent,
-	stripeFeeActual
-) => {
-	console.log(
-		`[Webhook Log] 1. Starting createOrderFromIndividualPayment for pending order: ${orderId}`
-	);
+	// 2. Safely get the tier name, defaulting to "basic" if not specified.
+	const tierName = restaurantDoc.data().pricingTier || "basic";
+	console.log(`Restaurant ${restaurantId} is on pricing tier: "${tierName}".`);
 
-	try {
-		// STEP 1: Fetch the pending order document.
-		const pendingOrderRef = db.collection("pending_orders").doc(orderId);
-		const pendingOrderDoc = await pendingOrderRef.get();
+	// 3. Fetch the central document containing all pricing tier maps.
+	// Note: Adjust the path if your structure is different, e.g., collection('appConfig').doc('general')
+	const tiersRef = db.collection("appConfig").doc("pricingTiers");
+	const tiersDoc = await tiersRef.get();
 
-		if (!pendingOrderDoc.exists) {
-			// This is a critical failure point.
-			console.error(
-				`[Webhook Log] 2. CRITICAL: Pending order ${orderId} not found. Aborting.`
-			);
-			return; // Exit the function.
-		}
-		console.log(
-			`[Webhook Log] 2. Successfully fetched pending order ${orderId}.`
+	if (!tiersDoc.exists) {
+		// This is a system-level critical failure.
+		throw new Error(
+			"getRestaurantTier Error: The 'pricingTiers' document was not found in 'appConfig'."
 		);
-
-		const orderDetails = pendingOrderDoc.data();
-
-		const {
-			restaurantId,
-			customerId,
-			items,
-			table,
-			server,
-			checkInId,
-			checkInTimestamp: rawTimestamp,
-			subtotal,
-			gratuity,
-		} = orderDetails;
-
-		// STEP 2: Generate the human-readable Order ID
-		const generatedOrderId = await generateOrderId(restaurantId, customerId);
-		console.log(
-			`[Webhook Log] 3. Generated human-readable Order ID: ${generatedOrderId}`
-		);
-
-		// STEP 3: Convert the timestamp safely
-		let finalCheckInTimestamp = null;
-		if (rawTimestamp && typeof rawTimestamp.toDate === "function") {
-			finalCheckInTimestamp = rawTimestamp; // It's already a Firestore Timestamp
-		} else if (rawTimestamp && rawTimestamp._seconds) {
-			finalCheckInTimestamp = new admin.firestore.Timestamp(
-				rawTimestamp._seconds,
-				rawTimestamp._nanoseconds || 0
-			);
-		}
-		console.log(`[Webhook Log] 4. Processed checkInTimestamp.`);
-
-		// STEP 4: Prepare the final order data
-		const newOrderRef = db.collection("orders").doc(orderId);
-		const orderData = {
-			id: newOrderRef.id,
-			orderId: generatedOrderId,
-			restaurantId,
-			userId: customerId,
-			items,
-			table: table || null,
-			server: server || null,
-			checkInId: checkInId || null,
-			checkInTimestamp: finalCheckInTimestamp,
-			subtotal,
-			gratuity,
-			platformFeeActual: paymentIntent.application_fee_amount || 0,
-			stripeFeeActual,
-			totalPrice: paymentIntent.amount,
-			paymentStatus: "paid",
-			orderStatus: "confirmed",
-			timestamp: admin.firestore.FieldValue.serverTimestamp(),
-		};
-		console.log(
-			`[Webhook Log] 5. Prepared final order data for doc ${newOrderRef.id}.`
-		);
-
-		// STEP 5: Use a batch write to perform all database updates atomically
-		const batch = db.batch();
-		console.log("[Webhook Log] 6. Initialized Firestore batch.");
-
-		// Action 1: Create the new order document
-		batch.set(newOrderRef, orderData);
-		console.log(`[Webhook Log] 7. Queued SET for new order ${newOrderRef.id}.`);
-
-		// Action 2: Delete the user's basket items
-		const basketQuery = db
-			.collection("baskets")
-			.where("userId", "==", customerId)
-			.where("restaurantId", "==", restaurantId);
-		const basketSnapshot = await basketQuery.get();
-		if (!basketSnapshot.empty) {
-			basketSnapshot.forEach((doc) => batch.delete(doc.ref));
-			console.log(
-				`[Webhook Log] 8. Queued DELETE for ${basketSnapshot.size} basket items.`
-			);
-		}
-
-		if (table && table.id) {
-			const tableRef = db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.collection("tables")
-				.doc(table.id);
-
-			batch.update(tableRef, {
-				status: "checkedOut", // Correctly set the status
-				currentCheckInId: null,
-				currentCustomerId: null,
-			});
-			console.log(
-				`[Webhook Log] Queued UPDATE for table ${table.id} to 'needsCleaning'.`
-			);
-		}
-
-		// Action 3: Update check-in and customer status
-		if (checkInId) {
-			batch.update(db.collection("checkIns").doc(checkInId), {
-				status: "COMPLETED",
-			});
-			console.log(`[Webhook Log] 9. Queued UPDATE for checkIn ${checkInId}.`);
-		}
-		if (customerId) {
-			batch.update(db.collection("customers").doc(customerId), {
-				activeCheckIn: null,
-			});
-			console.log(
-				`[Webhook Log] 10. Queued UPDATE for customer ${customerId}.`
-			);
-		}
-
-		// Action 4: Delete the pending order document
-		batch.delete(pendingOrderRef);
-		console.log(
-			`[Webhook Log] 11. Queued DELETE for pending order ${orderId}.`
-		);
-
-		// Commit all changes at once
-		await batch.commit();
-		console.log(
-			`[Webhook Log] 12. ✅ BATCH COMMITTED SUCCESSFULLY! Order ${newOrderRef.id} is now permanent.`
-		);
-	} catch (error) {
-		// This will now catch any error from the steps above and log it clearly.
-		console.error(
-			`[Webhook Log] FINAL ERROR in createOrderFromIndividualPayment for order ${orderId}:`,
-			error
-		);
-		// We re-throw the error to ensure the calling function knows something went wrong.
-		throw error;
 	}
-};
+
+	const allTiers = tiersDoc.data();
+	const tierConfig = allTiers[tierName];
+
+	// 4. Check for data integrity.
+	if (!tierConfig || typeof tierConfig.payoutPercentage !== "number") {
+		// This indicates a configuration error (e.g., a typo in the restaurant's tier name).
+		throw new Error(
+			`getRestaurantTier Error: Configuration for tier "${tierName}" is missing or invalid in the pricingTiers document.`
+		);
+	}
+
+	// 5. Return the specific configuration object for the determined tier.
+	return tierConfig;
+}
 
 /**
  * A shared helper function to process verified Stripe webhook events.
@@ -461,90 +101,38 @@ const handleStripeEvent = async (event, stripeInstance) => {
 
 	switch (event.type) {
 		case "payment_intent.succeeded":
-			const paymentIntentId = paymentIntent.id;
-			const orderId = metadata.orderId;
+			const paymentIntent = event.data.object;
 
-			// --- 1. Retrieve Charge Details to get Exact Fees ---
-			const chargeId = paymentIntent.latest_charge;
+			// --- Get Exact Stripe Fee ---
 			let stripeFeeActual = 0;
-			const platformFeeCollected = paymentIntent.application_fee_amount || 0;
-			const finalAmountCharged = paymentIntent.amount;
-
-			if (chargeId && typeof chargeId === "string") {
-				try {
-					const chargeDetails = await stripeInstance.charges.retrieve(
-						chargeId,
-						{ expand: ["balance_transaction"] }
+			try {
+				if (paymentIntent.latest_charge) {
+					const charge = await stripeInstance.charges.retrieve(
+						paymentIntent.latest_charge,
+						{
+							expand: ["balance_transaction"],
+						}
 					);
-					const balanceTransaction = chargeDetails.balance_transaction;
-					if (
-						balanceTransaction &&
-						typeof balanceTransaction.fee === "number"
-					) {
-						// Best case: We get the exact fee from the balance transaction.
-						stripeFeeActual = balanceTransaction.fee;
-						console.log(
-							`Webhook: Retrieved exact Stripe fee: ${stripeFeeActual}`
-						);
+					if (charge.balance_transaction) {
+						stripeFeeActual = charge.balance_transaction.fee;
 					}
-				} catch (chargeRetrieveError) {
-					console.error(
-						`Webhook Error: Could not retrieve charge ${chargeId}.`,
-						chargeRetrieveError
-					);
 				}
-			}
-
-			// Fallback calculation: If the exact fee is still 0 (due to timing), we calculate an estimate.
-			// This prevents the fee from ever being saved incorrectly.
-			if (stripeFeeActual === 0) {
-				const stripeRate = 0.029; // 2.9%
-				const stripeFixedFee = 30; // 30 cents
-				stripeFeeActual =
-					Math.round(paymentIntent.amount * stripeRate) + stripeFixedFee;
+			} catch (feeError) {
 				console.warn(
-					`Webhook Warn: Using estimated Stripe fee: ${stripeFeeActual}`
+					`[Webhook] Could not retrieve exact fee for PI ${paymentIntent.id}.`,
+					feeError
 				);
 			}
-
-			if (!orderId) {
-				console.error("Payment succeeded but metadata is missing orderId.");
-				return; // Stop processing if we don't have the ID
+			if (stripeFeeActual === 0) {
+				// Fallback calculation
+				stripeFeeActual = Math.round(paymentIntent.amount * 0.029) + 30;
 			}
 
-			if (metadata.type === "individual_payment") {
-				await createOrderFromIndividualPayment(
-					orderId,
-					paymentIntent,
-					stripeFeeActual
-				);
-				return;
-			} else if (metadata.type === "party_payment") {
-				// --- Handle a successful PARTY payment ---
-				if (!metadata.partyId || !metadata.userId) {
-					console.error(
-						"🔴 Party payment succeeded but is missing partyId or userId in metadata.",
-						metadata
-					);
-					return; // Acknowledge event to Stripe, but cannot process.
-				}
-
-				try {
-					// Directly call createOrderFromPartyPayment.
-					// This function now handles the entire process, including updating the party document.
-					await createOrderFromPartyPayment(
-						orderId,
-						paymentIntent,
-						stripeFeeActual
-					);
-				} catch (error) {
-					console.error(
-						`Error processing party payment for party ${metadata.partyId}:`,
-						error
-					);
-				}
-			}
+			// --- Delegate to the Fulfillment Helper ---
+			// The handler's job is simple: pass the verified data to our powerful helper.
+			await fulfillOrder(stripeInstance, paymentIntent, stripeFeeActual);
 			break;
+
 		case "account.updated":
 			const account = eventObject;
 			const accountId = account.id;
@@ -612,233 +200,531 @@ const handleStripeEvent = async (event, stripeInstance) => {
 };
 
 /**
- * Prepares Stripe Payment Sheet data for a single user's portion of a party order.
+ * @function preparePayment
+ * @description A consolidated and secure HTTPS Callable function to prepare a Stripe Payment Intent.
+ * It uses the /baskets collection as the source of truth for item pricing to correctly handle discounts.
  *
- * @param {object} data - The data object from the client.
- * @param {string} data.partyId - The ID of the party the user is paying for.
- * @param {number} data.amount - The total amount in cents for this user's portion of the bill.
- * @param {number} data.platformFee - The platform fee in cents calculated for this user's portion.
- * @param {string} data.restaurantStripeAccountId - The Stripe Connect account ID of the restaurant.
- * @param {object} context - The Firebase Functions context object.
- * @returns {Promise<object>} An object containing the paymentIntent, ephemeralKey, and customerId.
+ * @param {object} data The data object from the client.
+ * @param {string} data.paymentType - The type of payment, either 'individual' or 'party'.
+ * @param {string} data.restaurantId - The ID of the restaurant being paid.
+ * @param {string} data.stripeCustomerId - The customer's Stripe ID.
+ * @param {Array<object>} data.items - An array of objects, each containing the 'id' of a document in the /baskets collection.
+ * @param {number} data.gratuity - The gratuity amount in cents.
+ * @param {string} data.checkInId - The ID of the user's check-in document.
+ * @param {string} [data.partyId] - The ID of the party, if applicable.
+ * @param {object} context The Firebase Functions context object containing auth information.
+ * @returns {Promise<object>} An object containing the necessary secrets for the Stripe Payment Sheet.
  */
-exports.preparePartyPaymentSheet = functions
+exports.preparePayment = functions
 	.runWith({
 		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
 			STRIPE_SECRET_KEY_LIVE,
 			STRIPE_SECRET_KEY_TEST,
-			STRIPE_PUBLISHABLE_KEY_LIVE,
-			STRIPE_PUBLISHABLE_KEY_TEST, // Needed by getStripeKeys
 		],
 	})
 	.https.onCall(async (data, context) => {
+		// 1. ============== AUTHENTICATION & VALIDATION ==============
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"The function must be called while authenticated."
 			);
 		}
+		const userId = context.auth.uid;
 
 		const {
-			amount,
-			platformFee,
-			stripeCustomerId,
-			connectedAccountId,
+			paymentType,
+			restaurantId,
+
+			items,
+			gratuity,
+			checkInId,
 			partyId,
-			orderPayload,
+			table,
+			server,
 		} = data;
-		const userId = context.auth.uid;
 
 		if (
-			!amount ||
-			!stripeCustomerId ||
-			!connectedAccountId ||
-			!partyId ||
-			!orderPayload
+			!paymentType ||
+			!restaurantId ||
+			!Array.isArray(items) ||
+			items.length === 0 ||
+			typeof gratuity !== "number"
 		) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Missing required data."
+				"The function was called with missing or invalid data."
 			);
 		}
 
 		try {
-			// --- THIS IS THE FIX ---
-			// STEP 1: Create the pending order document in Firestore FIRST.
-			const pendingOrderRef = admin
-				.firestore()
-				.collection("pending_orders")
-				.doc();
+			const keys = await getStripeKeys(restaurantId);
+			const stripeInstance = stripe(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+
+			const userDoc = await db.collection("customers").doc(userId).get();
+			if (!userDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Customer profile not found."
+				);
+			}
+
+			const isTestMode = keys.stripeSecretKey.includes("_test_");
+			const customerIdField = isTestMode
+				? "stripeCustomerId_test"
+				: "stripeCustomerId_live";
+			const userData = userDoc.data();
+			let stripeCustomerId = userData && userData[customerIdField];
+
+			// 3. ============== FETCH BASKET ITEMS DYNAMICALLY ==============
+			let itemsToProcess = [];
+
+			if (paymentType === "party") {
+				// For a party, fetch the single shared basket and filter the items array within it.
+				if (!partyId) {
+					throw new functions.https.HttpsError(
+						"invalid-argument",
+						"Party ID is required."
+					);
+				}
+
+				const partyDoc = await db.collection("parties").doc(partyId).get();
+				if (!partyDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						`Party ${partyId} not found.`
+					);
+				}
+
+				const partyData = partyDoc.data();
+				const memberIds = partyData.guestPips.map((p) => p.userId) || [];
+				if (memberIds.includes(userId)) {
+					isUserVerifiedForParty = true;
+				} else {
+					// If the user isn't in the party, stop immediately.
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"User is not a member of this party."
+					);
+				}
+
+				const sharedBasketId = partyDoc.data().sharedBasketId;
+				if (!sharedBasketId) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						`Party ${partyId} is missing a sharedBasketId.`
+					);
+				}
+
+				const sharedBasketDoc = await db
+					.collection("shared_baskets")
+					.doc(sharedBasketId)
+					.get();
+				if (!sharedBasketDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Shared basket not found."
+					);
+				}
+
+				const allItemsInBasket = sharedBasketDoc.data().items || [];
+				const clientItemIds = new Set(items.map((item) => item.id));
+				itemsToProcess = allItemsInBasket.filter((itemInDb) =>
+					clientItemIds.has(itemInDb.id)
+				);
+			} else {
+				// 'individual' checkout
+				// For an individual, fetch each item as a separate document from the /baskets collection.
+				const basketPromises = items.map((item) =>
+					db.collection("baskets").doc(item.id).get()
+				);
+				const fetchedBasketDocs = await Promise.all(basketPromises);
+				itemsToProcess = fetchedBasketDocs
+					.map((doc) => (doc.exists ? doc.data() : null))
+					.filter(Boolean);
+			}
+
+			if (itemsToProcess.length === 0) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"No valid basket items were found for this payment."
+				);
+			}
+
+			// 4. ============== CALCULATE SUBTOTAL & FEE ==============
+			let calculatedSubtotal = 0;
+			const fullItemDetails = [];
+
+			// Loop over the unified 'itemsToProcess' array
+			itemsToProcess.forEach((basketData) => {
+				let isSecure = false;
+
+				// --- THIS IS THE FINAL FIX ---
+				// Apply the correct security rule based on the payment type.
+				if (paymentType === "party" && isUserVerifiedForParty) {
+					// For a verified party member, we only need to check that the item belongs to the right restaurant.
+					isSecure = basketData.restaurantId === restaurantId;
+				} else {
+					// 'individual'
+					// For an individual, the check remains strict: the item must belong to the paying user.
+					isSecure =
+						basketData.restaurantId === restaurantId &&
+						basketData.userId === userId;
+				}
+
+				if (!isSecure) {
+					console.warn(`Security check failed for an item. Skipping.`);
+					return; // This is like 'continue' in a forEach loop
+				}
+				const price =
+					basketData.discountedPrice ||
+					basketData.price ||
+					basketData.dish.price ||
+					0;
+				const priceInCents = Math.round(price * 100);
+				const quantity = basketData.quantity || 1;
+				calculatedSubtotal += priceInCents * quantity;
+				fullItemDetails.push({ ...basketData, price: priceInCents, quantity });
+			});
+
+			if (calculatedSubtotal <= 0) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Cannot process a payment with a zero or negative subtotal."
+				);
+			}
+
+			const configDoc = await db.collection("appConfig").doc("general").get();
+			const platformFeePercentage = configDoc.data().fees || 0;
+			const calculatedPlatformFee = Math.round(
+				calculatedSubtotal * platformFeePercentage
+			);
+			const finalAmount = calculatedSubtotal + gratuity + calculatedPlatformFee;
+
+			// 5. ============== CREATE PENDING ORDER & STRIPE OPERATIONS ==============
+			const restaurantDoc = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const pendingOrderRef = db.collection("pending_orders").doc();
+			const newOrderId = pendingOrderRef.id;
 
 			await pendingOrderRef.set({
-				...orderPayload,
+				restaurantId,
 				customerId: userId,
-				partyId: partyId,
+				checkInId,
+				paymentType,
+				items: fullItemDetails,
+				subtotal: calculatedSubtotal,
+				gratuity,
+				platformFee: calculatedPlatformFee,
+				total: finalAmount,
 				status: "pending_payment",
 				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				connectedAccountId: restaurantDoc.data().stripeAccountId,
+				table: table || null,
+				server: server || null,
+				...(paymentType === "party" && { partyId }),
 			});
 
-			const newOrderId = pendingOrderRef.id;
-			console.log(
-				`Created pending order ${newOrderId} before creating Payment Intent.`
-			);
+			let ephemeralKey;
+			if (!stripeCustomerId) {
+				stripeCustomerId = await createStripeCustomerHelper(
+					userId,
+					restaurantId,
+					stripeInstance
+				);
+			}
 
-			const keys = await getStripeKeys(orderPayload.restaurantId);
-			const stripeInstance = stripe(keys.stripeSecretKey, {
-				apiVersion: "2024-04-10",
-			});
+			try {
+				ephemeralKey = await stripeInstance.ephemeralKeys.create(
+					{ customer: stripeCustomerId },
+					{ apiVersion: "2024-04-10" }
+				);
+			} catch (err) {
+				if (err.code === "resource_missing") {
+					stripeCustomerId = await createStripeCustomerHelper(
+						userId,
+						restaurantId,
+						stripeInstance
+					);
+					ephemeralKey = await stripeInstance.ephemeralKeys.create(
+						{ customer: stripeCustomerId },
+						{ apiVersion: "2024-04-10" }
+					);
+				} else {
+					throw err;
+				}
+			}
 
-			// --- STEP 3: Create Ephemeral Key ---
-
-			// STEP 2: Create Ephemeral Key
-			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
-				{ customer: stripeCustomerId },
-				{ apiVersion: "2024-04-10" }
-			);
-
-			// STEP 3: Create Payment Intent with the new orderId in the metadata
 			const paymentIntent = await stripeInstance.paymentIntents.create({
-				amount: amount,
+				amount: finalAmount,
 				currency: "usd",
 				customer: stripeCustomerId,
-				application_fee_amount: platformFee,
-				transfer_data: {
-					destination: connectedAccountId,
-				},
-				metadata: {
-					orderId: newOrderId, // Use the ID from the document we just created
-					userId: userId,
-					partyId: partyId,
-					restaurantId: orderPayload.restaurantId,
-					type: "party_payment",
-				},
-			});
-
-			// STEP 4: Return secrets to the client
-			return {
-				paymentIntentClientSecret: paymentIntent.client_secret,
-				ephemeralKeySecret: ephemeralKey.secret,
-				customerId: stripeCustomerId,
-			};
-		} catch (error) {
-			console.error(
-				"Stripe/Firestore Error in preparePartyPaymentSheet:",
-				error
-			);
-			throw new functions.https.HttpsError(
-				"internal",
-				"Failed to create payment intent.",
-				error.message
-			);
-		}
-	});
-
-/// Function to Prepare payment sheet data
-exports.preparePaymentSheetData = functions
-	.runWith({
-		secrets: [
-			STRIPE_SECRET_KEY_LIVE,
-			STRIPE_SECRET_KEY_TEST,
-			STRIPE_PUBLISHABLE_KEY_LIVE,
-			STRIPE_PUBLISHABLE_KEY_TEST, // Needed by getStripeKeys
-		],
-	})
-	.https.onCall(async (data, context) => {
-		if (!context.auth) {
-			throw new functions.https.HttpsError("unauthenticated", "Auth required");
-		}
-
-		const {
-			amount,
-			platformFee,
-			stripeCustomerId,
-			connectedAccountId,
-			orderPayload,
-		} = data;
-		const userId = context.auth.uid;
-
-		// --- Basic Validation ---
-		if (
-			!amount ||
-			!platformFee === undefined ||
-			!stripeCustomerId ||
-			!connectedAccountId ||
-			!orderPayload
-		) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Missing required data for payment preparation."
-			);
-		}
-
-		try {
-			// --- STEP 1: Create the pending order document in Firestore FIRST ---
-			const pendingOrderRef = admin
-				.firestore()
-				.collection("pending_orders")
-				.doc(); // Auto-generate ID
-
-			await pendingOrderRef.set({
-				...orderPayload,
-				customerId: userId, // Ensure the UID of the calling user is set
-				status: "pending_payment",
-				createdAt: admin.firestore.FieldValue.serverTimestamp(),
-			});
-
-			const newOrderId = pendingOrderRef.id;
-			console.log(
-				`Created pending order ${newOrderId} before creating Payment Intent.`
-			);
-
-			// --- STEP 2: Get the correct Stripe instance using your helper ---
-			const keys = await getStripeKeys(orderPayload.restaurantId);
-			const stripeInstance = stripe(keys.stripeSecretKey, {
-				apiVersion: "2024-04-10",
-			});
-
-			// --- STEP 3: Create Ephemeral Key ---
-			const ephemeralKey = await stripeInstance.ephemeralKeys.create(
-				{ customer: stripeCustomerId },
-				{ apiVersion: "2024-04-10" }
-			);
-
-			// --- STEP 4: Create Payment Intent with LEAN metadata ---
-			const paymentIntent = await stripeInstance.paymentIntents.create({
-				amount: amount,
-				currency: "usd",
-				customer: stripeCustomerId,
-				application_fee_amount: platformFee, // Correctly passed as a top-level param
-				transfer_data: {
-					destination: connectedAccountId,
-				},
-				// The metadata is now clean, small, and efficient.
+				automatic_payment_methods: { enabled: true },
 				metadata: {
 					orderId: newOrderId,
-					userId: userId,
-					restaurantId: orderPayload.restaurantId,
-					type: "individual_payment",
+					userId,
+					restaurantId,
+					type: paymentType,
 				},
 			});
 
-			// --- STEP 5: Return secrets to the client ---
+			// 6. ============== RETURN SECRETS ==============
 			return {
 				paymentIntentClientSecret: paymentIntent.client_secret,
 				ephemeralKeySecret: ephemeralKey.secret,
 				customerId: stripeCustomerId,
+				publishableKey: keys.publishableKey,
 			};
 		} catch (error) {
-			console.error("preparePaymentSheetData failed:", error);
-
+			console.error("Error in preparePayment:", error);
+			if (error instanceof functions.https.HttpsError) {
+				throw error; // Re-throw known errors to the client
+			}
+			// For unexpected errors, throw a generic internal error.
 			throw new functions.https.HttpsError(
 				"internal",
-				error.message || "Unknown error in preparePaymentSheetData",
-				error
+				"An unexpected error occurred while preparing the payment."
 			);
 		}
 	});
 
-// Make sure stripeWebhookTest and stripeWebhookLive functions are correct
-// and call this handleStripeEvent function, passing the correct stripeInstance.
+/**
+ * @function fulfillOrder
+ * @description A consolidated and robust function to process a successful payment.
+ * It creates a permanent order, performs all necessary database cleanup in a
+ * single atomic transaction, and only then creates the Stripe Transfer.
+ *
+ * @param {object} stripeInstance The initialized Stripe instance.
+ * @param {object} paymentIntent The full PaymentIntent object from the Stripe webhook.
+ * @param {number} stripeFeeActual The calculated Stripe fee for accurate accounting.
+ * @returns {Promise<void>}
+ */
+const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
+	// 1. ============== PREPARATION (Outside the Transaction) ==============
+	const metadata = paymentIntent.metadata || {};
+	const { orderId, type: paymentType, userId, restaurantId } = metadata;
+
+	if (!orderId || !paymentType) {
+		console.error(
+			`[Webhook] Critical: Webhook for Payment Intent ${paymentIntent.id} is missing orderId or type in metadata.`
+		);
+		return;
+	}
+
+	console.log(
+		`[Webhook] Fulfilling ${paymentType} order ${orderId} for PI ${paymentIntent.id}.`
+	);
+
+	const pendingOrderRef = db.collection("pending_orders").doc(orderId);
+	const pendingOrderSnap = await pendingOrderRef.get();
+
+	if (!pendingOrderSnap.exists) {
+		console.log(
+			`[Webhook] Idempotency check: Pending order ${orderId} has already been processed. Aborting.`
+		);
+		return;
+	}
+
+	const pendingOrderData = pendingOrderSnap.data();
+	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
+
+	// This logic can be abstracted to a helper function if desired.
+	const restaurantTierInfo = await getRestaurantTier(restaurantId);
+	const payoutPercentage = restaurantTierInfo.payoutPercentage || 0.9;
+	const restaurantSubtotalPayout = Math.round(subtotal * payoutPercentage);
+	const amountToTransfer = restaurantSubtotalPayout + gratuity;
+
+	const finalOrderData = {
+		id: orderId,
+		...pendingOrderData, // Spread all data from the pending order
+		paymentIntentId: paymentIntent.id,
+		paymentStatus: "paid",
+		orderStatus: "confirmed",
+		platformFeeActual:
+			paymentIntent.application_fee_amount || pendingOrderData.platformFee || 0,
+		stripeFeeActual,
+		totalPrice: paymentIntent.amount,
+		fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+	};
+
+	// 2. ============== ATOMIC DATABASE TRANSACTION ==============
+	try {
+		await db.runTransaction(async (t) => {
+			// ======================================================
+			// ============== 1. ALL READS MUST GO FIRST ============
+			// ======================================================
+			console.log("[Transaction] Performing all reads...");
+			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
+
+			// READ 1: The pending order document.
+			const transactionalPendingOrderSnap = await t.get(pendingOrderRef);
+			if (!transactionalPendingOrderSnap.exists) {
+				console.log("[Transaction] Pending order already processed. Aborting.");
+				return;
+			}
+
+			let partySnap;
+			if (paymentType === "party") {
+				const partyRef = db.collection("parties").doc(pendingOrderData.partyId);
+				// READ 2: The party document, only if needed.
+				partySnap = await t.get(partyRef);
+			}
+
+			// ======================================================
+			// =========== 2. ALL WRITES CAN HAPPEN NOW =============
+			// ======================================================
+			console.log("[Transaction] All reads complete. Performing writes...");
+
+			// WRITE 1: Create the permanent 'orders' document.
+			const finalOrderRef = db.collection("orders").doc(orderId);
+			t.set(finalOrderRef, finalOrderData);
+
+			// --- Conditional Cleanup Writes ---
+			if (paymentType === "individual") {
+				console.log("[Transaction] Performing individual cleanup writes...");
+				const { items, checkInId, table } = pendingOrderData;
+
+				// Delete user's basket items. The 'items' array in pendingOrderData
+				// now contains the full basket item details, including their document IDs.
+				items.forEach((item) => {
+					const basketItemRef = db.collection("baskets").doc(item.id);
+					t.delete(basketItemRef);
+				});
+
+				// Update table status
+				if (table.id) {
+					const tableRef = db
+						.collection("restaurants")
+						.doc(restaurantId)
+						.collection("tables")
+						.doc(table.id);
+					t.update(tableRef, {
+						status: "checkedOut",
+						currentCheckInId: null,
+						currentCustomerId: null,
+					});
+				}
+				// Update check-in status
+				if (checkInId) {
+					t.update(db.collection("checkIns").doc(checkInId), {
+						status: "COMPLETED",
+					});
+				}
+				// Update customer status
+				t.update(db.collection("customers").doc(userId), {
+					activeCheckIn: null,
+				});
+			} else if (paymentType === "party") {
+				console.log("[Transaction] Performing party cleanup writes...");
+				if (partySnap && partySnap.exists) {
+					const partyData = partySnap.data();
+
+					// Update the guest's payment status.
+					const updatedGuestPips = partyData.guestPips.map((pip) =>
+						pip.userId === userId ? { ...pip, paymentStatus: "paid" } : pip
+					);
+					t.update(partySnap.ref, { guestPips: updatedGuestPips });
+
+					// Delete paid items from the shared basket subcollection.
+					const sharedBasketItemsPath = `shared_baskets/${partyData.sharedBasketId}/items`;
+					pendingOrderData.items.forEach((item) => {
+						const itemRef = db.collection(sharedBasketItemsPath).doc(item.id);
+						t.delete(itemRef);
+					});
+
+					// Check if all members have paid to perform final cleanup writes.
+					const allPaid = updatedGuestPips.every(
+						(pip) => pip.paymentStatus === "paid"
+					);
+					if (allPaid) {
+						console.log(
+							"[Transaction] All party members paid. Performing final cleanup writes."
+						);
+						// Delete the party document
+						t.delete(partySnap.ref);
+
+						// Update table status
+						if (partyData.table.id) {
+							const tableRef = db
+								.collection("restaurants")
+								.doc(partyData.restaurantId)
+								.collection("tables")
+								.doc(partyData.table.id);
+							t.update(tableRef, {
+								status: "checkedOut",
+								currentCheckInId: null,
+								currentCustomerId: null,
+							});
+						}
+						// Update the master check-in for the party
+						if (partyData.checkInId) {
+							const checkInRef = db
+								.collection("checkIns")
+								.doc(partyData.checkInId);
+							t.update(checkInRef, {
+								status: "COMPLETED",
+								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+							});
+						}
+						// Update the activeCheckIn status for ALL members of the party
+						updatedGuestPips.forEach((member) => {
+							if (member.userId) {
+								const customerRef = db
+									.collection("customers")
+									.doc(member.userId);
+								t.update(customerRef, { activeCheckIn: null });
+							}
+						});
+					}
+				}
+			}
+
+			// FINAL WRITE: Delete the pending order document.
+			t.delete(pendingOrderRef);
+		});
+
+		console.log(
+			`[Webhook] ✅ Successfully committed DB transaction for order ${orderId}.`
+		);
+	} catch (error) {
+		console.error(
+			`[Webhook] ❌ DB transaction for order ${orderId} failed:`,
+			error
+		);
+		return;
+	}
+
+	// 3. ============== EXTERNAL API CALL (After Successful Transaction) ==============
+	try {
+		const transfer = await stripeInstance.transfers.create({
+			amount: amountToTransfer,
+			currency: "usd",
+			destination: connectedAccountId,
+			source_transaction: paymentIntent.latest_charge,
+			metadata: { orderId: orderId },
+		});
+		console.log(
+			`[Webhook] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`
+		);
+
+		await db
+			.collection("orders")
+			.doc(orderId)
+			.update({ stripeTransferId: transfer.id });
+	} catch (apiError) {
+		console.error(
+			`[Webhook] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
+			apiError
+		);
+		// Add this failed transfer to a retry queue or alert an admin.
+	}
+};
 
 // --- Webhook Endpoint for TEST Mode ---
 exports.stripeWebhookTest = functions

@@ -106,6 +106,7 @@ export const AuthProvider = ({ children }) => {
 			setAuthError(null);
 			setIsLoading(true);
 			try {
+				console.log("Additional Data before if statement", additionalData);
 				// 1. Confirm the verification code to sign the user in
 				const userCredential = await confirmation.confirm(verificationCode);
 				const user = userCredential.user;
@@ -113,6 +114,7 @@ export const AuthProvider = ({ children }) => {
 				// 2. This now runs only if `additionalData` (first name, last name) is provided,
 				// which happens during the initial signup flow.
 				if (additionalData) {
+					console.log("THis is the additionalData", additionalData);
 					const userDocRef = doc(db, "customers", user.uid);
 
 					// 3. Use `setDoc` with `{ merge: true }`.
@@ -128,6 +130,8 @@ export const AuthProvider = ({ children }) => {
 							uid: user.uid,
 							phoneNumber: user.phoneNumber,
 							role: "customer",
+							canViewHiddenRestaurants: false,
+
 							createdAt: new Date(),
 						},
 						{ merge: true }

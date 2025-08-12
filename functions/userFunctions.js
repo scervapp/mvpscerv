@@ -244,15 +244,14 @@ exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		// Safely handle different user properties from different providers.
 		phoneNumber: user.phoneNumber || null, // Will exist for phone users
-		email: user.email || null, // Will exist for Google users
-		firstName: user.displayName ? user.displayName.split(" ")[0] : null,
-		lastName: user.displayName
-			? user.displayName.split(" ").slice(1).join(" ")
-			: null,
+
+		canViewHiddenRestaurants: false,
+		stripeCustomerId_test: null,
+		stripeCustomerId_live: null,
 	};
 
 	// 3. Create the document in Firestore.
-	await userDocRef.set(userData);
+	await userDocRef.set(userData, { merge: true });
 	// --- END OF FIX ---
 
 	console.log(`Successfully created customer document for user ${user.uid}`);

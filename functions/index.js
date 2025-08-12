@@ -41,6 +41,7 @@ exports.clearTable = checkInFunctions.clearTable;
 exports.createOrder = orderFunctions.createOrder;
 exports.createPendingOrder = orderFunctions.createPendingOrder;
 
+// Payment Functions
 exports.createSetupIntent = paymentFunctions.createSetupIntent;
 exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.createEphemeralKey = paymentFunctions.createEphemeralKey;
@@ -49,6 +50,8 @@ exports.preparePartyPaymentSheet = paymentFunctions.preparePartyPaymentSheet;
 exports.finalizePartyPaymentAndCreateOrder =
 	paymentFunctions.finalizePartyPaymentAndCreateOrder;
 exports.discountOrderItem = restaurantFunctions.discountOrderItem;
+
+exports.preparePayment = paymentFunctions.preparePayment;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
 exports.stripeWebhookLive = paymentFunctions.stripeWebhookLive;
@@ -108,4 +111,3 @@ exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
 
 //
-
