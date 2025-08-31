@@ -293,6 +293,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 				checkInId: checkInObj.id,
 				table: checkInObj.table || null, // Add this line
 				server: checkInObj.server || null,
+				checkInTimestamp: checkInObj.acceptedAt
 			});
 
 			console.log("This is the data passed", prepData);

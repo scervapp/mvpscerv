@@ -208,6 +208,7 @@ const PartyCheckoutScreen = () => {
 				checkInId: checkInObj.id,
 				table: partyDetails.table || null,
 				server: partyDetails.server || null,
+				checkInTimestamp: checkInObj.acceptedAt,
 				// No stripeCustomerId is sent; the server securely handles it.
 			});
 

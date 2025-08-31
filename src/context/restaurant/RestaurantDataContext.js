@@ -19,6 +19,8 @@ export const RestaurantDataContext = createContext({
 
 export const RestaurantDataProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+	const isCheckInInitialLoad = useRef(true);
+	const isKitchenInitialLoad = useRef(true);
 
 	/* ──────────────────────────────
      1.  State & refs
@@ -44,6 +46,14 @@ export const RestaurantDataProvider = ({ children }) => {
 			interruptionModeAndroid: "duckOthers",
 			interruptionMode: "duckOthers",
 		});
+
+		console.log("--- Check-in Sound Effect Fired ---");
+		console.log(`isLoaded: ${checkInPlayer.current?.isLoaded}`);
+		console.log(`New Count: ${newCheckInCount}`);
+		console.log(`Previous Count: ${prevCheckIn.current}`);
+		console.log(
+			`Condition Met (new > prev): ${newCheckInCount > prevCheckIn.current}`
+		);
 
 		checkInPlayer.current = createAudioPlayer(
 			require("../../../assets/checkIn.mp3")
@@ -97,9 +107,29 @@ export const RestaurantDataProvider = ({ children }) => {
 			.collection("checkIns")
 			.where("restaurantId", "==", restaurantId)
 			.where("status", "==", "REQUESTED")
-			.onSnapshot((snap) => setNewCheckInCount(snap.size));
+			.onSnapshot((snap) => {
+				if (!isCheckInInitialLoad.current) {
+					snap.docChanges().forEach((change) => {
+						// If a new check-in was added, play the sound
+						if (change.type === "added") {
+							console.log("New check-in document added. Playing sound.");
+							checkInPlayer.current?.seekTo(0);
+							checkInPlayer.current?.play();
+						}
+					});
+				}
 
-		return unsub;
+				// The initial load is now complete
+				isCheckInInitialLoad.current = false;
+
+				// Always update the count for your UI
+				setNewCheckInCount(snap.size);
+			});
+
+		return () => {
+			isCheckInInitialLoad.current = true; // Reset on cleanup
+			unsub();
+		};
 	}, [restaurantId]);
 
 	useEffect(() => {
@@ -112,9 +142,30 @@ export const RestaurantDataProvider = ({ children }) => {
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
 			.where("status", "==", "new")
-			.onSnapshot((snap) => setNewKitchenOrderCount(snap.size));
+			.onSnapshot((snap) => {
+				// Check for changes, but only play sounds after the initial load
+				if (!isKitchenInitialLoad.current) {
+					snap.docChanges().forEach((change) => {
+						// If a new kitchen order was added, play the sound
+						if (change.type === "added") {
+							console.log("New kitchen order document added. Playing sound.");
+							kitchenPlayer.current?.seekTo(0);
+							kitchenPlayer.current?.play();
+						}
+					});
+				}
 
-		return unsub;
+				// The initial load for this listener is now complete
+				isKitchenInitialLoad.current = false;
+
+				// Always update the count for your UI
+				setNewKitchenOrderCount(snap.size);
+			});
+
+		return () => {
+			isKitchenInitialLoad.current = true; // Reset on cleanup
+			unsub();
+		};
 	}, [restaurantId]);
 
 	/* ──────────────────────────────
@@ -130,4 +181,3 @@ export const RestaurantDataProvider = ({ children }) => {
 };
 
 export const useRestaurantData = () => useContext(RestaurantDataContext);
-

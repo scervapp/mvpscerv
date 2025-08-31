@@ -244,6 +244,7 @@ exports.preparePayment = functions
 			partyId,
 			table,
 			server,
+			checkInTimestamp,
 		} = data;
 
 		if (
@@ -344,7 +345,12 @@ exports.preparePayment = functions
 				);
 				const fetchedBasketDocs = await Promise.all(basketPromises);
 				itemsToProcess = fetchedBasketDocs
-					.map((doc) => (doc.exists ? doc.data() : null))
+					.map((doc) => {
+						if (!doc.exists) return null;
+						// --- THIS IS THE FIX ---
+						// We now merge the document's ID with its data.
+						return { id: doc.id, ...doc.data() };
+					})
 					.filter(Boolean);
 			}
 
@@ -428,6 +434,7 @@ exports.preparePayment = functions
 				connectedAccountId: restaurantDoc.data().stripeAccountId,
 				table: table || null,
 				server: server || null,
+				checkInTimestamp: checkInTimestamp || null,
 				...(paymentType === "party" && { partyId }),
 			});
 
@@ -532,6 +539,8 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 	}
 
 	const pendingOrderData = pendingOrderSnap.data();
+
+	const readableOrderId = await generateOrderId(pendingOrderData.restaurantId);
 	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
 
 	// This logic can be abstracted to a helper function if desired.
@@ -542,6 +551,7 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 
 	const finalOrderData = {
 		id: orderId,
+		readableOrderId: readableOrderId,
 		...pendingOrderData, // Spread all data from the pending order
 		paymentIntentId: paymentIntent.id,
 		paymentStatus: "paid",

@@ -69,6 +69,9 @@ exports.checkOnboardingStatus = stripeOnboardingFunctions.checkOnboardingStatus;
 exports.getDailySalesReport = reportingFunctions.getDailySalesReport;
 exports.getAggregatedSalesReport = reportingFunctions.getAggregatedSalesReport;
 exports.getDashboardReport = reportingFunctions.getDashboardReport;
+
+exports.getSalesReport = reportingFunctions.getSalesReport;
+
 exports.generateCustomToken = generateCustomToken.generateCustomToken;
 exports.sendInvite = sendInvite.sendInvite;
 exports.setAdminClaim = setAdminClaim.setAdminClaim;

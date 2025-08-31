@@ -96,6 +96,8 @@ const PartyMenuScreen = () => {
 				partyContextData,
 			} = itemDataFromModal;
 
+		
+
 			const partyAddItemData = {
 				partyId: partyContextData.partyId,
 				orderingForUserId: partyContextData.currentUserId,
@@ -106,6 +108,7 @@ const PartyMenuScreen = () => {
 				id: menuItemDetails.id,
 				name: menuItemDetails.name,
 				price: menuItemDetails.price,
+				category: menuItemDetails.category,
 				quantity,
 				specialInstructions,
 				restaurantId: menuItemDetails.restaurantId,

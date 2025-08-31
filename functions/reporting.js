@@ -429,12 +429,16 @@ exports.getDashboardReport = functions
 
 				if (Array.isArray(order.items)) {
 					order.items.forEach((item) => {
-						const category = item.category || (item.dish && item.dish.category) || "Other";
-						const priceInCents = Math.round((item.price || (item.dish && item.dish.price) || 0) * 100);
+						const category =
+							item.category || (item.dish && item.dish.category) || "Other";
+						const priceInCents = Math.round(
+							(item.price || (item.dish && item.dish.price) || 0) * 100
+						);
 						const revenueInCents =
 							(Math.round((Number(item.discountedPrice) || 0) * 100) ||
 								priceInCents) * (item.quantity || 1);
-						const itemName = item.dishName || (item.dish && item.dish.name) || "Unknown Item";
+						const itemName =
+							item.dishName || (item.dish && item.dish.name) || "Unknown Item";
 
 						if (BAR_CATEGORIES.includes(category))
 							salesByCategory.Bar += revenueInCents;
@@ -494,6 +498,253 @@ exports.getDashboardReport = functions
 			throw new functions.https.HttpsError(
 				"internal",
 				"Failed to generate report."
+			);
+		}
+	});
+
+// Helper to determine the start date for the query based on the period.
+const getStartDateForPeriod = (period, timeZone) => {
+	const now = new Date();
+	const today = new Date(now.toLocaleString("en-US", { timeZone }));
+	today.setHours(0, 0, 0, 0); // Set to the beginning of the day in the target timezone
+
+	let startDate;
+	switch (period) {
+		case "week":
+			startDate = new Date(today);
+			startDate.setDate(startDate.getDate() - today.getDay()); // Week starts on Sunday
+			break;
+		case "month":
+			startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+			break;
+		case "today":
+		default:
+			startDate = today;
+			break;
+	}
+	return startDate;
+};
+
+/**
+ * @function getSalesReport
+ * @description A consolidated and robust function to generate all sales reports.
+ * It corrects financial calculations, provides full fee transparency, and handles all order types.
+ */
+exports.getSalesReport = functions
+	.runWith({ memory: "512MB" })
+	.https.onCall(async (data, context) => {
+		// 1. ============== VALIDATION & DATE RANGE SETUP ==============
+		if (!context.auth) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated."
+			);
+		}
+		const { restaurantId, period } = data;
+		if (!restaurantId || !period) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID and a period are required."
+			);
+		}
+
+		const startDate = getStartDateForPeriod(period, "America/New_York"); // Set your restaurant's timezone
+
+		try {
+			// 2. ============== FIRESTORE QUERY ==============
+			const ordersQuery = db
+				.collection("orders")
+				.where("restaurantId", "==", restaurantId)
+				.where("paymentStatus", "==", "paid")
+				.where(
+					"fulfilledAt",
+					">=",
+					admin.firestore.Timestamp.fromDate(startDate)
+				);
+
+			const ordersSnapshot = await ordersQuery.get();
+
+			// Return a default, empty report object if there are no orders.
+			if (ordersSnapshot.empty) {
+				return {
+					grossSales: 0,
+					totalGratuity: 0,
+					totalFees: 0,
+					netPayout: 0,
+					totalOrders: 0,
+					serverTips: [],
+					topSellingItems: [],
+					salesByCategory: { Food: 0, Bar: 0 },
+				};
+			}
+
+			// 3. ============== CORRECTED DATA AGGREGATION ==============
+			let grossSales = 0;
+			let totalGratuity = 0;
+			let totalStripeFees = 0;
+			let totalPlatformFees = 0;
+			let totalOrders = 0;
+			let totalTurnoverDuration = 0; // in minutes
+			let ordersWithTurnover = 0; // count of orders with valid timestamps
+			const serverTips = {}; // Use an object for easy aggregation by server ID
+			const topSellingItems = {};
+			const salesByCategory = { Food: 0, Bar: 0 };
+
+			ordersSnapshot.forEach((doc) => {
+				const order = doc.data();
+
+				console.log(`Value of order.subtotal:`, order.subtotal);
+				console.log(`Is order.items an array?:`, Array.isArray(order.items));
+				if (Array.isArray(order.items)) {
+					console.log(`Number of items in order:`, order.items.length);
+				} else {
+					console.log(`order.items is not an array.`);
+				}
+
+				// Use correct, safe values for calculation
+				const orderSubtotal = Number(order.subtotal) || 0;
+				const orderGratuity = Number(order.gratuity) || 0;
+				const orderStripeFee = Number(order.stripeFeeActual) || 0;
+				const orderPlatformFee = Number(order.platformFeeActual) || 0;
+
+				// Accumulate primary financial metrics
+				grossSales += orderSubtotal;
+				totalGratuity += orderGratuity;
+				totalStripeFees += orderStripeFee;
+				totalPlatformFees += orderPlatformFee;
+				totalOrders += 1;
+
+				// Safely aggregate server tips by ID, not name, to avoid conflicts.
+				// Optional chaining (?.) prevents crashes if an order has no server.
+				const serverId = order.server.id;
+				const serverName = order.server.name || "Unassigned";
+
+				if (serverId && orderGratuity > 0) {
+					if (!serverTips[serverId]) {
+						serverTips[serverId] = { serverId, serverName, gratuityTotal: 0 };
+					}
+					serverTips[serverId].gratuityTotal += orderGratuity;
+				}
+
+				// Aggregate item and category sales
+				if (Array.isArray(order.items)) {
+					console.log(
+						`--- Found ${order.items.length} items for Order ${doc.id} ---`
+					);
+					order.items.forEach((item) => {
+						console.log(
+							"Inspecting item object:",
+							JSON.stringify(item, null, 2)
+						);
+						const price =
+							item.discountedPrice || item.price || item.dish.price || 0;
+						const revenueInCents = Math.round(price * (item.quantity || 1));
+						const category = item.category || item.dish.category || "Other";
+						const itemName =
+							item.dishName ||
+							item.name ||
+							item.dish.name ||
+							item.dishName ||
+							"Unknown Item";
+
+						if (BAR_CATEGORIES.includes(category)) {
+							salesByCategory.Bar += revenueInCents;
+						} else {
+							salesByCategory.Food += revenueInCents;
+						}
+
+						if (!topSellingItems[itemName]) {
+							topSellingItems[itemName] = {
+								name: itemName,
+								quantity: 0,
+								totalRevenue: 0,
+							};
+						}
+						topSellingItems[itemName].quantity += item.quantity || 1;
+						topSellingItems[itemName].totalRevenue += revenueInCents;
+					});
+				}
+
+				if (order.checkInTimestamp && order.fulfilledAt) {
+					console.log(`--- Turnover Debug for Order ${doc.id} ---`);
+					console.log(
+						"Raw checkInTimestamp:",
+						JSON.stringify(order.checkInTimestamp)
+					);
+					console.log("Raw fulfilledAt:", JSON.stringify(order.fulfilledAt));
+
+					// Check if the fields are in the expected format before trying to use them
+					if (
+						order.checkInTimestamp._seconds &&
+						typeof order.fulfilledAt.toDate === "function"
+					) {
+						const checkInTime = new admin.firestore.Timestamp(
+							order.checkInTimestamp._seconds,
+							order.checkInTimestamp._nanoseconds || 0
+						).toDate();
+
+						const fulfilledTime = order.fulfilledAt.toDate();
+						const durationMinutes =
+							(fulfilledTime.getTime() - checkInTime.getTime()) / 60000;
+
+						console.log(`Calculated Duration (minutes):`, durationMinutes);
+
+						if (durationMinutes > 0) {
+							totalTurnoverDuration += durationMinutes;
+							ordersWithTurnover += 1;
+							console.log("-> Duration was positive and added to total.");
+						} else {
+							console.log("-> Duration was zero or negative, not added.");
+						}
+					} else {
+						console.log(
+							"-> Timestamps not in the expected format, skipping calculation."
+						);
+					}
+				} else {
+					console.log(
+						`-> Skipping turnover for Order ${doc.id}: one or both timestamps are missing.`
+					);
+				}
+			});
+
+			// 4. ============== FINAL CALCULATIONS & FORMATTING ==============
+			const totalFees = totalStripeFees + totalPlatformFees;
+			// Net Payout is the final amount transferred to the restaurant for sales and tips.
+			const netPayout = grossSales - totalPlatformFees + totalGratuity;
+
+			// Format server tips and top items for client display
+			const formattedServerTips = Object.values(serverTips).sort(
+				(a, b) => b.gratuityTotal - a.gratuityTotal
+			);
+			const formattedTopItems = Object.values(topSellingItems)
+				.sort((a, b) => b.totalRevenue - a.totalRevenue)
+				.slice(0, 10);
+
+			const avgTurnoverRate =
+				ordersWithTurnover > 0
+					? Math.round(totalTurnoverDuration / ordersWithTurnover)
+					: 0;
+
+			// Return the complete, corrected report object.
+			return {
+				grossSales,
+				totalGratuity,
+				totalStripeFees,
+				totalPlatformFees,
+				totalFees,
+				netPayout,
+				totalOrders,
+				avgTurnoverRate,
+				serverTips: formattedServerTips,
+				topSellingItems: formattedTopItems,
+				salesByCategory,
+			};
+		} catch (error) {
+			console.error("Error generating sales report:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Failed to generate sales report."
 			);
 		}
 	});

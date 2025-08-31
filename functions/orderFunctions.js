@@ -2,57 +2,48 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 
-// Helper function to generate a unique and trackable order ID
-async function generateOrderId(restaurantId, customerId) {
+/**
+ * Generates a human-readable, sequential order ID for a restaurant.
+ * The format is: {restaurantNumber}-{YYMMDD}-{sequence}, e.g., "1005-250812-001".
+ * @param {string} restaurantId The Firestore document ID of the restaurant.
+ * @returns {Promise<string>} The new human-readable order ID.
+ */
+async function generateOrderId(restaurantId) {
 	try {
 		const today = new Date();
-		const year = today.getFullYear().toString().slice(-2); // Last two digits of the year
-		const month = (today.getMonth() + 1).toString().padStart(2, "0"); // Month (01-12)
-		const day = today.getDate().toString().padStart(2, "0"); // Day (01-31)
+		const year = today.getFullYear().toString().slice(-2);
+		const month = (today.getMonth() + 1).toString().padStart(2, "0");
+		const day = today.getDate().toString().padStart(2, "0");
 
-		// Calculate start and end of the current day (00:00:00 to 23:59:59)
-		const startOfDay = new Date(
-			Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
-		);
+		// Set the query to look for orders created today for this specific restaurant
+		const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+		const endOfDay = new Date(today.setHours(23, 59, 59, 999));
 
-		const endOfDay = new Date(
-			Date.UTC(
-				today.getFullYear(),
-				today.getMonth(),
-				today.getDate(),
-				23,
-				59,
-				59
-			)
-		);
-
-		// Get the last order for this restaurant today
-		// Get the last order for this restaurant today
 		const lastOrderQuery = db
 			.collection("orders")
 			.where("restaurantId", "==", restaurantId)
-			.where("timestamp", ">=", admin.firestore.Timestamp.fromDate(startOfDay)) // Start of today
-			.where("timestamp", "<=", admin.firestore.Timestamp.fromDate(endOfDay)) // End of today
-			.orderBy("timestamp", "desc")
+			.where(
+				"fulfilledAt",
+				">=",
+				admin.firestore.Timestamp.fromDate(startOfDay)
+			)
+			.where("fulfilledAt", "<=", admin.firestore.Timestamp.fromDate(endOfDay))
+			.orderBy("fulfilledAt", "desc")
 			.limit(1);
 
 		const lastOrderSnapshot = await lastOrderQuery.get();
 
 		let orderNumber = 1;
-		//let orderNumber = 1; // Default to 1 if no previous orders today
 		if (!lastOrderSnapshot.empty) {
 			const lastOrderData = lastOrderSnapshot.docs[0].data();
+			const lastReadableId = lastOrderData.readableOrderId; // Parse the human-readable ID
 
-			// --- THIS IS THE FIX ---
-			// Safely check if lastOrderId exists and is a string before trying to split it.
-			const lastOrderId = lastOrderData.orderId;
 			if (
-				lastOrderId &&
-				typeof lastOrderId === "string" &&
-				lastOrderId.includes("-")
+				lastReadableId &&
+				typeof lastReadableId === "string" &&
+				lastReadableId.includes("-")
 			) {
-				const parts = lastOrderId.split("-");
-				// Ensure there are enough parts to prevent another crash
+				const parts = lastReadableId.split("-"); // e.g., ["1005", "250812", "001"]
 				if (parts.length > 2) {
 					const lastOrderNumber = parseInt(parts[2], 10);
 					if (!isNaN(lastOrderNumber)) {
@@ -60,122 +51,25 @@ async function generateOrderId(restaurantId, customerId) {
 					}
 				}
 			}
-			// If the last order was malformed, we will safely default to '1'.
 		}
 
-		const formattedOrderNumber = orderNumber.toString().padStart(3, "0");
-		const restaurantRef = db.collection("restaurants").doc(restaurantId);
-		const restaurantSnapshot = await restaurantRef.get();
-
-		if (!restaurantSnapshot.exists) {
-			throw new Error("Restaurant not found");
-		}
-		const restaurantNumber = restaurantSnapshot.data().restaurantNumber;
-
-		const orderId = `${restaurantNumber}-${year}${month}${day}-${formattedOrderNumber}`;
-
-		// Optionally, include the customer ID (or part of it) in the order ID
-		// const orderIdWithCustomer = `${orderId}-${customerId.slice(-4)}`;
-		// return orderIdWithCustomer;
-
-		return orderId;
-	} catch (error) {
-		console.error("Error generating orderId:", error);
-		// You might want to handle the error more gracefully here,
-		// depending on your app's requirements (e.g., retry, generate a temporary ID, etc.)
-		throw error;
-	}
-}
-
-exports.createOrder = functions.https.onCall(async (data, context) => {
-	const {
-		userId,
-		restaurantId,
-		table,
-		items,
-		totalPrice,
-		server,
-		gratuity,
-		subtotal,
-		tax,
-		fee,
-	} = data;
-	try {
-		// Input validation
-		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
-			throw new functions.https.HttpsError(
-				"unauthenticated",
-				"User not authenticated"
-			);
-		}
-
-		if (
-			!restaurantId ||
-			!items ||
-			!Array.isArray(items) ||
-			items.length === 0 ||
-			isNaN(totalPrice) ||
-			totalPrice <= 0
-		) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Invalid data provided"
-			);
-		}
-
-		let platformFeeShouldBeWaived = false;
-		const restaurantRef = db.collection("restaurants").doc(restaurantId);
-		const restaurantSnapshot = await restaurantRef.get();
-		if (!restaurantSnapshot.exists) {
-			throw new functions.https.HttpsError("not-found", "Restaurant not found");
-		} else {
-			const restaurantData = restaurantSnapshot.data();
-
-			if (restaurantData.waivePlatformFee) {
-				platformFeeShouldBeWaived = true;
-				console.log(
-					`Platform fee waived for restaurant ${restaurantId} based on settings.`
-				);
-			}
-		}
-
-		// 2. Generate OrderId
-		const orderId = await generateOrderId(restaurantId, userId);
-		//3. Create the order document
-		const orderRef = await db.collection("orders").add({
-			orderId,
-			customerId: userId,
-			table,
-			items,
-			orderStatus: "pending",
-			paymentStatus: "paid",
-			totalPrice,
-			server,
-			gratuity,
-			subtotal,
-			tax,
-			fee,
-			timestamp: admin.firestore.FieldValue.serverTimestamp(),
-			restaurantId,
-			platformFeeWaived: platformFeeShouldBeWaived,
-		});
-
-		const tableRef = await db
+		const restaurantDoc = await db
 			.collection("restaurants")
 			.doc(restaurantId)
-			.collection("tables")
-			.doc(table.id);
+			.get();
+		if (!restaurantDoc.exists) {
+			throw new Error("Restaurant not found when generating order ID");
+		}
+		const restaurantNumber = restaurantDoc.data().restaurantNumber;
 
-		tableRef.update({
-			status: "checkedOut",
-		});
-
-		return { success: true, orderId, orderRef: orderRef.id };
+		const formattedOrderNumber = orderNumber.toString().padStart(3, "0");
+		return `${restaurantNumber}-${year}${month}${day}-${formattedOrderNumber}`;
 	} catch (error) {
-		console.error("Error creating order: ", error);
-		throw new functions.https.HttpsError("Internal Error", error.message);
+		console.error("Error generating readable orderId:", error);
+		// Fallback to a non-sequential ID in case of error
+		return `ERROR-${Date.now()}`;
 	}
-});
+}
 
 // Renamed and Modified Function
 exports.createPendingOrder = functions.https.onCall(async (data, context) => {

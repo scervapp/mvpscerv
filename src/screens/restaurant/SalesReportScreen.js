@@ -132,12 +132,13 @@ const SalesReportScreen = ({ navigation }) => {
 		const fetchReport = async () => {
 			setIsFetching(true);
 			try {
-				const getReport = httpsCallable(functions, "getDashboardReport");
+				const getReport = httpsCallable(functions, "getSalesReport");
 				const response = await getReport({
 					restaurantId: currentUserData.uid,
 					period: selectedPeriod.toLowerCase(),
 				});
 				setReportData(response.data);
+				console.log("This is the data", response.data);
 			} catch (error) {
 				console.error("Error fetching dashboard report:", error);
 				setReportData(null);
@@ -169,7 +170,7 @@ const SalesReportScreen = ({ navigation }) => {
 				<View style={styles.kpiContainer}>
 					<KPICard
 						title="Gross Sales"
-						value={formatCurrency(reportData.totalRevenue)}
+						value={formatCurrency(reportData.grossSales)}
 						iconName="cash-outline"
 					/>
 					<KPICard
@@ -179,7 +180,7 @@ const SalesReportScreen = ({ navigation }) => {
 					/>
 					<KPICard
 						title="Transaction Fees"
-						value={`-${formatCurrency(reportData.totalStripeFees)}`}
+						value={`-${formatCurrency(reportData.totalPlatformFees)}`}
 						iconName="trending-down-outline"
 						isDeduction={true}
 					/>
@@ -206,7 +207,7 @@ const SalesReportScreen = ({ navigation }) => {
 
 				<DetailedReportCard title="Items Sold" iconName="fast-food-outline">
 					<ItemsSoldList
-						items={reportData.allItemsSold || []}
+						items={reportData.topSellingItems || []}
 						formatCurrency={formatCurrency}
 					/>
 				</DetailedReportCard>
@@ -371,4 +372,3 @@ const styles = StyleSheet.create({
 });
 
 export default SalesReportScreen;
-
