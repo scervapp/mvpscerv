@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can read/update their own profile, but not others.
+    match /customers/{userId} {
+      allow read, update: if request.auth.uid == userId;
+      allow create: if request.auth.uid != null;
+    }
+
+    // Anyone can read restaurant info, but only the owner can write.
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow write: if request.auth.uid == restaurantId;
+
+      // Rule for the work_days subcollection.
+      match /work_days/{workDayId} {
+        allow read, write: if request.auth.uid == restaurantId;
+      }
+    }
+
+    // Users can only manage their own individual basket items.
+    match /baskets/{basketId} {
+      allow read, write: if request.auth.uid == request.resource.data.userId;
+    }
+
+    // Any authenticated user can interact with a shared basket document.
+    // The logic inside the Cloud Functions provides the primary security.
+    match /shared_baskets/{basketId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Handles party document access.
+    match /parties/{partyId} {
+      // Allows reading a specific document if you are a member.
+      allow get: if request.auth.uid in resource.data.memberUids;
+      
+      // Allows querying for parties. Your app must use a secure query
+      // like '.where("memberUids", "array-contains", user.uid)'.
+      allow list: if request.auth.uid != null;
+
+      // Allows writing if you are a member.
+      allow write: if request.auth.uid in resource.data.memberUids;
+    }
+
+    // Orders can only be read by the customer or the restaurant.
+    // CRITICAL: No one can create, update, or delete orders from the client.
+    // This MUST be done via your secure Cloud Functions.
+    match /orders/{orderId} {
+      allow read: if resource.data.customerId == request.auth.uid || resource.data.restaurantId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+    
+    // App config is public to read, but cannot be changed from the client.
+    match /appConfig/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Check-ins can be managed by the user who created it or the restaurant.
+    match /checkIns/{checkInId} {
+      allow read, write: if request.auth.uid == resource.data.userId || request.auth.uid == resource.data.restaurantId;
+    }
+  }
+}

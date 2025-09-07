@@ -1,17 +1,28 @@
 import React, { useContext, useEffect, useState } from "react";
-import { View, Text, StyleSheet, Image, FlatList } from "react-native";
+import {
+	View,
+	Text,
+	StyleSheet,
+	Image,
+	FlatList,
+	SafeAreaView,
+} from "react-native";
 
 import RestaurantList from "../../components/customer/RestaurantList";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 
 import CustomSearchBar from "./CustomSearchBar";
+import { NotificationBanner } from "../../utils/NotificationBanner";
+import { useDebounce } from "../../hooks/useBounce";
 
 const CustomerDashboard = ({ route = {}, navigation }) => {
 	const { initialRestaurantData = [] } = route.params || {};
 	const [searchText, setSearchText] = useState("");
 	const [showRestaurantList, setShowRestaurantList] = useState(false);
 	const { logout, currentUserData } = useContext(AuthContext);
+
+	const debouncedSearchText = useDebounce(searchText, 300);
 
 	const handleSearch = (text) => {
 		setSearchText(text);
@@ -20,99 +31,78 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 
 	// Instead of ScrollView, use FlatList to handle both instructions and the restaurant list
 
-	const instructions = [
-		{
-			key: "welcomeText",
-			text: "Welcome to Scerv!",
-			style: styles.welcomeText,
-		},
-		{
-			key: "instructionsText",
-			text: "Find your favorite restaurants and explore their menus. Start by typing in the search bar below!",
-			style: styles.instructionsText,
-		},
-	];
+	const ListHeader = () => (
+		<>
+			<Image source={require("../../../assets/icon.png")} style={styles.logo} />
+			<Text style={styles.welcomeText}>Welcome to Scerv!</Text>
+			<Text style={styles.instructionsText}>
+				Find your favorite restaurants and explore their menus.
+			</Text>
+		</>
+	);
 
 	return (
-		<View style={styles.container}>
-			{/* Logo at the top */}
-			<Image source={require("../../../assets/icon.png")} style={styles.logo} />
+		<SafeAreaView style={styles.container}>
+			<NotificationBanner />
 
-			{/* Instructions */}
-			{instructions.map((item) => (
-				<Text key={item.key} style={item.style}>
-					{item.text}
-				</Text>
-			))}
-
-			{/* Search Bar */}
+			{/* The search bar is now a persistent header */}
 			<View style={styles.searchContainer}>
 				<CustomSearchBar
 					placeholder="Search for restaurants..."
-					onSearch={handleSearch}
+					onSearch={setSearchText} // Directly set the search text
 				/>
 			</View>
-
-			{/* Only show RestaurantList if searchText has value */}
-			{showRestaurantList && (
-				<FlatList
-					data={[{ key: "restaurants" }]} // Placeholder to render restaurant list
-					renderItem={() => (
-						<RestaurantList
-							currentUserData={currentUserData}
-							searchText={searchText}
-							navigation={navigation}
-							initialRestaurantData={initialRestaurantData}
-						/>
-					)}
+			{/* --- REFINED: A single FlatList for all content --- */}
+			{/* If the debounced search text is empty, we show the header. */}
+			{/* If there is search text, we render the RestaurantList. */}
+			{!debouncedSearchText ? (
+				<ListHeader />
+			) : (
+				<RestaurantList
+					currentUserData={currentUserData}
+					searchText={debouncedSearchText}
+					navigation={navigation}
+					initialRestaurantData={initialRestaurantData}
 				/>
 			)}
-		</View>
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: colors.background, // Solid background color
+		backgroundColor: colors.background,
+	},
+	searchContainer: {
 		paddingHorizontal: 20,
+		paddingTop: 10,
+		paddingBottom: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
 	},
 	logo: {
-		width: 50,
-		height: 50,
+		width: 60,
+		height: 60,
 		resizeMode: "contain",
 		alignSelf: "center",
-		marginTop: 40, // Space from the top of the screen
+		marginTop: 40,
 		marginBottom: 20,
-	},
-	instructionsContainer: {
-		marginTop: 30, // Space between logo and instructions
-		alignItems: "center",
 	},
 	welcomeText: {
 		fontSize: 24,
 		fontWeight: "bold",
 		color: colors.primary,
-		marginBottom: 10,
 		textAlign: "center",
-		color: colors.primary,
+		marginBottom: 10,
 	},
 	instructionsText: {
 		fontSize: 16,
 		color: colors.textDark,
 		textAlign: "center",
-		marginHorizontal: 10,
-	},
-
-	placeholderContainer: {
-		marginTop: 20,
-		alignItems: "center",
-	},
-	searchContainer: {
-		width: "100%", // Ensures the container takes up the full width
-		marginBottom: 20, // Adds space below the search bar
+		marginHorizontal: 20,
+		paddingTop: 20,
 	},
 });
 
 export default CustomerDashboard;
-

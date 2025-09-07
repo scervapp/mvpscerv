@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useState } from "react";
 import {
 	View,
 	Text,
@@ -18,6 +18,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { StatusIndicator } from "./StatusIndicator";
 
 const { width } = Dimensions.get("window");
 const cardMargin = 10;
@@ -31,6 +32,9 @@ const BackOfficeScreen = ({ navigation }) => {
 	const [isStripeLoading, setIsStripeLoading] = useState(false); // Specific loading for Stripe actions
 	const [isLogoutLoading, setIsLogoutLoading] = useState(false); // Specific loading for logout
 
+	const isTestMode = currentUserData?.isTestAccount !== false;
+
+	console.log("TestMode", isTestMode);
 	// Define an array of screen names and their display labels
 	const baseScreens = [
 		{
@@ -203,6 +207,10 @@ const BackOfficeScreen = ({ navigation }) => {
 				Welcome, {currentUserData?.firstName || "Admin"}!
 			</Text>
 			<Text style={styles.heading}>Back Office</Text>
+
+			<View style={styles.indicatorContainer}>
+				<StatusIndicator isTestMode={isTestMode} />
+			</View>
 
 			{isLoading ? ( // Use this for initial screen loading if needed
 				<ActivityIndicator size="large" color={colors.primary} />

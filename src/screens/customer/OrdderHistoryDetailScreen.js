@@ -273,9 +273,9 @@ const OrderHistoryDetailScreen = () => {
 								<Text style={styles.itemPrice}>
 									{formatCurrency(
 										Math.round(
-											(item.discount
+											item.discount
 												? parseFloat(item.discountedPrice)
-												: item.price || 0) * 100
+												: item.price || 0
 										) * item.quantity
 									)}
 								</Text>

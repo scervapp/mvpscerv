@@ -40,9 +40,8 @@ const OrderHistoryScreen = () => {
 			// The query construction is already using the native SDK syntax, which is correct.
 			const q = db
 				.collection("orders")
-				.where("userId", "==", currentUserData.uid)
-				.where("paymentStatus", "==", "paid")
-				.orderBy("timestamp", "desc");
+				.where("customerId", "==", currentUserData.uid)
+				.orderBy("fulfilledAt", "desc");
 
 			// --- REFACTORED QUERY EXECUTION ---
 
@@ -54,18 +53,18 @@ const OrderHistoryScreen = () => {
 				const timestamp = data.timestamp;
 				return {
 					docId: doc.id,
-					orderId: data.orderId || "N/A",
-					restaurantName:
-						data.items?.[0]?.dish?.nrestaurantName ||
-						data.restaurantName ||
-						"Restaurant",
+					// Use the human-readable ID, with a fallback to the document ID.
+					orderId: data.readableOrderId || doc.id,
+					// Pro-tip: For better performance, consider saving 'restaurantName'
+					// directly on the order document when it's created.
+					restaurantName: data.restaurantName || "Restaurant",
 					status: data.paymentStatus || "Unknown",
 					totalPrice: data.totalPrice || 0,
-					// Use the native SDK's toDate() method on the timestamp object
-					orderDate: timestamp ? timestamp.toDate() : new Date(),
+					// Use the correct 'fulfilledAt' timestamp field.
+					orderDate: data.fulfilledAt ? data.fulfilledAt.toDate() : new Date(),
 				};
 			});
-
+			console.log("orders list", orderList);
 			setOrders(orderList);
 		} catch (err) {
 			console.error("Error fetching order history: ", err);
