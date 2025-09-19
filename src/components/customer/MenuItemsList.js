@@ -62,7 +62,7 @@ const MenuItemsList = ({
 
 	partyData,
 }) => {
-	const { currentUserData } = useContext(AuthContext);
+	const { currentUserData, logout } = useContext(AuthContext);
 
 	const [isModalVisible, setIsModalVisible] = useState(false);
 	const [selectedItem, setSelectedItem] = useState(null);
@@ -73,7 +73,23 @@ const MenuItemsList = ({
 
 	const handleSelectItem = (menuItem) => {
 		if (isGuest) {
-			Alert.alert("Login Required", "Please log in or sign up to add items.");
+			Alert.alert(
+				"Create an Account to Order",
+				"Please sign up or log in to add items and place an order.",
+				[
+					{
+						text: "Cancel",
+						style: "cancel",
+					},
+					{
+						text: "Sign Up / Login",
+						// --- THIS IS THE FIX ---
+						// On press, call logout() to reset the app state and
+						// send the user back to the WelcomeScreen.
+						onPress: () => logout(),
+					},
+				]
+			);
 			return;
 		}
 		setSelectedItem(menuItem);

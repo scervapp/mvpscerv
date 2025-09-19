@@ -234,9 +234,11 @@ const CustomerBottomNavigation = () => {
 	const internalTabBarContentHeight = 50;
 	const originalPaddingTop = 10;
 
-	const { currentUserData } = useContext(AuthContext);
+	const { currentUserData, logout } = useContext(AuthContext);
 	const { joinParty, currentPartyId } = useParty();
 	const navigation = useNavigation();
+
+	const isGuest = currentUserData?.role === "guest";
 
 	useEffect(() => {
 		if (!currentUserData?.uid || currentPartyId) {
@@ -249,7 +251,8 @@ const CustomerBottomNavigation = () => {
 			`Notification Listener: Setting up for user ${currentUserData.uid}`
 		);
 		const notificationsRef = db.collection("notifications");
-		const q = notificationsRef.where("recipientUserId", "==", currentUserData.uid)
+		const q = notificationsRef
+			.where("recipientUserId", "==", currentUserData.uid)
 			.where("type", "==", "partyInvite")
 			.where("isRead", "==", false);
 		const unsubscribe = q.onSnapshot(
@@ -270,7 +273,9 @@ const CustomerBottomNavigation = () => {
 								{
 									text: "Decline",
 									onPress: async () => {
-										const notifRef = db.collection("notifications").doc(notification.id);
+										const notifRef = db
+											.collection("notifications")
+											.doc(notification.id);
 										await notifRef.update({ isRead: true });
 									},
 									style: "cancel",
@@ -278,7 +283,9 @@ const CustomerBottomNavigation = () => {
 								{
 									text: "Join Party",
 									onPress: async () => {
-										const notifRef = db.collection("notifications").doc(notification.id);
+										const notifRef = db
+											.collection("notifications")
+											.doc(notification.id);
 										await notifRef.update({ isRead: true });
 										const joinedPartyId = await joinParty({
 											partyId: notification.partyId,
@@ -324,9 +331,15 @@ const CustomerBottomNavigation = () => {
 					let iconName;
 					if (route.name === "CustomerDashboard")
 						iconName = focused ? "home" : "home-outline";
-					else if (route.name === "AccountScreen")
-						iconName = focused ? "person" : "person-outline";
-
+					else if (route.name === "AccountScreen") {
+						// If the user is a guest, show a login icon.
+						// Otherwise, show the person icon.
+						if (isGuest) {
+							iconName = focused ? "log-in" : "log-in-outline";
+						} else {
+							iconName = focused ? "person" : "person-outline";
+						}
+					}
 					const iconSize = 34;
 
 					return <Ionicons name={iconName} size={iconSize} color="black" />;
@@ -371,10 +384,14 @@ const CustomerBottomNavigation = () => {
 			<Tab.Screen
 				name="AccountScreen"
 				component={AccountScreenStack}
-				listeners={({ navigation }) => ({
+				listeners={({}) => ({
 					tabPress: (e) => {
-						e.preventDefault(); // Prevent default navigation
-						handleAccountScreenPress(navigation);
+						if (isGuest) {
+							// Prevent default navigation for guests
+							e.preventDefault();
+							// Send them back to the login/signup screen
+							logout();
+						}
 					},
 				})}
 				options={{ headerShown: false }}
@@ -384,4 +401,3 @@ const CustomerBottomNavigation = () => {
 };
 
 export default CustomerBottomNavigation;
-

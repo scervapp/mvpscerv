@@ -9,30 +9,24 @@ import {
 import Icon from "react-native-vector-icons/MaterialIcons";
 import colors from "../../utils/styles/appStyles";
 
-const CustomSearchBar = ({ placeholder, onSearch }) => {
-	const [searchText, setSearchText] = useState("");
-
-	const handleSearch = (text) => {
-		setSearchText(text);
-		onSearch && onSearch(text); // Trigger the search action
-	};
-
+const CustomSearchBar = ({ value, onChangeText, placeholder }) => {
 	return (
 		<View style={styles.searchBarContainer}>
 			<Icon name="search" size={24} color="#888" style={styles.icon} />
 			<TextInput
 				style={styles.textInput}
 				placeholder={placeholder || "Search..."}
-				value={searchText}
-				onChangeText={handleSearch}
+				value={value} // Use the value from props
+				onChangeText={onChangeText} // Use the handler from props
 				clearButtonMode="while-editing"
 				placeholderTextColor={colors.textMedium}
 			/>
-			{searchText.length > 0 && (
-				<TouchableOpacity onPress={() => handleSearch("")}>
-					<Icon name="close" size={20} color="#888" />
-				</TouchableOpacity>
-			)}
+			{value &&
+				value.length > 0 && ( // Check the value from props
+					<TouchableOpacity onPress={() => onChangeText("")}>
+						<Icon name="close" size={20} color="#888" />
+					</TouchableOpacity>
+				)}
 		</View>
 	);
 };
@@ -46,8 +40,6 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 10,
 		height: 40,
 		width: "100%",
-
-		marginTop: 80,
 	},
 	textInput: {
 		flex: 1,

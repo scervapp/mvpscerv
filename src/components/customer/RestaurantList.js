@@ -3,8 +3,6 @@ import {
 	View,
 	Text,
 	FlatList,
-	TouchableOpacity,
-	Image,
 	StyleSheet,
 	ActivityIndicator,
 } from "react-native";
@@ -16,75 +14,14 @@ import RestaurantCard from "./RestaurantCard";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
-const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) => {
-	const [allRestaurants, setAllRestaurants] = useState(
-		initialRestaurantData || []
-	);
-	const [isLoading, setIsLoading] = useState(!initialRestaurantData);
-	const [error, setError] = useState(null);
+const RestaurantList = ({
+	data,
+	horizontal = false,
+	isLoading,
+	error,
+	listType,
+}) => {
 	const navigation = useNavigation();
-
-	// This useEffect sets up the real-time listener for live restaurants.
-	useEffect(() => {
-		if (!currentUserData) {
-			setIsLoading(false);
-			return;
-		}
-
-		setIsLoading(true);
-		const restaurantsRef = db.collection("restaurants");
-
-		let q;
-
-		const canViewAll = currentUserData.canViewHiddenRestaurants;
-		if (canViewAll) {
-			// 2. If they have permission, create a query to fetch ALL restaurants.
-			console.log("User has permission. Fetching all restaurants.");
-			q = restaurantsRef;
-		} else {
-			// 3. Otherwise, create a query to fetch ONLY live restaurants.
-			console.log(
-				"User does not have permission. Fetching only live restaurants."
-			);
-			q = restaurantsRef.where("isLive", "==", true);
-		}
-
-		const unsubscribe = q.onSnapshot(
-			(snapshot) => {
-				const liveRestaurants = snapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setAllRestaurants(liveRestaurants);
-				setIsLoading(false);
-				setError(null);
-			},
-			(err) => {
-				console.error("Error fetching live restaurants:", err);
-				setError("Could not load available restaurants.");
-				setIsLoading(false);
-			}
-		);
-
-		// Cleanup the listener when the component is unmounted
-		return () => unsubscribe();
-	}, []); // Empty dependency array means this runs once on mount
-
-	// Use useMemo to efficiently filter the list only when the data or search term changes
-	const filteredRestaurants = useMemo(() => {
-		if (!searchText) {
-			return allRestaurants;
-		}
-		return allRestaurants.filter(
-			(restaurant) =>
-				(restaurant.restaurantName || "")
-					.toLowerCase()
-					.includes(searchText.toLowerCase()) ||
-				(restaurant.cuisineType || "")
-					.toLowerCase()
-					.includes(searchText.toLowerCase())
-		);
-	}, [allRestaurants, searchText]);
 
 	const handleRestaurantPress = (restaurant) => {
 		navigation.navigate("RestaurantDetail", { restaurant });
@@ -94,7 +31,6 @@ const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) 
 		return (
 			<View style={styles.centeredContainer}>
 				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.loadingText}>Finding Restaurants...</Text>
 			</View>
 		);
 	}
@@ -107,26 +43,22 @@ const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) 
 		);
 	}
 
-	if (filteredRestaurants.length === 0) {
+	if (!data || data.length === 0) {
+		// Display a different message based on the context of the list
+		const message =
+			listType === "search"
+				? "No results found."
+				: "No restaurants available yet.";
 		return (
 			<View style={styles.centeredContainer}>
-				<Text style={styles.noResultsText}>
-					{searchText
-						? `No results for "${searchText}"`
-						: "No Restaurants Available"}
-				</Text>
-				<Text style={styles.noResultsSubText}>
-					{searchText
-						? "Try a different search term."
-						: "Please check back later!"}
-				</Text>
+				<Text style={styles.noResultsText}>{message}</Text>
 			</View>
 		);
 	}
 
 	return (
 		<FlatList
-			data={filteredRestaurants}
+			data={data}
 			renderItem={({ item }) => (
 				<RestaurantCard
 					restaurant={item}
@@ -134,8 +66,9 @@ const RestaurantList = ({ searchText, initialRestaurantData, currentUserData }) 
 				/>
 			)}
 			keyExtractor={(item) => item.id}
+			horizontal={horizontal}
+			showsHorizontalScrollIndicator={false}
 			contentContainerStyle={styles.listContentContainer}
-			showsVerticalScrollIndicator={false}
 		/>
 	);
 };
@@ -176,4 +109,3 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantList;
-
