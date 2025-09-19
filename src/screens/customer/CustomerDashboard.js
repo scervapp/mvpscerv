@@ -24,37 +24,6 @@ import RestaurantCard from "../../components/customer/RestaurantCard";
 
 const { width: screenWidth } = Dimensions.get("window");
 
-const MOCK_FEATURED_RESTAURANTS = [
-	{
-		id: "1",
-		name: "The Brooklyn Bistro",
-		cuisine: "American",
-		distance: "0.5 mi",
-		image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800",
-	},
-	{
-		id: "2",
-		name: "Park Slope Pizzeria",
-		cuisine: "Italian",
-		distance: "1.2 mi",
-		image: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800",
-	},
-	{
-		id: "3",
-		name: "Gowanus Gardens",
-		cuisine: "Gastropub",
-		distance: "0.8 mi",
-		image: "https://images.unsplash.com/photo-1579735215902-87a75235da2f?w=800",
-	},
-];
-
-const CATEGORIES = [
-	{ id: "1", label: "All", value: "all" },
-	{ id: "2", label: "Italian", value: "italian" },
-	{ id: "3", label: "American", value: "american" },
-	{ id: "4", label: "Mexican", value: "mexican" },
-	{ id: "5", label: "Bars", value: "bars" },
-];
 // --------------------------------------------------
 
 const SectionHeader = ({ title }) => (
@@ -84,7 +53,7 @@ const FeaturedCard = ({ item, onPress }) => (
 				{item.restaurantName}
 			</Text>
 			<Text style={styles.featuredCuisine} numberOfLines={1}>
-				{item.cuisineType} • Park Slope
+				{item.cuisineType} • {item.city}
 			</Text>
 		</View>
 	</TouchableOpacity>
@@ -107,7 +76,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	// const [featuredRestaurants, setFeaturedRestaurants] = useState(
 	// 	MOCK_FEATURED_RESTAURANTS
 	// );
-	const [categories, setCategories] = useState(CATEGORIES);
 
 	// Handlers for search and category presses
 	const handleSearch = (text) => setSearchText(text);
@@ -139,18 +107,28 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 		[allRestaurants]
 	);
 
-	const categoryCounts = useMemo(() => {
-		const counts = { all: allRestaurants.length };
+	const categories = useMemo(() => {
+		if (allRestaurants.length === 0) {
+			return [{ id: "1", label: "All", value: "all" }];
+		}
 
-		CATEGORIES.forEach((category) => {
-			if (category.value !== "all") {
-				counts[category.value] = allRestaurants.filter(
-					(r) => r.cuisineType?.toLowerCase() === category.value
-				).length;
-			}
-		});
+		// 1. Get all cuisine types from all restaurants
+		const allCuisines = allRestaurants
+			.map((r) => r.cuisineType)
+			.filter(Boolean); // Filter out any undefined/null values
 
-		return counts;
+		// 2. Get only the unique cuisine types
+		const uniqueCuisines = [...new Set(allCuisines)];
+
+		// 3. Format them into the object structure your component needs
+		const formattedCategories = uniqueCuisines.sort().map((cuisine, index) => ({
+			id: String(index + 2), // Start IDs after "All"
+			label: cuisine, // e.g., "Italian"
+			value: cuisine.toLowerCase(), // e.g., "italian"
+		}));
+
+		// 4. Add the "All" category to the beginning of the list
+		return [{ id: "1", label: "All", value: "all" }, ...formattedCategories];
 	}, [allRestaurants]);
 
 	const filteredRestaurants = useMemo(() => {
@@ -215,7 +193,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 					<View style={styles.categoriesContainer}>
 						<SectionHeader title="Cuisine" />
 						<FlatList
-							data={CATEGORIES}
+							data={categories}
 							renderItem={({ item }) => (
 								<CategoryChip
 									label={item.label}
