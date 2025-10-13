@@ -33,6 +33,7 @@ import RestaurantDetailScreen from "../components/customer/RestaurantDetail";
 import PartyMenuScreen from "../screens/customer/PartyMenuScreen";
 import PartyCheckoutScreen from "../screens/customer/PartyCheckoutScreen";
 import ManageAccountScreen from "../screens/customer/ManageAccountScreen";
+import PartyHubScreen from "../screens/customer/PartyHubScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -122,6 +123,16 @@ const CustomerDashboardStack = () => (
 
 const PartyStackScreen = () => (
 	<Stack.Navigator screenOptions={defaultHeaderOptions}>
+		<Stack.Screen
+			name="PartyHub" // New hub screen
+			component={PartyHubScreen}
+			options={{ headerTitle: "Party Hub" }}
+		/>
+		<Stack.Screen
+			name="PartyLobby"
+			component={PartyLobbyScreen}
+			options={{ headerTitle: "Party Lobby" }}
+		/>
 		<Stack.Screen
 			name="PartySession" // This is your new hub/lobby screen
 			component={PartySessionScreen} // Make sure to import PartySessionScreen

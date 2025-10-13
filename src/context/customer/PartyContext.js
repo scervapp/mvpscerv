@@ -14,12 +14,12 @@ import { httpsCallable } from "@react-native-firebase/functions";
 
 // --- Create Context ---
 export const PartyContext = createContext({
-	currentPartyId: null,
+	currentPartyIds: {},
 	partyStatus: null, // 'pending', 'active', 'completed', 'cancelled', null
-	partyDetails: null,
+	partyDetails: {},
 	isLoadingParty: true,
 	partyError: null,
-	sharedBasketItems: [],
+	sharedBaskets: [],
 	isLoadingBasket: false,
 	createParty: async (restaurantId, restaurantName) => {},
 	joinParty: async (inviteData) => {}, // inviteData can be { partyId } or { inviteCode }
@@ -40,12 +40,12 @@ export const PartyContext = createContext({
 export const PartyProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
 
-	const [currentPartyId, setCurrentPartyId] = useState(null);
+	const [currentPartyIds, setCurrentPartyIds] = useState({});
 	const [partyStatus, setPartyStatus] = useState(null);
-	const [partyDetails, setPartyDetails] = useState(null);
+	const [partyDetails, setPartyDetails] = useState({});
 	const [isLoadingPartyAction, setIsLoadingPartyAction] = useState(false); // Loading for actions like create/join/leave
 	const [partyError, setPartyError] = useState(null);
-	const [sharedBasketItems, setSharedBasketItems] = useState([]);
+	const [sharedBaskets, setSharedBaskets] = useState([]);
 	const [isLoadingBasket, setIsLoadingBasket] = useState(true);
 	const [isCheckingExistingParty, setIsCheckingExistingParty] = useState(true);
 	const [isPartyDetailsListenerLoading, setIsPartyDetailsListenerLoading] =
@@ -97,42 +97,37 @@ export const PartyProvider = ({ children }) => {
 
 	// --- Clear State ---
 	const clearPartyState = useCallback(() => {
-		console.log("PartyContext: Clearing party state.");
-		setCurrentPartyId(null);
+		setCurrentPartyIds({});
 		setPartyStatus(null);
-		setPartyDetails(null);
-		setSharedBasketItems([]); // Also clear shared basket items
+		setPartyDetails({});
+		setSharedBaskets([]); // Also clear shared basket items
 		setIsLoadingPartyAction(false);
 		setPartyError(null);
 		setIsLoadingBasket(false); // No basket to load if no party
 	}, []);
 
-	// Effect to reset checking state when user changes (e.g., login/logout)
-	// useEffect(() => {
-	// 	console.log(
-	// 		"PartyContext: User changed or initial load. UID:",
-	// 		currentUserData?.uid
-	// 	);
-	// 	if (currentUserData?.uid) {
-	// 		// If there's a user but no current party ID from a previous session/action,
-	// 		// ensure we are in a state to check for existing parties.
-	// 		if (!currentPartyId) {
-	// 			console.log(
-	// 				"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true."
-	// 			);
-	// 			setIsCheckingExistingParty(true);
-	// 		}
-	// 	} else {
-	// 		// No user, clear any existing party state and stop checks.
-	// 		console.log(
-	// 			"PartyContext: No user. Clearing party state and resetting check flags."
-	// 		);
-	// 		clearPartyState();
-	// 		setIsCheckingExistingParty(false); // No user, so no check needed.
-	// 		setIsPartyDetailsListenerLoading(false);
-	// 		setIsLoadingBasket(false);
-	// 	}
-	// }, [currentUserData?.uid, clearPartyState]); // currentPartyId removed from here to avoid loop with below effect
+	useEffect(() => {
+		console.log(
+			"PartyContext: User changed or initial load. UID:",
+			currentUserData?.uid
+		);
+		if (currentUserData?.uid) {
+			if (Object.keys(currentPartyIds).length === 0) {
+				console.log(
+					"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true."
+				);
+				setIsCheckingExistingParty(true);
+			}
+		} else {
+			console.log(
+				"PartyContext: No user. Clearing party state and resetting check flags."
+			);
+			clearPartyState();
+			setIsCheckingExistingParty(false);
+			setIsPartyDetailsListenerLoading(false);
+			setIsLoadingBasket(false);
+		}
+	}, [currentUserData?.uid, clearPartyState]);
 
 	// --- EFFECT 1: Find the user's active party and listen for changes (like deletion) ---
 	useEffect(() => {
@@ -142,7 +137,7 @@ export const PartyProvider = ({ children }) => {
 
 		// If there's no user, clear everything and stop.
 		if (!currentUserData?.uid) {
-			setCurrentPartyId(null); // This will cause other listeners to clean up
+			setCurrentPartyIds({});
 			setIsLoading(false); // No user, so loading is finished.
 			return;
 		}
@@ -154,28 +149,18 @@ export const PartyProvider = ({ children }) => {
 		const userPartiesQuery = db
 			.collection("parties")
 			.where("guestUserIds", "array-contains", currentUserData.uid)
-			.where("status", "in", ["pending", "AWAITING_TABLE", "active"])
-			.limit(1);
+			.where("status", "in", ["pending", "AWAITING_TABLE", "active"]);
 
 		// --- THE FIX: Use onSnapshot for real-time updates ---
 		// This listener will fire when the app loads, AND when the document it finds is modified or deleted.
 		const unsubscribeUserParty = userPartiesQuery.onSnapshot(
 			(snapshot) => {
-				if (!snapshot.empty) {
-					// Found an active party for the user
-					const partyDoc = snapshot.docs[0];
-					console.log(
-						`PartyContext: Listener found active party for user: ${partyDoc.id}`
-					);
-					// Set the currentPartyId. This will trigger the other listeners below.
-					setCurrentPartyId(partyDoc.id);
-				} else {
-					// No active party was found, or the party was just deleted/completed.
-					console.log(
-						"PartyContext: Listener found no active party for user. Clearing state."
-					);
-					setCurrentPartyId(null);
-				}
+				const partyIds = {};
+				snapshot.docs.forEach((doc) => {
+					const partyData = doc.data();
+					partyIds[partyData.restaurantId] = doc.id; // Map restaurantId to partyId
+				});
+				setCurrentPartyIds(partyIds);
 				// The initial check is now complete, so we can stop the main loading indicator.
 				setIsLoading(false);
 			},
@@ -189,59 +174,73 @@ export const PartyProvider = ({ children }) => {
 			}
 		);
 
-		// Cleanup this main listener when the user logs out
+		// Cleanup this main listener when the component unmounts
 		return () => unsubscribeUserParty();
 	}, [currentUserData?.uid]);
-
 	// --- EFFECT 2: Listen to the SPECIFIC party document once its ID is known ---
 	useEffect(() => {
-		if (!currentPartyId) {
-			setPartyDetails(null);
+		if (Object.keys(currentPartyIds).length === 0) {
+			setPartyDetails({});
 			return;
 		}
-		console.log(
-			`PartyContext: Attaching listener to party document: ${currentPartyId}`
-		);
-		const partyRef = db.collection("parties").doc(currentPartyId);
-		const unsubscribePartyDetails = partyRef.onSnapshot((docSnap) => {
-			if (docSnap.exists()) {
-				setPartyDetails({ id: docSnap.id, ...docSnap.data() });
-			} else {
-				// If the doc is deleted, the main listener above will set currentPartyId to null,
-				// which will cause this listener to clean up and state to be cleared.
-				console.log(
-					`PartyContext: Party document ${currentPartyId} was deleted.`
-				);
-			}
+
+		const unsubscribeDetails = [];
+
+		Object.values(currentPartyIds).forEach((partyId) => {
+			console.log(
+				`PartyContext: Attaching listener to party document: ${partyId}`
+			);
+			const partyRef = db.collection("parties").doc(partyId);
+			const unsubscribe = partyRef.onSnapshot((docSnap) => {
+				if (docSnap.exists()) {
+					setPartyDetails((prev) => ({
+						...prev,
+						[partyId]: { id: partyId, ...docSnap.data() },
+					}));
+				} else {
+					// If the doc is deleted, the main listener above will set currentPartyIds to null,
+					// which will cause this listener to clean up and state to be cleared.
+					console.log(`PartyContext: Party document ${partyId} was deleted.`);
+				}
+			});
+			unsubscribeDetails.push(unsubscribe);
 		});
-		return () => unsubscribePartyDetails();
-	}, [currentPartyId]);
+
+		return () => unsubscribeDetails.forEach((unsub) => unsub());
+	}, [currentPartyIds]);
 
 	// --- EFFECT 3: Listen to the SHARED BASKET of the specific party ---
 	useEffect(() => {
-		if (!currentPartyId) {
-			setSharedBasketItems([]);
+		if (Object.keys(currentPartyIds).length === 0) {
+			setSharedBaskets({}); // Reset to an empty object
 			return;
 		}
-		console.log(
-			`PartyContext: Attaching listener to shared basket: ${currentPartyId}`
-		);
-		const basketRef = db.collection("shared_baskets").doc(currentPartyId);
-		const unsubscribeBasket = basketRef.onSnapshot((docSnap) => {
-			if (docSnap.exists()) {
-				setSharedBasketItems(docSnap.data().items || []);
-			} else {
-				console.warn(
-					`PartyContext: No shared basket found for party ${currentPartyId}.`
-				);
-				setSharedBasketItems([]);
-			}
+
+		const unsubscribeBaskets = [];
+
+		// Loop through all the parties the user is in
+		Object.values(currentPartyIds).forEach((partyId) => {
+			console.log(
+				`PartyContext: Attaching listener to shared basket: ${partyId}`
+			);
+			const basketRef = db.collection("shared_baskets").doc(partyId);
+			const unsubscribe = basketRef.onSnapshot((docSnap) => {
+				const items = docSnap.exists() ? docSnap.data().items || [] : [];
+
+				// Store this party's basket items under its own partyId in the object.
+				setSharedBaskets((prevBaskets) => ({
+					...prevBaskets,
+					[partyId]: items,
+				}));
+			});
+			unsubscribeBaskets.push(unsubscribe);
 		});
-		return () => unsubscribeBasket();
-	}, [currentPartyId]);
+
+		return () => unsubscribeBaskets.forEach((unsub) => unsub());
+	}, [currentPartyIds]);
 
 	// --- Action: Create Party ---
-	const createParty = async (restaurantId) => {
+	const createParty = async (restaurantId, restaurantName) => {
 		// Log 1: Function entry and initial state check
 		console.log(
 			`[PartyContext.createParty] Attempting for restaurantId: ${restaurantId}. CurrentUser UID: ${currentUserData?.uid}. isLoadingPartyAction: ${isLoadingPartyAction}`
@@ -272,8 +271,7 @@ export const PartyProvider = ({ children }) => {
 			if (result.data.success && result.data.partyId) {
 				const newPartyId = result.data.partyId;
 				console.log("PartyContext: Party created successfully:", newPartyId);
-				setCurrentPartyId(newPartyId); // Trigger listener
-
+				setCurrentPartyIds((prev) => ({ ...prev, [restaurantId]: newPartyId })); // Update for this restaurant
 				setPartyStatus("pending"); // Set initial status
 				// Log 8: Returning newPartyId (navigation will happen outside this function)
 				console.log(
@@ -282,7 +280,7 @@ export const PartyProvider = ({ children }) => {
 				// Navigate to Lobby (pass necessary info)
 				return newPartyId;
 			} else {
-				throw new Error(result.data.error || "Failed to create party.");
+				throw new Error("Failed to create party.");
 			}
 		} catch (error) {
 			console.error("PartyContext: Error creating party:", error);
@@ -296,17 +294,16 @@ export const PartyProvider = ({ children }) => {
 			setIsLoadingPartyAction(false);
 		}
 	};
-
 	// --- Action: Leave Party ---
 	const leaveParty = async () => {
-		if (!currentUserData?.uid || !currentPartyId || isLoadingPartyAction)
+		if (!currentUserData?.uid || !currentPartyIds || isLoadingPartyAction)
 			return;
 		// Confirmation Alert is handled in the UI component calling this
-		console.log(`PartyContext: Attempting to leave party: ${currentPartyId}`);
+		console.log(`PartyContext: Attempting to leave party: ${currentPartyIds}`);
 		setIsLoadingPartyAction(true);
 		setPartyError(null);
 		try {
-			const result = await leavePartyFunction({ partyId: currentPartyId });
+			const result = await leavePartyFunction({ partyId: currentPartyIds });
 			if (result.data.success) {
 				console.log("PartyContext: Left party successfully.");
 				clearPartyState(); // Clear state after leaving
@@ -333,20 +330,20 @@ export const PartyProvider = ({ children }) => {
 				`PartyContext: activatePartyCheckIn INVOKED. Received checkInDocId: "${checkInDocId}"`
 			);
 			console.log(
-				`PartyContext: Current partyId from context state: "${currentPartyId}"`
+				`PartyContext: Current partyId from context state: "${currentPartyIds}"`
 			);
 			console.log(`PartyContext: Is current user host? ${isHost}`); // Verify host status
 
-			// Ensure currentPartyId is valid and the user is the host (host check also in CF)
+			// Ensure currentPartyIds is valid and the user is the host (host check also in CF)
 			if (
-				!currentPartyId ||
-				typeof currentPartyId !== "string" ||
-				currentPartyId.trim() === ""
+				!currentPartyIds ||
+				typeof currentPartyIds !== "string" ||
+				currentPartyIds.trim() === ""
 			) {
 				Alert.alert("Error", "No active party selected to activate.");
 				console.error(
-					"PartyContext.activatePartyCheckIn: currentPartyId is invalid or missing.",
-					currentPartyId
+					"PartyContext.activatePartyCheckIn: currentPartyIds is invalid or missing.",
+					currentPartyIds
 				);
 				return false;
 			}
@@ -378,7 +375,7 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 
 			const payloadToCloudFunction = {
-				partyId: currentPartyId, // Use the partyId from the context's state
+				partyId: currentPartyIds, // Use the partyId from the context's state
 				checkInId: checkInDocId,
 			};
 
@@ -430,7 +427,7 @@ export const PartyProvider = ({ children }) => {
 			}
 		},
 		[
-			currentPartyId,
+			currentPartyIds,
 			isHost,
 			activatePartyCheckInFunction,
 			setIsLoadingPartyAction,
@@ -502,17 +499,17 @@ export const PartyProvider = ({ children }) => {
 
 	// --- NEW Action: Cancel Party (for Host) ---
 	const cancelParty = async () => {
-		if (!currentUserData?.uid || !currentPartyId || isLoadingPartyAction)
+		if (!currentUserData?.uid || !currentPartyIds || isLoadingPartyAction)
 			return;
 		// Add host check? Backend function will verify anyway.
 		// if (partyDetails?.hostUserId !== currentUserData.uid) return;
 
 		// Confirmation Alert is handled in the UI component
-		console.log(`PartyContext: Attempting to cancel party: ${currentPartyId}`);
+		console.log(`PartyContext: Attempting to cancel party: ${currentPartyIds}`);
 		setIsLoadingPartyAction(true);
 		setPartyError(null);
 		try {
-			const result = await cancelPartyFunction({ partyId: currentPartyId });
+			const result = await cancelPartyFunction({ partyId: currentPartyIds });
 			if (result.data.success) {
 				console.log("PartyContext: Cancelled party successfully.");
 				clearPartyState(); // Clear state after cancelling
@@ -644,7 +641,7 @@ export const PartyProvider = ({ children }) => {
 					// The main context listener will automatically pick up the party details
 					// once the user is added to guestUserIds. We can also manually set it
 					// to speed up the UI transition.
-					setCurrentPartyId(result.data.partyId);
+					setCurrentPartyIds(result.data.partyId);
 					return true; // Indicate success
 				} else {
 					throw new Error(
@@ -663,7 +660,7 @@ export const PartyProvider = ({ children }) => {
 				setIsLoadingAction(false);
 			}
 		},
-		[setIsLoadingAction, setPartyError, joinPartyFunction, setCurrentPartyId]
+		[setIsLoadingAction, setPartyError, joinPartyFunction, setCurrentPartyIds]
 	);
 
 	/**
@@ -686,7 +683,7 @@ export const PartyProvider = ({ children }) => {
 				"Error",
 				"Missing required information to add item to party basket."
 			);
-			console.error("addItemToPartyBasket: Missing data", {
+			console.error("addItmToPartyBasket: Missing data", {
 				partyContextData,
 				menuItemDetails,
 			});
@@ -726,8 +723,8 @@ export const PartyProvider = ({ children }) => {
 				console.log(
 					`PartyContext: Item ${result.data.basketItemId} added successfully to shared basket for party ${partyId}.`
 				);
-				// The onSnapshot listener for sharedBasketItems will automatically update the UI.
-				// No need to manually update sharedBasketItems state here.
+				// The onSnapshot listener for sharedBaskets will automatically update the UI.
+				// No need to manually update sharedBaskets state here.
 				return result.data.basketItemId; // Return the new basket item's ID
 			} else {
 				throw new Error(
@@ -755,7 +752,6 @@ export const PartyProvider = ({ children }) => {
 		newQuantity,
 		userId
 	) => {
-		
 		// This log should now be the first thing you see when the function is successfully called.
 		console.log(
 			`PartyContext: handlePartyItemQuantityChange INVOKED with qty: ${newQuantity}`
@@ -837,14 +833,12 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	const sendMyItemsToKitchen = useCallback(async () => {
-		const {
-			id: partyId,
-			status,
-			table,
-			server,
-			restaurantId,
-		} = partyDetails || {};
+		const partyId = Object.values(currentPartyIds)[0] || null; // Use currentPartyId
+		const { id, status, table, server, restaurantId } =
+			partyDetails[partyId] || {};
 		const { uid: userId } = currentUserData || {};
+
+		console.log("Status", status);
 
 		// --- Validation on the client side ---
 		if (status !== "active") {
@@ -924,13 +918,13 @@ export const PartyProvider = ({ children }) => {
 
 	// --- Context Value ---
 	const value = {
-		currentPartyId,
+		currentPartyIds,
 		partyStatus,
 		partyDetails,
 		isLoadingParty: isLoading,
 
 		partyError,
-		sharedBasketItems,
+		sharedBaskets,
 		createParty,
 		joinParty,
 		leaveParty,
@@ -954,4 +948,3 @@ export const PartyProvider = ({ children }) => {
 export const useParty = () => {
 	return useContext(PartyContext);
 };
-

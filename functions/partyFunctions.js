@@ -158,6 +158,11 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		const batch = db.batch();
 		batch.set(partyRef, partyDataToSet);
 		batch.set(sharedBasketRef, sharedBasketDataToSet); // Create empty shared basket
+
+		batch.update(hostUserRef, {
+			partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+		});
+
 		await batch.commit();
 
 		console.log(
@@ -338,13 +343,15 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		}
 
 		// Get the joining user's name
-		const userDoc = await db.collection("customers").doc(joinerUserId).get();
+		const userDocRef = db.collection("customers").doc(joinerUserId);
+		const userDoc = await userDocRef.get();
 		if (!userDoc.exists) {
 			throw new functions.https.HttpsError(
 				"internal",
 				"Could not find your user profile."
 			);
 		}
+
 		const userData = userDoc.data();
 		const joinerName =
 			`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
@@ -356,17 +363,31 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 			joinedAt: new Date(),
 		};
 
+		const batch = db.batch();
+
 		// Add the new user to the guest arrays
-		await partyDoc.ref.update({
+		batch.update(partyDoc.ref, {
 			guestUserIds: admin.firestore.FieldValue.arrayUnion(joinerUserId),
 			guestPips: admin.firestore.FieldValue.arrayUnion(newGuestPip),
 			lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 		});
 
+		// 2. Update the user's document to add the party ID
+		batch.update(userDocRef, {
+			partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+		});
+
+		await batch.commit();
+
 		console.log(
 			`joinParty: User ${joinerUserId} successfully joined party ${partyId}.`
 		);
-		return { success: true, partyId: partyId };
+		// Return restaurantId so the client can update its state map correctly
+		return {
+			success: true,
+			partyId: partyId,
+			restaurantId: partyDoc.data().restaurantId,
+		};
 	} catch (error) {
 		console.error(`Error joining party with code ${inviteCode}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
@@ -408,6 +429,8 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	const partyRef = db.collection("parties").doc(partyId);
 	const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
 
+	const userRef = db.collection("customers").doc(leavingUserId);
+
 	try {
 		return await db.runTransaction(async (transaction) => {
 			const partyDoc = await transaction.get(partyRef);
@@ -419,7 +442,10 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 
 			const partyData = partyDoc.data();
 			if (!partyData.guestUserIds.includes(leavingUserId)) {
-				return { success: true, message: "You are not in this party." };
+				transaction.update(userRef, {
+					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+				});
+				return { success: true, message: "Party already ended." };
 			}
 
 			// --- THIS IS THE FIX (PART 1) ---
@@ -476,6 +502,10 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 					guestUserIds: admin.firestore.FieldValue.arrayRemove(leavingUserId),
 				});
 			}
+
+			transaction.update(userRef, {
+				partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+			});
 
 			return { success: true };
 		});
@@ -551,10 +581,25 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		}
 		// --- END OF FIX ---
 
+		const memberUids = partyData.getUserIds || [];
+
 		// If the check passes, proceed with deleting the party and basket.
 		const batch = db.batch();
+
 		batch.delete(partyRef);
+
 		if (basketDoc.exists) batch.delete(sharedBasketRef);
+
+		memberUids.forEach((userId) => {
+			if (userId) {
+				// Ensure userId is not null or empty
+				const userRef = db.collection("customers").doc(userId);
+				batch.update(userRef, {
+					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+				});
+			}
+		});
+
 		await batch.commit();
 
 		console.log(

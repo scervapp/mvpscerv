@@ -19,7 +19,11 @@ import {
 	Modal,
 	Share,
 } from "react-native";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import {
+	useNavigation,
+	useFocusEffect,
+	useRoute,
+} from "@react-navigation/native";
 import {
 	Ionicons,
 	MaterialCommunityIcons,
@@ -82,12 +86,12 @@ const PartySessionScreen = () => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 	const {
-		currentPartyId,
+		currentPartyIds,
 		partyDetails,
 		isLoadingParty, // True when context is loading party details for currentPartyId
 		partyError,
 		cancelPartyCheckIn,
-		sharedBasketItems, // Needed for the active party view
+		sharedBaskets, // Needed for the active party view
 		// --- Context Actions ---
 		// Assuming these functions exist in PartyContext and handle backend + context state updates:
 		joinParty, // ({ inviteCode }) => Promise<boolean> (returns true on success)
@@ -100,6 +104,13 @@ const PartySessionScreen = () => {
 
 		handlePartyItemQuantityChange,
 	} = useParty();
+
+	const route = useRoute();
+
+	const { partyId } = route.params;
+
+	const currentPartyId =
+		Object.values(currentPartyIds)[0] || route.params?.partyId || null;
 
 	const [inviteCode, setInviteCode] = useState("");
 	const [uiLoading, setUiLoading] = useState(false); // For local actions like join attempt
@@ -133,7 +144,9 @@ const PartySessionScreen = () => {
 			return null;
 		}
 		// Find the current user in the party's guest list
-		return partyDetails.guestPips.find((p) => p.userId === currentUserData.uid);
+		return partyDetails[currentPartyId].guestPips.find(
+			(p) => p.userId === currentUserData.uid
+		);
 	}, [partyDetails?.guestPips, currentUserData?.uid]);
 
 	useEffect(() => {
@@ -169,14 +182,15 @@ const PartySessionScreen = () => {
 		if (!partyDetails) return 1; // Default if no details
 		// Assuming guestPips includes all guests, and host is one person
 		return (
-			(partyDetails.guestPips?.length || 0) +
-				(partyDetails.hostUserId ? 1 : 0) || 1
+			(partyDetails[currentPartyId].guestPips?.length || 0) +
+				(partyDetails[currentPartyId].hostUserId ? 1 : 0) || 1
 		);
 	}, [partyDetails]);
 
 	// Derived state
 	const isHost =
-		partyDetails && currentUserData?.uid === partyDetails.hostUserId;
+		partyDetails &&
+		currentUserData?.uid === partyDetails[currentPartyId].hostUserId;
 
 	// --- Action Handlers ---
 	const handleStartNewPartyGuidance = () => {
@@ -325,7 +339,7 @@ const PartySessionScreen = () => {
 		setIsProcessingPartyCheckIn(true);
 		try {
 			const checkInResult = await requestPartyTableCheckIn(
-				partyDetails.restaurantId,
+				partyDetails[currentPartyId].restaurantId,
 				currentUserData.uid,
 				currentUserData.firstName || "Party Host",
 				values.partySize,
@@ -432,8 +446,8 @@ const PartySessionScreen = () => {
 			itemId, // OrderItemCard now only sends itemId and newQuantity
 			newQuantity
 		) => {
-			// Use partyDetails.id as the most reliable source of the partyId for this screen
-			const partyIdToUse = partyDetails?.id;
+			// Use partyDetails[currentPartyId].id as the most reliable source of the partyId for this screen
+			const partyIdToUse = partyDetails[partyId]?.id;
 
 			// --- Add a strong guard clause ---
 			if (!partyIdToUse || !currentUserData?.uid) {
@@ -485,51 +499,53 @@ const PartySessionScreen = () => {
 	// --- END OF FUNCTION DEFINITION ---
 
 	const groupedBasket = useMemo(() => {
-		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
+		if (!sharedBaskets || !currentPartyId) {
+			console.log(
+				"PartySessionScreen: sharedBaskets or currentPartyId is undefined, returning empty array"
+			);
+			return [];
+		}
+		const items = sharedBaskets[currentPartyId] || [];
+		if (!items || items.length === 0) {
+			console.log(
+				"PartySessionScreen: No items in sharedBaskets for party:",
+				currentPartyId
+			);
+			return [];
+		}
 		const groups = {};
-		sharedBasketItems.forEach((item) => {
+		items.forEach((item) => {
 			const groupOwnerUserId = item.orderedByUserId || "unassigned_items";
-
 			if (!groups[groupOwnerUserId]) {
-				// Determine the display name for the group's header
 				let groupDisplayName;
 				if (groupOwnerUserId === currentUserData?.uid) {
-					// If the group owner is the current logged-in user
 					groupDisplayName = currentUserData.firstName || "Your Items";
-				} else if (partyDetails?.guestPips) {
-					// Try to find the name from the party's guest list
-					const guestInfo = partyDetails.guestPips.find(
+				} else if (partyDetails[currentPartyId]?.guestPips) {
+					const guestInfo = partyDetails[currentPartyId].guestPips.find(
 						(p) => p.userId === groupOwnerUserId
 					);
-					if (guestInfo && guestInfo.name) {
-						groupDisplayName = guestInfo.name;
-					} else {
-						// Fallback if guest not found or name is missing
-						groupDisplayName = `User ${
-							groupOwnerUserId.slice(-4) || "Unknown"
-						}`;
-					}
+					groupDisplayName =
+						guestInfo?.name ||
+						`User ${groupOwnerUserId.slice(-4) || "Unknown"}`;
 				} else {
-					// Fallback if no guestPips list
 					groupDisplayName = `User ${groupOwnerUserId.slice(-4) || "Unknown"}`;
 				}
-
 				groups[groupOwnerUserId] = {
 					userId: groupOwnerUserId,
-					userName: groupDisplayName, // This is for the section header
+					userName: groupDisplayName,
 					items: [],
 				};
 			}
-			// The item itself still carries its own orderedByPipName for display within OrderItemCard
 			groups[groupOwnerUserId].items.push(item);
 		});
 		const currentUserGroupKey = currentUserData?.uid;
 		const currentUserGroup = groups[currentUserGroupKey];
-		if (currentUserGroupKey) delete groups[currentUserGroupKey]; // Remove to re-insert at top
+		if (currentUserGroupKey) delete groups[currentUserGroupKey];
+
 		return currentUserGroup
 			? [currentUserGroup, ...Object.values(groups)]
 			: Object.values(groups);
-	}, [sharedBasketItems, currentUserData?.uid, partyDetails?.guestPips]);
+	}, [sharedBaskets, currentPartyId, currentUserData?.uid, partyDetails]);
 
 	const handleAddMyItems = () => {
 		if (myPartyStatus?.paymentStatus === "paid") {
@@ -539,7 +555,11 @@ const PartySessionScreen = () => {
 			);
 			return;
 		}
-		if (!partyDetails?.restaurantId || !currentPartyId || !currentUserData) {
+		if (
+			!partyDetails[currentPartyId]?.restaurantId ||
+			!currentPartyId ||
+			!currentUserData
+		) {
 			Alert.alert("Error", "Party, restaurant, or user details are missing.");
 			return;
 		}
@@ -554,6 +574,8 @@ const PartySessionScreen = () => {
 		navigation.navigate("PartyMenu", {
 			// Navigate to the new PartyMenuScreen route
 			partyId: currentPartyId,
+			restaurantId: partyDetails[currentPartyId].restaurantId,
+			userId: currentUserData.uid,
 		});
 	};
 
@@ -594,9 +616,9 @@ const PartySessionScreen = () => {
 	const canCurrentUserCheckout = useMemo(() => {
 		if (
 			!partyDetails ||
-			partyDetails.status !== "active" ||
+			partyDetails[currentPartyId].status !== "active" ||
 			!currentUserData?.uid ||
-			!sharedBasketItems
+			!sharedBaskets
 		) {
 			return false;
 		}
@@ -606,7 +628,7 @@ const PartySessionScreen = () => {
 			return false;
 		}
 		// Find items belonging to the current user
-		const myItems = sharedBasketItems.filter(
+		const myItems = sharedBaskets[currentPartyId].filter(
 			(item) => item.orderedByUserId === currentUserData.uid
 		);
 		// User must have at least one item to check out
@@ -619,7 +641,7 @@ const PartySessionScreen = () => {
 		);
 		// The user can checkout only if they have items and none of them are new/unsent.
 		return !hasUnsentItems;
-	}, [partyDetails, sharedBasketItems, currentUserData?.uid]);
+	}, [partyDetails, sharedBaskets, currentUserData?.uid]);
 
 	// --- NEW: Handler to navigate to the checkout screen ---
 	const handleGoToCheckout = () => {
@@ -641,7 +663,8 @@ const PartySessionScreen = () => {
 
 	// --- Render Logic ---
 	const renderMemberItem = ({ item }) => {
-		const isUserTheHost = item.userId === partyDetails.hostUserId;
+		const isUserTheHost =
+			item.userId === partyDetails[currentPartyId].hostUserId;
 		return (
 			<View style={styles.memberItemContainer}>
 				<Ionicons
@@ -656,20 +679,27 @@ const PartySessionScreen = () => {
 	};
 
 	// State 1: Context is loading details for an *existing* party reference
-	if (isLoadingParty && currentPartyId && !partyDetails) {
+	if (isLoadingParty || !currentPartyId || !partyDetails[currentPartyId]) {
 		return (
-			<View style={styles.centeredScreen}>
-				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.statusText}>Loading your party details...</Text>
-			</View>
+			<SafeAreaView
+				style={[
+					styles.centeredScreen,
+					{ backgroundColor: colors.backgroundLight },
+				]}
+			>
+				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
+				<Text style={[styles.statusText, { color: colors.textDark || "#333" }]}>
+					Loading your party details...
+				</Text>
+			</SafeAreaView>
 		);
 	}
 
 	// State 2: User is IN an active party
 	// --- ACTIVE PARTY LOBBY UI ---
-	if (currentPartyId && partyDetails) {
-		const partyIsPending = partyDetails.status === "pending";
-		const partyIsActive = partyDetails.status === "active";
+	if (currentPartyId && partyDetails[currentPartyId]) {
+		const partyIsPending = partyDetails[currentPartyId].status === "pending";
+		const partyIsActive = partyDetails[currentPartyId].status === "active";
 		const userHasPaid = myPartyStatus?.paymentStatus === "paid";
 
 		if (
@@ -695,9 +725,9 @@ const PartySessionScreen = () => {
 				<View style={styles.headerBar}>
 					<View style={styles.headerInfo}>
 						<Text style={styles.headerRestaurantName} numberOfLines={1}>
-							{partyDetails.restaurantName}
+							{partyDetails[currentPartyId].restaurantName}
 						</Text>
-						{partyIsActive && partyDetails.table.name ? (
+						{partyIsActive && partyDetails[currentPartyId].table.name ? (
 							<View style={styles.statusContainer}>
 								<Ionicons
 									name="checkmark-circle"
@@ -705,7 +735,7 @@ const PartySessionScreen = () => {
 									color={colors.statusSuccess}
 								/>
 								<Text style={[styles.headerPartyStatus, styles.statusActive]}>
-									Seated at {partyDetails.table.name}
+									Seated at {partyDetails[currentPartyId].table.name}
 								</Text>
 							</View>
 						) : (
@@ -716,9 +746,9 @@ const PartySessionScreen = () => {
 									color={colors.statusWarning}
 								/>
 								<Text style={[styles.headerPartyStatus, styles.statusPending]}>
-									{partyDetails.status === "AWAITING_TABLE"
+									{partyDetails[currentPartyId].status === "AWAITING_TABLE"
 										? "Waiting for Table"
-										: `Status: ${partyDetails.status}`}
+										: `Status: ${partyDetails[currentPartyId].status}`}
 								</Text>
 							</View>
 						)}
@@ -726,9 +756,9 @@ const PartySessionScreen = () => {
 					<View style={styles.headerActions}>
 						{/* Host: Invite Button */}
 						{isHost &&
-							(partyDetails.status === "pending" ||
-								partyDetails.status === "active" ||
-								partyDetails.status === "AWAITING_TABLE") && (
+							(partyDetails[currentPartyId].status === "pending" ||
+								partyDetails[currentPartyId].status === "active" ||
+								partyDetails[currentPartyId].status === "AWAITING_TABLE") && (
 								<TouchableOpacity
 									style={styles.headerIconButton}
 									onPress={handleInviteAction}
@@ -742,7 +772,7 @@ const PartySessionScreen = () => {
 								</TouchableOpacity>
 							)}
 						{/* Host: Activate Check-In Button */}
-						{isHost && partyDetails.status === "pending" && (
+						{isHost && partyDetails[currentPartyId].status === "pending" && (
 							<TouchableOpacity
 								style={styles.headerIconButton}
 								onPress={handleOpenPartyCheckInModal}
@@ -756,21 +786,22 @@ const PartySessionScreen = () => {
 							</TouchableOpacity>
 						)}
 						{/* Host: Cancel Check-In Request Button */}
-						{isHost && partyDetails.status === "AWAITING_TABLE" && (
-							<TouchableOpacity
-								style={styles.headerIconButton}
-								onPress={handleCancelCheckInRequest}
-								disabled={isLoadingAction}
-							>
-								<MaterialCommunityIcons
-									name="close-circle-outline"
-									size={26}
-									color={
-										isLoadingAction ? colors.textLight : colors.statusDanger
-									}
-								/>
-							</TouchableOpacity>
-						)}
+						{isHost &&
+							partyDetails[currentPartyId].status === "AWAITING_TABLE" && (
+								<TouchableOpacity
+									style={styles.headerIconButton}
+									onPress={handleCancelCheckInRequest}
+									disabled={isLoadingAction}
+								>
+									<MaterialCommunityIcons
+										name="close-circle-outline"
+										size={26}
+										color={
+											isLoadingAction ? colors.textLight : colors.statusDanger
+										}
+									/>
+								</TouchableOpacity>
+							)}
 
 						{/* All Members: View Members Button */}
 						<TouchableOpacity
@@ -786,7 +817,7 @@ const PartySessionScreen = () => {
 						</TouchableOpacity>
 
 						{/* Destructive Actions: Cancel or Leave */}
-						{isHost && partyDetails.status === "pending" ? (
+						{isHost && partyDetails[currentPartyId].status === "pending" ? (
 							<TouchableOpacity
 								style={styles.headerIconButton}
 								onPress={handleCancelParty}
@@ -824,8 +855,9 @@ const PartySessionScreen = () => {
 					renderItem={({ item: group }) => (
 						<View style={styles.userBasketSection}>
 							<Text style={styles.userNameHeader}>{group.userName}</Text>
-							{partyDetails.guestPips.find((p) => p.userId === group.userId)
-								?.paymentStatus === "paid" && (
+							{partyDetails[currentPartyId].guestPips.find(
+								(p) => p.userId === group.userId
+							)?.paymentStatus === "paid" && (
 								<View style={styles.paidBadge}>
 									<Text style={styles.paidBadgeText}>PAID</Text>
 								</View>
@@ -914,10 +946,11 @@ const PartySessionScreen = () => {
 				/>
 
 				{/* Add My Items FAB: Available if party is pending, active, or awaiting table */}
+
 				{!userHasPaid &&
 					(partyIsPending ||
 						partyIsActive ||
-						partyDetails.status === "AWAITING_TABLE") && (
+						partyDetails[currentPartyId].status === "AWAITING_TABLE") && (
 						<TouchableOpacity
 							style={styles.addItemFab}
 							onPress={handleAddMyItems}
@@ -945,7 +978,7 @@ const PartySessionScreen = () => {
 						<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 							<Text style={styles.modalTitle}>Party Members</Text>
 							<FlatList
-								data={partyDetails.guestPips || []}
+								data={partyDetails[currentPartyId].guestPips || []}
 								keyExtractor={(pip) => pip.userId || pip.localPipId}
 								renderItem={renderMemberItem}
 							/>
@@ -976,7 +1009,7 @@ const PartySessionScreen = () => {
 					onClose={() => setIsAddMembersModalVisible(false)}
 					onConfirmAdd={handleAddMembersToParty}
 					hostPips={hostPipsList}
-					partyMembers={partyDetails.guestPips || []}
+					partyMembers={partyDetails[currentPartyId].guestPips || []}
 					isLoading={isLoadingMembers}
 				/>
 
@@ -996,18 +1029,19 @@ const PartySessionScreen = () => {
 							activeOpacity={1}
 						>
 							<Text style={styles.modalTitle}>Party Actions</Text>
-							{isHost && partyDetails.status === "AWAITING_TABLE" && (
-								<IconTextButton
-									text="Cancel Check-In Request"
-									iconName="close-circle-outline"
-									iconSet="MaterialCommunityIcons"
-									onPress={handleCancelCheckInRequest}
-									style={styles.modalActionButton}
-									textStyle={styles.modalActionButtonText}
-									color={colors.statusDanger}
-									disabled={isLoadingParty} // Disable if any party action is happening
-								/>
-							)}
+							{isHost &&
+								partyDetails[currentPartyId].status === "AWAITING_TABLE" && (
+									<IconTextButton
+										text="Cancel Check-In Request"
+										iconName="close-circle-outline"
+										iconSet="MaterialCommunityIcons"
+										onPress={handleCancelCheckInRequest}
+										style={styles.modalActionButton}
+										textStyle={styles.modalActionButtonText}
+										color={colors.statusDanger}
+										disabled={isLoadingParty} // Disable if any party action is happening
+									/>
+								)}
 							{isHost && (partyIsPending || partyIsActive) && (
 								<IconTextButton
 									text="Invite Guests"
@@ -1534,4 +1568,3 @@ const styles = StyleSheet.create({
 });
 
 export default PartySessionScreen;
-

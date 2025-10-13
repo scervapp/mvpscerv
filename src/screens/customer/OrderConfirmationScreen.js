@@ -159,6 +159,7 @@ const OrderConfirmationScreen = () => {
 							);
 						}
 					} else if (mode === "party") {
+						console.log("Data from Order Confirmation", data);
 						const myPipData = (data.guestPips || []).find(
 							(p) => p.userId === currentUserData.uid
 						);
@@ -260,4 +261,3 @@ const styles = StyleSheet.create({
 });
 
 export default OrderConfirmationScreen;
-

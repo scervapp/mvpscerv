@@ -45,52 +45,51 @@ import PipInvitationModal from "../../components/customer/Party/PipInvitationMod
 import PartyCheckInModal from "../../components/customer/Party/PartyCheckInModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { collection } from "@react-native-firebase/firestore";
+import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 
 const PartyLobbyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
 	const initialPartyIdFromRoute = route.params?.partyId;
 
+	const partyId = route.params?.partyId;
+
 	const { currentUserData } = useContext(AuthContext);
 
 	const {
-		currentPartyId, // Get the ID managed by context
-		partyDetails,
-		partyStatus,
+		currentPartyIds, // Now {restaurantId: partyId}
+		partyDetails, // Now {partyId: details}
 		isLoadingParty,
 		partyError,
-		sharedBasketItems,
-		isLoadingBasket,
+		sharedBaskets, // Now {partyId: items[]}
 		addItemToPartyBasket,
 		removePartyBasketItem,
 		updatePartyBasketQuantity,
-		inviteToParty, // Use context functions
+		inviteToParty,
 		addLocalPIPToParty,
 		activatePartyCheckIn,
 		leaveParty,
-		clearPartyState, // To clear state if user manually navigates away
+		clearPartyState,
 		cancelParty,
 	} = useParty();
 
 	const isHost = useMemo(() => {
-		if (!currentUserData?.uid || !partyDetails?.hostUserId) {
+		if (!currentUserData?.uid || !partyDetails[partyId]?.hostUserId) {
 			return false;
 		}
-		return currentUserData.uid === partyDetails.hostUserId;
-	}, [currentUserData?.uid, partyDetails?.hostUserId]);
+		return currentUserData.uid === partyDetails[partyId]?.hostUserId;
+	}, [currentUserData?.uid, partyDetails, partyId]);
 
-	// --- 2. Call ALL hooks UNCONDITIONALLY at the top level ---
+	// Memoized values for check-in status
 	const restaurantIdForCheckIn = useMemo(() => {
-		return isHost && partyDetails?.restaurantId
-			? partyDetails.restaurantId
+		return isHost && partyDetails[partyId]?.restaurantId
+			? partyDetails[partyId].restaurantId
 			: null;
-	}, [isHost, partyDetails?.restaurantId]);
+	}, [isHost, partyDetails, partyId]);
 
 	const userIdForCheckIn = useMemo(() => {
 		return isHost && currentUserData?.uid ? currentUserData.uid : null;
 	}, [isHost, currentUserData?.uid]);
-
-	const showLoading = isLoadingParty || (isHost && isLoadingHostCheckIn);
 
 	const {
 		checkInStatus: hostCheckInStatus,
@@ -98,91 +97,84 @@ const PartyLobbyScreen = () => {
 		checkInObj: hostCheckInObj,
 	} = useCheckInStatus(restaurantIdForCheckIn, userIdForCheckIn);
 
-	const [isActionLoading, setIsActionLoading] = useState(false); // Specific loading for invite/leave actions
+	const [isActionLoading, setIsActionLoading] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
-	const [isLoadingCheckInAction, setIsLoadingCheckInAction] = useState(false); // <<< NEW: Loading for check-in action
+	const [isLoadingCheckInAction, setIsLoadingCheckInAction] = useState(false);
 	const [isPipModalVisible, setIsPipModalVisible] = useState(false);
 	const [pips, setPips] = useState([]);
 	const [isCheckInModalVisible, setIsCheckInModalVisible] = useState(false);
 	const [isLoadingPips, setIsLoadingPips] = useState(false);
-
-	const currentPartyStatus = partyDetails?.status || "unknown"; // Use status from details
+	const [isAddMembersModalVisible, setIsAddMembersModalVisible] =
+		useState(false);
 
 	const openCheckInModal = () => setIsCheckInModalVisible(true);
 	const closeCheckInModal = () => setIsCheckInModalVisible(false);
 
 	const onRefresh = useCallback(() => {
-		// Manual refresh is less critical with the real-time listener,
-		// but can be kept as a fallback or removed.
-		// If kept, it doesn't need to do anything as the listener handles updates.
 		setRefreshing(true);
-		// Simulate refresh end after a short delay
 		setTimeout(() => setRefreshing(false), 1000);
 	}, []);
-	// --- Effect to handle navigation if party context doesn't match route param ---
-	useEffect(() => {
-		// This effect runs when the context's idea of the party changes,
-		// or when the initial loading state of the context resolves.
-		if (!isLoadingParty && partyDetails && currentPartyId) {
-			// Wait for all context loading to settle
 
-			if (currentPartyId !== initialPartyIdFromRoute) {
-				// If context has no party, or a DIFFERENT party than what this screen was opened for,
-				// it implies the party ended, user left, or an error occurred.
-				console.log(
-					`PartyLobby: Mismatch or party cleared. ContextPartyId: ${currentPartyId}, RoutePartyId: ${initialPartyIdFromRoute}. Navigating back.`
-				);
-				Alert.alert("Party Ended", "This party session is no longer active.");
-				if (navigation.canGoBack()) {
-					navigation.goBack();
-				} else {
-					navigation.dispatch(
-						CommonActions.reset({
-							index: 0,
-							routes: [{ name: "CustomerHome" }],
-						})
-					);
-				}
+	// Effect to handle navigation if party is not found
+	useEffect(() => {
+		if (
+			!isLoadingParty &&
+			partyId &&
+			!Object.values(currentPartyIds).includes(partyId)
+		) {
+			console.log(
+				`PartyLobby: Party ID ${partyId} not found in currentPartyIds. Navigating back.`
+			);
+			Alert.alert("Party Ended", "This party session is no longer active.");
+			if (navigation.canGoBack()) {
+				navigation.goBack();
 			} else {
-				// Context currentPartyId matches initialPartyIdFromRoute, and not loading
-				// This means partyDetails should be loading or loaded by the context listener.
-				console.log(
-					`PartyLobby: Context matches route. Party ID: ${currentPartyId}`
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 0,
+						routes: [{ name: "CustomerHome" }],
+					})
 				);
 			}
-
-			// If initialPartyIdFromRoute is null/undefined, this screen was likely opened incorrectly.
-			// The rendering logic below should handle !partyDetails.
 		}
-	}, [
-		currentPartyId,
-		isLoadingParty,
-		initialPartyIdFromRoute,
-		navigation,
-		partyDetails,
-	]);
+	}, [isLoadingParty, partyId, currentPartyIds, navigation]);
 
-	// Effect to clear party state if user manually navigates away using back button
+	// Effect to clear state on back navigation (optional)
 	useEffect(() => {
 		const unsubscribe = navigation.addListener("beforeRemove", (e) => {
-			// Only clear state if navigating back from this screen and user is still in a party
-			if (e.data.action.type === "GO_BACK" && currentPartyId) {
+			if (
+				e.data.action.type === "GO_BACK" &&
+				Object.values(currentPartyIds).includes(partyId)
+			) {
 				console.log("PartyLobby: Navigating back, clearing party state.");
-				// We don't prevent navigation, just clear the context state
-				// Note: This assumes leaving the lobby means leaving the party context.
-				// If you want context to persist, remove this listener.
-				// clearPartyState(); // Decide if this is the desired behavior
+				// clearPartyState(); // Uncomment if you want to clear state on back
 			}
 		});
 		return unsubscribe;
-	}, [navigation, currentPartyId, clearPartyState]);
+	}, [navigation, currentPartyIds, partyId, clearPartyState]);
 
-	// --- NEW: Group Shared Basket Items for Display ---
+	useEffect(() => {
+		const partyDetail = partyDetails[partyId];
+		if (partyDetail?.status === "active" && partyId) {
+			console.log(
+				`PartyLobby: Status changed to 'active' for party ${partyId}, navigating to PartySession`
+			);
+			navigation.navigate("PartyTab", {
+				screen: "PartySession", // Fixed screen name
+				params: {
+					partyId,
+					restaurantId: partyDetail.restaurantId,
+				},
+			});
+		}
+	}, [partyDetails, partyId, navigation]);
+
+	// Group Shared Basket Items for Display
 	const groupedBasketItems = useMemo(() => {
-		if (!sharedBasketItems || sharedBasketItems.length === 0) return [];
+		const basketItems = sharedBaskets[partyId] || [];
+		if (!basketItems.length) return [];
 		const groups = {};
-		sharedBasketItems.forEach((item) => {
-			// Group by the PIP name stored on the item, or fallback
+		basketItems.forEach((item) => {
 			const groupKey =
 				item.orderedByPipName ||
 				`User: ${item.orderedByUserId?.slice(-4) || "Unknown"}`;
@@ -196,24 +188,13 @@ const PartyLobbyScreen = () => {
 			groups[groupKey].items.push(item);
 		});
 		return Object.values(groups);
-	}, [sharedBasketItems, currentUserData?.uid]);
+	}, [sharedBaskets, partyId, currentUserData?.uid]);
 
-	// Visual loading feedback — but don't block effects/hooks
-	if (isLoadingParty || !partyDetails) {
-		return (
-			<View style={styles.centered}>
-				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
-		);
-	}
-
-	// --- Action Handlers ---
-
+	// Action Handlers
 	const fetchPips = async () => {
 		if (!currentUserData?.uid) return;
 		setIsLoadingPips(true);
 		try {
-			// --- REFACTORED FIRESTORE QUERY ---
 			const pipsQuery = db
 				.collection(`customers/${currentUserData.uid}/pips`)
 				.orderBy("name");
@@ -230,123 +211,84 @@ const PartyLobbyScreen = () => {
 			setIsLoadingPips(false);
 		}
 	};
+
 	const handleInvitePip = async () => {
-		console.log("PartyLobby: handleInvitePip - Invite PIP button pressed."); // <-- Log start
-		// Keep existing checks
-		if (!currentPartyId || isActionLoading || isLoadingPips) return;
-
-		// --- MODIFICATION START ---
-		await fetchPips(); // Fetch/refresh PIPs before opening modal
-		// Only open if fetch didn't immediately fail and component is still mounted
-		// (isLoadingPips check handles potential immediate failure)
+		console.log(
+			"PartyLobby: handleInvitePip - Invite PIP button pressed for party:",
+			partyId
+		);
+		if (!partyId || isActionLoading || isLoadingPips) return;
+		await fetchPips();
 		if (!isLoadingPips) {
-			console.log("PartyLobby: handleInvitePip - Opening PIP selection modal."); // <-- Log modal open
-			setIsPipModalVisible(true); // Open the modal
+			console.log("PartyLobby: handleInvitePip - Opening PIP selection modal.");
+			setIsPipModalVisible(true);
 		}
-
-		// --- MODIFICATION END ---
 	};
-	// Helper for inviting specific user after selection
+
 	const sendInviteToUserPIP = async (pipUserId, pipName) => {
 		console.log(
 			`PartyLobby: invitePipById - Attempting to invite PIP: ID=${pipUserId}, Name=${pipName}`
 		);
-
-		if (!currentPartyId || !pipUserId || isActionLoading) return;
+		if (!partyId || !pipUserId || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			const result = await inviteToParty({
-				partyId: currentPartyId,
-				inviteeUserId: pipUserId,
-			});
-
-			if (result?.success) {
+			const result = await inviteToParty(partyId);
+			if (result) {
 				Alert.alert("Success", `Invite sent to ${pipName}!`);
-				setIsPipModalVisible(false); // Close modal
-			} else {
-				// Error was likely already shown by context alert, but log here too
-				console.log(
-					"PartyLobby: sendInviteToUserPip - inviteToParty context function reported failure."
-				);
+				setIsPipModalVisible(false);
 			}
 		} catch (error) {
-			// Error already shown by context Alert
 			console.error("PartyLobby: Error inviting PIP:", error);
 		} finally {
 			setIsActionLoading(false);
-			console.log(
-				`PartyLobby: invitePipById - Finished attempt for PIP ID: ${pipUserId}`
-			);
 		}
 	};
 
 	const addLocalPIP = async (localPIPId, localPIPName) => {
 		console.log(
-			`PartyLobby: addLocalPip - Adding local PIP: ID=${localPipId}, Name=${localPipName}`
+			`PartyLobby: addLocalPip - Adding local PIP: ID=${localPIPId}, Name=${localPIPName}`
 		);
-		if (!currentPartyId || !localPipId || !localPipName || isActionLoading)
-			return;
+		if (!partyId || !localPIPId || !localPIPName || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			console.log(
-				`PartyLobby: addLocalPip - Calling addLocalPipToParty context function for party ${currentPartyId}`
-			);
-			// Use the new context function
-			const result = await addLocalPipToParty(
-				currentPartyId,
-				localPipId,
-				localPipName
-			);
-			// Check if the context function indicated success
-			if (result?.success) {
+			const result = await addLocalPIPToParty(partyId, [
+				{ id: localPIPId, name: localPIPName },
+			]);
+			if (result) {
 				console.log(
 					"PartyLobby: addLocalPip - addLocalPipToParty call successful."
 				);
-				// Alert.alert("Success", `${localPipName} added to the party!`); // Optional confirmation
-				setIsPipModalVisible(false); // Close modal
-			} else {
-				console.log(
-					"PartyLobby: addLocalPip - addLocalPipToParty context function reported failure."
-				);
+				setIsPipModalVisible(false);
 			}
 		} catch (error) {
 			console.error("PartyLobby: Error adding local PIP:", error);
 			Alert.alert("Error", `Failed to add local PIP: ${error.message}`);
 		} finally {
 			setIsActionLoading(false);
-			console.log(
-				`PartyLobby: addLocalPip - Finished attempt for local PIP ID: ${localPipId}`
-			);
 		}
 	};
 
 	const handleGenerateCode = async () => {
-		if (!currentPartyId || isActionLoading) return;
+		if (!partyId || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			const result = await inviteToParty({
-				partyId: currentPartyId,
-				generateCode: true,
-			});
-			if (result?.inviteCode) {
-				const code = result.inviteCode;
+			const result = await inviteToParty(partyId);
+			if (result) {
+				const code = result;
 				const message = `Join my party at ${
-					partyDetails?.restaurantName || "the restaurant"
+					partyDetails[partyId]?.restaurantName || "the restaurant"
 				}! Use this code in the Scerv app: ${code}`;
 				Alert.alert(
 					"Invite Code Generated",
 					`Code: ${code}\nExpires in approx 1 hour.`,
 					[
-						{ text: "Copy Code", onPress: () => Clipboard.setString(code) }, // Needs Clipboard setup
-						{ text: "Share", onPress: () => Share.share({ message }) }, // Needs Share setup
+						{ text: "Copy Code", onPress: () => Clipboard.setString(code) },
+						{ text: "Share", onPress: () => Share.share({ message }) },
 						{ text: "OK" },
 					]
 				);
-			} else {
-				throw new Error("Failed to get invite code from function.");
 			}
 		} catch (error) {
-			// Error already shown by context Alert
 			console.error("PartyLobby: Error generating code:", error);
 		} finally {
 			setIsActionLoading(false);
@@ -354,7 +296,8 @@ const PartyLobbyScreen = () => {
 	};
 
 	const handleLeaveParty = async () => {
-		if (!currentPartyId || isActionLoading) return;
+		const restaurantId = partyDetails[partyId]?.restaurantId;
+		if (!partyId || !restaurantId || isActionLoading) return;
 		Alert.alert("Leave Party", "Are you sure you want to leave this party?", [
 			{ text: "Cancel", style: "cancel" },
 			{
@@ -362,18 +305,16 @@ const PartyLobbyScreen = () => {
 				style: "destructive",
 				onPress: async () => {
 					setIsActionLoading(true);
-					await leaveParty(); // Context handles state clearing and errors
-					// Navigation back is handled by the useEffect watching currentPartyId
-					// No need to manually navigate here if context clears state properly.
-					setIsActionLoading(false); // Reset loading if leaveParty fails
+					await leaveParty(restaurantId);
+					setIsActionLoading(false);
 				},
 			},
 		]);
 	};
 
-	// --- NEW: Handle Cancel Party ---
 	const handleCancelParty = async () => {
-		if (!currentPartyId || !isHost || isActionLoading) return; // Add isHost check
+		const restaurantId = partyDetails[partyId]?.restaurantId;
+		if (!partyId || !isHost || !restaurantId || isActionLoading) return;
 		Alert.alert(
 			"Cancel Party",
 			"Are you sure you want to cancel this party? This cannot be undone.",
@@ -384,72 +325,65 @@ const PartyLobbyScreen = () => {
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
-						await cancelParty(); // Call context function
-						// Navigation back is handled by the useEffect watching currentPartyId
-						setIsActionLoading(false); // Reset loading if cancelParty fails
+						await cancelParty(partyId);
+						setIsActionLoading(false);
 					},
 				},
 			]
 		);
 	};
 
-	// --- MODIFIED: Handle Check-in Submit using Utility ---
 	const handlePartyCheckInSubmit = async (values) => {
-		if (!partyDetails?.restaurantId) {
+		if (!partyDetails[partyId]?.restaurantId) {
 			Alert.alert("Error", "Restaurant details missing.");
 			return;
 		}
 		setIsLoadingCheckInAction(true);
-		// Call utility WITHOUT activatePartyCheckIn function
 		const { success, checkInId } = await handlePartyCheckInRequest(
 			currentUserData,
-			partyDetails.restaurantId,
+			partyDetails[partyId].restaurantId,
 			values.partySize,
-			currentPartyId,
-			partyStatus
-			// <<< activatePartyCheckIn removed from arguments >>>
+			partyId,
+			partyDetails[partyId]?.status
 		);
-
 		setIsLoadingCheckInAction(false);
 		if (success) {
-			closeCheckInModal(); // Close modal on success
-			// Activation will happen later via the listener in RestaurantDetail
+			closeCheckInModal();
 			console.log(
-				`PartyLobby: Check-in request ${checkInId} submitted successfully.`
+				`PartyLobby: Check-in request ${checkInId} submitted successfully for party ${partyId}.`
 			);
 		}
-		// Errors are handled by Alerts within the utility
 	};
 
-	// --- NEW: Navigate to Menu for Adding Party Items ---
 	const handleNavigateToAddItems = () => {
-		if (!partyDetails?.restaurantId || !currentPartyId) {
+		if (!partyDetails[partyId]?.restaurantId || !partyId) {
 			Alert.alert("Error", "Party or restaurant details missing.");
 			return;
 		}
-		navigation.navigate("RestaurantDetail", {
-			// Or your Menu screen name
-			restaurant: {
-				// Pass necessary restaurant info
-				id: partyDetails.restaurantId,
-				name: partyDetails.restaurantName,
-				taxRate: partyDetails.restaurantTaxRate, // Ensure this is on partyDetails
-			},
-			partyContext: {
-				// Indicate party mode and who is ordering
-				partyId: currentPartyId,
-				orderingForUserId: currentUserData.uid,
-				orderingForPipName: currentUserData.firstName || "Me", // Or selected PIP if host adds for others
+
+		const restaurantData = partyDetails[partyId];
+		navigation.navigate("CustomerDashboard", {
+			screen: "RestaurantDetail",
+			params: {
+				restaurant: {
+					id: restaurantData.restaurantId,
+					name: restaurantData.restaurantName,
+					taxRate: restaurantData.restaurantTaxRate,
+				},
+				partyContext: {
+					partyId,
+					orderingForUserId: currentUserData.uid,
+					orderingForPipName: currentUserData.firstName || "Me",
+				},
 			},
 		});
 	};
 
-	// --- NEW: Send Party Order to Kitchen ---
 	const handleSendPartyOrderToChefsQ = async () => {
 		if (
-			!currentPartyId ||
-			partyStatus !== "active" ||
-			!partyDetails?.checkInId
+			!partyId ||
+			partyDetails[partyId]?.status !== "active" ||
+			!partyDetails[partyId]?.checkInId
 		) {
 			Alert.alert(
 				"Cannot Send",
@@ -457,16 +391,13 @@ const PartyLobbyScreen = () => {
 			);
 			return;
 		}
-		// This function will call a new Cloud Function: sendPartyOrderToChefsQ
-		// That CF will find all items in shared_baskets/{currentPartyId} where sentToChefQ is false,
-		// process them, and update their sentToChefQ status.
 		setIsActionLoading(true);
 		try {
 			const sendOrderFunction = httpsCallable(
 				functions,
 				"sendPartyOrderToChefsQ"
 			);
-			const result = await sendOrderFunction({ partyId: currentPartyId });
+			const result = await sendOrderFunction({ partyId });
 			if (result.data.success) {
 				Alert.alert("Success", "New items sent to the kitchen!");
 			} else {
@@ -483,9 +414,9 @@ const PartyLobbyScreen = () => {
 	const handleSendAllNewPartyItemsToChefsQ = async () => {
 		if (
 			!isHost ||
-			!currentPartyId ||
-			partyStatus !== "active" ||
-			!partyDetails?.checkInId
+			!partyId ||
+			partyDetails[partyId]?.status !== "active" ||
+			!partyDetails[partyId]?.checkInId
 		) {
 			Alert.alert(
 				"Action Denied",
@@ -495,17 +426,11 @@ const PartyLobbyScreen = () => {
 		}
 		setIsActionLoading(true);
 		try {
-			// This would typically call a cloud function
-			// const sendAllItemsFunction = httpsCallable(funcsInstance, "sendAllPartyItemsToChefsQ");
-			// const result = await sendAllItemsFunction({ partyId: currentPartyId });
-			// if (result.data.success) {
+			// Placeholder for cloud function
 			Alert.alert(
 				"Success (Placeholder)",
 				"All new items would be sent to the kitchen!"
 			);
-			// } else {
-			// 	throw new Error(result.data.error || "Failed to send all items.");
-			// }
 		} catch (error) {
 			console.error("Error in handleSendAllNewPartyItemsToChefsQ:", error);
 			Alert.alert("Error", `Could not send all items: ${error.message}`);
@@ -514,10 +439,61 @@ const PartyLobbyScreen = () => {
 		}
 	};
 
-	// --- Validation Schema (Copied from RestaurantDetail) ---
+	const handleUpdatePartyBasketItemQuantity = async (itemId, newQuantity) => {
+		if (!partyId || !currentUserData?.uid) {
+			Alert.alert("Error", "Missing party or user information.");
+			return;
+		}
+		setIsActionLoading(true);
+		try {
+			await updatePartyBasketQuantity(
+				partyId,
+				itemId,
+				newQuantity,
+				currentUserData.uid
+			);
+		} catch (error) {
+			console.error("PartyLobby: Error updating item quantity:", error);
+			Alert.alert("Error", `Failed to update item quantity: ${error.message}`);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
+	const handleCancelPartyCheckIn = async () => {
+		const restaurantId = partyDetails[partyId]?.restaurantId;
+		if (!partyId || !restaurantId || !isHost) return;
+		Alert.alert(
+			"Cancel Check-In Request",
+			"Are you sure you want to cancel your request for a table?",
+			[
+				{ text: "Keep Request", style: "cancel" },
+				{
+					text: "Cancel Request",
+					style: "destructive",
+					onPress: async () => {
+						setIsActionLoading(true);
+						try {
+							await cancelPartyCheckIn(restaurantId);
+						} catch (error) {
+							console.error("PartyLobby: Error canceling check-in:", error);
+							Alert.alert(
+								"Error",
+								`Failed to cancel check-in: ${error.message}`
+							);
+						} finally {
+							setIsActionLoading(false);
+						}
+					},
+				},
+			]
+		);
+	};
+
+	// Validation Schema
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, "Party size must be atleast 1")
+			.min(1, "Party size must be at least 1")
 			.required("Party size is required"),
 	});
 
@@ -532,12 +508,8 @@ const PartyLobbyScreen = () => {
 		</View>
 	);
 
-	// --- Main Render Logic ---
-	// Use a combined loading state for the screen's main content
-	const isScreenLoading =
-		isLoadingParty ||
-		(initialPartyIdFromRoute &&
-			(!partyDetails || partyDetails.id !== initialPartyIdFromRoute));
+	// Main Render Logic
+	const isScreenLoading = isLoadingParty || (partyId && !partyDetails[partyId]);
 	if (isScreenLoading) {
 		return (
 			<SafeAreaView style={styles.centered}>
@@ -547,9 +519,7 @@ const PartyLobbyScreen = () => {
 		);
 	}
 
-	// Handle errors shown by context
-	if (partyError && !partyDetails) {
-		// Show error if context has error and no details
+	if (partyError || !partyDetails[partyId]) {
 		return (
 			<SafeAreaView style={styles.centered}>
 				<MaterialCommunityIcons
@@ -557,7 +527,9 @@ const PartyLobbyScreen = () => {
 					size={40}
 					color={colors.danger}
 				/>
-				<Text style={styles.errorText}>{partyError}</Text>
+				<Text style={styles.errorText}>
+					{partyError || "Party not found or has ended."}
+				</Text>
 				<Button
 					title="Go Back"
 					onPress={() =>
@@ -569,71 +541,49 @@ const PartyLobbyScreen = () => {
 			</SafeAreaView>
 		);
 	}
-	if (!partyDetails && initialPartyIdFromRoute) {
-		// Party was expected but not found after loading
-		return (
-			<SafeAreaView style={styles.centered}>
-				<Text style={styles.errorText}>Party not found or has ended.</Text>
-				<Button title="Go Back" onPress={() => navigation.goBack()} />
-			</SafeAreaView>
-		);
-	}
 
-	// If no partyDetails at all (e.g. navigated here without a partyId somehow)
-	if (!partyDetails) {
-		return (
-			<SafeAreaView style={styles.centered}>
-				<Text style={styles.errorText}>No active party session.</Text>
-				<Button
-					title="Go Home"
-					onPress={() => navigation.navigate("CustomerHome")}
-				/>
-			</SafeAreaView>
-		);
-	}
-
-	const guests = partyDetails.guestPips || []; // Use guestPips
-	const currentPartyStatusDisplay = partyDetails.status || "unknown";
+	const guests = partyDetails[partyId]?.guestPips || [];
+	const partyStatus = partyDetails[partyId]?.status || "unknown";
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<FlatList
 				style={styles.container}
+				data={guests}
+				renderItem={renderGuest}
+				keyExtractor={(item) => item.userId || item.localPipId}
 				ListHeaderComponent={
 					<PartyLobbyHeaderContent
-						partyDetails={partyDetails}
-						partyStatus={currentPartyStatusDisplay} // Use the display status
+						partyId={partyId}
+						partyDetails={partyDetails[partyId]}
+						partyStatus={partyStatus}
 						partyError={partyError}
 						isHost={isHost}
 					/>
 				}
-				data={partyDetails?.guestPips || []}
-				renderItem={renderGuest}
-				keyExtractor={(item) => item.userId}
 				ListEmptyComponent={
 					<Text style={styles.emptyText}>No guests have joined yet.</Text>
 				}
 				ListFooterComponent={
 					<PartyLobbyFooter
-						isHost={isHost} // Pass the correctly defined isHost
-						partyStatus={currentPartyStatusDisplay}
-						partyDetails={partyDetails}
+						partyId={partyId}
+						isHost={isHost}
+						partyStatus={partyStatus}
+						partyDetails={partyDetails[partyId]}
 						currentUserData={currentUserData}
 						isLoadingPartyAction={isActionLoading}
 						isLoadingPips={isLoadingPips}
-						isLoadingHostCheckIn={isLoadingHostCheckIn} // Pass host's individual check-in loading
-						hostCheckInStatus={hostCheckInStatus} // Pass host's individual check-in status
-						sharedBasketItems={sharedBasketItems}
-						isLoadingBasket={isLoadingBasket}
+						hostCheckInStatus={hostCheckInStatus}
+						isLoadingHostCheckIn={isLoadingHostCheckIn}
+						sharedBasketItems={sharedBaskets[partyId] || []}
+						isLoadingBasket={false}
 						groupedBasketItems={groupedBasketItems}
+						updatePartyBasketItemQuantity={handleUpdatePartyBasketItemQuantity}
 						handleNavigateToAddItems={handleNavigateToAddItems}
 						handleInvitePip={handleInvitePip}
 						handleGenerateCode={handleGenerateCode}
 						setIsCheckInModalVisible={setIsCheckInModalVisible}
-						handleSendPartyOrderToChefsQ={handleSendPartyOrderToChefsQ}
-						handleSendAllNewPartyItemsToChefsQ={
-							handleSendAllNewPartyItemsToChefsQ
-						}
+						handleCancelCheckIn={handleCancelPartyCheckIn}
 						handleLeaveParty={handleLeaveParty}
 						handleCancelParty={handleCancelParty}
 						navigation={navigation}
@@ -647,32 +597,35 @@ const PartyLobbyScreen = () => {
 					/>
 				}
 			/>
-
 			<PipInvitationModal
 				isVisible={isPipModalVisible}
 				onClose={() => setIsPipModalVisible(false)}
 				pips={pips}
 				isLoadingPips={isLoadingPips}
-				partyDetails={partyDetails}
+				partyDetails={partyDetails[partyId] || {}}
 				isActionLoading={isActionLoading}
 				onSelectUserPip={sendInviteToUserPIP}
-				onSelectLocalPip={addLocalPIP}
+				onSelectLocalPip={() => setIsAddMembersModalVisible(true)}
 			/>
-
-			{/* --- Check-In Modal --- */}
+			<AddMembersModal
+				isVisible={isAddMembersModalVisible}
+				onClose={() => setIsAddMembersModalVisible(false)}
+				onConfirmAdd={addLocalPIP}
+				hostPips={pips}
+				partyMembers={partyDetails[partyId]?.guestPips || []}
+				isLoading={isLoadingPips}
+			/>
 			<PartyCheckInModal
 				isVisible={isCheckInModalVisible}
-				onClose={closeCheckInModal}
-				initialPartySize={(partyDetails?.guestPips?.length || 0) + 1}
+				onClose={() => setIsCheckInModalVisible(false)}
+				initialPartySize={(partyDetails[partyId]?.guestPips?.length || 0) + 1}
 				validationSchema={validationSchema}
 				onSubmit={handlePartyCheckInSubmit}
 				isLoadingAction={isLoadingCheckInAction}
 			/>
-			{/* --- End Check-In Modal --- */}
 		</SafeAreaView>
 	);
 };
-
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.background || "#f8f9fa" },
 	container: { flex: 1, padding: 15 },
@@ -682,21 +635,10 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		padding: 20,
 	},
-
-	statusValue: { fontWeight: "bold", color: colors.textDark },
-	status_pending: { color: colors.warning || "#ffc107" },
-	status_active: { color: colors.success || "green" },
-	status_completed: { color: colors.textLight || "gray" },
-	status_cancelled: { color: colors.danger || "red" },
-	hostSection: { marginBottom: 20 },
-	sectionTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-		color: colors.primary,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.lightGray,
-		paddingBottom: 5,
+	loadingText: {
+		marginTop: 10,
+		fontSize: 16,
+		color: colors.textDark,
 	},
 	guestItem: {
 		flexDirection: "row",
@@ -736,7 +678,7 @@ const styles = StyleSheet.create({
 	},
 	inviteButton: { backgroundColor: colors.primary },
 	leaveButton: { backgroundColor: colors.danger },
-	checkInButton: { backgroundColor: colors.success || "green" }, // Style for check-in button
+	checkInButton: { backgroundColor: colors.success || "green" },
 	actionButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
 	disabledButton: {
 		backgroundColor: colors.mediumGray || "#cccccc",
@@ -750,7 +692,6 @@ const styles = StyleSheet.create({
 		fontStyle: "italic",
 		paddingBottom: 20,
 	},
-
 	actionsRow: {
 		flexDirection: "row",
 		justifyContent: "space-around",
@@ -758,13 +699,11 @@ const styles = StyleSheet.create({
 		paddingVertical: 10,
 		marginTop: 10,
 		marginBottom: 10,
-		// borderTopWidth: 1,
-		// borderTopColor: colors.lightGray,
 	},
 	actionIcon: {
 		alignItems: "center",
 		padding: 8,
-		minWidth: 80, // Give icons some space
+		minWidth: 80,
 	},
 	actionIconText: {
 		fontSize: 11,
@@ -789,7 +728,7 @@ const styles = StyleSheet.create({
 		padding: 15,
 		backgroundColor: colors.white || "#ffffff",
 		borderRadius: 8,
-		marginHorizontal: 5, // Slight horizontal margin for sections
+		marginHorizontal: 5,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 1 },
 		shadowOpacity: 0.05,
@@ -805,53 +744,6 @@ const styles = StyleSheet.create({
 		borderBottomColor: colors.lightGray || "#eee",
 		paddingBottom: 6,
 	},
-
-	emptyText: {
-		textAlign: "center",
-		color: colors.textLight,
-		marginTop: 15,
-		fontStyle: "italic",
-		paddingBottom: 10,
-	},
-	infoText: {
-		// For messages like "Party ended"
-		textAlign: "center",
-		marginTop: 20,
-		fontSize: 15,
-		color: colors.text,
-		fontStyle: "italic",
-		paddingBottom: 20,
-	},
-
-	input: {
-		borderWidth: 1,
-		borderColor: colors.mediumGray || "#ccc",
-		padding: 12,
-		borderRadius: 8,
-		marginBottom: 10,
-		marginTop: 5,
-		textAlign: "center",
-		fontSize: 18,
-		width: "60%",
-	},
-	modalButtonRow: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		width: "100%",
-		marginTop: 20,
-	},
-	modalButton: {
-		paddingVertical: 12,
-		paddingHorizontal: 10,
-		borderRadius: 8,
-		alignItems: "center",
-		flex: 1,
-		marginHorizontal: 5,
-		backgroundColor: colors.primary,
-	},
-	cancelModalButton: { backgroundColor: colors.mediumGray || "#ccc" },
-	modalButtonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 });
 
 export default PartyLobbyScreen;
-

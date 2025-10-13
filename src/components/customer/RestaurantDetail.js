@@ -58,7 +58,7 @@ const RestaurantDetailScreen = () => {
 	const {
 		createParty,
 		isLoadingParty, // Loading state from PartyContext for party creation
-		currentPartyId,
+		currentPartyIds,
 		partyDetails, // Details of the current party from context // Function from context
 		activatePartyCheckIn, // Function from context
 	} = useParty(); // Using the custom hook
@@ -75,6 +75,7 @@ const RestaurantDetailScreen = () => {
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
+	const [isPartyModalVisible, setIsPartyModalVisible] = useState(false);
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
@@ -185,21 +186,21 @@ const RestaurantDetailScreen = () => {
 		if (
 			checkInStatus === "ACCEPTED" && // 1. Host's INDIVIDUAL check-in is now accepted
 			checkInObj?.id && // 2. We have the check-in document ID
-			currentPartyId && // 3. User is currently associated with a party in context
-			partyDetails?.id === currentPartyId && // 4. The details for that party are loaded
+			currentPartyIds && // 3. User is currently associated with a party in context
+			partyDetails?.id === currentPartyIds && // 4. The details for that party are loaded
 			partyDetails?.status === "pending" && // 5. That party is still pending activation
 			partyDetails?.restaurantId === restaurant?.id && // 6. The party is for the current restaurant
 			partyDetails?.hostUserId === currentUserData?.uid // 7. The current user IS the host of that party
 		) {
 			console.log(
-				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyId} with checkIn ${checkInObj.id}`
+				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyIds} with checkIn ${checkInObj.id}`
 			);
 			activatePartyCheckIn(checkInObj.id); // Call context function
 		}
 	}, [
 		checkInStatus,
 		checkInObj?.id,
-		currentPartyId,
+		currentPartyIds,
 		partyDetails, // Listen to the whole partyDetails object for changes
 		restaurant?.id,
 		currentUserData?.uid,
@@ -212,7 +213,12 @@ const RestaurantDetailScreen = () => {
 		);
 		setIsModalVisible(true);
 	};
+	const openPartyModal = () => {
+		setIsPartyModalVisible(true);
+	};
 	const closeModal = () => setIsModalVisible(false);
+
+	const closePartyModal = () => setIsPartyModalVisible(false);
 
 	// Function to handle individual check-in request
 	const handlePersonalCheckinSubmit = async (values) => {
@@ -229,7 +235,7 @@ const RestaurantDetailScreen = () => {
 			return;
 		}
 		if (
-			currentPartyId &&
+			currentPartyIds &&
 			partyDetails?.restaurantId === restaurant.id &&
 			(partyDetails?.status === "active" || partyDetails?.status === "pending")
 		) {
@@ -295,9 +301,9 @@ const RestaurantDetailScreen = () => {
 	};
 
 	// --- Function to handle starting a party ---
-	const handleStartParty = async () => {
+	const handleStartParty = async (values) => {
 		if (currentUserData?.role === "guest") {
-			setIsAuthModalVisible(true); // If so, show the auth prompt and stop.
+			setIsAuthModalVisible(true);
 			return;
 		}
 		if (!currentUserData) {
@@ -313,15 +319,12 @@ const RestaurantDetailScreen = () => {
 			isLoadingCheckInStatus ||
 			checkInStatus === "REQUESTED" ||
 			checkInStatus === "ACCEPTED" ||
-			currentPartyId
+			currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
 		) {
-			console.log(
-				"Cannot start party: Action in progress, already checked in, or already in a party."
-			);
-			if (currentPartyId) {
+			if (currentPartyIds[restaurant.id]) {
 				Alert.alert(
 					"Already in a Party",
-					"You are already in a party. Go to the Party Hub to manage it."
+					"You are already in a party at this restaurant. Go to the Party Hub to manage it."
 				);
 			} else if (
 				checkInStatus === "REQUESTED" ||
@@ -336,27 +339,23 @@ const RestaurantDetailScreen = () => {
 		}
 		setIsStartingPartyProcess(true);
 		try {
-			console.log(
-				`RestaurantDetail: Calling createParty for restaurant: ${restaurant.id}`
+			const newPartyId = await createParty(
+				restaurant.id,
+				restaurant.restaurantName
 			);
-			const newPartyId = await createParty(restaurant.id); // Context calls CF
-
 			if (newPartyId) {
 				console.log(
 					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
 				);
 				navigation.navigate("PartyTab", {
-					// Navigate to the Tab
-					screen: "PartySession", // Navigate to the screen within the Tab's stack
+					screen: "PartyLobby",
 				});
 			} else {
-				// PartyContext's createParty function should handle its own errors and show Alerts
 				console.log(
-					"RestaurantDetail: createParty did not return a newPartyId. Error likely handled by context."
+					"RestaurantDetail: createParty did not return a newPartyId."
 				);
 			}
 		} catch (error) {
-			// Catch unexpected errors from createParty itself, though context should also handle
 			console.error(
 				"RestaurantDetail: Unexpected error in handleStartParty:",
 				error
@@ -367,15 +366,18 @@ const RestaurantDetailScreen = () => {
 			);
 		} finally {
 			setIsStartingPartyProcess(false);
+			closePartyModal();
 		}
 	};
 
 	// --- View Existing Party Handler ---
 	const handleViewParty = () => {
-		if (currentPartyId) {
-			// Navigate to the Party Hub
+		if (currentPartyIds[restaurant.id]) {
 			navigation.navigate("PartyTab", {
-				screen: "PartySession",
+				screen: "PartyLobby",
+				params: {
+					partyId: currentPartyIds[restaurant.id],
+				},
 			});
 		}
 	};
@@ -515,10 +517,7 @@ const RestaurantDetailScreen = () => {
 
 	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
 	const renderActionButtons = () => {
-		const isRestaurantOpen = liveRestaurantData?.isOpen === true;
-
 		if (isLoadingCheckInStatus || isLoadingParty) {
-			// Combined initial loading for this section
 			return (
 				<View style={styles.actionsRow}>
 					<ActivityIndicator size="small" color={colors.primary} />
@@ -526,25 +525,9 @@ const RestaurantDetailScreen = () => {
 			);
 		}
 
-		if (!isRestaurantOpen) {
-			return (
-				<View style={styles.actionsRow}>
-					<View style={styles.closedMessageContainer}>
-						<Ionicons name="moon-outline" size={24} color={colors.textLight} />
-						<Text style={styles.closedMessageText}>
-							This restaurant is currently closed.
-						</Text>
-					</View>
-				</View>
-			);
-		}
-
-		// Scenario 1: User is already in a party (any party, for any restaurant)
-		if (currentPartyId) {
-			const buttonText =
-				partyDetails?.restaurantId === restaurant.id
-					? "View Your Party"
-					: `View Party @ ${partyDetails?.restaurantName || "Other"}`;
+		// **CHANGE**: Always show "Start Party" or "View Party" regardless of isRestaurantOpen
+		if (currentPartyIds[restaurant.id]) {
+			const buttonText = "View Your Party"; // Since it's for this restaurant
 			return (
 				<View style={styles.actionsRow}>
 					<TouchableOpacity
@@ -560,12 +543,10 @@ const RestaurantDetailScreen = () => {
 							{buttonText}
 						</Text>
 					</TouchableOpacity>
-					{/* Individual check-in and start party are implicitly disabled/hidden */}
 				</View>
 			);
 		}
 
-		// Scenario 2: User is NOT in any party - show individual check-in options
 		switch (checkInStatus) {
 			case "REQUESTED":
 				return (
@@ -633,14 +614,13 @@ const RestaurantDetailScreen = () => {
 					</View>
 				);
 			case "NONE":
-			case "ERROR": // Allow retrying individual check-in or starting a party
-
+			case "ERROR":
 			default:
 				return (
 					<View style={styles.actionsRow}>
 						<TouchableOpacity
 							style={styles.actionButton}
-							onPress={openModal} // For individual check-in
+							onPress={openModal}
 							disabled={isProcessingCheckInAction}
 						>
 							{isProcessingCheckInAction ? (
@@ -658,7 +638,7 @@ const RestaurantDetailScreen = () => {
 							style={[
 								styles.actionButton,
 								(isStartingPartyProcess || isLoadingParty) &&
-									styles.actionButtonDisabled, // Disable if global or local party start is loading
+									styles.actionButtonDisabled,
 							]}
 							onPress={handleStartParty}
 							disabled={isStartingPartyProcess || isLoadingParty}
@@ -1121,4 +1101,3 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantDetailScreen;
-

@@ -25,10 +25,15 @@ import colors from "../../utils/styles/appStyles";
 const PartyMenuScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { partyId } = route.params;
+	const { partyId, restaurantId } = route.params;
 
-	const { addItemToPartyBasket, isLoadingParty, partyDetails, currentPartyId } =
-		useParty(); // isLoadingParty for context actions
+	const {
+		addItemToPartyBasket,
+		isLoadingParty,
+		partyDetails,
+		currentPartyId,
+		sharedBaskets,
+	} = useParty(); // isLoadingParty for context actions
 	const { currentUserData } = useContext(AuthContext);
 
 	const [menuItems, setMenuItems] = useState([]);
@@ -36,25 +41,30 @@ const PartyMenuScreen = () => {
 
 	useEffect(() => {
 		// Update header with restaurant name from the live party details
-		if (partyDetails?.id === partyId && partyDetails?.restaurantName) {
+		if (
+			partyDetails[partyId]?.id === partyId &&
+			partyDetails[partyId]?.restaurantName
+		) {
 			navigation.setOptions({
-				title: `Add to Party @ ${partyDetails.restaurantName}`,
+				title: `Add to Party @ ${partyDetails[partyId].restaurantName}`,
 			});
 		}
-	}, [partyId, partyDetails?.restaurantName, navigation]);
+	}, [partyId, partyDetails[partyId]?.restaurantName, navigation]);
 
 	// This effect fetches the menu, but only if the context has loaded the correct party details.
 	useEffect(() => {
 		let isMounted = true;
 		const loadMenu = async () => {
-			if (partyDetails?.id !== partyId || !partyDetails?.restaurantId) {
+			const restaurantId =
+				partyDetails[partyId]?.restaurantId || route.params?.restaurantId;
+			if (!restaurantId || partyDetails[partyId]?.id !== partyId) {
 				if (isMounted) setIsLoadingMenu(false);
-				Alert.alert("Error", "Restaurant ID is missing.");
+				Alert.alert("Error", "Restaurant ID or party details missing.");
 				return;
 			}
 			setIsLoadingMenu(true);
 			try {
-				const fetchedMenu = await fetchMenu(partyDetails.restaurantId);
+				const fetchedMenu = await fetchMenu(restaurantId);
 				if (isMounted) setMenuItems(fetchedMenu);
 			} catch (error) {
 				console.error("PartyMenuScreen: Error fetching menu:", error);
@@ -67,7 +77,7 @@ const PartyMenuScreen = () => {
 		return () => {
 			isMounted = false;
 		};
-	}, [partyId, partyDetails.restaurantId]);
+	}, [partyId, partyDetails, route.params?.restaurantId]);
 
 	const handleConfirmAddItemToPartyContext = useCallback(
 		async (itemDataFromModal) => {
@@ -95,8 +105,6 @@ const PartyMenuScreen = () => {
 				specialInstructions,
 				partyContextData,
 			} = itemDataFromModal;
-
-		
 
 			const partyAddItemData = {
 				partyId: partyContextData.partyId,
@@ -142,28 +150,44 @@ const PartyMenuScreen = () => {
 
 	// Construct the list of people to order for from the current party members
 	const partyMembersForModal = useMemo(() => {
-		// Only provide the member list if the context's party matches this screen's party
-		if (partyDetails?.id !== partyId) return [];
-		return partyDetails.guestPips || [];
-	}, [partyId, partyDetails?.guestPips]);
+		return partyDetails[partyId]?.guestPips || [];
+	}, [partyId, partyDetails]);
 
 	// Show a loading indicator if the context is loading OR if the context's party ID
 	// does not match the one this screen was opened for.
-	if (isLoadingParty || currentPartyId !== partyId) {
+
+	if (isLoadingParty || !partyDetails[partyId]) {
 		return (
-			<SafeAreaView style={styles.centeredScreen}>
-				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.loadingText}>Syncing Party Details...</Text>
+			<SafeAreaView
+				style={[
+					styles.centeredScreen,
+					{ backgroundColor: colors.backgroundLight || "#f8f9fa" },
+				]}
+			>
+				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
+				<Text
+					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
+				>
+					Syncing Party Details...
+				</Text>
 			</SafeAreaView>
 		);
 	}
 
-	// Once context is synced, we might still be loading the menu
 	if (isLoadingMenu) {
 		return (
-			<SafeAreaView style={styles.centeredScreen}>
-				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.loadingText}>Loading Menu...</Text>
+			<SafeAreaView
+				style={[
+					styles.centeredScreen,
+					{ backgroundColor: colors.backgroundLight || "#f8f9fa" },
+				]}
+			>
+				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
+				<Text
+					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
+				>
+					Loading Menu...
+				</Text>
 			</SafeAreaView>
 		);
 	}
@@ -179,7 +203,7 @@ const PartyMenuScreen = () => {
 					<View style={styles.headerContainer}>
 						<Text style={styles.headerTitle}>Order for Party</Text>
 						<Text style={styles.headerSubtitle}>
-							at {partyDetails.restaurantName}
+							at {partyDetails[partyId].restaurantName}
 						</Text>
 					</View>
 				}

@@ -105,46 +105,79 @@ export const AuthProvider = ({ children }) => {
 		async (confirmation, verificationCode, additionalData) => {
 			setAuthError(null);
 			setIsLoading(true);
+
+			// **CRITICAL VALIDATION**: Check code before attempting confirmation
+			if (!verificationCode || verificationCode.trim().length !== 6) {
+				setIsLoading(false);
+				setAuthError("Please enter a valid 6-digit verification code.");
+				return; // Exit early - don't even attempt Firebase call
+			}
+
 			try {
-				console.log("Additional Data before if statement", additionalData);
-				// 1. Confirm the verification code to sign the user in
-				const userCredential = await confirmation.confirm(verificationCode);
+				console.log(
+					"Starting phone verification with code:",
+					verificationCode.substring(0, 2) + "***"
+				); // Log partial code for security
+
+				// 1. Confirm the verification code - this will throw if invalid
+				const userCredential = await confirmation.confirm(
+					verificationCode.trim()
+				);
 				const user = userCredential.user;
 
-				// 2. This now runs only if `additionalData` (first name, last name) is provided,
-				// which happens during the initial signup flow.
-				if (additionalData) {
-					console.log("THis is the additionalData", additionalData);
+				console.log("Phone auth successful, user:", user.uid);
+
+				// 2. Now create/update user document with additional data (if provided)
+				if (
+					additionalData &&
+					additionalData.firstName &&
+					additionalData.lastName
+				) {
+					console.log("Creating customer document with additional data:", {
+						firstName: additionalData.firstName,
+						lastName: additionalData.lastName,
+						phoneNumber: additionalData.phoneNumber,
+					});
+
 					const userDocRef = doc(db, "customers", user.uid);
 
-					// 3. Use `setDoc` with `{ merge: true }`.
-					// This will CREATE the document if it doesn't exist, or
-					// UPDATE the firstName and lastName fields if it already exists.
-					// This resolves the race condition permanently.
+					// Use setDoc with merge: true to create or update
 					await setDoc(
 						userDocRef,
 						{
 							firstName: additionalData.firstName,
 							lastName: additionalData.lastName,
-							// We also include the other essential fields in case this runs first.
+							phoneNumber: additionalData.phoneNumber,
 							uid: user.uid,
-							phoneNumber: user.phoneNumber,
 							role: "customer",
 							canViewHiddenRestaurants: false,
-
 							createdAt: new Date(),
 						},
-						{ merge: true }
+						{ merge: true } // This ensures it creates if new, updates if exists
 					);
+
+					console.log("Customer document created/updated successfully");
 				}
-				// The onAuthStateChanged listener will handle setting the final user data in state.
+
+				// 3. The onAuthStateChanged listener will pick up the user and fetch full data
+				// No need to manually set state here - let the listener handle it
 			} catch (error) {
+				console.error("Phone verification error:", error);
+
+				// Handle specific Firebase errors
 				if (error.code === "auth/invalid-verification-code") {
-					setAuthError("Invalid code. Please try again.");
+					setAuthError(
+						"Invalid verification code. Please check and try again."
+					);
+				} else if (error.code === "auth/code-expired") {
+					setAuthError(
+						"Verification code has expired. Please request a new one."
+					);
 				} else {
-					setAuthError(error.message);
+					setAuthError(`Verification failed: ${error.message}`);
 				}
-				throw error;
+
+				throw error; // Re-throw for the screen to handle
 			} finally {
 				setIsLoading(false);
 			}

@@ -25,6 +25,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [formValues, setFormValues] = useState(null);
+	const [codeError, setCodeError] = useState("");
 
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
@@ -64,21 +65,30 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	const handleConfirmCode = async () => {
 		if (isLoading || !confirmation) return;
+
+		// **NEW VALIDATION**: Check code length before attempting
+		if (!verificationCode || verificationCode.trim().length !== 6) {
+			setCodeError("Please enter a valid 6-digit code");
+			return;
+		}
+
+		setCodeError(""); // Clear previous errors
 		setIsSubmitting(true);
+
 		try {
-			// Pass the confirmation object and code to the context
-			await signInWithPhoneCredential(confirmation, verificationCode, {
-				firstName: formValues.firstName,
-				lastName: formValues.lastName,
-				phoneNumber: formValues.phoneNumber,
-			});
+			await signInWithPhoneCredential(
+				confirmation,
+				verificationCode,
+				formValues
+			);
+			// If successful, navigation happens in AuthContext's listener
 		} catch (error) {
-			Alert.alert("Error", `Could not verify code: ${error.message}`);
+			// Error is already set in context, but we can show it here too
+			console.error("Verification failed:", error);
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
-
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required("First name is required"),
 		lastName: Yup.string().required("Last name is required"),
@@ -105,6 +115,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 						</Text>
 					</View>
 
+					{/* STEP 1: Name & Phone Number Form */}
 					{!confirmation ? (
 						<Formik
 							initialValues={{ firstName: "", lastName: "", phoneNumber: "" }}
@@ -113,6 +124,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 						>
 							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
+									{/* First Name Input */}
 									<TextInput
 										style={styles.input}
 										placeholder="First Name"
@@ -123,6 +135,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 									{touched.firstName && errors.firstName && (
 										<Text style={styles.errorText}>{errors.firstName}</Text>
 									)}
+
+									{/* Last Name Input */}
 									<TextInput
 										style={styles.input}
 										placeholder="Last Name"
@@ -133,6 +147,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 									{touched.lastName && errors.lastName && (
 										<Text style={styles.errorText}>{errors.lastName}</Text>
 									)}
+
+									{/* Phone Number Input */}
 									<TextInput
 										style={styles.input}
 										placeholder="10-Digit Phone Number"
@@ -145,6 +161,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 									{touched.phoneNumber && errors.phoneNumber && (
 										<Text style={styles.errorText}>{errors.phoneNumber}</Text>
 									)}
+
+									{/* Send Code Button */}
 									<Button
 										mode="contained"
 										onPress={handleSubmit}
@@ -158,33 +176,45 @@ const CustomerSignupScreen = ({ navigation }) => {
 							)}
 						</Formik>
 					) : (
+						/* STEP 2: Verification Code Input */
 						<View style={styles.form}>
 							<TextInput
-								style={styles.input}
+								style={[styles.input, codeError && styles.inputError]}
 								placeholder="6-Digit Code"
 								value={verificationCode}
-								onChangeText={setVerificationCode}
+								onChangeText={(text) => {
+									setVerificationCode(text);
+									if (codeError) setCodeError(""); // Clear error on typing
+								}}
 								keyboardType="number-pad"
 								maxLength={6}
 								textAlign="center"
 							/>
+							{codeError && <Text style={styles.errorText}>{codeError}</Text>}
+
 							<Button
 								mode="contained"
 								onPress={handleConfirmCode}
 								disabled={
-									isLoading || isSubmitting || verificationCode.length < 6
+									isLoading || isSubmitting || verificationCode.length !== 6
 								}
 								loading={isLoading || isSubmitting}
 								style={styles.button}
 							>
 								Verify & Continue
 							</Button>
-							<Button mode="text" onPress={() => setConfirmation(null)}>
+
+							<Button
+								mode="text"
+								onPress={() => setConfirmation(null)}
+								disabled={isSubmitting}
+							>
 								Use a different number
 							</Button>
 						</View>
 					)}
 
+					{/* Footer (Always Visible) */}
 					<View style={styles.footer}>
 						<Text style={styles.footerText}>Already have an account?</Text>
 						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
@@ -213,7 +243,12 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginBottom: 8,
 	},
-	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
+	subtitle: {
+		fontSize: 16,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 20,
+	},
 	form: { width: "100%" },
 	input: {
 		height: 55,
@@ -226,7 +261,16 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		color: colors.textDark,
 	},
-	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
+	inputError: {
+		// NEW: Error styling for code input
+		borderColor: colors.statusDanger,
+	},
+	button: {
+		paddingVertical: 8,
+		borderRadius: 8,
+		marginTop: 10,
+		marginBottom: 10,
+	},
 	errorText: {
 		color: colors.statusDanger,
 		marginBottom: 10,

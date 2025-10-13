@@ -240,10 +240,10 @@ const PartyLobbyFooter = ({
 						>
 							<MaterialCommunityIcons
 								name="map-marker-check-outline"
-								size={28}
-								color={colors.success}
+								size={36}
+								color="#4CAF50"
 							/>
-							<Text style={[styles.actionIconText, { color: colors.success }]}>
+							<Text style={[styles.actionIconText, { color: "#4CAF50" }]}>
 								Check-In Party
 							</Text>
 						</TouchableOpacity>
@@ -323,10 +323,10 @@ const PartyLobbyFooter = ({
 					>
 						<MaterialCommunityIcons
 							name="cancel"
-							size={28}
-							color={colors.danger}
+							size={36}
+							color="#F44336"
 						/>
-						<Text style={[styles.actionIconText, { color: colors.danger }]}>
+						<Text style={[styles.actionIconText, { color: "#F44336" }]}>
 							Cancel Party
 						</Text>
 					</TouchableOpacity>
@@ -431,12 +431,12 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		padding: 8,
 		minWidth: 80,
-		opacity: 0.5,
+		// opacity: 0.5, // Removed for better visibility
 		flex: 1,
 	},
 	actionIconTextDisabled: {
 		fontSize: 11,
-		color: colors.textLight || "#999999",
+		color: colors.primary || "#2196F3", // Changed to primary color for better visibility
 		marginTop: 4,
 		textAlign: "center",
 	},

@@ -3,9 +3,19 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import colors from "../../utils/styles/appStyles";
 
 const RestaurantCard = ({ restaurant, onPress }) => {
+	const isComingSoon = restaurant.isComingSoon === true;
 	return (
-		<TouchableOpacity onPress={onPress} style={styles.card}>
+		<TouchableOpacity
+			onPress={onPress}
+			style={styles.card}
+			disabled={isComingSoon}
+		>
 			<Image source={{ uri: restaurant.imageUri }} style={styles.thumbnail} />
+			{isComingSoon && (
+				<View style={styles.overlay}>
+					<Text style={styles.overlayText}>Coming Soon</Text>
+				</View>
+			)}
 			<View style={styles.infoContainer}>
 				<Text style={styles.name}>{restaurant.restaurantName}</Text>
 				<Text style={styles.address}>
@@ -54,6 +64,24 @@ const styles = StyleSheet.create({
 	cuisine: {
 		fontSize: 14,
 		color: "#666666",
+	},
+
+	overlay: {
+		...StyleSheet.absoluteFillObject, // This makes the overlay cover the entire card
+		backgroundColor: "rgba(255, 255, 255, 0.7)", // Semi-transparent white
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	overlayText: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textMedium,
+		borderWidth: 2,
+		borderColor: colors.textLight,
+		paddingHorizontal: 15,
+		paddingVertical: 8,
+		borderRadius: 8,
+		transform: [{ rotate: "-10deg" }], // A slight angle for style
 	},
 });
 

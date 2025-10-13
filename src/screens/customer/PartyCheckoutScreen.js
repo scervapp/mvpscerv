@@ -37,13 +37,18 @@ import { useCheckInStatus } from "../../utils/customerUtils";
 
 const PartyCheckoutScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
-	const { partyDetails, sharedBasketItems } = useParty();
+	const { partyDetails, sharedBaskets } = useParty();
 	const { initPaymentSheet, presentPaymentSheet } = useStripe();
 	const navigation = useNavigation();
 	const route = useRoute();
 
+	const { partyId } = route.params;
+
+	const sharedBasketItems = sharedBaskets[partyId];
+	const party = partyDetails[partyId] || [];
+
 	const { checkInObj } = useCheckInStatus(
-		partyDetails?.restaurantId,
+		party?.restaurantId,
 		currentUserData?.uid
 	);
 
@@ -62,10 +67,8 @@ const PartyCheckoutScreen = () => {
 	const [finalTotal, setFinalTotal] = useState(0);
 	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
-	const { partyId } = route.params;
-
 	useEffect(() => {
-		if (!partyDetails?.restaurantId) return;
+		if (!party?.restaurantId) return;
 
 		const fetchKey = async () => {
 			const feesSnap = await db.collection("appConfig").doc("general").get();
@@ -77,7 +80,7 @@ const PartyCheckoutScreen = () => {
 			}
 			try {
 				console.log(
-					`PartyCheckoutScreen: Fetching Stripe publishable key for restaurant ${partyDetails.restaurantId}`
+					`PartyCheckoutScreen: Fetching Stripe publishable key for restaurant ${party.restaurantId}`
 				);
 				const getStripePublishableKeyFunction = httpsCallable(
 					functions,
@@ -85,7 +88,7 @@ const PartyCheckoutScreen = () => {
 				);
 
 				const { data } = await getStripePublishableKeyFunction({
-					restaurantId: partyDetails.restaurantId,
+					restaurantId: party.restaurantId,
 				});
 				if (data.stripePublishableKey) {
 					setStripePublishableKey(data.stripePublishableKey);
@@ -103,7 +106,7 @@ const PartyCheckoutScreen = () => {
 			}
 		};
 		fetchKey();
-	}, [partyDetails?.restaurantId]);
+	}, [party?.restaurantId]);
 
 	// --- Data Filtering & Calculations (useMemo for performance) ---
 	const {
@@ -176,13 +179,10 @@ const PartyCheckoutScreen = () => {
 
 	useEffect(() => {
 		const canPay =
-			myFinalTotal > 0 &&
-			partyDetails?.id &&
-			currentUserData?.uid &&
-			checkInObj;
+			myFinalTotal > 0 && party?.id && currentUserData?.uid && checkInObj;
 
 		setIsReadyToPay(canPay);
-	}, [myFinalTotal, partyDetails, currentUserData, checkInObj]);
+	}, [myFinalTotal, party, currentUserData, checkInObj]);
 	// --- Handle Payment Action ---
 	const handlePayment = async () => {
 		// Prevent multiple presses or paying when not ready.
@@ -201,13 +201,13 @@ const PartyCheckoutScreen = () => {
 			// We send item IDs and let the server calculate the authoritative total.
 			const { data: prepData } = await preparePayment({
 				paymentType: "party",
-				restaurantId: partyDetails.restaurantId,
-				partyId: partyDetails.id,
+				restaurantId: party.restaurantId,
+				partyId: party.id,
 				items: myItemsInBasket.map((item) => ({ id: item.id })), // Send only basket item IDs
 				gratuity: myGratuity, // Send this user's portion of the gratuity
 				checkInId: checkInObj.id,
-				table: partyDetails.table || null,
-				server: partyDetails.server || null,
+				table: party.table || null,
+				server: party.server || null,
 				checkInTimestamp: checkInObj.acceptedAt,
 				// No stripeCustomerId is sent; the server securely handles it.
 			});
@@ -218,7 +218,7 @@ const PartyCheckoutScreen = () => {
 
 			// --- Step 3: Initialize the Stripe Payment Sheet ---
 			const { error: initError } = await initPaymentSheet({
-				merchantDisplayName: `Scerv Inc. - ${partyDetails.restaurantName}`,
+				merchantDisplayName: `Scerv Inc. - ${party.restaurantName}`,
 				paymentIntentClientSecret: prepData.paymentIntentClientSecret,
 				customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 				customerId: prepData.customerId,
@@ -275,9 +275,7 @@ const PartyCheckoutScreen = () => {
 				>
 					<View style={styles.header}>
 						<Text style={styles.title}>Checkout Your Portion</Text>
-						<Text style={styles.restaurantName}>
-							{partyDetails?.restaurantName}
-						</Text>
+						<Text style={styles.restaurantName}>{party?.restaurantName}</Text>
 					</View>
 
 					{/* Your Itemized List */}
