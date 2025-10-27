@@ -244,7 +244,16 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 		console.log(
 			`inviteToParty: No valid code found for party ${partyId}. Generating a new one.`
 		);
-		const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+		const generateCode = () => {
+			const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No I,1,O,0
+			let code = "";
+			for (let i = 0; i < 6; i++) {
+				code += chars[Math.floor(Math.random() * chars.length)];
+			}
+			return code;
+		};
+
+		const inviteCode = generateCode();
 
 		// Set an expiry time for the code (e.g., 1 hour from now).
 		const expiryDate = new Date();
@@ -523,7 +532,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
  * Allows the host to cancel a party, but only if NO items have been sent to the kitchen by ANYONE.
  */
 exports.cancelParty = functions.https.onCall(async (data, context) => {
-	if (!context.auth || !context.auth.uid) {
+	if (!context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
 			"User must be authenticated."
@@ -531,7 +540,6 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 	}
 	const hostUserId = context.auth.uid;
 	const { partyId } = data;
-
 	if (!partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
@@ -552,62 +560,50 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		if (partyData.hostUserId !== hostUserId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"Only the party host can cancel the party."
+				"Only the host can cancel."
 			);
 		}
 		if (partyData.status !== "pending") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"Only 'pending' parties can be cancelled."
+				"Only pending parties can be cancelled."
 			);
 		}
 
-		// --- THIS IS THE FIX (PART 2) ---
-		// Before allowing the host to cancel, check if ANY items have been sent.
+		// Check if any item has been sent
 		const basketDoc = await sharedBasketRef.get();
 		if (basketDoc.exists) {
-			const basketItems = basketDoc.data().items || [];
-			const anyItemHasBeenSent = basketItems.some(
-				(item) => item.status === "sent"
-			);
-
-			if (anyItemHasBeenSent) {
-				// If any item has been sent, block the cancellation.
+			const items = basketDoc.data().items || [];
+			if (items.some((item) => item.status === "sent")) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Cannot cancel the party after an order has been sent to the kitchen."
+					"Cannot cancel after order sent to kitchen."
 				);
 			}
 		}
-		// --- END OF FIX ---
 
-		const memberUids = partyData.getUserIds || [];
+		// FIX: Clean up partyIds for host + all guests
+		const allMemberUids = [
+			partyData.hostUserId,
+			...(partyData.guestUserIds || []),
+		].filter(Boolean);
 
-		// If the check passes, proceed with deleting the party and basket.
 		const batch = db.batch();
-
 		batch.delete(partyRef);
-
 		if (basketDoc.exists) batch.delete(sharedBasketRef);
 
-		memberUids.forEach((userId) => {
-			if (userId) {
-				// Ensure userId is not null or empty
-				const userRef = db.collection("customers").doc(userId);
-				batch.update(userRef, {
-					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
-				});
-			}
+		allMemberUids.forEach((userId) => {
+			const userRef = db.collection("customers").doc(userId);
+			batch.update(userRef, {
+				partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+			});
 		});
 
 		await batch.commit();
-
-		console.log(
-			`cancelParty: Successfully deleted party ${partyId} and its shared basket.`
-		);
+		console.log(`Party ${partyId} cancelled and partyIds cleaned up.`);
 		return { success: true };
 	} catch (error) {
-		console.error(`Error cancelling party ${partyId}:`, error);
+		console.error("Error cancelling party:", error);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError("internal", "Could not cancel party.");
 	}

@@ -348,7 +348,12 @@ const RestaurantDetailScreen = () => {
 					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
 				);
 				navigation.navigate("PartyTab", {
-					screen: "PartyLobby",
+					screen: "PartySession",
+					params: {
+						partyId: newPartyId,
+						restaurantId: restaurant.id,
+						restaurantName: restaurant.restaurantName,
+					},
 				});
 			} else {
 				console.log(
@@ -374,7 +379,7 @@ const RestaurantDetailScreen = () => {
 	const handleViewParty = () => {
 		if (currentPartyIds[restaurant.id]) {
 			navigation.navigate("PartyTab", {
-				screen: "PartyLobby",
+				screen: "PartySession",
 				params: {
 					partyId: currentPartyIds[restaurant.id],
 				},

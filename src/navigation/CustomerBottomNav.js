@@ -23,7 +23,7 @@ import { Alert, Platform, TouchableOpacity, View } from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
-import PartyLobbyScreen from "../screens/customer/PartyLobbyScreen";
+// import PartyLobbyScreen from "../screens/customer/PartyLobbyScreen";
 
 import { db } from "../config/firebase";
 import { useParty } from "../context/customer/PartyContext";
@@ -90,11 +90,11 @@ const CustomerDashboardStack = () => (
 				headerTitle: "Restaurant Details",
 			})}
 		/>
-		<Stack.Screen
+		{/* <Stack.Screen
 			name="PartyLobbyScreen"
 			component={PartyLobbyScreen}
 			options={{ title: "Party Lobby" }} // Or customize header as needed
-		/>
+		/> */}
 		{/* Additional nested screens in RestaurantDetail flow */}
 		<Stack.Screen
 			name="BasketScreen"
@@ -128,11 +128,11 @@ const PartyStackScreen = () => (
 			component={PartyHubScreen}
 			options={{ headerTitle: "Party Hub" }}
 		/>
-		<Stack.Screen
+		{/* <Stack.Screen
 			name="PartyLobby"
 			component={PartyLobbyScreen}
 			options={{ headerTitle: "Party Lobby" }}
-		/>
+		/> */}
 		<Stack.Screen
 			name="PartySession" // This is your new hub/lobby screen
 			component={PartySessionScreen} // Make sure to import PartySessionScreen

@@ -295,58 +295,66 @@ export const PartyProvider = ({ children }) => {
 		}
 	};
 	// --- Action: Leave Party ---
-	const leaveParty = async () => {
-		if (!currentUserData?.uid || !currentPartyIds || isLoadingPartyAction)
-			return;
-		// Confirmation Alert is handled in the UI component calling this
-		console.log(`PartyContext: Attempting to leave party: ${currentPartyIds}`);
+	const leaveParty = async (partyId) => {
+		if (!currentUserData?.uid || !partyId || isLoadingPartyAction) return;
+
+		console.log(`PartyContext: Attempting to leave party: ${partyId}`);
+
 		setIsLoadingPartyAction(true);
 		setPartyError(null);
+
 		try {
-			const result = await leavePartyFunction({ partyId: currentPartyIds });
+			const result = await leavePartyFunction({ partyId }); // Fixed: string
+
 			if (result.data.success) {
-				console.log("PartyContext: Left party successfully.");
-				clearPartyState(); // Clear state after leaving
-				// Navigation back is handled in the UI component
+				console.log(
+					"PartyContext: Left party successfully. Listener will clean up state."
+				);
+				// DO NOT call clearPartyState() — let Firestore listener remove party from currentPartyIds
 			} else {
 				throw new Error(result.data.error || "Failed to leave party.");
 			}
 		} catch (error) {
 			console.error("PartyContext: Error leaving party:", error);
-			setPartyError(`Could not leave party: ${error.message}`);
-			Alert.alert("Error", `Could not leave party: ${error.message}`);
-			// Don't clear state on error, user is technically still in
-			setIsLoadingPartyAction(false); // Ensure loading stops on error
+			const message = error.message || "Could not leave party.";
+			setPartyError(message);
+			Alert.alert("Error", message);
+			setIsLoadingPartyAction(false);
 		}
-		// No finally here, state cleared on success path
 	};
-
-	const isHost = partyDetails?.hostUserId === currentUserData?.uid; // Make sure partyDetails is up-to-date
 
 	const activatePartyCheckIn = useCallback(
 		async (checkInDocId) => {
-			// Log parameters received and current context state
+			// Get the current party ID from currentPartyIds object
+			const partyId = Object.values(currentPartyIds)[0];
+			const partyData = partyDetails[partyId] || {};
+			const isHost = partyData.hostUserId === currentUserData?.uid;
+
+			console.log("Is Host", isHost);
+
+			// Debug logs
 			console.log(
 				`PartyContext: activatePartyCheckIn INVOKED. Received checkInDocId: "${checkInDocId}"`
 			);
 			console.log(
-				`PartyContext: Current partyId from context state: "${currentPartyIds}"`
+				`PartyContext: Current partyId: "${partyId}", isHost: ${isHost}`
 			);
-			console.log(`PartyContext: Is current user host? ${isHost}`); // Verify host status
+			console.log("PartyContext: Host check", {
+				partyId,
+				hostUserId: partyData.hostUserId,
+				currentUserId: currentUserData?.uid,
+			});
 
-			// Ensure currentPartyIds is valid and the user is the host (host check also in CF)
-			if (
-				!currentPartyIds ||
-				typeof currentPartyIds !== "string" ||
-				currentPartyIds.trim() === ""
-			) {
+			// Validate partyId
+			if (!partyId) {
 				Alert.alert("Error", "No active party selected to activate.");
 				console.error(
-					"PartyContext.activatePartyCheckIn: currentPartyIds is invalid or missing.",
+					"PartyContext.activatePartyCheckIn: No valid partyId found.",
 					currentPartyIds
 				);
 				return false;
 			}
+
 			if (
 				!checkInDocId ||
 				typeof checkInDocId !== "string" ||
@@ -359,6 +367,7 @@ export const PartyProvider = ({ children }) => {
 				);
 				return false;
 			}
+
 			// Client-side check for host status (Cloud Function will also verify)
 			if (!isHost) {
 				Alert.alert(
@@ -375,7 +384,7 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 
 			const payloadToCloudFunction = {
-				partyId: currentPartyIds, // Use the partyId from the context's state
+				partyId: partyId, // Fixed: Use actual partyId string
 				checkInId: checkInDocId,
 			};
 
@@ -393,11 +402,10 @@ export const PartyProvider = ({ children }) => {
 					console.log(
 						"PartyContext: activatePartyCheckIn CF successful. Party status should update via listener."
 					);
-					// The partyDetails listener should pick up the status change to "AWAITING_TABLE"
+					// The partyDetails listener will pick up the status change to "AWAITING_TABLE"
 					// and the activeCheckInId.
 					return true;
 				} else {
-					// If CF returns { success: false, error: "..." }
 					console.error(
 						"PartyContext: Cloud function reported failure for party activation:",
 						result.data.error
@@ -412,13 +420,11 @@ export const PartyProvider = ({ children }) => {
 					return false;
 				}
 			} catch (error) {
-				// This catches errors from the httpsCallable itself or if CF throws an HttpsError
 				console.error(
 					"PartyContext: Error calling activatePartyCheckInFunction:",
 					error
 				);
-				const message =
-					error.message || "Could not activate party check-in link.";
+				const message = error.message || "Could not activate party check-in.";
 				setPartyError(message);
 				Alert.alert("Activation Error", message);
 				return false;
@@ -428,7 +434,8 @@ export const PartyProvider = ({ children }) => {
 		},
 		[
 			currentPartyIds,
-			isHost,
+			partyDetails,
+			currentUserData?.uid, // Fixed dependency: use currentUserData.uid instead of isHost
 			activatePartyCheckInFunction,
 			setIsLoadingPartyAction,
 			setPartyError,
@@ -437,11 +444,13 @@ export const PartyProvider = ({ children }) => {
 
 	// --- NEW cancelPartyCheckIn function ---
 	const cancelPartyCheckIn = useCallback(async () => {
-		// This function doesn't need arguments as it gets them from the context's state.
-		const partyId = partyDetails?.id;
-		const checkInId = partyDetails?.activeCheckInId;
-		const isHost = partyDetails?.hostUserId === currentUserData?.uid;
-		const currentStatus = partyDetails?.status;
+		// Get current party ID from context (object → first value)
+		const partyId = Object.values(currentPartyIds)[0];
+		const partyData = partyDetails[partyId] || {};
+
+		const checkInId = partyData.activeCheckInId;
+		const isHost = partyData.hostUserId === currentUserData?.uid;
+		const currentStatus = partyData.status;
 
 		console.log(
 			`PartyContext: Attempting to cancel check-in. PartyID: ${partyId}, CheckInID: ${checkInId}, IsHost: ${isHost}, Status: ${currentStatus}`
@@ -457,7 +466,15 @@ export const PartyProvider = ({ children }) => {
 				"Cannot Cancel",
 				"This check-in request cannot be cancelled at this time."
 			);
-			console.error("PartyContext.cancelPartyCheckIn: Pre-conditions not met.");
+			console.error(
+				"PartyContext.cancelPartyCheckIn: Pre-conditions not met.",
+				{
+					partyId,
+					checkInId,
+					isHost,
+					currentStatus,
+				}
+			);
 			return false;
 		}
 
@@ -470,7 +487,6 @@ export const PartyProvider = ({ children }) => {
 				console.log(
 					"PartyContext: Check-in cancellation successful. Listener will update UI."
 				);
-				// The party listener will automatically see the status change back to 'pending'.
 				return true;
 			} else {
 				throw new Error(
@@ -490,6 +506,7 @@ export const PartyProvider = ({ children }) => {
 			setIsLoadingPartyAction(false);
 		}
 	}, [
+		currentPartyIds,
 		partyDetails,
 		currentUserData?.uid,
 		setIsLoadingPartyAction,
@@ -501,28 +518,45 @@ export const PartyProvider = ({ children }) => {
 	const cancelParty = async () => {
 		if (!currentUserData?.uid || !currentPartyIds || isLoadingPartyAction)
 			return;
-		// Add host check? Backend function will verify anyway.
-		// if (partyDetails?.hostUserId !== currentUserData.uid) return;
 
-		// Confirmation Alert is handled in the UI component
-		console.log(`PartyContext: Attempting to cancel party: ${currentPartyIds}`);
+		// Extract the actual partyId (string) from the object
+		const partyId = Object.values(currentPartyIds)[0];
+		const partyData = partyDetails[partyId] || {};
+		const isHost = partyData.hostUserId === currentUserData?.uid;
+
+		// Optional: Add client-side host check (Cloud Function still verifies)
+		if (!isHost) {
+			Alert.alert(
+				"Permission Denied",
+				"Only the party host can cancel the party."
+			);
+			console.warn("PartyContext.cancelParty: Non-host attempted to cancel.");
+			return;
+		}
+
+		console.log(`PartyContext: Attempting to cancel party: ${partyId}`);
+
 		setIsLoadingPartyAction(true);
 		setPartyError(null);
+
 		try {
-			const result = await cancelPartyFunction({ partyId: currentPartyIds });
+			const result = await cancelPartyFunction({ partyId }); // Fixed: pass string
+
 			if (result.data.success) {
 				console.log("PartyContext: Cancelled party successfully.");
-				clearPartyState(); // Clear state after cancelling
+				// clearPartyState(); // Clear state after cancelling
 			} else {
 				throw new Error(result.data.error || "Failed to cancel party.");
 			}
 		} catch (error) {
 			console.error("PartyContext: Error cancelling party:", error);
-			setPartyError(`Could not cancel party: ${error.message}`);
-			Alert.alert("Error", `Could not cancel party: ${error.message}`);
-			setIsLoadingPartyAction(false); // Reset loading only on error
+			const message = error.message || "Could not cancel party.";
+			setPartyError(message);
+			Alert.alert("Error", message);
+			setIsLoadingPartyAction(false); // Reset only on error
+		} finally {
+			setIsLoadingPartyAction(false);
 		}
-		// No finally needed
 	};
 
 	const addLocalPIPToParty = useCallback(
@@ -573,13 +607,30 @@ export const PartyProvider = ({ children }) => {
 
 	// --- Action: Invite to Party ---
 	const inviteToParty = useCallback(async () => {
-		const partyId = partyDetails?.id;
+		const partyId = Object.values(currentPartyIds)[0] || null; // Use currentPartyId
+		const partyData = partyDetails[partyId] || {};
+		const isHost = partyData.hostUserId === currentUserData?.uid;
+
+		// Debug
+		console.log("inviteToParty: Checking host", {
+			partyId,
+			isHost,
+			hostUserId: partyData.hostUserId,
+			currentUserId: currentUserData?.uid,
+		});
+
 		if (!isHost || !partyId) {
+			console.log("inviteToParty: Failed - Not host or missing partyId", {
+				isHost,
+				partyId,
+			});
 			Alert.alert(
 				"Permission Denied",
-				"Only the party host can generate an invite code."
+				"Only the party host can generate an invite code.",
+				[{ text: "OK", style: "cancel" }],
+				{ cancelable: true }
 			);
-			return null; // Return null to indicate failure
+			return null;
 		}
 
 		setIsLoadingAction(true);
@@ -594,7 +645,7 @@ export const PartyProvider = ({ children }) => {
 				console.log(
 					`PartyContext: Invite code generated: ${result.data.inviteCode}`
 				);
-				return result.data.inviteCode; // Return the code to the UI
+				return result.data.inviteCode;
 			} else {
 				throw new Error(
 					result.data.error ||
@@ -605,16 +656,17 @@ export const PartyProvider = ({ children }) => {
 			console.error("PartyContext: Error calling inviteToParty CF:", error);
 			const message = error.message || "Could not generate an invite code.";
 			setPartyError(message);
-			Alert.alert("Invite Error", message);
-			return null; // Indicate failure
+			Alert.alert("Invite Error", message, [{ text: "OK", style: "cancel" }], {
+				cancelable: true,
+			});
+			return null;
 		} finally {
 			setIsLoadingAction(false);
 		}
 	}, [
-		isHost,
-		partyDetails?.id,
-		setIsLoadingAction,
-		setPartyError,
+		currentPartyIds,
+		partyDetails,
+		currentUserData?.uid,
 		inviteToPartyFunction,
 	]);
 	// --- End Invite Action ---
@@ -641,7 +693,9 @@ export const PartyProvider = ({ children }) => {
 					// The main context listener will automatically pick up the party details
 					// once the user is added to guestUserIds. We can also manually set it
 					// to speed up the UI transition.
-					setCurrentPartyIds(result.data.partyId);
+					setCurrentPartyIds({
+						[result.data.restaurantId]: result.data.partyId,
+					});
 					return true; // Indicate success
 				} else {
 					throw new Error(

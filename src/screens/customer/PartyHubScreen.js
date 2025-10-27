@@ -8,7 +8,8 @@ import {
 	TouchableOpacity,
 	RefreshControl,
 	useColorScheme,
-	SafeAreaView, // Added for dynamic theming
+	SafeAreaView,
+	Alert, // Added for dynamic theming
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
@@ -113,8 +114,6 @@ const PartyHubScreen = () => {
 		cancelParty,
 	} = useParty();
 
-	console.log("Party Details", partyDetails);
-
 	const [inviteCode, setInviteCode] = useState("");
 	const [uiJoinLoading, setUiJoinLoading] = useState(false);
 	const [uiError, setUiError] = useState(null);
@@ -124,19 +123,29 @@ const PartyHubScreen = () => {
 	// Memoized parties with sorting
 	const parties = useMemo(() => {
 		return Object.entries(currentPartyIds)
-			.map(([restaurantId, partyId]) => ({
-				partyId,
-				restaurantId,
-				...partyDetails[partyId],
-			}))
+			.map(([restaurantId, partyId]) => {
+				const details = partyDetails[partyId];
+				if (!details) {
+					console.warn("Skipping party - details not loaded", { partyId });
+					return null;
+				}
+				return {
+					partyId,
+					restaurantId,
+					...details,
+				};
+			})
+			.filter(Boolean) // Remove null entries
 			.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 	}, [currentPartyIds, partyDetails]);
 
 	// Filtered parties based on search
 	const filteredParties = useMemo(() => {
-		return parties.filter((party) =>
-			party.restaurantName.toLowerCase().includes(searchQuery.toLowerCase())
-		);
+		return parties.filter((party) => {
+			console.log("This is the party from filtered", party.restaurantName);
+			const name = party.restaurantName || "";
+			return name.toLowerCase().includes(searchQuery.toLowerCase());
+		});
 	}, [parties, searchQuery]);
 
 	const onRefresh = useCallback(() => {
@@ -156,7 +165,7 @@ const PartyHubScreen = () => {
 			const result = await joinParty({ inviteCode: inviteCode.trim() });
 			if (result?.success) {
 				navigation.navigate("PartyTab", {
-					screen: "PartyLobby", // Fixed screen name
+					screen: "PartySession", // Fixed screen name
 					params: {
 						partyId: result.partyId,
 						restaurantId: result.restaurantId,
@@ -206,6 +215,10 @@ const PartyHubScreen = () => {
 
 	// Render party item
 	const renderParty = ({ item }) => {
+		if (!item.restaurantName) {
+			console.warn("Party item missing restaurantName", item);
+			return null; // or fallback UI
+		}
 		const basketItems = sharedBaskets[item.partyId] || [];
 		return (
 			<Animated.View entering={FadeInDown.duration(300).delay(100)}>
@@ -222,7 +235,7 @@ const PartyHubScreen = () => {
 						}
 						navigation.navigate("PartyTab", {
 							// Note: Assuming PartyTab is the stack navigator name
-							screen: item.status === "active" ? "PartySession" : "PartyLobby", // Fixed screen names
+							screen: "PartySession", // Fixed screen names
 							params: {
 								partyId: item.partyId,
 								restaurantId: item.restaurantId,
@@ -309,6 +322,7 @@ const PartyHubScreen = () => {
 		<SafeAreaView
 			style={[styles.screen, { backgroundColor: colors.backgroundLight }]}
 		>
+			{/* Header */}
 			<View
 				style={[
 					styles.header,
@@ -322,50 +336,31 @@ const PartyHubScreen = () => {
 					Party Hub
 				</Text>
 				<Text style={[styles.hubSubtitle, { color: colors.textMedium }]}>
-					Join an existing party or start a new one from a restaurant's page.
+					View your active parties or join one with a code.
 				</Text>
-				<TouchableOpacity
-					style={[styles.startPartyButton, { backgroundColor: colors.primary }]}
-					onPress={handleStartNewPartyGuidance}
-					accessibilityRole="button"
-					accessibilityLabel="Start new party guidance"
-				>
-					<Ionicons name="add-circle" size={scale(24)} color={colors.white} />
-					<Text style={[styles.startPartyButtonText, { color: colors.white }]}>
-						Start a New Party
-					</Text>
-				</TouchableOpacity>
 			</View>
+
+			{/* Party List */}
 			<SwipeListView
 				style={styles.container}
-				data={filteredParties}
+				data={parties} // ← Use raw parties (no filtering)
 				renderItem={renderParty}
 				renderHiddenItem={renderHiddenItem}
 				rightOpenValue={-moderateScale(75)}
 				keyExtractor={(item) => item.partyId}
-				ListHeaderComponent={
-					<TextInput
-						placeholder="Search by restaurant..."
-						value={searchQuery}
-						onChangeText={setSearchQuery}
-						style={[
-							styles.searchInput,
-							{
-								backgroundColor: colors.white,
-								borderColor: colors.borderLight,
-								color: colors.textDark,
-							},
-						]}
-						placeholderTextColor={colors.textLight}
-						accessibilityRole="search"
-						accessibilityLabel="Search parties"
-					/>
-				}
 				ListEmptyComponent={
-					<Text style={[styles.emptyText, { color: colors.textLight }]}>
-						No active parties. Start one from a restaurant page or join with a
-						code!
-					</Text>
+					<View style={styles.emptyContainer}>
+						<Text style={styles.emptyTitle}>No active parties</Text>
+						<Text style={styles.emptyMessage}>
+							To start a new party, go to the Home screen and pick a restaurant.
+						</Text>
+						<TouchableOpacity
+							style={[styles.goButton, { backgroundColor: colors.primary }]}
+							onPress={() => navigation.navigate("CustomerDashboard")}
+						>
+							<Text style={styles.goButtonText}>Go to Restaurants</Text>
+						</TouchableOpacity>
+					</View>
 				}
 				refreshControl={
 					<RefreshControl
@@ -375,13 +370,12 @@ const PartyHubScreen = () => {
 					/>
 				}
 			/>
+
+			{/* Join Party Section */}
 			<View
 				style={[
 					styles.joinPartyContainer,
-					{
-						backgroundColor: colors.white,
-						borderTopColor: colors.borderLight,
-					},
+					{ backgroundColor: colors.white, borderTopColor: colors.borderLight },
 				]}
 			>
 				<Text style={[styles.joinPartyTitle, { color: colors.textDark }]}>
@@ -433,66 +427,59 @@ const PartyHubScreen = () => {
 };
 
 const styles = StyleSheet.create({
+	// ──────────────────────────────────────
+	// Core layout
+	// ──────────────────────────────────────
 	screen: {
 		flex: 1,
-		backgroundColor: colors.backgroundLight || "#f8f9fa", // Explicit
+		backgroundColor: colors.backgroundLight || "#f8f9fa",
 	},
 	centeredScreen: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 		paddingHorizontal: moderateScale(20),
-		backgroundColor: colors.backgroundLight || "#f8f9fa", // Explicit
+		backgroundColor: colors.backgroundLight || "#f8f9fa",
 	},
+
+	// ──────────────────────────────────────
+	// Header
+	// ──────────────────────────────────────
 	header: {
 		padding: moderateScale(20),
-		backgroundColor: colors.white, // Explicit
+		backgroundColor: colors.white,
 		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight || "#e0e0e0", // Explicit
+		borderBottomColor: colors.borderLight || "#e0e0e0",
 		alignItems: "center",
 	},
 	hubTitle: {
 		fontSize: moderateScale(28),
 		fontWeight: "700",
-		color: colors.primary, // Explicit
+		color: colors.primary,
 		marginBottom: moderateScale(8),
 		textAlign: "center",
 	},
 	hubSubtitle: {
 		fontSize: moderateScale(16),
-		color: colors.textMedium, // Explicit
+		color: colors.textMedium,
 		textAlign: "center",
 		marginBottom: moderateScale(12),
 		paddingHorizontal: moderateScale(10),
 	},
-	startPartyButton: {
-		flexDirection: "row",
-		alignItems: "center",
-		backgroundColor: colors.primary, // Explicit
-		paddingVertical: moderateScale(12),
-		paddingHorizontal: moderateScale(20),
-		borderRadius: moderateScale(10),
-		marginTop: moderateScale(10),
-	},
-	startPartyButtonText: {
-		color: colors.white, // Explicit
-		fontSize: moderateScale(16),
-		fontWeight: "600",
-		marginLeft: moderateScale(8),
-	},
+
+	// ──────────────────────────────────────
+	// Party list
+	// ──────────────────────────────────────
 	container: {
 		flex: 1,
 		paddingHorizontal: moderateScale(10),
 	},
-
 	partyItem: {
 		backgroundColor: "#fff",
 		borderRadius: 12,
 		padding: 15,
 		marginVertical: 8,
 		marginHorizontal: 10,
-
-		// Replaced shadow with a clean border
 		borderWidth: 1,
 		borderColor: colors.borderLight || "#e0e0e0",
 	},
@@ -505,7 +492,7 @@ const styles = StyleSheet.create({
 	partyTitle: {
 		fontSize: moderateScale(18),
 		fontWeight: "600",
-		color: colors.textDark, // Explicit
+		color: colors.textDark,
 		marginBottom: moderateScale(6),
 	},
 	statusBadge: {
@@ -514,7 +501,7 @@ const styles = StyleSheet.create({
 		borderRadius: moderateScale(12),
 	},
 	badgeText: {
-		color: colors.white, // Explicit
+		color: colors.white,
 		fontSize: moderateScale(12),
 		fontWeight: "bold",
 	},
@@ -530,82 +517,82 @@ const styles = StyleSheet.create({
 	statLabel: {
 		marginLeft: moderateScale(4),
 		fontSize: moderateScale(14),
-		color: colors.textMedium, // Explicit
+		color: colors.textMedium,
 	},
-	searchInput: {
-		backgroundColor: colors.white, // Explicit
-		padding: moderateScale(10),
-		borderRadius: moderateScale(8),
-		margin: moderateScale(10),
-		borderWidth: 1,
-		borderColor: colors.borderLight, // Explicit
-		color: colors.textDark, // Explicit
-	},
+
+	// ──────────────────────────────────────
+	// Hidden swipe‑to‑delete
+	// ──────────────────────────────────────
 	hiddenItem: {
 		alignItems: "flex-end",
 		justifyContent: "center",
 		height: "100%",
 		paddingRight: moderateScale(20),
-		backgroundColor: colors.danger, // Explicit
+		backgroundColor: colors.danger,
 	},
 	deleteButton: {
-		backgroundColor: colors.danger, // Explicit
+		backgroundColor: colors.danger,
 		justifyContent: "center",
 		alignItems: "center",
 		width: moderateScale(75),
 		height: "100%",
 	},
+
+	// ──────────────────────────────────────
+	// Misc text
+	// ──────────────────────────────────────
 	statusText: {
 		marginTop: moderateScale(15),
 		fontSize: moderateScale(16),
-		color: colors.textDark, // Explicit
-	},
-	emptyText: {
-		textAlign: "center",
-		color: colors.textLight, // Explicit
-		marginTop: moderateScale(20),
-		fontStyle: "italic",
-		fontSize: moderateScale(16),
+		color: colors.textDark,
 	},
 	errorText: {
-		color: colors.danger, // Explicit
+		color: colors.danger,
 		fontSize: moderateScale(14),
 		textAlign: "center",
 		marginBottom: moderateScale(15),
 		paddingHorizontal: moderateScale(10),
 	},
+
+	// ──────────────────────────────────────
+	// Join‑party footer
+	// ──────────────────────────────────────
 	joinPartyContainer: {
 		width: "100%",
 		alignItems: "center",
 		padding: moderateScale(20),
-		backgroundColor: colors.white, // Explicit
+		backgroundColor: colors.white,
 		borderTopWidth: 1,
-		borderTopColor: colors.borderLight || "#e0e0e0", // Explicit
+		borderTopColor: colors.borderLight || "#e0e0e0",
 	},
 	joinPartyTitle: {
 		fontSize: moderateScale(18),
 		fontWeight: "600",
-		color: colors.textDark, // Explicit
+		color: colors.textDark,
 		marginBottom: moderateScale(10),
 	},
 	joinInput: {
 		width: "90%",
 		borderWidth: 1,
-		borderColor: colors.mediumGray || "#ccc", // Explicit
-		backgroundColor: colors.white, // Explicit
+		borderColor: colors.mediumGray || "#ccc",
+		backgroundColor: colors.white,
 		paddingHorizontal: moderateScale(15),
 		paddingVertical: moderateScale(12),
 		borderRadius: moderateScale(8),
 		fontSize: moderateScale(16),
-		color: colors.textDark, // Explicit
+		color: colors.textDark,
 		marginBottom: moderateScale(15),
 		textAlign: "center",
 	},
+
+	// ──────────────────────────────────────
+	// IconTextButton (used for Join)
+	// ──────────────────────────────────────
 	iconTextButtonContainer: {
 		alignItems: "center",
 		paddingVertical: moderateScale(12),
 		paddingHorizontal: moderateScale(20),
-		backgroundColor: colors.accent, // Explicit
+		backgroundColor: colors.accent,
 		borderRadius: moderateScale(10),
 		width: "90%",
 	},
@@ -614,12 +601,54 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		fontWeight: "600",
 		fontSize: moderateScale(16),
-		color: colors.textDark, // Explicit
+		color: colors.textDark,
 	},
 	disabledButtonVisual: {
 		opacity: 0.7,
-		backgroundColor: colors.mediumGray || "#ccc", // Explicit
+		backgroundColor: colors.mediumGray || "#ccc",
 	},
+
+	// ──────────────────────────────────────
+	// **NEW** Empty‑state styles
+	// ──────────────────────────────────────
+	emptyContainer: {
+		padding: moderateScale(24),
+		alignItems: "center",
+		justifyContent: "center",
+		flex: 1,
+	},
+	emptyTitle: {
+		fontSize: moderateScale(20),
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginBottom: moderateScale(8),
+		textAlign: "center",
+	},
+	emptyMessage: {
+		fontSize: moderateScale(16),
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: moderateScale(16),
+		lineHeight: moderateScale(22),
+	},
+	goButton: {
+		backgroundColor: colors.primary,
+		paddingHorizontal: moderateScale(24),
+		paddingVertical: moderateScale(12),
+		borderRadius: moderateScale(8),
+		minWidth: moderateScale(180),
+		alignItems: "center",
+	},
+	goButtonText: {
+		color: colors.white,
+		fontWeight: "600",
+		fontSize: moderateScale(16),
+	},
+
+	// ──────────────────────────────────────
+	// (Removed – no longer needed)
+	// ──────────────────────────────────────
+	// searchInput, startPartyButton, startPartyButtonText
 });
 
 export default PartyHubScreen;

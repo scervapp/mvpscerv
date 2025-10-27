@@ -12,11 +12,13 @@ const PartyBasketGuide = ({ isHost }) => {
 				color={colors.textLight}
 			/>
 			<Text style={styles.guideTitle}>Your Party Basket is Empty</Text>
-			<Text style={styles.guideSubtitle}>
-				Tap the{" "}
-				<Ionicons name="add-circle" size={16} color={colors.brandOrange} />{" "}
-				button below to add your first item to the order.
-			</Text>
+			<View style={styles.subtitleContainer}>
+				<Text style={styles.guideSubtitle}>Tap the </Text>
+				<Ionicons name="add-circle" size={16} color={colors.brandOrange} />
+				<Text style={styles.guideSubtitle}>
+					{" button below to add your first item to the order."} 
+				</Text>
+			</View>
 
 			<View style={styles.iconGuideSection}>
 				<Text style={styles.iconGuideHeader}>Header Actions</Text>
@@ -77,11 +79,18 @@ const styles = StyleSheet.create({
 		marginTop: 15,
 		marginBottom: 8,
 	},
+	subtitleContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		flexWrap: "wrap",
+		marginBottom: 35,
+		paddingHorizontal: 20,
+	},
 	guideSubtitle: {
 		fontSize: 16,
 		color: colors.textMedium,
 		textAlign: "center",
-		marginBottom: 35,
 		lineHeight: 24,
 	},
 	iconGuideSection: {
