@@ -131,6 +131,7 @@ const PartyCheckoutScreen = () => {
 		const items = sharedBasketItems.filter(
 			(item) => item.orderedByUserId === currentUserData.uid
 		);
+
 		if (items.length === 0) {
 			return {
 				myItemsInBasket: [],
@@ -167,15 +168,24 @@ const PartyCheckoutScreen = () => {
 		const totalDiscountInCents =
 			originalSubtotalInCents - discountedSubtotalInCents;
 
+		// FINAL: Include menuItemId + restaurantId for rating
 		return {
-			myItemsInBasket: items,
+			myItemsInBasket: items.map((item) => ({
+				id: item.id, // basketItemId
+				name: item.dishName,
+				menuItemId: item.menuItemId, // ← REQUIRED for rating
+				restaurantId: item.restaurantId, // ← REQUIRED for rating
+				price: item.price,
+				quantity: item.quantity,
+				discountedPrice: item.discountedPrice,
+			})),
 			mySubtotal: discountedSubtotalInCents,
 			myGratuity: gratuityInCents,
 			myPlatformFee: platformFeeInCents,
 			myFinalTotal: finalTotalInCents,
 			myTotalDiscount: totalDiscountInCents,
 		};
-	}, [sharedBasketItems, currentUserData.uid, gratuityPercentage, fees]);
+	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
 
 	useEffect(() => {
 		const canPay =
@@ -241,15 +251,17 @@ const PartyCheckoutScreen = () => {
 					throw new Error(`Payment failed: ${presentError.message}`);
 				}
 			} else {
-				// --- Step 5: Handle a Successful Payment ---
-				console.log("Party payment successful! Navigating to confirmation.");
 				navigation.dispatch(
 					CommonActions.reset({
 						index: 0,
 						routes: [
 							{
 								name: "OrderConfirmation",
-								params: { initialStatus: "processing" },
+								params: {
+									initialStatus: "processing",
+									itemsToRate: myItemsInBasket, // ← PASS IT
+									currentPartyId: party.id,
+								},
 							},
 						],
 					})
@@ -282,19 +294,22 @@ const PartyCheckoutScreen = () => {
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>Your Items</Text>
 						{myItemsInBasket.length > 0 ? (
-							myItemsInBasket.map((item) => (
-								<View key={item.id} style={styles.itemRow}>
-									<Text style={styles.itemName}>
-										{item.quantity}x {item.dishName}{" "}
-										{item.orderedByPipName
-											? `(For ${item.orderedByPipName})`
-											: ""}
-									</Text>
-									<Text style={styles.itemPrice}>
-										{formatCurrency((item.price || 0) * item.quantity * 100)}
-									</Text>
-								</View>
-							))
+							myItemsInBasket.map((item) => {
+								console.log("Item From Party Checkout", item);
+								return (
+									<View key={item.id} style={styles.itemRow}>
+										<Text style={styles.itemName}>
+											{item.quantity}x {item.name}{" "}
+											{item.orderedByPipName
+												? `(For ${item.orderedByPipName})`
+												: ""}
+										</Text>
+										<Text style={styles.itemPrice}>
+											{formatCurrency((item.price || 0) * item.quantity * 100)}
+										</Text>
+									</View>
+								);
+							}) // ✅ missing this parenthesis in your version
 						) : (
 							<Text style={styles.noItemsText}>
 								You have no items in this order.

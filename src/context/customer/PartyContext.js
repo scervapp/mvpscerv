@@ -724,6 +724,7 @@ export const PartyProvider = ({ children }) => {
 	 * @returns {Promise<string | null>} The ID of the added basket item, or null on failure.
 	 */
 	const addItemToPartyBasket = async (partyContextData, menuItemDetails) => {
+		console.log("This is Context", partyDetails);
 		const { partyId, orderingForUserId, orderingForPipName } = partyContextData;
 
 		console.log("Party Context Add Item To Basket Called");
@@ -761,7 +762,7 @@ export const PartyProvider = ({ children }) => {
 				orderingForPipName,
 				menuItemData: {
 					// Ensure structure matches what CF expects
-					id: menuItemDetails.id, // menuItemId
+					id: menuItemDetails.id, // menuItemIdd
 					name: menuItemDetails.name,
 					price: menuItemDetails.price,
 					quantity: menuItemDetails.quantity,

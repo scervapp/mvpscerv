@@ -213,3 +213,129 @@ exports.aggregateDishRating = functions.firestore
 			return null;
 		}
 	});
+
+exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
+	const uid = context.auth.uid;
+	if (!uid)
+		throw new functions.https.HttpsError("unauthenticated", "Login required.");
+
+	const {
+		partyId,
+		basketItemId, // Unique ID from shared_baskets.items[]
+		menuItemId,
+		restaurantId,
+		ratingValue,
+		comment,
+	} = data;
+
+	if (
+		!partyId ||
+		!basketItemId ||
+		!menuItemId ||
+		!restaurantId ||
+		ratingValue < 1 ||
+		ratingValue > 5
+	) {
+		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
+	}
+
+	const basketRef = db.collection("shared_baskets").doc(partyId);
+	const ratingRef = db
+		.collection("menuItems")
+		.doc(menuItemId)
+		.collection("ratings")
+		.doc();
+
+	try {
+		await db.runTransaction(async (t) => {
+			const basketSnap = await t.get(basketRef);
+			if (!basketSnap.exists)
+				throw new functions.https.HttpsError("not-found", "Basket not found.");
+
+			const items = basketSnap.data().items || [];
+			const itemIndex = items.findIndex((i) => i.id === basketItemId);
+			if (itemIndex === -1)
+				throw new functions.https.HttpsError("not-found", "Item not found.");
+
+			const item = items[itemIndex];
+			if (item.orderedByUserId !== uid) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"You can only rate your own items."
+				);
+			}
+			if (item.rated) {
+				throw new functions.https.HttpsError(
+					"already-exists",
+					"Item already rated."
+				);
+			}
+			if (item.status !== "sent") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Item must be sent to kitchen."
+				);
+			}
+
+			// Mark as rated
+			const updatedItems = [...items];
+			updatedItems[itemIndex].rated = true;
+
+			// Save rating
+			t.set(ratingRef, {
+				menuItemId,
+				restaurantId,
+				partyId,
+				basketItemId,
+				customerId: uid,
+				ratingValue,
+				comment: comment || null,
+				timestamp: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			t.update(basketRef, { items: updatedItems });
+		});
+
+		return { success: true, ratingId: ratingRef.id };
+	} catch (error) {
+		console.error("Rating error:", error);
+		if (error.code) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to submit rating."
+		);
+	}
+});
+
+exports.aggregateMenuItemRating = functions.firestore
+	.document("menuItems/{itemId}/ratings/{ratingId}")
+	.onCreate(async (snap, context) => {
+		const { itemId } = context.params;
+		const { ratingValue } = snap.data();
+
+		const itemRef = db.collection("menuItems").doc(itemId);
+
+		try {
+			await db.runTransaction(async (t) => {
+				const doc = await t.get(itemRef);
+				const currentSum = doc.data().totalRatingSum || 0;
+				const currentCount = doc.data().ratingCount || 0;
+
+				const newCount = currentCount + 1;
+				const newSum = currentSum + ratingValue;
+				const newAverage = newCount > 0 ? newSum / newCount : 0;
+
+				t.set(
+					itemRef,
+					{
+						totalRatingSum: newSum,
+						ratingCount: newCount,
+						averageRating: newAverage,
+					},
+					{ merge: true }
+				);
+			});
+		} catch (error) {
+			console.error("Aggregation failed:", error);
+		}
+	});

@@ -1,67 +1,39 @@
+import React, { useState, useEffect } from "react";
+import {
+	View,
+	Text,
+	SafeAreaView,
+	ActivityIndicator,
+	Alert,
+	Modal,
+	TouchableOpacity,
+	ScrollView,
+} from "react-native";
 import {
 	useRoute,
 	useNavigation,
 	CommonActions,
 } from "@react-navigation/native";
-import React, { useState, useEffect, useContext } from "react";
-import { db } from "../../config/firebase";
-
-import colors from "../../utils/styles/appStyles";
-import {
-	Text,
-	View,
-	ActivityIndicator,
-	StyleSheet,
-	TouchableOpacity,
-	SafeAreaView,
-} from "react-native";
-import formatCurrency from "../../utils/currencyFormatter";
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // Or Ionicons
-import { AuthContext } from "../../context/authContext";
-import { Button } from "react-native-paper";
+import { useParty } from "../../context/customer/PartyContext";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { functions } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import { onSnapshot } from "@react-native-firebase/firestore";
+import colors from "../../utils/styles/appStyles";
+import { moderateScale } from "react-native-size-matters";
 
-const StatusIndicator = ({ status, message, details, error }) => {
-	let iconName, iconColor, title;
-
-	switch (status) {
-		case "paid":
-		case "succeeded":
-			iconName = "checkmark-circle";
-			iconColor = colors.statusSuccess;
-			title = "Payment Successful!";
-			break;
-		case "failed":
-			iconName = "alert-circle";
-			iconColor = colors.statusDanger;
-			title = "Payment Failed";
-			break;
-		case "processing":
-		default:
-			return (
-				<View style={styles.contentContainer}>
-					<ActivityIndicator size="large" color={colors.primary} />
-					<Text style={styles.statusTitle}>Processing Payment...</Text>
-					<Text style={styles.statusMessage}>
-						Please wait, we're confirming your payment.
-					</Text>
-				</View>
-			);
-	}
-
+const StarRating = ({ rating, onRate }) => {
 	return (
-		<View style={styles.contentContainer}>
-			<Ionicons
-				name={iconName}
-				size={80}
-				color={iconColor}
-				style={{ marginBottom: 20 }}
-			/>
-			<Text style={[styles.statusTitle, { color: iconColor }]}>{title}</Text>
-			{message && <Text style={styles.statusMessage}>{message}</Text>}
-			{details && <Text style={styles.detailsText}>{details}</Text>}
-			{error && <Text style={styles.errorText}>{error}</Text>}
+		<View style={{ flexDirection: "row", marginVertical: 8 }}>
+			{[1, 2, 3, 4, 5].map((star) => (
+				<TouchableOpacity key={star} onPress={() => onRate(star)}>
+					<Ionicons
+						name={star <= rating ? "star" : "star-outline"}
+						size={moderateScale(28)}
+						color={star <= rating ? "#FFD700" : "#CCC"}
+						style={{ marginHorizontal: 2 }}
+					/>
+				</TouchableOpacity>
+			))}
 		</View>
 	);
 };
@@ -69,195 +41,223 @@ const StatusIndicator = ({ status, message, details, error }) => {
 const OrderConfirmationScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { currentUserData } = useContext(AuthContext);
-
-	// Get params from route
 	const {
-		mode = "individual", // 'individual' or 'party'
-		orderDocId, // For 'individual' mode
-		partyId, // For 'party' mode
 		initialStatus = "processing",
-	} = route.params;
+		itemsToRate = [],
+		currentPartyId,
+	} = route.params || {};
 
 	const [status, setStatus] = useState(initialStatus);
-	const [error, setError] = useState(null);
-	const [details, setDetails] = useState(null);
+	const [showRatingModal, setShowRatingModal] = useState(false);
+	const [ratings, setRatings] = useState({});
+	const [submitting, setSubmitting] = useState(false);
 
-	const handleDone = () => {
+	useEffect(() => {
+		if (status === "processing") {
+			const timer = setTimeout(() => {
+				setStatus("confirmed");
+				setShowRatingModal(true);
+			}, 1500);
+			return () => clearTimeout(timer);
+		}
+	}, [status]);
+
+	const handleRate = (itemId, value) => {
+		setRatings((prev) => ({ ...prev, [itemId]: value }));
+	};
+
+	const handleSubmitRatings = async () => {
+		if (submitting) return;
+		setSubmitting(true);
+
+		try {
+			const submitRating = httpsCallable(functions, "submitMenuItemRating");
+
+			for (const item of itemsToRate) {
+				const rating = ratings[item.id];
+				if (rating) {
+					await submitRating({
+						partyId: currentPartyId,
+						basketItemId: item.id,
+						menuItemId: item.menuItemId,
+						restaurantId: item.restaurantId,
+						ratingValue: rating,
+						comment: "",
+					});
+				}
+			}
+
+			Alert.alert("Thank You!", "Your ratings have been submitted.");
+			setShowRatingModal(false);
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0,
+					routes: [{ name: "PartyHub" }],
+				})
+			);
+		} catch (error) {
+			console.error("Rating submission failed:", error);
+			Alert.alert("Error", "Failed to submit ratings.");
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	const handleSkip = () => {
+		setShowRatingModal(false);
 		navigation.dispatch(
 			CommonActions.reset({
 				index: 0,
-				routes: [{ name: "CustomerDashboard" }],
+				routes: [{ name: "PartyHub" }],
 			})
 		);
 	};
 
-	useEffect(() => {
-		navigation.setOptions({
-			headerTitle: status === "processing" ? "Confirming..." : "Confirmation",
-			headerLeft: () => null,
-			headerRight: () => (
-				<TouchableOpacity onPress={handleDone} style={{ marginRight: 15 }}>
-					<Ionicons name="close" size={28} color={colors.textDark} />
-				</TouchableOpacity>
-			),
-		});
-	}, [navigation, status]);
-
-	// --- Firestore Listener ---
-	useEffect(() => {
-		let unsubscribe = () => {};
-		let docRef;
-
-		// Determine which document to listen to based on the mode
-		if (mode === "individual") {
-			if (currentUserData?.activeCheckIn === null && status === "processing") {
-				// If the activeCheckIn has been cleared by the webhook, the process is successful.
-				console.log(
-					"OrderConfirmationScreen: activeCheckIn is null. Confirming success."
-				);
-				setStatus("paid");
-			}
-			// We don't need an unsubscribe function here.
-			return;
-		} else if (mode === "party" && partyId && currentUserData?.uid) {
-			docRef = db.collection("parties").doc(partyId);
-		} else {
-			console.error(
-				"OrderConfirmationScreen: Missing required params for listener.",
-				route.params
-			);
-			setError("Cannot display confirmation: Required information is missing.");
-			setStatus("failed");
-			return;
-		}
-
-		console.log(
-			`OrderConfirmationScreen: Setting up listener for document: ${docRef.path}`
+	if (status === "processing") {
+		return (
+			<SafeAreaView style={styles.container}>
+				<ActivityIndicator size="large" color={colors.primary} />
+				<Text style={styles.statusText}>Processing your payment...</Text>
+			</SafeAreaView>
 		);
-		unsubscribe = onSnapshot(
-			docRef,
-			(docSnap) => {
-				if (docSnap.exists()) {
-					const data = docSnap.data();
-					let newPaymentStatus = "processing";
-
-					// Document still exists, update status based on its fields
-					if (mode === "individual") {
-						newPaymentStatus = data.paymentStatus || "processing";
-						setStatus(newPaymentStatus);
-						if (newPaymentStatus === "paid") {
-							setDetails(
-								`Order ID: ${data.orderId}\nTotal: ${formatCurrency(
-									data.totalPrice
-								)}`
-							);
-						} else if (newPaymentStatus === "failed") {
-							setError(
-								data.paymentFailureReason ||
-									"Please try another payment method."
-							);
-						}
-					} else if (mode === "party") {
-						console.log("Data from Order Confirmation", data);
-						const myPipData = (data.guestPips || []).find(
-							(p) => p.userId === currentUserData.uid
-						);
-						newPaymentStatus = myPipData?.paymentStatus || "processing";
-					}
-					if (newPaymentStatus === "paid" || newPaymentStatus === "failed") {
-						setStatus(newPaymentStatus);
-						if (newPaymentStatus === "failed") {
-							setError("Your payment could not be processed.");
-						}
-					}
-				} else {
-					// --- THIS IS THE FIX for the race condition ---
-					// If the document doesn't exist, it's because the party was successfully closed.
-					// We keep the 'paid' status that was set initially and do nothing further.
-					console.log(
-						`OrderConfirmationScreen: Document at ${docRef.path} was deleted. Assuming successful completion.`
-					);
-				}
-			},
-			(err) => {
-				console.error(
-					`OrderConfirmationScreen: Error listening to document ${docRef.path}:`,
-					err
-				);
-				setError("Error fetching real-time order status.");
-				setStatus("failed");
-			}
-		);
-
-		return () => unsubscribe();
-	}, [partyId, mode, currentUserData?.activeCheckIn, status]);
+	}
 
 	return (
-		<SafeAreaView style={styles.safeArea}>
-			<View style={styles.container}>
-				<StatusIndicator status={status} message={details} error={error} />
+		<SafeAreaView style={styles.container}>
+			<View style={styles.content}>
+				<Ionicons
+					name="checkmark-circle"
+					size={80}
+					color={colors.success || "#4CAF50"}
+				/>
+				<Text style={styles.title}>Payment Successful!</Text>
+				<Text style={styles.subtitle}>Your portion has been paid.</Text>
 			</View>
-			<View style={styles.footer}>
-				<Button mode="contained" onPress={handleDone} style={styles.doneButton}>
-					Done
-				</Button>
-			</View>
+
+			<Modal visible={showRatingModal} animationType="slide" transparent>
+				<View style={styles.modalOverlay}>
+					<View style={styles.modalContent}>
+						<Text style={styles.modalTitle}>Rate Your Items</Text>
+
+						<ScrollView style={{ maxHeight: "60%" }}>
+							{itemsToRate.length === 0 ? (
+								<Text style={styles.noItemsText}>No items to rate.</Text>
+							) : (
+								itemsToRate.map((item) => {
+									return (
+										<View key={item.id} style={styles.ratingItem}>
+											<Text style={styles.itemName}>{item.name}</Text>
+											<StarRating
+												rating={ratings[item.id] || 0}
+												onRate={(v) => handleRate(item.id, v)}
+											/>
+										</View>
+									);
+								})
+							)}
+						</ScrollView>
+						<View style={styles.modalButtons}>
+							<TouchableOpacity
+								style={[styles.modalButton, styles.submitButton]}
+								onPress={handleSubmitRatings}
+								disabled={submitting}
+							>
+								<Text style={styles.buttonText}>
+									{submitting ? "Submitting..." : "Submit Ratings"}
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={[styles.modalButton, styles.skipButton]}
+								onPress={handleSkip}
+							>
+								<Text style={styles.buttonText}>Skip</Text>
+							</TouchableOpacity>
+						</View>
+					</View>
+				</View>
+			</Modal>
 		</SafeAreaView>
 	);
 };
 
-const styles = StyleSheet.create({
-	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+const styles = {
 	container: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		padding: 20,
+		backgroundColor: "#fff",
 	},
-	contentContainer: { alignItems: "center", justifyContent: "center" },
-	statusTitle: {
-		fontSize: 26,
+	content: { alignItems: "center", padding: 20 },
+	title: {
+		fontSize: 24,
 		fontWeight: "bold",
-		textAlign: "center",
-		marginBottom: 12,
-		color: colors.textDark,
+		marginTop: 16,
+		color: colors.textDark || "#333",
 	},
-	statusMessage: {
-		fontSize: 16,
-		color: colors.textMedium,
-		textAlign: "center",
-		color: colors.textDark,
+	subtitle: { fontSize: 16, color: colors.textMedium || "#666", marginTop: 8 },
+	statusText: { marginTop: 16, fontSize: 16, color: colors.textDark || "#333" },
+
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.5)",
+		justifyContent: "center",
+		alignItems: "center",
 	},
-	detailsText: {
-		fontSize: 16,
-		color: colors.textMedium,
-		textAlign: "center",
-		marginTop: 8,
-	},
-	errorText: {
-		fontSize: 16,
-		color: colors.statusDanger,
-		textAlign: "center",
-		marginTop: 8,
-		fontWeight: "500",
-	},
-	footer: {
+	modalContent: {
+		backgroundColor: "#fff",
+		borderRadius: 16,
 		padding: 20,
-		paddingBottom: 30,
-		borderTopWidth: 1,
-		borderTopColor: colors.borderLight,
+		width: "90%",
+		maxHeight: "80%",
 	},
-	doneButton: {
-		paddingVertical: 8,
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		marginBottom: 16,
+		textAlign: "center",
+		color: colors.textDark || "#333",
+	},
+	ratingItem: {
+		marginBottom: 16,
+		padding: 12,
+		backgroundColor: "#f9f9f9",
 		borderRadius: 8,
-		backgroundColor: colors.primary,
+		color: colors.textDark,
 	},
-	doneButtonText: {
+	itemName: {
 		fontSize: 16,
-		fontWeight: "bold",
-		color: colors.textOnPrimaryBrand,
+		fontWeight: "600",
+		marginBottom: 8,
+		color: colors.textDark || "#333",
 	},
-});
+	noItemsText: {
+		textAlign: "center",
+		color: colors.textMedium || "#666",
+		fontStyle: "italic",
+		marginVertical: 20,
+	},
+	modalButtons: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		marginTop: 16,
+	},
+	modalButton: {
+		flex: 1,
+		padding: 12,
+		borderRadius: 8,
+		marginHorizontal: 8,
+	},
+	submitButton: {
+		backgroundColor: colors.primary || "#2196F3",
+	},
+	skipButton: {
+		backgroundColor: colors.mediumGray || "#999",
+	},
+	buttonText: {
+		color: "#fff",
+		textAlign: "center",
+		fontWeight: "600",
+	},
+};
 
 export default OrderConfirmationScreen;

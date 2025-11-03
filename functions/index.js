@@ -79,6 +79,8 @@ exports.setAdminClaim = setAdminClaim.setAdminClaim;
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;
 exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;
+exports.submitMenuItemRating = dishRatingFunction.submitMenuItemRating;
+exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
 
 // Party Functions
 exports.createParty = partyFunctions.createParty;

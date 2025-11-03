@@ -112,6 +112,8 @@ const PartyMenuScreen = () => {
 				orderingForPipName: partyContextData.orderingForPipName, // Now correctly accessed from the nested object
 			};
 
+			
+
 			const itemDetailsForPartyContext = {
 				id: menuItemDetails.id,
 				name: menuItemDetails.name,

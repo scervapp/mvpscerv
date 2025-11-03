@@ -20,6 +20,31 @@ import SelectedItemModal from "./SelectedItemModal";
 import colors from "../../utils/styles/appStyles";
 import { Tooltip } from "react-native-elements";
 import formatCurrency from "../../utils/currencyFormatter";
+import { Ionicons } from "@expo/vector-icons";
+
+const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
+	const fullStars = Math.floor(rating);
+	const hasHalf = rating % 1 >= 0.5;
+	return (
+		<View style={{ flexDirection: "row", alignItems: "center" }}>
+			{[1, 2, 3, 4, 5].map((i) => (
+				<Ionicons
+					key={i}
+					name={
+						i <= fullStars
+							? "star"
+							: i === fullStars + 1 && hasHalf
+							? "star-half"
+							: "star-outline"
+					}
+					size={size}
+					color="#FFD700"
+					style={{ marginRight: 2 }}
+				/>
+			))}
+		</View>
+	);
+};
 
 const MenuItemRow = ({ item, onPress }) => {
 	// Helper to safely format currency
@@ -27,6 +52,7 @@ const MenuItemRow = ({ item, onPress }) => {
 		if (typeof price !== "number" || isNaN(price)) return "N/A";
 		return `$${price.toFixed(2)}`;
 	};
+	const { averageRating = 0, ratingCount = 0 } = item;
 
 	return (
 		<TouchableOpacity onPress={onPress} style={styles.menuItem}>
@@ -38,6 +64,16 @@ const MenuItemRow = ({ item, onPress }) => {
 						{item.description}
 					</Text>
 				) : null}
+				{averageRating > 0 && (
+					<View style={styles.ratingRow}>
+						<StarRatingDisplay rating={averageRating} />
+						<Text style={styles.ratingText}>
+							{averageRating.toFixed(1)} ({ratingCount}{" "}
+							{ratingCount === 1 ? "rating" : "ratings"})
+						</Text>
+					</View>
+				)}
+
 				<Text style={styles.price}>{formatCurrency(item.price)}</Text>
 			</View>
 			{item.imageUri && (
@@ -255,6 +291,19 @@ const styles = StyleSheet.create({
 		flex: 1,
 		marginRight: 10,
 	},
+	ratingRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 4,
+		marginBottom: 4,
+	},
+	ratingText: {
+		marginLeft: 6,
+		fontSize: 13,
+		color: colors.textMedium,
+	},
+
+	// (optional) make the name a bit tighter if you want
 	name: {
 		fontSize: 16,
 		fontWeight: "bold",
