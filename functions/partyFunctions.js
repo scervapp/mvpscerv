@@ -582,7 +582,7 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 			}
 		}
 
-		// FIX: Clean up partyIds for host + all guests
+		// CLEANUP: Remove partyId from real users only
 		const allMemberUids = [
 			partyData.hostUserId,
 			...(partyData.guestUserIds || []),
@@ -592,12 +592,16 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		batch.delete(partyRef);
 		if (basketDoc.exists) batch.delete(sharedBasketRef);
 
-		allMemberUids.forEach((userId) => {
+		// Check each user exists before updating
+		for (const userId of allMemberUids) {
 			const userRef = db.collection("customers").doc(userId);
-			batch.update(userRef, {
-				partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
-			});
-		});
+			const userSnap = await userRef.get();
+			if (userSnap.exists) {
+				batch.update(userRef, {
+					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+				});
+			}
+		}
 
 		await batch.commit();
 		console.log(`Party ${partyId} cancelled and partyIds cleaned up.`);
