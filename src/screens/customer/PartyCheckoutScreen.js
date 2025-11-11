@@ -260,7 +260,9 @@ const PartyCheckoutScreen = () => {
 								params: {
 									initialStatus: "processing",
 									itemsToRate: myItemsInBasket, // ← PASS IT
-									currentPartyId: party.id,
+									basketId: party.id,
+									origin: "party",
+									isIndividual: false,
 								},
 							},
 						],

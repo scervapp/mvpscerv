@@ -44,7 +44,9 @@ const OrderConfirmationScreen = () => {
 	const {
 		initialStatus = "processing",
 		itemsToRate = [],
-		currentPartyId,
+		basketId,
+		isIndividual,
+		origin,
 	} = route.params || {};
 
 	const [status, setStatus] = useState(initialStatus);
@@ -77,12 +79,12 @@ const OrderConfirmationScreen = () => {
 				const rating = ratings[item.id];
 				if (rating) {
 					await submitRating({
-						partyId: currentPartyId,
-						basketItemId: item.id,
 						menuItemId: item.menuItemId,
 						restaurantId: item.restaurantId,
-						ratingValue: rating,
+						ratingValue: ratings[item.id],
+						origin,
 						comment: "",
+						isIndividual: isIndividual, // ← from route.params
 					});
 				}
 			}
@@ -92,7 +94,7 @@ const OrderConfirmationScreen = () => {
 			navigation.dispatch(
 				CommonActions.reset({
 					index: 0,
-					routes: [{ name: "PartyHub" }],
+					routes: [{ name: "CustomerDashboard" }], // ← ALWAYS go to Dashboard after submit
 				})
 			);
 		} catch (error) {
@@ -108,7 +110,9 @@ const OrderConfirmationScreen = () => {
 		navigation.dispatch(
 			CommonActions.reset({
 				index: 0,
-				routes: [{ name: "PartyHub" }],
+				routes: [
+					{ name: origin === "individual" ? "CustomerDashboard" : "PartyHub" },
+				],
 			})
 		);
 	};

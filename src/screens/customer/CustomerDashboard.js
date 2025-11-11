@@ -12,7 +12,6 @@ import {
 	ActivityIndicator,
 } from "react-native";
 
-import RestaurantList from "../../components/customer/RestaurantList";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 
@@ -21,6 +20,14 @@ import { NotificationBanner } from "../../utils/NotificationBanner";
 import { useDebounce } from "../../hooks/useBounce";
 import { db } from "../../config/firebase.native";
 import RestaurantCard from "../../components/customer/RestaurantCard";
+import {
+	getDocs,
+	query,
+	collection,
+	where,
+	orderBy,
+	limit,
+} from "@react-native-firebase/firestore";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -66,16 +73,13 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	const [error, setError] = useState(null);
 	const debouncedSearchText = useDebounce(searchText, 300);
 	const [isSearching, setIsSearching] = useState(false);
+	const [topCategories, setTopCategories] = useState([]);
+	const [searchResults, setSearchResults] = useState({ best: [], all: [] });
 
 	const { currentUserData } = useContext(AuthContext);
 	const handleRestaurantPress = (restaurant) => {
 		navigation.navigate("RestaurantDetail", { restaurant });
 	};
-
-	// In a real app, you would fetch these from your database
-	// const [featuredRestaurants, setFeaturedRestaurants] = useState(
-	// 	MOCK_FEATURED_RESTAURANTS
-	// );
 
 	// Handlers for search and category presses
 	const handleSearch = (text) => setSearchText(text);
@@ -95,10 +99,57 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 				setIsLoading(false);
 			},
 			(err) => {
-				/* ... error handling ... */
+				console.log("Error fetching restaurants:", err);
 			}
 		);
 		return () => unsubscribe();
+	}, []);
+
+	useEffect(() => {
+		const fetchTopCategories = async () => {
+			try {
+				setIsLoading(true);
+				const snap = await getDocs(
+					query(
+						collection(db, "menuItems"),
+						where("averageRating", ">=", 4.0),
+						orderBy("averageRating", "desc"),
+						limit(100)
+					)
+				);
+
+				const catMap = {};
+				snap.docs.forEach((doc) => {
+					const item = doc.data();
+					const cat = item.category || "Other";
+					if (!catMap[cat]) {
+						catMap[cat] = { count: 0, sum: 0, items: [] };
+					}
+					catMap[cat].count++;
+					catMap[cat].sum += item.averageRating;
+					catMap[cat].items.push({ id: doc.id, ...item });
+				});
+
+				const ranked = Object.entries(catMap)
+					.map(([name, data]) => ({
+						name,
+						avg: data.sum / data.count,
+						count: data.count,
+						items: data.items,
+					}))
+					.sort((a, b) => b.avg - a.avg || b.count - a.count)
+					.slice(0, 3);
+
+				setTopCategories(ranked);
+			} catch (error) {
+				console.error("Failed to load top categories:", error);
+				setError("Could not load top dishes. Please try again.");
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchTopCategories();
 	}, []);
 
 	// useMemo hooks to create filtered lists from the single data source.
@@ -144,7 +195,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 		});
 	}, [allRestaurants, debouncedSearchText, activeCategory]);
 
-	console.log("current user data", currentUserData);
 	const ListHeader = useMemo(
 		() => (
 			<>

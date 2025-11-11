@@ -340,43 +340,6 @@ const PartyHubScreen = () => {
 				</Text>
 			</View>
 
-			<TouchableOpacity
-				style={{
-					backgroundColor: "#2196F3",
-					padding: 16,
-					borderRadius: 8,
-					margin: 20,
-					alignItems: "center",
-				}}
-				onPress={() => {
-					navigation.navigate("OrderConfirmation", {
-						initialStatus: "processing",
-						itemsToRate: [
-							{
-								id: "test1",
-								name: "Cheeseburger",
-								menuItemId: "menu123",
-								restaurantId: "rest456",
-								price: 12.99,
-								quantity: 1,
-							},
-							{
-								id: "test2",
-								name: "Fries",
-								menuItemId: "menu789",
-								restaurantId: "rest456",
-								price: 4.99,
-								quantity: 2,
-							},
-						],
-					});
-				}}
-			>
-				<Text style={{ color: "#fff", fontWeight: "bold" }}>
-					Test Rating Modal
-				</Text>
-			</TouchableOpacity>
-
 			{/* Party List */}
 			<SwipeListView
 				style={styles.container}

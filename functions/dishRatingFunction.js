@@ -219,27 +219,12 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 	if (!uid)
 		throw new functions.https.HttpsError("unauthenticated", "Login required.");
 
-	const {
-		partyId,
-		basketItemId, // Unique ID from shared_baskets.items[]
-		menuItemId,
-		restaurantId,
-		ratingValue,
-		comment,
-	} = data;
+	const { menuItemId, restaurantId, ratingValue, comment = "" } = data;
 
-	if (
-		!partyId ||
-		!basketItemId ||
-		!menuItemId ||
-		!restaurantId ||
-		ratingValue < 1 ||
-		ratingValue > 5
-	) {
+	if (!menuItemId || !restaurantId || ratingValue < 1 || ratingValue > 5) {
 		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
 	}
 
-	const basketRef = db.collection("shared_baskets").doc(partyId);
 	const ratingRef = db
 		.collection("menuItems")
 		.doc(menuItemId)
@@ -248,55 +233,19 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 
 	try {
 		await db.runTransaction(async (t) => {
-			const basketSnap = await t.get(basketRef);
-			if (!basketSnap.exists)
-				throw new functions.https.HttpsError("not-found", "Basket not found.");
+			// Prevent duplicate ratings
 
-			const items = basketSnap.data().items || [];
-			const itemIndex = items.findIndex((i) => i.id === basketItemId);
-			if (itemIndex === -1)
-				throw new functions.https.HttpsError("not-found", "Item not found.");
-
-			const item = items[itemIndex];
-			if (item.orderedByUserId !== uid) {
-				throw new functions.https.HttpsError(
-					"permission-denied",
-					"You can only rate your own items."
-				);
-			}
-			if (item.rated) {
-				throw new functions.https.HttpsError(
-					"already-exists",
-					"Item already rated."
-				);
-			}
-			if (item.status !== "sent") {
-				throw new functions.https.HttpsError(
-					"failed-precondition",
-					"Item must be sent to kitchen."
-				);
-			}
-
-			// Mark as rated
-			const updatedItems = [...items];
-			updatedItems[itemIndex].rated = true;
-
-			// Save rating
 			t.set(ratingRef, {
 				menuItemId,
 				restaurantId,
-				partyId,
-				basketItemId,
 				customerId: uid,
 				ratingValue,
 				comment: comment || null,
 				timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			});
-
-			t.update(basketRef, { items: updatedItems });
 		});
 
-		return { success: true, ratingId: ratingRef.id };
+		return { success: true };
 	} catch (error) {
 		console.error("Rating error:", error);
 		if (error.code) throw error;

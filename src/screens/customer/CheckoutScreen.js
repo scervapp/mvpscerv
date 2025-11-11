@@ -293,10 +293,11 @@ const CheckoutScreen = ({ route, navigation }) => {
 				checkInId: checkInObj.id,
 				table: checkInObj.table || null, // Add this line
 				server: checkInObj.server || null,
-				checkInTimestamp: checkInObj.acceptedAt
+				checkInTimestamp: checkInObj.acceptedAt,
 			});
 
-			console.log("This is the data passed", prepData);
+			console.log("PrepData:", prepData);
+
 			if (!prepData?.paymentIntentClientSecret) {
 				throw new Error("Failed to get payment details from server.");
 			}
@@ -328,13 +329,28 @@ const CheckoutScreen = ({ route, navigation }) => {
 			} else {
 				// --- Step D: Handle Successful Payment ---
 				console.log("Payment successful! Navigating to confirmation screen.");
+
 				navigation.dispatch(
 					CommonActions.reset({
 						index: 0,
 						routes: [
 							{
 								name: "OrderConfirmation",
-								params: { initialStatus: "processing" },
+								params: {
+									initialStatus: "processing",
+									itemsToRate: restaurantBasketItems.map((i) => ({
+										id: i.id,
+										name: i.dish.name,
+										menuItemId: i.menuItemId,
+										restaurantId: i.restaurantId,
+										price: i.price,
+										quantity: i.quantity,
+										discountedPrice: i.discountedPrice,
+									})),
+
+									isIndividual: true, // ← NEW
+									origin: "individual",
+								},
 							},
 						],
 					})

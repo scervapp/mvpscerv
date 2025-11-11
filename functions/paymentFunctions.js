@@ -354,6 +354,15 @@ exports.preparePayment = functions
 					.filter(Boolean);
 			}
 
+			const basketId = itemsToProcess[0].id;
+
+			if (!basketId) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"No valid basket found."
+				);
+			}
+
 			if (itemsToProcess.length === 0) {
 				throw new functions.https.HttpsError(
 					"not-found",
@@ -487,6 +496,7 @@ exports.preparePayment = functions
 				ephemeralKeySecret: ephemeralKey.secret,
 				customerId: stripeCustomerId,
 				publishableKey: keys.publishableKey,
+				basketId: basketId,
 			};
 		} catch (error) {
 			console.error("Error in preparePayment:", error);
