@@ -90,8 +90,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 		}
 	};
 	const validationSchema = Yup.object().shape({
-		firstName: Yup.string().required("First name is required"),
-		lastName: Yup.string().required("Last name is required"),
 		phoneNumber: Yup.string()
 			.matches(/^[0-9]{10}$/, "Must be a valid 10-digit phone number")
 			.required("Phone number is required"),
@@ -110,7 +108,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 						</Text>
 						<Text style={styles.subtitle}>
 							{!confirmation
-								? "Enter your name and phone number to begin."
+								? "Enter your 10-digit phone number to begin."
 								: `Enter the 6-digit code sent to +1 ${formValues?.phoneNumber}`}
 						</Text>
 					</View>
@@ -125,19 +123,19 @@ const CustomerSignupScreen = ({ navigation }) => {
 							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
 									{/* First Name Input */}
-									<TextInput
+									{/* <TextInput
 										style={styles.input}
 										placeholder="First Name"
 										placeholderTextColor={colors.textMedium}
 										value={values.firstName}
 										onChangeText={handleChange("firstName")}
-									/>
-									{touched.firstName && errors.firstName && (
+									/> */}
+									{/* {touched.firstName && errors.firstName && (
 										<Text style={styles.errorText}>{errors.firstName}</Text>
-									)}
+									)} */}
 
 									{/* Last Name Input */}
-									<TextInput
+									{/* <TextInput
 										style={styles.input}
 										placeholder="Last Name"
 										placeholderTextColor={colors.textMedium}
@@ -146,7 +144,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 									/>
 									{touched.lastName && errors.lastName && (
 										<Text style={styles.errorText}>{errors.lastName}</Text>
-									)}
+									)} */}
 
 									{/* Phone Number Input */}
 									<TextInput

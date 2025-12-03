@@ -102,24 +102,22 @@ export const AuthProvider = ({ children }) => {
 	}, []);
 
 	const signInWithPhoneCredential = useCallback(
-		async (confirmation, verificationCode, additionalData) => {
+		async (confirmation, verificationCode) => {
 			setAuthError(null);
 			setIsLoading(true);
 
-			// **CRITICAL VALIDATION**: Check code before attempting confirmation
 			if (!verificationCode || verificationCode.trim().length !== 6) {
 				setIsLoading(false);
 				setAuthError("Please enter a valid 6-digit verification code.");
-				return; // Exit early - don't even attempt Firebase call
+				return;
 			}
 
 			try {
 				console.log(
-					"Starting phone verification with code:",
+					"Verifying code:",
 					verificationCode.substring(0, 2) + "***"
-				); // Log partial code for security
+				);
 
-				// 1. Confirm the verification code - this will throw if invalid
 				const userCredential = await confirmation.confirm(
 					verificationCode.trim()
 				);
@@ -127,57 +125,19 @@ export const AuthProvider = ({ children }) => {
 
 				console.log("Phone auth successful, user:", user.uid);
 
-				// 2. Now create/update user document with additional data (if provided)
-				if (
-					additionalData &&
-					additionalData.firstName &&
-					additionalData.lastName
-				) {
-					console.log("Creating customer document with additional data:", {
-						firstName: additionalData.firstName,
-						lastName: additionalData.lastName,
-						phoneNumber: additionalData.phoneNumber,
-					});
-
-					const userDocRef = doc(db, "customers", user.uid);
-
-					// Use setDoc with merge: true to create or update
-					await setDoc(
-						userDocRef,
-						{
-							firstName: additionalData.firstName,
-							lastName: additionalData.lastName,
-							phoneNumber: additionalData.phoneNumber,
-							uid: user.uid,
-							role: "customer",
-							canViewHiddenRestaurants: false,
-							createdAt: new Date(),
-						},
-						{ merge: true } // This ensures it creates if new, updates if exists
-					);
-
-					console.log("Customer document created/updated successfully");
-				}
-
-				// 3. The onAuthStateChanged listener will pick up the user and fetch full data
-				// No need to manually set state here - let the listener handle it
+				// DO NOTHING HERE
+				// Profile will be completed in CompleteProfileScreen
+				// onAuthStateChanged + CustomerDashboard will redirect automatically
 			} catch (error) {
 				console.error("Phone verification error:", error);
-
-				// Handle specific Firebase errors
 				if (error.code === "auth/invalid-verification-code") {
-					setAuthError(
-						"Invalid verification code. Please check and try again."
-					);
+					setAuthError("Invalid code. Please try again.");
 				} else if (error.code === "auth/code-expired") {
-					setAuthError(
-						"Verification code has expired. Please request a new one."
-					);
+					setAuthError("Code expired. Request a new one.");
 				} else {
 					setAuthError(`Verification failed: ${error.message}`);
 				}
-
-				throw error; // Re-throw for the screen to handle
+				throw error;
 			} finally {
 				setIsLoading(false);
 			}

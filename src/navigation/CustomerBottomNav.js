@@ -5,7 +5,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { enableScreens } from "react-native-screens";
 
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 // Import your screen components and stack navigator functions
 
@@ -377,19 +377,19 @@ const CustomerBottomNavigation = () => {
 			/>
 
 			<Tab.Screen
-				name="PartyTab" // Name for the route
-				component={PartyStackScreen} // The stack containing PartySessionScreen
+				name="PartyTab"
+				component={PartyStackScreen}
 				options={{
 					headerShown: false,
-					tabBarIcon: ({ focused, color, size }) => (
-						<Ionicons
-							name={focused ? "people" : "people-outline"}
-							size={30}
-							color={color}
+					tabBarIcon: ({ focused }) => (
+						<MaterialCommunityIcons
+							name="party-popper"
+							size={32}
+							color={focused ? colors.primary : "#888"}
 						/>
 					),
-					// tabBarBadge: currentPartyId ? '●' : undefined, // Simple dot badge
-					// tabBarBadgeStyle: { backgroundColor: colors.success, color: colors.success, fontSize: 9, top: -2, left:2 },
+					tabBarBadge: currentPartyId ? "●" : undefined,
+					tabBarBadgeStyle: { backgroundColor: colors.success },
 				}}
 			/>
 			<Tab.Screen

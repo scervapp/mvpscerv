@@ -18,6 +18,7 @@ import {
 	FlatList,
 	Modal,
 	Share,
+	Platform,
 } from "react-native";
 import {
 	useNavigation,
@@ -43,6 +44,7 @@ import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { Button } from "react-native-paper";
 import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
+import formatTimeLeft from "../../utils/formatTimeLeft";
 
 /**
  * A reusable button component featuring an icon and text underneath.
@@ -139,6 +141,10 @@ const PartySessionScreen = () => {
 	const [uiJoinLoading, setUiJoinLoading] = useState(false);
 	const [isSendingItems, setIsSendingItems] = useState(false);
 	const [isLoadingAction, setIsLoadingAction] = useState(false);
+	const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+	const [showInviteCode, setShowInviteCode] = useState(true);
+
+	const currentParty = partyDetails[currentPartyId];
 
 	const partyCheckInValidationSchema = Yup.object().shape({
 		partySize: Yup.number()
@@ -401,36 +407,44 @@ const PartySessionScreen = () => {
 	};
 
 	const handleInviteAction = async () => {
-		setIsActionsModalVisible(false); // Close the actions modal
-		if (typeof inviteToParty !== "function") {
-			Alert.alert("Error", "Invite function is not available.");
-			return;
-		}
+		setIsActionsModalVisible(false);
+		setIsGeneratingCode(true); // ← ADD THIS
 
-		const generatedCode = await inviteToParty(); // Context function handles loading state
+		try {
+			if (typeof inviteToParty !== "function") {
+				Alert.alert("Error", "Invite function is not available.");
+				return;
+			}
 
-		if (generatedCode) {
-			const message = `Join my party at ${
-				partyDetails[currentPartyId]?.restaurantName || "the restaurant"
-			}! Use this code in the Scerv app: ${generatedCode}`;
-			Alert.alert(
-				"Invite Code Generated!",
-				`Code: ${generatedCode}\n\nThis code expires in about 1 hour.`,
-				[
-					{
-						text: "Copy Code",
-						onPress: () => Clipboard.setString(generatedCode),
-					},
-					{
-						text: "Share",
-						onPress: () =>
-							Share.share({ message, title: "Scerv Party Invite" }),
-					},
-					{ text: "OK", style: "cancel" },
-				]
-			);
+			const generatedCode = await inviteToParty();
+
+			if (generatedCode) {
+				const message = `Join my party at ${
+					partyDetails[currentPartyId]?.restaurantName || "the restaurant"
+				}! Use this code in the Scerv app: ${generatedCode}`;
+
+				Alert.alert(
+					"Invite Code Generated!",
+					`Code: ${generatedCode}\n\nThis code expires in about 1 hour.`,
+					[
+						{
+							text: "Copy Code",
+							onPress: () => Clipboard.setString(generatedCode),
+						},
+						{
+							text: "Share",
+							onPress: () =>
+								Share.share({ message, title: "Scerv Party Invite" }),
+						},
+						{ text: "OK", style: "cancel" },
+					]
+				);
+			}
+		} catch (error) {
+			// Error already handled by context
+		} finally {
+			setIsGeneratingCode(false); // ← ADD THIS
 		}
-		// Errors are handled by the context function's alerts
 	};
 
 	const handleAddMembersToParty = async (pipsToAdd) => {
@@ -606,6 +620,27 @@ const PartySessionScreen = () => {
 		});
 	};
 
+	const handleShareInvite = async (code) => {
+		const restaurantName =
+			partyDetails[currentPartyId]?.restaurantName || "a restaurant";
+
+		const message = `Join my party at ${restaurantName} on Scerv!
+
+Invite Code: ${code}
+
+iPhone users → Download here:
+https://apps.apple.com/app/id1591335061
+
+Android users → Download here:
+https://play.google.com/store/apps/details?id=com.scerv.eat`;
+
+		try {
+			await Share.share({ message });
+		} catch (error) {
+			Alert.alert("Share Failed", "Could not share invite.");
+		}
+	};
+
 	// Handler for the button press
 	const handleSendMyItems = () => {
 		if (!sendMyItemsToKitchen) {
@@ -756,6 +791,8 @@ const PartySessionScreen = () => {
 						<Text style={styles.headerRestaurantName} numberOfLines={1}>
 							{partyDetails[currentPartyId]?.restaurantName}
 						</Text>
+
+						{/* STATUS ROW */}
 						{partyIsActive && partyDetails[currentPartyId]?.table?.name ? (
 							<View style={styles.statusContainer}>
 								<Ionicons
@@ -782,28 +819,41 @@ const PartySessionScreen = () => {
 							</View>
 						)}
 					</View>
+
+					{/* RIGHT-SIDE ACTION BUTTONS */}
 					<View style={styles.headerActions}>
-						{/* Host: Invite Button */}
-						{isHost &&
-							(partyDetails[currentPartyId]?.status === "pending" ||
-								partyDetails[currentPartyId]?.status === "active" ||
-								partyDetails[currentPartyId]?.status === "AWAITING_TABLE") && (
-								<TouchableOpacity
-									style={styles.headerIconButton}
-									onPress={handleInviteAction}
-									disabled={isLoadingAction}
-								>
+						{/* 1. Invite / Regenerate */}
+						{isHost && (
+							<TouchableOpacity
+								style={[
+									styles.actionButton,
+									isLoadingAction && styles.disabledButton,
+								]}
+								onPress={handleInviteAction}
+								disabled={isLoadingAction}
+							>
+								{isLoadingAction ? (
+									<ActivityIndicator size={24} color={colors.primary} />
+								) : currentParty?.inviteCode ? (
 									<Ionicons
-										name="person-add-outline"
+										name="refresh-outline"
 										size={26}
-										color={isLoadingAction ? colors.textLight : colors.primary}
+										color={colors.primary}
 									/>
-								</TouchableOpacity>
-							)}
-						{/* Host: Activate Check-In Button */}
+								) : (
+									<Ionicons
+										name="person-add"
+										size={26}
+										color={colors.primary}
+									/>
+								)}
+							</TouchableOpacity>
+						)}
+
+						{/* 2. Activate Check-In */}
 						{isHost && partyDetails[currentPartyId]?.status === "pending" && (
 							<TouchableOpacity
-								style={styles.headerIconButton}
+								style={styles.actionButton}
 								onPress={handleOpenPartyCheckInModal}
 								disabled={isLoadingAction}
 							>
@@ -814,11 +864,12 @@ const PartySessionScreen = () => {
 								/>
 							</TouchableOpacity>
 						)}
-						{/* Host: Cancel Check-In Request Button */}
+
+						{/* 3. Cancel Check-In Request */}
 						{isHost &&
 							partyDetails[currentPartyId]?.status === "AWAITING_TABLE" && (
 								<TouchableOpacity
-									style={styles.headerIconButton}
+									style={styles.actionButton}
 									onPress={handleCancelCheckInRequest}
 									disabled={isLoadingAction}
 								>
@@ -832,9 +883,9 @@ const PartySessionScreen = () => {
 								</TouchableOpacity>
 							)}
 
-						{/* All Members: View Members Button */}
+						{/* 4. View Members */}
 						<TouchableOpacity
-							style={styles.headerIconButton}
+							style={styles.actionButton}
 							onPress={() => setIsMembersModalVisible(true)}
 							disabled={isLoadingAction}
 						>
@@ -845,16 +896,16 @@ const PartySessionScreen = () => {
 							/>
 						</TouchableOpacity>
 
-						{/* Destructive Actions: Cancel or Leave */}
+						{/* 5. Cancel Party (Host) or Leave Party (Guest) */}
 						{isHost && partyDetails[currentPartyId]?.status === "pending" ? (
 							<TouchableOpacity
-								style={styles.headerIconButton}
+								style={styles.actionButton}
 								onPress={handleCancelParty}
 								disabled={isLoadingAction}
 							>
-								<MaterialCommunityIcons
-									name="trash-can-outline"
-									size={26}
+								<Ionicons
+									name="close-circle"
+									size={28}
 									color={
 										isLoadingAction ? colors.textLight : colors.statusDanger
 									}
@@ -862,7 +913,7 @@ const PartySessionScreen = () => {
 							</TouchableOpacity>
 						) : (
 							<TouchableOpacity
-								style={styles.headerIconButton}
+								style={styles.actionButton}
 								onPress={handleLeavePartyAction}
 								disabled={isLoadingAction}
 							>
@@ -877,7 +928,38 @@ const PartySessionScreen = () => {
 						)}
 					</View>
 				</View>
-
+				{isHost && currentParty?.inviteCode && (
+					<TouchableOpacity
+						onPress={() => setShowInviteCode((prev) => !prev)}
+						style={styles.actionButton}
+					>
+						<Text style={styles.toggleText}>
+							{showInviteCode ? "Hide Code ▲" : "Show Invite Code ▼"}
+						</Text>
+					</TouchableOpacity>
+				)}
+				{currentParty?.inviteCode && showInviteCode && (
+					<View style={styles.inviteCodeBanner}>
+						<Text style={styles.inviteLabel}>Invite Code</Text>
+						<View style={styles.inviteCodeBox}>
+							<Text style={styles.inviteCodeText}>
+								{currentParty.inviteCode}
+							</Text>
+							<TouchableOpacity
+								onPress={() => handleShareInvite(currentParty.inviteCode)}
+							>
+								<Ionicons
+									name="share-social"
+									size={28}
+									color={colors.primary}
+								/>
+							</TouchableOpacity>
+						</View>
+						<Text style={styles.expiryText}>
+							Expires in {formatTimeLeft(currentParty.inviteCodeExpiry)}
+						</Text>
+					</View>
+				)}
 				<FlatList
 					data={groupedBasket}
 					keyExtractor={(group) => group.userId || group.userName}
@@ -1040,6 +1122,7 @@ const PartySessionScreen = () => {
 					hostPips={hostPipsList}
 					partyMembers={partyDetails[currentPartyId]?.guestPips || []}
 					isLoading={isLoadingMembers}
+					navigation={navigation}
 				/>
 
 				<Modal
@@ -1229,7 +1312,7 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 	},
-	headerInfo: { flex: 1, marginRight: 10 },
+
 	headerRestaurantName: {
 		fontSize: 18,
 		fontWeight: "bold",
@@ -1239,7 +1322,7 @@ const styles = StyleSheet.create({
 	headerPartyStatus: { fontSize: 14, color: colors.textMedium },
 	statusPending: { color: colors.statusWarning, fontWeight: "bold" },
 	statusActive: { color: colors.statusSuccess, fontWeight: "bold" },
-	headerActions: { flexDirection: "row", alignItems: "center" },
+
 	headerIconButton: { paddingHorizontal: 8 }, // Add padding to header icons for better touch area
 
 	userBasketSection: {
@@ -1585,14 +1668,88 @@ const styles = StyleSheet.create({
 	checkoutButton: {
 		backgroundColor: colors.statusSuccess, // Use a success/green color for checkout
 	},
-	actionButtonText: {
-		color: colors.textOnPrimaryBrand,
-		fontSize: 16,
-		fontWeight: "bold",
+	headerActions: {
+		flexDirection: "row",
+		gap: 14,
+		alignItems: "center",
 	},
-	disabledButtonVisual: {
-		opacity: 0.7,
-		backgroundColor: colors.textMedium,
+	actionButton: {
+		padding: 8,
+		borderRadius: 8,
+	},
+	disabledButton: {
+		opacity: 0.5,
+	},
+	inviteCodeHeader: {
+		marginTop: 12,
+		alignItems: "center",
+	},
+	inviteCodeSection: {
+		marginVertical: 20,
+		alignItems: "center",
+		width: "100%",
+	},
+
+	headerInfo: {
+		flexShrink: 1,
+		marginRight: 10,
+		paddingRight: 20,
+	},
+	headerActions: {
+		flexDirection: "row",
+		gap: 16,
+		alignItems: "center",
+	},
+	inviteCodeBanner: {
+		backgroundColor: colors.surfaceWhite,
+		paddingVertical: 24,
+		paddingHorizontal: 20,
+		alignItems: "center",
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	inviteLabel: {
+		fontSize: 15,
+		color: colors.textMedium,
+		fontWeight: "600",
+		marginBottom: 10,
+	},
+	inviteCodeBox: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary + "15",
+		paddingHorizontal: 40,
+		paddingVertical: 24,
+		borderRadius: 24,
+		borderWidth: 2,
+		borderColor: colors.primary + "50",
+		gap: 20,
+		minWidth: 320,
+	},
+	inviteCodeText: {
+		fontSize: 42,
+		fontWeight: "900",
+		letterSpacing: 10,
+		color: colors.primary,
+		includeFontPadding: false,
+	},
+	shareButton: {
+		padding: 12,
+		backgroundColor: colors.primary + "25",
+		borderRadius: 50,
+	},
+	expiryText: {
+		marginTop: 10,
+		fontSize: 14,
+		color: colors.textLight,
+		fontStyle: "italic",
+	},
+	toggleText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: colors.primary,
+		textDecorationLine: "underline",
 	},
 });
 

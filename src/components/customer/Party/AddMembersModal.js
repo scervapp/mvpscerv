@@ -9,77 +9,82 @@ import {
 	Alert,
 } from "react-native";
 import { Button } from "react-native-paper";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
 
 const AddMembersModal = ({
-	isVisible, // Boolean to control visibility
-	onClose, // Function to close the modal
-	onConfirmAdd, // Function to call with selected PIPs: (pipsToAdd: Array<{id, name}>) => void
-	hostPips, // The host's full list of local PIPs to choose from
-	partyMembers, // The list of members currently in the party (to disable them)
-	isLoading = false, // To show a loading state on the confirm button
+	isVisible,
+	onClose,
+	onConfirmAdd,
+	hostPips = [],
+	partyMembers = [],
+	isLoading = false,
+	navigation,
 }) => {
 	const [selectedPipsToAdd, setSelectedPipsToAdd] = useState([]);
 
-	// Reset selection when modal becomes visible
+	// Reset selection when modal opens
 	useEffect(() => {
-		if (isVisible) {
-			setSelectedPipsToAdd([]);
-		}
+		if (isVisible) setSelectedPipsToAdd([]);
 	}, [isVisible]);
 
-	// Create a Set of existing member IDs for efficient lookup
+	// Prevent selecting people already in party
 	const partyMemberIds = useMemo(() => {
-		return new Set((partyMembers || []).map((p) => p.userId || p.localPipId));
+		return new Set(
+			(partyMembers || []).map((p) => p.userId || p.localPipId || p.id)
+		);
 	}, [partyMembers]);
 
 	const togglePipSelection = (pip) => {
-		setSelectedPipsToAdd(
-			(prev) =>
-				prev.find((p) => p.id === pip.id)
-					? prev.filter((p) => p.id !== pip.id)
-					: [...prev, { id: pip.id, name: pip.name }] // Select id and name
+		if (partyMemberIds.has(pip.id)) return;
+
+		setSelectedPipsToAdd((prev) =>
+			prev.some((p) => p.id === pip.id)
+				? prev.filter((p) => p.id !== pip.id)
+				: [...prev, pip]
 		);
 	};
 
 	const handleConfirm = () => {
-		if (selectedPipsToAdd.length === 0) {
-			Alert.alert("No Selection", "Please select at least one member to add.");
-			return;
-		}
+		if (selectedPipsToAdd.length === 0) return;
 		onConfirmAdd(selectedPipsToAdd);
+		onClose();
 	};
 
-	if (!isVisible) return null;
-
 	const renderPipItem = ({ item: pip }) => {
-		const isAlreadyInParty = partyMemberIds.has(pip.id);
-		const isSelectedInThisModal = !!selectedPipsToAdd.find(
-			(p) => p.id === pip.id
-		);
+		const isInParty = partyMemberIds.has(pip.id);
+		const isSelected = selectedPipsToAdd.some((p) => p.id === pip.id);
 
 		return (
 			<TouchableOpacity
-				style={styles.pipCheckboxItem}
-				onPress={() => !isAlreadyInParty && togglePipSelection(pip)}
-				disabled={isAlreadyInParty}
+				style={[
+					styles.pipItem,
+					isSelected && styles.pipItemSelected,
+					isInParty && styles.pipItemDisabled,
+				]}
+				onPress={() => !isInParty && togglePipSelection(pip)}
+				disabled={isInParty}
 			>
-				<MaterialCommunityIcons
-					name={
-						isAlreadyInParty || isSelectedInThisModal
-							? "checkbox-marked"
-							: "checkbox-blank-outline"
-					}
-					size={24}
-					color={isAlreadyInParty ? colors.textLight : colors.primary}
-				/>
-				<Text
-					style={[styles.pipNameText, isAlreadyInParty && styles.disabledText]}
-				>
-					{pip.name}
-				</Text>
-				{isAlreadyInParty && <Text style={styles.inPartyText}>(In Party)</Text>}
+				<View style={styles.pipInfo}>
+					<Text style={[styles.pipName, isInParty && styles.disabledText]}>
+						{pip.name}
+					</Text>
+					<Text style={[styles.pipPhone, isInParty && styles.disabledText]}>
+						{pip.phone}
+					</Text>
+				</View>
+
+				{isInParty ? (
+					<Text style={styles.inPartyText}>In Party</Text>
+				) : isSelected ? (
+					<Ionicons name="checkmark-circle" size={28} color={colors.primary} />
+				) : (
+					<Ionicons
+						name="radio-button-off"
+						size={28}
+						color={colors.textLight}
+					/>
+				)}
 			</TouchableOpacity>
 		);
 	};
@@ -87,55 +92,78 @@ const AddMembersModal = ({
 	return (
 		<Modal
 			visible={isVisible}
-			transparent={true}
-			onRequestClose={onClose}
+			transparent
 			animationType="slide"
+			onRequestClose={onClose}
 		>
 			<TouchableOpacity
 				style={styles.modalOverlay}
 				activeOpacity={1}
 				onPressOut={onClose}
 			>
-				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
+				<View style={styles.modalContent}>
 					<Text style={styles.modalTitle}>Add Members to Party</Text>
-					{hostPips && hostPips.length > 0 ? (
+
+					{/* PIPS List */}
+					{hostPips.length > 0 ? (
 						<FlatList
 							data={hostPips}
 							keyExtractor={(p) => p.id}
 							renderItem={renderPipItem}
-							contentContainerStyle={{ paddingHorizontal: 10 }}
+							showsVerticalScrollIndicator={false}
 						/>
 					) : (
 						<Text style={styles.noPipsText}>
-							You haven't added any PIPs to your account yet. You can manage
-							your PIPs list in your account settings.
+							You haven't added any PIPs yet.
 						</Text>
 					)}
+
+					{/* Add New PIP Button */}
+					<TouchableOpacity
+						style={styles.addNewPipButton}
+						onPress={() => {
+							onClose();
+							navigation.navigate("AccountScreen", {
+								screen: "PipScreenInner",
+							});
+						}}
+					>
+						<Ionicons
+							name="add-circle-outline"
+							size={26}
+							color={colors.primary}
+						/>
+						<Text style={styles.addNewPipText}>Add New PIP</Text>
+					</TouchableOpacity>
+
+					{/* Bottom Buttons */}
 					<View style={styles.modalButtonRow}>
 						<Button
-							onPress={onClose}
 							mode="outlined"
+							onPress={onClose}
 							style={styles.modalButton}
-							labelStyle={{ color: colors.textDark }}
 						>
 							Cancel
 						</Button>
+
 						<Button
-							onPress={handleConfirm}
 							mode="contained"
+							onPress={handleConfirm}
 							disabled={selectedPipsToAdd.length === 0 || isLoading}
 							loading={isLoading}
-							style={[styles.modalButton, { backgroundColor: colors.primary }]}
-							labelStyle={{ color: colors.textOnPrimaryBrand }}
+							style={[
+								styles.modalButton,
+								selectedPipsToAdd.length === 0 && styles.disabledAddButton,
+							]}
 						>
 							Add{" "}
 							{selectedPipsToAdd.length > 0
 								? `${selectedPipsToAdd.length} `
 								: ""}
-							Member(s)
+							Member{selectedPipsToAdd.length !== 1 ? "s" : ""}
 						</Button>
 					</View>
-				</TouchableOpacity>
+				</View>
 			</TouchableOpacity>
 		</Modal>
 	);
@@ -144,62 +172,94 @@ const AddMembersModal = ({
 const styles = StyleSheet.create({
 	modalOverlay: {
 		flex: 1,
-		backgroundColor: "rgba(0, 0, 0, 0.6)",
+		backgroundColor: "rgba(0,0,0,0.6)",
 		justifyContent: "center",
 		alignItems: "center",
-		paddingHorizontal: 20,
 	},
 	modalContent: {
 		backgroundColor: colors.surfaceWhite,
-		paddingVertical: 20,
-		paddingHorizontal: 15,
-		borderRadius: 12,
-		width: "95%",
-		maxHeight: "70%",
+		width: "92%",
+		maxHeight: "85%",
+		borderRadius: 16,
+		padding: 20,
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
+		shadowOffset: { width: 0, height: 10 },
 		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
+		shadowRadius: 20,
+		elevation: 10,
 	},
 	modalTitle: {
-		fontSize: 21,
+		fontSize: 22,
 		fontWeight: "bold",
-		marginBottom: 15,
 		textAlign: "center",
+		marginBottom: 16,
 		color: colors.textDark,
 	},
-	pipCheckboxItem: {
+	pipItem: {
 		flexDirection: "row",
 		alignItems: "center",
-		paddingVertical: 12,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
+		justifyContent: "space-between",
+		padding: 16,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		marginBottom: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
 	},
-	pipNameText: { fontSize: 16, color: colors.textDark, marginLeft: 15 },
+	pipItemSelected: {
+		borderColor: colors.primary,
+		borderWidth: 2,
+		backgroundColor: colors.primary + "10",
+	},
+	pipItemDisabled: {
+		opacity: 0.5,
+		backgroundColor: colors.backgroundLight,
+	},
+	pipInfo: { flex: 1 },
+	pipName: { fontSize: 17, fontWeight: "600", color: colors.textDark },
+	pipPhone: { fontSize: 14, color: colors.textMedium, marginTop: 2 },
 	disabledText: { color: colors.textLight },
 	inPartyText: {
-		marginLeft: "auto",
-		color: colors.statusSuccess,
-		fontStyle: "italic",
 		fontSize: 13,
+		color: colors.statusSuccess,
+		fontWeight: "600",
 	},
 	noPipsText: {
 		textAlign: "center",
-		fontStyle: "italic",
 		color: colors.textMedium,
-		padding: 20,
+		fontStyle: "italic",
+		paddingVertical: 30,
+	},
+	addNewPipButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		padding: 18,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 14,
+		borderWidth: 2,
+		borderColor: colors.primary,
+		borderStyle: "dashed",
+		marginVertical: 20,
+	},
+	addNewPipText: {
+		marginLeft: 10,
+		fontSize: 17,
+		fontWeight: "600",
+		color: colors.primary,
 	},
 	modalButtonRow: {
 		flexDirection: "row",
-		justifyContent: "space-around",
-		width: "100%",
-		marginTop: 20,
-		paddingTop: 15,
-		borderTopWidth: 1,
-		borderTopColor: colors.borderLight,
+		justifyContent: "space-between",
+		marginTop: 10,
 	},
-	modalButton: { flex: 1, marginHorizontal: 5 },
+	modalButton: {
+		flex: 1,
+		marginHorizontal: 6,
+	},
+	disabledAddButton: {
+		backgroundColor: colors.textLight,
+	},
 });
 
 export default AddMembersModal;

@@ -28,6 +28,7 @@ import {
 	orderBy,
 	limit,
 } from "@react-native-firebase/firestore";
+import CompleteProfileScreen from "../auth/CompleteProfile";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -285,6 +286,17 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 			handleCategoryPress,
 		]
 	);
+
+	if (isLoading) {
+		return <ActivityIndicator />;
+	}
+
+	if (
+		currentUserData &&
+		(!currentUserData || !currentUserData.profileCompleted)
+	) {
+		return <CompleteProfileScreen />;
+	}
 
 	return (
 		<SafeAreaView style={styles.container}>
