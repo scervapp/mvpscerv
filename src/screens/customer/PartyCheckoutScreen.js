@@ -189,10 +189,10 @@ const PartyCheckoutScreen = () => {
 
 	useEffect(() => {
 		const canPay =
-			myFinalTotal > 0 && party?.id && currentUserData?.uid && checkInObj;
+			myFinalTotal > 0 && party?.id && currentUserData?.uid && party?.checkInId;
 
 		setIsReadyToPay(canPay);
-	}, [myFinalTotal, party, currentUserData, checkInObj]);
+	}, [myFinalTotal, party, currentUserData]);
 	// --- Handle Payment Action ---
 	const handlePayment = async () => {
 		// Prevent multiple presses or paying when not ready.
@@ -215,10 +215,10 @@ const PartyCheckoutScreen = () => {
 				partyId: party.id,
 				items: myItemsInBasket.map((item) => ({ id: item.id })), // Send only basket item IDs
 				gratuity: myGratuity, // Send this user's portion of the gratuity
-				checkInId: checkInObj.id,
+				checkInId: party.checkInId,
 				table: party.table || null,
 				server: party.server || null,
-				checkInTimestamp: checkInObj.acceptedAt,
+				checkInTimestamp: null,
 				// No stripeCustomerId is sent; the server securely handles it.
 			});
 

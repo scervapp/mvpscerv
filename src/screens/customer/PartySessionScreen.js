@@ -928,7 +928,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 						)}
 					</View>
 				</View>
-				{isHost && currentParty?.inviteCode && (
+				{currentParty?.inviteCode && (
 					<TouchableOpacity
 						onPress={() => setShowInviteCode((prev) => !prev)}
 						style={styles.actionButton}
@@ -938,6 +938,8 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 						</Text>
 					</TouchableOpacity>
 				)}
+
+				{/* The display block remains the same */}
 				{currentParty?.inviteCode && showInviteCode && (
 					<View style={styles.inviteCodeBanner}>
 						<Text style={styles.inviteLabel}>Invite Code</Text>

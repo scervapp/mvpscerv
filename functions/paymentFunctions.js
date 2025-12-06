@@ -645,31 +645,30 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 				if (partySnap && partySnap.exists) {
 					const partyData = partySnap.data();
 
-					// Update the guest's payment status.
+					// ONLY mark the paying user as paid
+					const payerUserId = pendingOrderData.customerId;
 					const updatedGuestPips = partyData.guestPips.map((pip) =>
-						pip.userId === userId ? { ...pip, paymentStatus: "paid" } : pip
+						pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip
 					);
+
 					t.update(partySnap.ref, { guestPips: updatedGuestPips });
 
-					// Delete paid items from the shared basket subcollection.
+					// Only delete THIS user's items
 					const sharedBasketItemsPath = `shared_baskets/${partyData.sharedBasketId}/items`;
 					pendingOrderData.items.forEach((item) => {
 						const itemRef = db.collection(sharedBasketItemsPath).doc(item.id);
 						t.delete(itemRef);
 					});
 
-					// Check if all members have paid to perform final cleanup writes.
+					// Only close party if EVERYONE paid
 					const allPaid = updatedGuestPips.every(
 						(pip) => pip.paymentStatus === "paid"
 					);
-					if (allPaid) {
-						console.log(
-							"[Transaction] All party members paid. Performing final cleanup writes."
-						);
-						// Delete the party document
-						t.delete(partySnap.ref);
 
-						// Update table status
+					if (allPaid) {
+						console.log("All party members paid. Closing party...");
+						// Your existing cleanup code
+						t.delete(partySnap.ref);
 						if (partyData.table.id) {
 							const tableRef = db
 								.collection("restaurants")
@@ -682,23 +681,17 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 								currentCustomerId: null,
 							});
 						}
-						// Update the master check-in for the party
 						if (partyData.checkInId) {
-							const checkInRef = db
-								.collection("checkIns")
-								.doc(partyData.checkInId);
-							t.update(checkInRef, {
+							t.update(db.collection("checkIns").doc(partyData.checkInId), {
 								status: "COMPLETED",
 								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 							});
 						}
-						// Update the activeCheckIn status for ALL members of the party
 						updatedGuestPips.forEach((member) => {
 							if (member.userId) {
-								const customerRef = db
-									.collection("customers")
-									.doc(member.userId);
-								t.update(customerRef, { activeCheckIn: null });
+								t.update(db.collection("customers").doc(member.userId), {
+									activeCheckIn: null,
+								});
 							}
 						});
 					}
