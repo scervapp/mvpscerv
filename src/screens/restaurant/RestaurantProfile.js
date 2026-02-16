@@ -23,7 +23,7 @@ import colors from "../../utils/styles/appStyles";
 import { stateOptions } from "../../utils/data/states"; // Assuming you have this
 import { Picker } from "@react-native-picker/picker";
 import { db } from "../../config/firebase";
-
+import { useTranslation } from "react-i18next";
 // A reusable card component for sectioning the form
 const InfoCard = ({ title, children }) => (
 	<View style={styles.card}>
@@ -54,6 +54,7 @@ const LabeledInput = ({
 );
 
 const RestaurantProfile = () => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const insets = useSafeAreaInsets();
 
@@ -96,7 +97,7 @@ const RestaurantProfile = () => {
 				}
 			} catch (error) {
 				console.error("Error fetching restaurant profile:", error);
-				Alert.alert("Error", "Could not load your profile.");
+				Alert.alert(t("error"), t("could_not_load_your_profile"));
 			} finally {
 				setIsLoading(false);
 			}
@@ -127,7 +128,10 @@ const RestaurantProfile = () => {
 
 	const saveRestaurantProfile = async () => {
 		if (!formData.restaurantName) {
-			Alert.alert("Missing Name", "Please enter your restaurant's name.");
+			Alert.alert(
+				t("missing_name"),
+				t("please_enter_your_restaurants_name")
+			);
 			return;
 		}
 		setIsSaving(true);
@@ -148,10 +152,10 @@ const RestaurantProfile = () => {
 			const docRef = db.collection("restaurants").doc(currentUserData.uid);
 			await docRef.set(finalData, { merge: true }); // Use merge to avoid overwriting other fields
 
-			Alert.alert("Success", "Your profile has been saved.");
+			Alert.alert(t("success"), t("your_profile_has_been_saved"));
 		} catch (error) {
 			console.error("Error saving restaurant profile:", error);
-			Alert.alert("Error", "There was an issue saving your profile.");
+			Alert.alert(t("error"), t("there_was_an_issue_saving_your_profile"));
 		} finally {
 			setIsSaving(false);
 		}
@@ -175,7 +179,7 @@ const RestaurantProfile = () => {
 					contentContainerStyle={styles.scrollContent}
 					showsVerticalScrollIndicator={false}
 				>
-					<InfoCard title="Profile Image">
+					<InfoCard title={t("profile_image")}>
 						<View style={styles.imagePickerContainer}>
 							{formData.imageUri ? (
 								<Image
@@ -196,70 +200,72 @@ const RestaurantProfile = () => {
 								onPress={handleImageUpload}
 							>
 								<Ionicons name="camera" size={20} color={colors.primary} />
-								<Text style={styles.imageButtonText}>Change Image</Text>
+								<Text style={styles.imageButtonText}>
+									{t("change_image")}
+								</Text>
 							</TouchableOpacity>
 						</View>
 					</InfoCard>
 
-					<InfoCard title="Basic Info">
+					<InfoCard title={t("basic_info")}>
 						<LabeledInput
-							label="Restaurant Name"
+							label={t("restaurant_name")}
 							value={formData.restaurantName}
 							onChangeText={(val) => handleInputChange("restaurantName", val)}
-							placeholder="Your Restaurant's Name"
+							placeholder={t("your_restaurants_name")}
 						/>
 						<LabeledInput
-							label="Cuisine Type"
+							label={t("cuisine_type")}
 							value={formData.cuisineType}
 							onChangeText={(val) => handleInputChange("cuisineType", val)}
-							placeholder="e.g., Italian, Mexican, etc."
+							placeholder={t("e_g_italian_mexican_etc")}
 						/>
 						<LabeledInput
-							label="Short Description"
+							label={t("short_description")}
 							value={formData.description}
 							onChangeText={(val) => handleInputChange("description", val)}
-							placeholder="A short, catchy tagline"
+							placeholder={t("a_short_catchy_tagline")}
 							multiline
 						/>
 					</InfoCard>
 
-					<InfoCard title="Contact & Location">
+					<InfoCard title={t("contact_location")}>
 						<LabeledInput
-							label="Phone Number"
+							label={t("phone_number")}
 							value={formData.phone}
 							onChangeText={(val) => handleInputChange("phone", val)}
 							placeholder="(555) 123-4567"
 							keyboardType="phone-pad"
 						/>
 						<LabeledInput
-							label="Website"
+							label={t("website")}
 							value={formData.website}
 							onChangeText={(val) => handleInputChange("website", val)}
 							placeholder="www.your-restaurant.com"
 							keyboardType="url"
 						/>
 						<LabeledInput
-							label="Address"
+							label={t("address")}
 							value={formData.address}
 							onChangeText={(val) => handleInputChange("address", val)}
 							placeholder="123 Main St"
 						/>
 						<View style={styles.row}>
 							<LabeledInput
-								label="City"
+								label={t("city")}
 								value={formData.city}
 								onChangeText={(val) => handleInputChange("city", val)}
 								containerStyle={{ flex: 1, marginRight: 10 }}
 							/>
 							<LabeledInput
-								label="Zip"
+								label={t("zip")}
 								value={formData.zipcode}
 								onChangeText={(val) => handleInputChange("zipcode", val)}
 								keyboardType="number-pad"
 								containerStyle={{ flex: 0.5 }}
 							/>
 						</View>
-						<Text style={styles.inputLabel}>State</Text>
+						<Text style={styles.inputLabel}>{t("state")}</Text>
 						<View style={styles.pickerContainer}>
 							<Picker
 								selectedValue={formData.state}
@@ -279,7 +285,7 @@ const RestaurantProfile = () => {
 						</View>
 					</InfoCard>
 
-					<InfoCard title="Hours of Operation">
+					<InfoCard title={t("hours_of_operation")}>
 						{Object.keys(formData.hours).map((day) => (
 							<View key={day} style={styles.dayRow}>
 								<Switch
@@ -303,13 +309,13 @@ const RestaurantProfile = () => {
 										styles.timeInput,
 										!formData.hours[day].active && styles.timeInputInactive,
 									]}
-									placeholder="Open"
+									placeholder={t("open")}
 									editable={formData.hours[day].active}
 								/>
 								<Text
 									style={!formData.hours[day].active && styles.dayLabelInactive}
 								>
-									to
+									{t("to")}
 								</Text>
 								<TextInput
 									value={formData.hours[day].close}
@@ -318,7 +324,7 @@ const RestaurantProfile = () => {
 										styles.timeInput,
 										!formData.hours[day].active && styles.timeInputInactive,
 									]}
-									placeholder="Close"
+									placeholder={t("close")}
 									editable={formData.hours[day].active}
 								/>
 							</View>
@@ -335,7 +341,7 @@ const RestaurantProfile = () => {
 						{isSaving ? (
 							<ActivityIndicator color="#FFFFFF" />
 						) : (
-							<Text style={styles.saveButtonText}>Save Changes</Text>
+							<Text style={styles.saveButtonText}>{t("save_changes")}</Text>
 						)}
 					</TouchableOpacity>
 				</View>

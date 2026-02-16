@@ -21,8 +21,10 @@ import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { fetchMenu } from "../../utils/customerUtils";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 const PartyMenuScreen = () => {
+	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
 	const { partyId, restaurantId } = route.params;
@@ -46,7 +48,9 @@ const PartyMenuScreen = () => {
 			partyDetails[partyId]?.restaurantName
 		) {
 			navigation.setOptions({
-				title: `Add to Party @ ${partyDetails[partyId].restaurantName}`,
+				title: `${t("add_to_party_at")} ${
+					partyDetails[partyId].restaurantName
+				}`,
 			});
 		}
 	}, [partyId, partyDetails[partyId]?.restaurantName, navigation]);
@@ -59,7 +63,7 @@ const PartyMenuScreen = () => {
 				partyDetails[partyId]?.restaurantId || route.params?.restaurantId;
 			if (!restaurantId || partyDetails[partyId]?.id !== partyId) {
 				if (isMounted) setIsLoadingMenu(false);
-				Alert.alert("Error", "Restaurant ID or party details missing.");
+				Alert.alert(t("error"), t("restaurant_id_or_party_details_missing"));
 				return;
 			}
 			setIsLoadingMenu(true);
@@ -68,7 +72,7 @@ const PartyMenuScreen = () => {
 				if (isMounted) setMenuItems(fetchedMenu);
 			} catch (error) {
 				console.error("PartyMenuScreen: Error fetching menu:", error);
-				Alert.alert("Error", "Could not load menu items.");
+				Alert.alert(t("error"), t("could_not_load_menu_items"));
 			} finally {
 				if (isMounted) setIsLoadingMenu(false);
 			}
@@ -93,8 +97,8 @@ const PartyMenuScreen = () => {
 					}
 				);
 				Alert.alert(
-					"Error",
-					"Cannot add item at this time. Party information is missing."
+					t("error"),
+					t("cannot_add_item_at_this_time_party_information_is_missing")
 				);
 				return;
 			}
@@ -111,8 +115,6 @@ const PartyMenuScreen = () => {
 				orderingForUserId: partyContextData.currentUserId,
 				orderingForPipName: partyContextData.orderingForPipName, // Now correctly accessed from the nested object
 			};
-
-			
 
 			const itemDetailsForPartyContext = {
 				id: menuItemDetails.id,
@@ -170,7 +172,7 @@ const PartyMenuScreen = () => {
 				<Text
 					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
 				>
-					Syncing Party Details...
+					{t("syncing_party_details")}...
 				</Text>
 			</SafeAreaView>
 		);
@@ -188,7 +190,7 @@ const PartyMenuScreen = () => {
 				<Text
 					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
 				>
-					Loading Menu...
+					{t("loading_menu")}...
 				</Text>
 			</SafeAreaView>
 		);
@@ -203,9 +205,9 @@ const PartyMenuScreen = () => {
 				// Header (can be simple text or a more complex component)
 				ListHeaderComponent={
 					<View style={styles.headerContainer}>
-						<Text style={styles.headerTitle}>Order for Party</Text>
+						<Text style={styles.headerTitle}>{t("order_for_party")}</Text>
 						<Text style={styles.headerSubtitle}>
-							at {partyDetails[partyId].restaurantName}
+							{t("at")} {partyDetails[partyId].restaurantName}
 						</Text>
 					</View>
 				}

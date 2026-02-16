@@ -37,8 +37,10 @@ import { AuthContext } from "../../context/authContext";
 import { useParty } from "../../context/customer/PartyContext";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 import formatCurrency from "../../utils/currencyFormatter";
+import { useTranslation } from "react-i18next";
 
 const BasketScreen = ({ route, navigation }) => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const { restaurant } = route.params;
 	const {
@@ -178,7 +180,7 @@ const BasketScreen = ({ route, navigation }) => {
 			pipDataForDisplay: transformBasketData(
 				displayItems,
 				currentUserData?.uid,
-				currentUserData?.firstName || "Your Items"
+				currentUserData?.firstName || t("your_items")
 			),
 		};
 	}, [displayItems, fees, currentUserData]);
@@ -187,8 +189,8 @@ const BasketScreen = ({ route, navigation }) => {
 	const handleSendToChefsQ = async () => {
 		if (checkInStatus !== "ACCEPTED" || !checkInObj?.id) {
 			Alert.alert(
-				"Not Seated",
-				"You must be seated at a table to place an order."
+				t("not_seated"),
+				t("you_must_be_seated_at_a_table_to_place_an_order")
 			);
 			return;
 		}
@@ -198,7 +200,7 @@ const BasketScreen = ({ route, navigation }) => {
 			(item) => !item.sentToChefQ
 		);
 		if (!hasUnsentItems) {
-			Alert.alert("No New Items", "All your items have already been sent.");
+			Alert.alert(t("no_new_items"), t("all_your_items_have_already_been_sent"));
 			return;
 		}
 
@@ -215,7 +217,7 @@ const BasketScreen = ({ route, navigation }) => {
 
 			if (!linkResult.success) {
 				// The context function will show an alert on failure
-				throw new Error("Failed to prepare items for the kitchen.");
+				throw new Error(t("failed_to_prepare_items_for_the_kitchen"));
 			}
 
 			// --- STEP 2: Send the (now linked) items to the kitchen ---
@@ -293,7 +295,7 @@ const BasketScreen = ({ route, navigation }) => {
 
 			<View style={styles.pipTotalContainer}>
 				<Text style={styles.pipTotalLabel}>
-					Subtotal for {personData.pipName}:
+					{t("subtotal_for", { name: personData.pipName })}
 				</Text>
 				<Text style={styles.pipTotalAmount}>
 					{formatCurrency(personData.subtotal)}
@@ -310,7 +312,7 @@ const BasketScreen = ({ route, navigation }) => {
 				<View style={styles.container}>
 					{/* Header */}
 					<Text style={styles.mainHeading}>
-						{mode === "party" ? "Table Order" : "Your Basket"}
+						{mode === "party" ? t("table_order") : t("your_basket")}
 					</Text>
 					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
 					{basketError && <Text style={styles.errorText}>{basketError}</Text>}
@@ -327,8 +329,7 @@ const BasketScreen = ({ route, navigation }) => {
 											color={styles.infoText.color}
 										/>
 										<Text style={[styles.statusTextBase, styles.infoText]}>
-											Please ensure you are checked in at your table to send
-											items to the kitchen or checkout.
+											{t("please_ensure_you_are_checked_in_at_your_table_to_send_items_to_the_kitchen_or_checkout")}
 										</Text>
 									</View>
 								)}
@@ -342,8 +343,7 @@ const BasketScreen = ({ route, navigation }) => {
 											color={styles.warningText.color}
 										/>
 										<Text style={[styles.statusTextBase, styles.warningText]}>
-											You have new items! Please press "Send New Items to
-											Kitchen" below before checking out.
+											{t("you_have_new_items_please_press_send_new_items_to_kitchen_below_before_checking_out")}
 										</Text>
 									</View>
 								)}
@@ -359,7 +359,7 @@ const BasketScreen = ({ route, navigation }) => {
 												color={styles.successText.color}
 											/>
 											<Text style={[styles.statusTextBase, styles.successText]}>
-												All items sent to the kitchen! Ready to checkout.
+												{t("all_items_sent_to_the_kitchen_ready_to_checkout")}
 											</Text>
 										</View>
 									)}
@@ -373,7 +373,7 @@ const BasketScreen = ({ route, navigation }) => {
 						</View>
 					) : restaurantBasketItems.length === 0 ? (
 						<View style={styles.centered}>
-							<Text style={styles.emptyText}>Your basket is empty.</Text>
+							<Text style={styles.emptyText}>{t("your_basket_is_empty")}</Text>
 						</View>
 					) : (
 						<FlatList
@@ -386,11 +386,11 @@ const BasketScreen = ({ route, navigation }) => {
 								<>
 									{/* Order Summary Section */}
 									<View style={styles.summarySection}>
-										<Text style={styles.summaryTitle}>Order Estimate</Text>
+										<Text style={styles.summaryTitle}>{t("order_estimate")}</Text>
 										{totalDiscount > 0 && (
 											<View style={styles.summaryRow}>
 												<Text style={styles.summaryLabel}>
-													Original Subtotal:
+													{t("original_subtotal")}
 												</Text>
 												<Text style={styles.originalPrice}>
 													{formatCurrency(originalSubtotal)}
@@ -398,14 +398,14 @@ const BasketScreen = ({ route, navigation }) => {
 											</View>
 										)}
 										<View style={styles.summaryRow}>
-											<Text style={styles.summaryLabel}>Subtotal:</Text>
+											<Text style={styles.summaryLabel}>{t("subtotal")}</Text>
 											<Text style={styles.summaryAmount}>
 												{formatCurrency(subtotal)}
 											</Text>
 										</View>
 										{totalDiscount > 0 && (
 											<View style={styles.summaryRow}>
-												<Text style={styles.summaryLabel}>Discounts:</Text>
+												<Text style={styles.summaryLabel}>{t("discounts")}</Text>
 												<Text
 													style={[styles.summaryAmount, styles.discountAmount]}
 												>
@@ -414,7 +414,7 @@ const BasketScreen = ({ route, navigation }) => {
 											</View>
 										)}
 										<View style={styles.summaryRow}>
-											<Text style={styles.summaryLabel}>Platform Fee:</Text>
+											<Text style={styles.summaryLabel}>{t("platform_fee")}</Text>
 											<Text style={styles.summaryAmount}>
 												{formatCurrency(platformFeeEstimate)}
 											</Text>
@@ -422,15 +422,14 @@ const BasketScreen = ({ route, navigation }) => {
 										<View style={styles.summaryRow}></View>
 										<View style={[styles.summaryRow, styles.grandTotalRow]}>
 											<Text style={styles.grandTotalLabel}>
-												Estimated Total (Before Tip):
+												{t("estimated_total_before_tip")}
 											</Text>
 											<Text style={styles.grandTotalAmount}>
 												{formatCurrency(grandTotalEstimate)}
 											</Text>
 										</View>
 										<Text style={styles.disclaimerText}>
-											Final tax & total calculated at checkout. Gratuity added
-											on next screen.
+											{t("final_tax_and_total_calculated_at_checkout_gratuity_added_on_next_screen")}
 										</Text>
 									</View>
 									{/* --- Action Area --- */}
@@ -439,20 +438,19 @@ const BasketScreen = ({ route, navigation }) => {
 										{checkInStatus !== "ACCEPTED" &&
 											restaurantBasketItems.length > 0 && (
 												<Text style={styles.warningMessage}>
-													Please ensure you are checked in to send items or
-													checkout.
+													{t("please_ensure_you_are_checked_in_to_send_items_or_checkout")}
 												</Text>
 											)}
 										{checkInStatus === "ACCEPTED" && hasUnsentItems && (
 											<Text style={styles.warningMessage}>
-												Send new items to the kitchen before checking out.
+												{t("send_new_items_to_the_kitchen_before_checking_out")}
 											</Text>
 										)}
 										{checkInStatus === "ACCEPTED" &&
 											!hasUnsentItems &&
 											restaurantBasketItems.length > 0 && (
 												<Text style={styles.successMessage}>
-													All items sent! Ready to checkout.
+													{t("all_items_sent_ready_to_checkout")}
 												</Text>
 											)}
 
@@ -472,7 +470,7 @@ const BasketScreen = ({ route, navigation }) => {
 												<ActivityIndicator color="#ffffff" size="small" />
 											) : (
 												<Text style={styles.sendButtonText}>
-													Send New Items to Kitchen
+													{t("send_new_items_to_kitchen")}
 												</Text>
 											)}
 										</TouchableOpacity>
@@ -504,7 +502,7 @@ const BasketScreen = ({ route, navigation }) => {
 					visible={showSnackbar}
 					onDismiss={() => setShowSnackbar(false)}
 					duration={Snackbar.DURATION_SHORT} // Or DURATION_MEDIUM
-					action={{ label: "OK", onPress: () => setShowSnackbar(false) }}
+					action={{ label: t("ok"), onPress: () => setShowSnackbar(false) }}
 				>
 					{snackbarMessage}
 				</Snackbar>

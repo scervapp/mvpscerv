@@ -9,6 +9,7 @@ import {
 	TextInput,
 } from "react-native";
 import moment from "moment";
+import { useTranslation } from 'react-i18next';
 import { Picker } from "@react-native-picker/picker";
 import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
@@ -21,6 +22,7 @@ const OrderItem = ({
 	onMarkInProgress,
 	onApplyDiscount,
 }) => {
+	const { t } = useTranslation();
 	const [modalVisible, setModalVisible] = useState(false);
 	const [itemStatus, setItemStatus] = useState(item.itemStatus || "pending");
 	const [discountAmount, setDiscountAmount] = useState("");
@@ -46,7 +48,7 @@ const OrderItem = ({
 	};
 
 	const handleOpenActionSheet = () => {
-		const options = ["Pending", "In Progress", "Completed", "Cancel"];
+		const options = [t('pending_status'), t('in_progress_status'), t('completed_status'), t('cancel_button')];
 		const cancelButtonIndex = 3;
 
 		showActionSheetWithOptions(
@@ -71,14 +73,14 @@ const OrderItem = ({
 				{/* Table Number */}
 				<View style={styles.tableNumberContainer}>
 					<Text style={styles.tableNumber}>
-						{item.table.name.replace("Table ", "")}
+						{t('table_number_label', { number: item.table.name.replace("Table ", "") })}
 					</Text>
 				</View>
 
 				{/* Item Details */}
 				<View style={styles.itemDetailsContainer}>
 					<Text style={styles.dishName}>
-						{item.dish.name} x {item.quantity}
+						{t('dish_quantity', { dishName: item.dish.name, quantity: item.quantity })}
 					</Text>
 
 					{/* Special Instructions (if any) */}
@@ -136,16 +138,16 @@ const OrderItem = ({
 							onValueChange={handleStatusChange}
 							style={styles.statusPicker}
 						>
-							<Picker.Item label="Pending" value="pending" />
-							<Picker.Item label="Preparing" value="preparing" />
-							<Picker.Item label="Completed" value="completed" />
+							<Picker.Item label={t('pending_status')} value="pending" />
+							<Picker.Item label={t('preparing_status')} value="preparing" />
+							<Picker.Item label={t('completed_status')} value="completed" />
 						</Picker>
 
 						{/* Discount Input */}
 						<View style={styles.discountInputContainer}>
 							<TextInput
 								style={styles.discountInput}
-								placeholder="Enter discount amount"
+								placeholder={t('enter_discount_amount_placeholder')}
 								value={discountAmount}
 								onChangeText={setDiscountAmount}
 								keyboardType="numeric"
@@ -154,12 +156,12 @@ const OrderItem = ({
 								onPress={handleApplyDiscount}
 								style={styles.applyDiscountButton}
 							>
-								<Text style={styles.applyDiscountButtonText}>Apply</Text>
+								<Text style={styles.applyDiscountButtonText}>{t('apply_button')}</Text>
 							</TouchableOpacity>
 						</View>
 
 						{/* Close Modal Button */}
-						<Button title="Close" onPress={() => setModalVisible(false)} />
+						<Button title={t('close_button')} onPress={() => setModalVisible(false)} />
 					</View>
 				</View>
 			</Modal>

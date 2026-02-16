@@ -1,0 +1,18 @@
+{
+  "error_saving_profile": "Error al guardar el perfil",
+  "invalid_number": "Número inválido",
+  "please_enter_a_valid_10_digit_phone_number": "Ingrese un número de 10 dígitos válido",
+  "could_not_send_code": "No se pudo enviar el código",
+  "login_failed": "Error de Inicio",
+  "could_not_verify_code": "No se verificó el código",
+  "sign_in_to_access_your_account": "Inicie sesión para acceder",
+  "customer": "Cliente",
+  "forgot_password": "¿Olvidó su contraseña?",
+  "dont_have_an_account": "¿No tiene cuenta?",
+  "sign_up": "Regístrese",
+  "your_seamless_dining_experience_starts_here": "Su experiencia gastronómica fluida inicia aquí",
+  "create_account": "Crear Cuenta",
+  "continue_as_guest": "Continuar como Invitado",
+  "are_you_a_restaurant": "¿Es un restaurante?",
+  "sign_up_here": "Regístrese aquí"
+}

@@ -26,7 +26,7 @@ import * as Yup from "yup";
 import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { httpsCallable } from "@react-native-firebase/functions";
-
+import { useTranslation } from "react-i18next";
 MaterialCommunityIcons;
 
 // --- Reusable Add/Edit Employee Modal ---
@@ -37,27 +37,28 @@ const AddEditEmployeeModal = ({
 	isLoading,
 	isFirstEmployee,
 }) => {
+	const { t } = useTranslation();
 	console.log(
-		`AddEditEmployeeModal: Rendering. isFirstEmployee prop is: ${isFirstEmployee}`
+		`AddEditEmployeeModal: Rendering. isFirstEmployee prop is: ${isFirstEmployee}`,
 	);
 	const validationSchema = Yup.object().shape({
-		firstName: Yup.string().required("First name is required."),
-		lastName: Yup.string().required("Last name is required."),
+		firstName: Yup.string().required(t("first_name_is_required")),
+		lastName: Yup.string().required(t("last_name_is_required")),
 		role: Yup.string()
 			.oneOf(["owner", "manager", "worker"])
-			.required("Role is required."),
+			.required(t("role_is_required")),
 		jobTitle: Yup.string().when("role", {
 			is: "worker",
-			then: (schema) => schema.required("Please select a job title."),
+			then: (schema) => schema.required(t("please_select_a_job_title")),
 			otherwise: (schema) => schema.nullable(),
 		}),
 		pin: Yup.string().when("role", {
 			is: (role) => role === "manager" || role === "owner",
 			then: (schema) =>
 				schema
-					.min(4, "PIN must be 4-6 digits")
-					.max(6, "PIN must be 4-6 digits")
-					.required("A PIN is required for this role."),
+					.min(4, t("pin_must_be_4_6_digits"))
+					.max(6, t("pin_must_be_4_6_digits"))
+					.required(t("a_pin_is_required_for_this_role")),
 		}),
 	});
 
@@ -71,7 +72,7 @@ const AddEditEmployeeModal = ({
 	// --- LOG 3: Log the initial values for Formik ---
 	console.log(
 		"AddEditEmployeeModal: Formik initialValues are:",
-		initialFormValues
+		initialFormValues,
 	);
 
 	return (
@@ -89,7 +90,9 @@ const AddEditEmployeeModal = ({
 				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 					<ScrollView>
 						<Text style={styles.modalTitle}>
-							{isFirstEmployee ? "Create Owner Account" : "Add New Employee"}
+							{isFirstEmployee
+								? t("create_owner_account")
+								: t("add_new_employee")}
 						</Text>
 						<Formik
 							initialValues={{
@@ -114,7 +117,7 @@ const AddEditEmployeeModal = ({
 								<>
 									<TextInput
 										style={styles.input}
-										placeholder="First Name"
+										placeholder={t("first_name")}
 										value={values.firstName}
 										onChangeText={handleChange("firstName")}
 										placeholderTextColor={colors.textMedium}
@@ -124,7 +127,7 @@ const AddEditEmployeeModal = ({
 									)}
 									<TextInput
 										style={styles.input}
-										placeholder="Last Name"
+										placeholder={t("last_name")}
 										value={values.lastName}
 										onChangeText={handleChange("lastName")}
 										placeholderTextColor={colors.textMedium}
@@ -133,7 +136,7 @@ const AddEditEmployeeModal = ({
 										<Text style={styles.errorText}>{errors.lastName}</Text>
 									)}
 
-									<Text style={styles.inputLabel}>Permission Role</Text>
+									<Text style={styles.inputLabel}>{t("permission_role")}</Text>
 									<View style={styles.roleSelectorContainer}>
 										{isFirstEmployee ? (
 											<View style={styles.roleOption}>
@@ -145,7 +148,7 @@ const AddEditEmployeeModal = ({
 												<Text
 													style={[styles.roleLabel, styles.roleLabelSelected]}
 												>
-													Owner (Full Access)
+													{t("owner_full_access")}
 												</Text>
 											</View>
 										) : (
@@ -163,7 +166,7 @@ const AddEditEmployeeModal = ({
 														size={24}
 														color={colors.primary}
 													/>
-													<Text style={styles.roleLabel}>Worker</Text>
+													<Text style={styles.roleLabel}>{t("worker")}</Text>
 												</TouchableOpacity>
 												<TouchableOpacity
 													style={styles.roleOption}
@@ -178,7 +181,7 @@ const AddEditEmployeeModal = ({
 														size={24}
 														color={colors.primary}
 													/>
-													<Text style={styles.roleLabel}>Manager</Text>
+													<Text style={styles.roleLabel}>{t("manager")}</Text>
 												</TouchableOpacity>
 											</>
 										)}
@@ -190,7 +193,7 @@ const AddEditEmployeeModal = ({
 									{/* --- NEW CONDITIONAL JOB TITLE SELECTOR --- */}
 									{values.role === "worker" && (
 										<>
-											<Text style={styles.inputLabel}>Job Title</Text>
+											<Text style={styles.inputLabel}>{t("job_title")}</Text>
 											<View style={styles.pickerContainer}>
 												<Picker
 													selectedValue={values.jobTitle}
@@ -199,14 +202,14 @@ const AddEditEmployeeModal = ({
 													}
 													style={styles.picker}
 												>
-													<Picker.Item label="Server" value="server" />
-													<Picker.Item label="Host / Hostess" value="host" />
+													<Picker.Item label={t("server")} value="server" />
+													<Picker.Item label={t("host_hostess")} value="host" />
 													<Picker.Item
-														label="Chef / Kitchen Staff"
+														label={t("chef_kitchen_staff")}
 														value="chef"
 													/>
 													<Picker.Item
-														label="Busser / Support"
+														label={t("busser_support")}
 														value="support"
 													/>
 												</Picker>
@@ -219,10 +222,12 @@ const AddEditEmployeeModal = ({
 
 									{(values.role === "manager" || values.role === "owner") && (
 										<>
-											<Text style={styles.inputLabel}>Set 4-6 Digit PIN</Text>
+											<Text style={styles.inputLabel}>
+												{t("set_4_6_digit_pin")}
+											</Text>
 											<TextInput
 												style={styles.input}
-												placeholder="Manager PIN"
+												placeholder={t("manager_pin")}
 												value={values.pin}
 												onChangeText={handleChange("pin")}
 												keyboardType="number-pad"
@@ -241,7 +246,7 @@ const AddEditEmployeeModal = ({
 											mode="outlined"
 											style={styles.modalButton}
 										>
-											Cancel
+											{t("cancel")}
 										</Button>
 										<Button
 											onPress={handleSubmit}
@@ -253,7 +258,7 @@ const AddEditEmployeeModal = ({
 												{ backgroundColor: colors.primary },
 											]}
 										>
-											Add Employee
+											{t("add_employee")}
 										</Button>
 									</View>
 								</>
@@ -267,6 +272,7 @@ const AddEditEmployeeModal = ({
 };
 
 const EmployeeScreen = () => {
+
 	const { currentUserData } = useContext(AuthContext);
 	const [employees, setEmployees] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -275,6 +281,8 @@ const EmployeeScreen = () => {
 
 	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
 	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
+	const { t } = useTranslation();
+
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
@@ -303,7 +311,7 @@ const EmployeeScreen = () => {
 			(error) => {
 				console.error("Error fetching employees:", error);
 				setIsLoading(false);
-			}
+			},
 		);
 
 		return () => unsubscribe();
@@ -315,8 +323,8 @@ const EmployeeScreen = () => {
 
 		if (!restaurantId) {
 			Alert.alert(
-				"Error",
-				"Could not identify your restaurant. Please log in again."
+				t("error"),
+				t("could_not_identify_your_restaurant_please_log_in_again"),
 			);
 			setIsActionLoading(false);
 			return;
@@ -334,10 +342,10 @@ const EmployeeScreen = () => {
 					hasSetupEmployees: true,
 				});
 			}
-			Alert.alert("Success", "Employee added successfully.");
+			Alert.alert(t("success"), t("employee_added_successfully"));
 			setIsModalVisible(false);
 		} catch (error) {
-			Alert.alert("Error", error.message || "Could not add employee.");
+			Alert.alert(t("error"), error.message || t("could_not_add_employee"));
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -345,12 +353,14 @@ const EmployeeScreen = () => {
 
 	const handleDelete = (employee) => {
 		Alert.alert(
-			"Confirm Delete",
-			`Are you sure you want to delete ${employee.firstName} ${employee.lastName}? This will also delete their login.`,
+			t("confirm_delete"),
+			`${t("are_you_sure_you_want_to_delete")} ${employee.firstName} ${
+				employee.lastName
+			}? ${t("this_will_also_delete_their_login")}.`,
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Delete",
+					text: t("delete"),
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
@@ -361,15 +371,15 @@ const EmployeeScreen = () => {
 							});
 						} catch (error) {
 							Alert.alert(
-								"Error",
-								error.message || "Could not delete employee."
+								t("error"),
+								error.message || t("could_not_delete_employee"),
 							);
 						} finally {
 							setIsActionLoading(false);
 						}
 					},
 				},
-			]
+			],
 		);
 	};
 
@@ -419,7 +429,7 @@ const EmployeeScreen = () => {
 	const isFirstEmployee = employees.length === 0;
 	// --- LOG 1: Check the flag in the parent screen ---
 	console.log(
-		`EmployeeScreen: Rendering modal. isFirstEmployee is: ${isFirstEmployee}`
+		`EmployeeScreen: Rendering modal. isFirstEmployee is: ${isFirstEmployee}`,
 	);
 
 	return (
@@ -429,7 +439,7 @@ const EmployeeScreen = () => {
 				renderItem={renderEmployeeCard}
 				keyExtractor={(item) => item.id}
 				ListHeaderComponent={
-					<Text style={styles.heading}>Employee Roster</Text>
+					<Text style={styles.heading}>{t("employee_roster")}</Text>
 				}
 				ListEmptyComponent={
 					<View style={styles.emptyContainer}>
@@ -439,7 +449,7 @@ const EmployeeScreen = () => {
 							color={colors.textLight}
 						/>
 						<Text style={styles.emptyText}>
-							No employees found. Tap '+' to create the Owner account.
+							{t("no_employees_found_tap_to_create_the_owner_account")}
 						</Text>
 					</View>
 				}
@@ -451,7 +461,7 @@ const EmployeeScreen = () => {
 				onPress={() => setIsModalVisible(true)}
 				style={styles.fab}
 			>
-				Add Employee
+				{t("add_employee")}
 			</Button>
 			{isModalVisible && (
 				<AddEditEmployeeModal

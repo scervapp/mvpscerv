@@ -25,64 +25,74 @@ import {
 	fetchEmployeesByRole,
 } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 import { useRestaurantData } from "../../context/restaurant/RestaurantDataContext";
 
 // Reusable card component for the navigation grid
-const DashboardCard = ({ label, iconName, onPress }) => (
-	<TouchableOpacity style={styles.card} onPress={onPress}>
-		<View style={styles.iconContainer}>
-			<MaterialCommunityIcons
-				name={iconName}
-				size={40}
-				color={colors.primary}
-			/>
-		</View>
-		<Text style={styles.cardLabel}>{label}</Text>
-	</TouchableOpacity>
-);
+const DashboardCard = ({ label, iconName, onPress }) => {
+	const { t } = useTranslation();
+	return (
+		<TouchableOpacity style={styles.card} onPress={onPress}>
+			<View style={styles.iconContainer}>
+				<MaterialCommunityIcons
+					name={iconName}
+					size={40}
+					color={colors.primary}
+				/>
+			</View>
+			<Text style={styles.cardLabel}>{t(label)}</Text>
+		</TouchableOpacity>
+	);
+};
 
 // A simple modal to let the user select which manager is present
-const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
-	<Modal
-		visible={isVisible}
-		transparent={true}
-		animationType="fade"
-		onRequestClose={onClose}
-	>
-		<TouchableOpacity
-			style={styles.modalOverlay}
-			activeOpacity={1}
-			onPressOut={onClose}
+const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => {
+	const { t } = useTranslation();
+	return (
+		<Modal
+			visible={isVisible}
+			transparent={true}
+			animationType="fade"
+			onRequestClose={onClose}
 		>
-			<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
-				<Text style={styles.modalTitle}>Manager Authorization</Text>
-				<Text style={styles.modalSubtitle}>
-					Please select which manager is present to authorize this action.
-				</Text>
-				<FlatList
-					data={managers}
-					keyExtractor={(item) => item.id}
-					renderItem={({ item }) => (
-						<TouchableOpacity
-							style={styles.managerRow}
-							onPress={() => onSelect(item)}
-						>
-							<Text style={styles.managerName}>
-								{item.firstName} {item.lastName}
-							</Text>
-						</TouchableOpacity>
-					)}
-				/>
-				<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
-					Cancel
-				</Button>
+			<TouchableOpacity
+				style={styles.modalOverlay}
+				activeOpacity={1}
+				onPressOut={onClose}
+			>
+				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
+					<Text style={styles.modalTitle}>{t("manager_authorization")}</Text>
+					<Text style={styles.modalSubtitle}>
+						{t(
+							"please_select_which_manager_is_present_to_authorize_this_action",
+						)}
+					</Text>
+					<FlatList
+						data={managers}
+						keyExtractor={(item) => item.id}
+						renderItem={({ item }) => (
+							<TouchableOpacity
+								style={styles.managerRow}
+								onPress={() => onSelect(item)}
+							>
+								<Text style={styles.managerName}>
+									{item.firstName} {item.lastName}
+								</Text>
+							</TouchableOpacity>
+						)}
+					/>
+					<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
+						{t("cancel")}
+					</Button>
+				</TouchableOpacity>
 			</TouchableOpacity>
-		</TouchableOpacity>
-	</Modal>
-);
+		</Modal>
+	);
+};
 
 const RestaurantDashboardScreen = () => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
@@ -102,8 +112,8 @@ const RestaurantDashboardScreen = () => {
 
 		if (!restaurantId) {
 			Alert.alert(
-				"Error",
-				"Could not identify your restaurant. Please log in again."
+				t("error"),
+				t("could_not_identify_your_restaurant_please_log_in_again"),
 			);
 			return;
 		}
@@ -111,17 +121,19 @@ const RestaurantDashboardScreen = () => {
 		// 1. One-time pass for new owners to complete setup
 		if (userRole === "owner" && needsOnboarding) {
 			Alert.alert(
-				"Welcome, Owner!",
-				"To secure your Back Office, please start by creating your own 'Owner' profile on the Employee screen and setting a PIN.",
+				t("welcome_owner"),
+				t(
+					"to_secure_your_back_office_please_start_by_creating_your_own_owner_profile_on_the_employee_screen_and_setting_a_pin",
+				),
 				[
 					{
-						text: "Continue to Setup",
+						text: t("continue_to_setup"),
 						onPress: () =>
 							navigation.navigate("BackOfficeNavigator", {
 								screen: "EmployeeScreen",
 							}),
 					},
-				]
+				],
 			);
 			return;
 		}
@@ -135,16 +147,16 @@ const RestaurantDashboardScreen = () => {
 			]);
 			if (managerList.length === 0) {
 				Alert.alert(
-					"Access Denied",
-					"No managers are configured for this restaurant.",
-					[{ text: "OK" }]
+					t("access_denied"),
+					t("no_managers_are_configured_for_this_restaurant"),
+					[{ text: t("ok") }],
 				);
 				return;
 			}
 			setManagers(managerList);
 			setIsManagerListVisible(true);
 		} catch (error) {
-			Alert.alert("Error", "Could not fetch manager list.");
+			Alert.alert(t("error"), t("could_not_fetch_manager_list"));
 			console.error("Error in handleBackOfficePress:", error);
 		} finally {
 			setIsFetchingManagers(false);
@@ -189,12 +201,12 @@ const RestaurantDashboardScreen = () => {
 
 	const handleEndDay = () => {
 		Alert.alert(
-			"End Work Day",
-			"Are you sure you want to end the current work day?",
+			t("end_work_day"),
+			t("are_you_sure_you_want_to_end_the_current_work_day"),
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "End Day",
+					text: t("end_day"),
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
@@ -202,7 +214,7 @@ const RestaurantDashboardScreen = () => {
 						setIsActionLoading(false);
 					},
 				},
-			]
+			],
 		);
 	};
 
@@ -219,9 +231,9 @@ const RestaurantDashboardScreen = () => {
 						size={60}
 						color={colors.statusSuccess}
 					/>
-					<Text style={styles.statusTitle}>Restaurant is OPEN</Text>
+					<Text style={styles.statusTitle}>{t("restaurant_is_open")}</Text>
 					<Text style={styles.statusSubtitle}>
-						Work day started at {startTime}
+						{t("work_day_started_at")} {startTime}
 					</Text>
 					<Button
 						mode="contained"
@@ -233,7 +245,7 @@ const RestaurantDashboardScreen = () => {
 							{ backgroundColor: colors.statusDanger },
 						]}
 					>
-						End Work Day
+						{t("end_work_day")}
 					</Button>
 				</View>
 			);
@@ -241,9 +253,9 @@ const RestaurantDashboardScreen = () => {
 		return (
 			<View style={styles.statusContent}>
 				<Ionicons name="moon-outline" size={60} color={colors.textMedium} />
-				<Text style={styles.statusTitle}>Restaurant is CLOSED</Text>
+				<Text style={styles.statusTitle}>{t("restaurant_is_closed")}</Text>
 				<Text style={styles.statusSubtitle}>
-					Tap below to begin a new work day.
+					{t("tap_below_to_begin_a_new_work_day")}
 				</Text>
 				<Button
 					mode="contained"
@@ -255,7 +267,7 @@ const RestaurantDashboardScreen = () => {
 						{ backgroundColor: colors.statusSuccess },
 					]}
 				>
-					Start Work Day
+					{t("start_work_day")}
 				</Button>
 			</View>
 		);
@@ -266,10 +278,10 @@ const RestaurantDashboardScreen = () => {
 			<ScrollView>
 				<View style={styles.header}>
 					<Text style={styles.welcomeText}>
-						Welcome, {currentUserData?.firstName || "Manager"}
+						{t("welcome")}, {currentUserData?.firstName || t("manager")}
 					</Text>
 					<Text style={styles.title}>
-						{currentUserData?.restaurantName || "Dashboard"}
+						{currentUserData?.restaurantName || t("dashboard")}
 					</Text>
 				</View>
 
@@ -277,22 +289,22 @@ const RestaurantDashboardScreen = () => {
 
 				<View style={styles.navigationGrid}>
 					<DashboardCard
-						label="Customers Waiting"
+						label={t("customers_waiting")}
 						iconName="account-clock-outline"
 						onPress={() => navigation.navigate("Checkins")}
 					/>
 					<DashboardCard
-						label="Chef's Q"
+						label={t("chefs_q")}
 						iconName="silverware-fork-knife"
 						onPress={() => navigation.navigate("ChefsQ")}
 					/>
 					<DashboardCard
-						label="Table View"
+						label={t("table_view")}
 						iconName="table-chair"
 						onPress={() => navigation.navigate("Tables")}
 					/>
 					<DashboardCard
-						label="Back Office"
+						label={t("back_office")}
 						iconName="briefcase-outline"
 						onPress={handleBackOfficePress}
 					/>

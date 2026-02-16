@@ -8,6 +8,7 @@ import {
 	FlatList,
 	Alert,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Button } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
@@ -21,6 +22,7 @@ const AddMembersModal = ({
 	isLoading = false,
 	navigation,
 }) => {
+	const { t } = useTranslation();
 	const [selectedPipsToAdd, setSelectedPipsToAdd] = useState([]);
 
 	// Reset selection when modal opens
@@ -75,7 +77,7 @@ const AddMembersModal = ({
 				</View>
 
 				{isInParty ? (
-					<Text style={styles.inPartyText}>In Party</Text>
+					<Text style={styles.inPartyText}>{t('in_party_status')}</Text>
 				) : isSelected ? (
 					<Ionicons name="checkmark-circle" size={28} color={colors.primary} />
 				) : (
@@ -102,7 +104,7 @@ const AddMembersModal = ({
 				onPressOut={onClose}
 			>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>Add Members to Party</Text>
+					<Text style={styles.modalTitle}>{t('add_members_to_party_title')}</Text>
 
 					{/* PIPS List */}
 					{hostPips.length > 0 ? (
@@ -114,7 +116,7 @@ const AddMembersModal = ({
 						/>
 					) : (
 						<Text style={styles.noPipsText}>
-							You haven't added any PIPs yet.
+							{t('no_pips_added_yet_message')}
 						</Text>
 					)}
 
@@ -133,7 +135,7 @@ const AddMembersModal = ({
 							size={26}
 							color={colors.primary}
 						/>
-						<Text style={styles.addNewPipText}>Add New PIP</Text>
+						<Text style={styles.addNewPipText}>{t('add_new_pip_button')}</Text>
 					</TouchableOpacity>
 
 					{/* Bottom Buttons */}
@@ -143,7 +145,7 @@ const AddMembersModal = ({
 							onPress={onClose}
 							style={styles.modalButton}
 						>
-							Cancel
+							{t('cancel_button')}
 						</Button>
 
 						<Button
@@ -156,11 +158,7 @@ const AddMembersModal = ({
 								selectedPipsToAdd.length === 0 && styles.disabledAddButton,
 							]}
 						>
-							Add{" "}
-							{selectedPipsToAdd.length > 0
-								? `${selectedPipsToAdd.length} `
-								: ""}
-							Member{selectedPipsToAdd.length !== 1 ? "s" : ""}
+							{t('add_member_button', { count: selectedPipsToAdd.length })}
 						</Button>
 					</View>
 				</View>

@@ -11,6 +11,7 @@ import {
 	SafeAreaView,
 	TouchableOpacity,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Button } from "react-native-paper";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,7 @@ const TableAndServerSelectionModal = ({
 	numInParty, // Number of people in the check-in party
 	isProcessing,
 }) => {
+	const { t } = useTranslation();
 	const [tables, setTables] = useState([]);
 	const [servers, setServers] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +53,7 @@ const TableAndServerSelectionModal = ({
 				setServers(serverEmployees || []);
 			} catch (err) {
 				console.error("Error fetching servers:", err);
-				setError("Could not load server list.");
+				setError(t('could_not_load_server_list_error'));
 			}
 		};
 
@@ -83,7 +85,7 @@ const TableAndServerSelectionModal = ({
 					}
 				} catch (err) {
 					console.error("Error filtering tables:", err);
-					setError("Could not process table data.");
+					setError(t('could_not_process_table_data_error'));
 				} finally {
 					// Consider loading complete after the first data snapshot is processed
 					if (isLoading) setIsLoading(false);
@@ -104,13 +106,13 @@ const TableAndServerSelectionModal = ({
 	const handleConfirm = () => {
 		if (!selectedTable) {
 			Alert.alert(
-				"No Table Selected",
-				"Please select a table to seat the party."
+				t('no_table_selected_title'),
+				t('select_table_to_seat_party_message')
 			);
 			return;
 		}
 		if (!selectedServer) {
-			Alert.alert("No Server Selected", "Please assign a server to the table.");
+			Alert.alert(t('no_server_selected_title'), t('assign_server_to_table_message'));
 			return;
 		}
 		onConfirm({ table: selectedTable, server: selectedServer });
@@ -132,14 +134,13 @@ const TableAndServerSelectionModal = ({
 		if (tables.length === 0) {
 			return (
 				<Text style={styles.noDataText}>
-					No suitable tables are currently available for a party of {numInParty}
-					.
+					{t('no_suitable_tables_available_message', { numInParty: numInParty })}
 				</Text>
 			);
 		}
 		return (
 			<>
-				<Text style={styles.sectionTitle}>1. Select an Available Table</Text>
+				<Text style={styles.sectionTitle}>{t('select_available_table_title')}</Text>
 				<FlatList
 					data={tables}
 					renderItem={({ item }) => (
@@ -154,7 +155,7 @@ const TableAndServerSelectionModal = ({
 					style={styles.tableList}
 				/>
 
-				<Text style={styles.sectionTitle}>2. Assign a Server</Text>
+				<Text style={styles.sectionTitle}>{t('assign_server_title')}</Text>
 				<View style={styles.pickerContainer}>
 					<Picker
 						selectedValue={selectedServer?.id}
@@ -170,7 +171,7 @@ const TableAndServerSelectionModal = ({
 						itemStyle={styles.pickerItem} // Added for iOS styling
 					>
 						<Picker.Item
-							label="Select a server..."
+							label={t('select_server_placeholder')}
 							value={null}
 							color={colors.textLight}
 						/>
@@ -191,7 +192,7 @@ const TableAndServerSelectionModal = ({
 			<SafeAreaView style={styles.modalContainer}>
 				<View style={styles.header}>
 					<Text style={styles.modalTitle}>
-						Seat Party ({numInParty} guests)
+						{t('seat_party_title', { numInParty: numInParty })}
 					</Text>
 					<TouchableOpacity onPress={onClose} style={styles.closeButton}>
 						<Ionicons name="close-circle" size={30} color={colors.textMedium} />
@@ -207,7 +208,7 @@ const TableAndServerSelectionModal = ({
 						style={styles.modalButton}
 						labelStyle={{ color: colors.textDark }}
 					>
-						Cancel
+						{t('cancel_button')}
 					</Button>
 					<Button
 						onPress={handleConfirm}
@@ -222,7 +223,7 @@ const TableAndServerSelectionModal = ({
 						labelStyle={{ color: colors.textOnPrimaryBrand }}
 						loading={isProcessing}
 					>
-						Confirm & Seat
+						{t('confirm_and_seat_button')}
 					</Button>
 				</View>
 			</SafeAreaView>

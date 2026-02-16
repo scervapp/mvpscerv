@@ -1,6 +1,7 @@
 // src/components/global/AuthPromptModal.js
 import React from "react";
 import { View, Text, StyleSheet, Modal, TouchableOpacity } from "react-native";
+import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles"; // Adjust path
@@ -10,8 +11,10 @@ const AuthPromptModal = ({
 	onClose,
 	onLoginPress,
 	onSignupPress,
-	message = "Create a free account to unlock this feature and save your activity.",
 }) => {
+	const { t } = useTranslation();
+
+	const displayMessage = (message = t("auth_prompt_message"));
 	return (
 		<Modal
 			visible={isVisible}
@@ -31,8 +34,8 @@ const AuthPromptModal = ({
 						color={colors.primary}
 						style={{ marginBottom: 15 }}
 					/>
-					<Text style={styles.modalTitle}>Account Required</Text>
-					<Text style={styles.modalMessage}>{message}</Text>
+					<Text style={styles.modalTitle}>{t("account_required_title")}</Text>
+					<Text style={styles.modalMessage}>{displayMessage}</Text>
 
 					<View style={styles.buttonContainer}>
 						<Button
@@ -41,7 +44,7 @@ const AuthPromptModal = ({
 							style={styles.button}
 							labelStyle={styles.buttonText}
 						>
-							Sign Up
+							{t("signup_button")}
 						</Button>
 						<Button
 							mode="outlined"
@@ -49,7 +52,7 @@ const AuthPromptModal = ({
 							style={[styles.button, styles.loginButton]}
 							labelStyle={[styles.buttonText, { color: colors.primary }]}
 						>
-							Log In
+							{t("login_button")}
 						</Button>
 					</View>
 				</TouchableOpacity>

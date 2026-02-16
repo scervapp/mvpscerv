@@ -20,6 +20,7 @@ import { functions } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { moderateScale } from "react-native-size-matters";
+import { useTranslation } from "react-i18next";
 
 const StarRating = ({ rating, onRate }) => {
 	return (
@@ -39,6 +40,7 @@ const StarRating = ({ rating, onRate }) => {
 };
 
 const OrderConfirmationScreen = () => {
+	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
 	const {
@@ -89,7 +91,7 @@ const OrderConfirmationScreen = () => {
 				}
 			}
 
-			Alert.alert("Thank You!", "Your ratings have been submitted.");
+			Alert.alert(t("thank_you"), t("your_ratings_have_been_submitted"));
 			setShowRatingModal(false);
 			navigation.dispatch(
 				CommonActions.reset({
@@ -99,7 +101,7 @@ const OrderConfirmationScreen = () => {
 			);
 		} catch (error) {
 			console.error("Rating submission failed:", error);
-			Alert.alert("Error", "Failed to submit ratings.");
+			Alert.alert(t("error"), t("failed_to_submit_ratings"));
 		} finally {
 			setSubmitting(false);
 		}
@@ -121,7 +123,9 @@ const OrderConfirmationScreen = () => {
 		return (
 			<SafeAreaView style={styles.container}>
 				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.statusText}>Processing your payment...</Text>
+				<Text style={styles.statusText}>
+					{t("processing_your_payment")}...
+				</Text>
 			</SafeAreaView>
 		);
 	}
@@ -134,18 +138,20 @@ const OrderConfirmationScreen = () => {
 					size={80}
 					color={colors.success || "#4CAF50"}
 				/>
-				<Text style={styles.title}>Payment Successful!</Text>
-				<Text style={styles.subtitle}>Your portion has been paid.</Text>
+				<Text style={styles.title}>{t("payment_successful")}!</Text>
+				<Text style={styles.subtitle}>{t("your_portion_has_been_paid")}</Text>
 			</View>
 
 			<Modal visible={showRatingModal} animationType="slide" transparent>
 				<View style={styles.modalOverlay}>
 					<View style={styles.modalContent}>
-						<Text style={styles.modalTitle}>Rate Your Items</Text>
+						<Text style={styles.modalTitle}>{t("rate_your_items")}</Text>
 
 						<ScrollView style={{ maxHeight: "60%" }}>
 							{itemsToRate.length === 0 ? (
-								<Text style={styles.noItemsText}>No items to rate.</Text>
+								<Text style={styles.noItemsText}>
+									{t("no_items_to_rate")}
+								</Text>
 							) : (
 								itemsToRate.map((item) => {
 									return (
@@ -167,14 +173,16 @@ const OrderConfirmationScreen = () => {
 								disabled={submitting}
 							>
 								<Text style={styles.buttonText}>
-									{submitting ? "Submitting..." : "Submit Ratings"}
+									{submitting
+										? t("submitting")
+										: t("submit_ratings")}
 								</Text>
 							</TouchableOpacity>
 							<TouchableOpacity
 								style={[styles.modalButton, styles.skipButton]}
 								onPress={handleSkip}
 							>
-								<Text style={styles.buttonText}>Skip</Text>
+								<Text style={styles.buttonText}>{t("skip")}</Text>
 							</TouchableOpacity>
 						</View>
 					</View>

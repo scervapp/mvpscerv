@@ -1,19 +1,21 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import moment from "moment";
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
 // --- Reusable Check-In Card Component ---
 const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
+	const { t } = useTranslation();
 	const formatTime = (timestamp) => {
-		if (!timestamp?.toDate) return "Just now";
+		if (!timestamp?.toDate) return t('just_now');
 		const now = moment();
 		const then = moment(timestamp.toDate());
 		const diffMinutes = now.diff(then, "minutes");
 
-		if (diffMinutes < 1) return "Just now";
-		if (diffMinutes < 60) return `${diffMinutes}m ago`;
+		if (diffMinutes < 1) return t('just_now');
+		if (diffMinutes < 60) return t('minutes_ago', { count: diffMinutes });
 		return then.format("h:mm A");
 	};
 
@@ -29,7 +31,7 @@ const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 						color={colors.textMedium}
 					/>
 					<Text style={styles.partySizeText}>
-						Party of {item.numberOfPeople}
+						{t('party_of_label', { count: item.numberOfPeople })}
 					</Text>
 				</View>
 				<Text style={styles.checkInTime}>{formatTime(item.timestamp)}</Text>
@@ -39,7 +41,7 @@ const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 				<Text style={styles.customerName}>{item.customerName}</Text>
 				{isParty && (
 					<View style={styles.partyBadge}>
-						<Text style={styles.partyBadgeText}>PARTY</Text>
+						<Text style={styles.partyBadgeText}>{t('party_badge')}</Text>
 					</View>
 				)}
 			</View>
@@ -51,13 +53,13 @@ const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 					style={[styles.actionButton, styles.declineButton]}
 					onPress={onDecline} // Calls the new onDecline function
 				>
-					<Text style={styles.declineButtonText}>Decline</Text>
+					<Text style={styles.declineButtonText}>{t('decline_button')}</Text>
 				</TouchableOpacity>
 				<TouchableOpacity
 					style={[styles.actionButton, styles.seatButton]}
 					onPress={() => onSelect(item)}
 				>
-					<Text style={styles.seatButtonText}>Seat Party</Text>
+					<Text style={styles.seatButtonText}>{t('seat_party_button')}</Text>
 					<Ionicons
 						name="arrow-forward-circle"
 						size={22}

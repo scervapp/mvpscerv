@@ -14,21 +14,23 @@ import * as Yup from "yup";
 import colors from "../../utils/styles/appStyles";
 import { Button } from "react-native-elements"; // Example using react-native-elements for buttons
 import { AuthContext } from "../../context/authContext";
+import { useTranslation } from "react-i18next";
 
 const PasswordResetScreen = ({ navigation }) => {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const { sendPasswordResetEmail, isLoading, loginError } =
     useContext(AuthContext);
 
   const validationSchema = Yup.object().shape({
-    email: Yup.string().email("Invalid email").required("Email is required"),
+    email: Yup.string().email(t("invalid_email")).required(t("email_is_required")),
   });
 
   const handlePasswordReset = async (values) => {
     try {
       console.log("Working...", values.email);
       //await sendPasswordResetEmail(values.email);
-      Alert.alert("Success", "Password reset email sent."); // Optional success message
+      Alert.alert(t("success"), t("password_reset_email_sent")); // Optional success message
       navigation.goBack(); // Go back to login screen
     } catch (error) {
       // No need to handle here, it should be handled in the context
@@ -51,11 +53,11 @@ const PasswordResetScreen = ({ navigation }) => {
         touched,
       }) => (
         <View style={styles.container}>
-          <Text style={styles.title}>Reset Password</Text>
+          <Text style={styles.title}>{t("reset_password")}</Text>
           {loginError && <Text style={styles.errorText}>{loginError}</Text>}
 
           <TextInput
-            placeholder="Email"
+            placeholder={t("email")}
             onChangeText={handleChange("email")}
             onBlur={handleBlur("email")}
             value={values.email}
@@ -70,7 +72,7 @@ const PasswordResetScreen = ({ navigation }) => {
           {isLoading ? (
             <ActivityIndicator size="large" color={colors.primary} />
           ) : (
-            <Button title="Reset Password" onPress={handleSubmit} />
+            <Button title={t("reset_password")} onPress={handleSubmit} />
           )}
         </View>
       )}

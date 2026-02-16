@@ -26,14 +26,16 @@ import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot, updateDoc } from "@react-native-firebase/firestore";
+import { useTranslation } from "react-i18next";
 
 // --- Kitchen Ticket Component ---
 const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
+	const { t } = useTranslation();
 	const timeSince = moment(order.createdAt?.toDate()).fromNow();
 
 	// Filter items based on the current view mode ('kitchen' or 'bar')
 	const itemsToDisplay = order.items.filter(
-		(item) => item.destination === viewMode
+		(item) => item.destination === viewMode,
 	);
 
 	// If there are no items for the current view, don't render the ticket at all
@@ -64,7 +66,9 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 			<View style={styles.ticketHeader}>
 				<View>
 					<Text style={styles.ticketTable}>{order.table.name}</Text>
-					<Text style={styles.ticketServer}>Server: {order.server.name}</Text>
+					<Text style={styles.ticketServer}>
+						{t("server")}: {order.server.name}
+					</Text>
 				</View>
 				<Text style={styles.ticketTime}>{timeSince}</Text>
 			</View>
@@ -76,7 +80,9 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 						<View style={styles.itemDetails}>
 							<Text style={styles.itemName}>{item.dishName}</Text>
 							{item.orderedByPipName && (
-								<Text style={styles.itemFor}>For: {item.orderedByPipName}</Text>
+								<Text style={styles.itemFor}>
+									{t("for")}: {item.orderedByPipName}
+								</Text>
 							)}
 							{item.specialInstructions && (
 								<Text style={styles.itemInstructions}>
@@ -96,7 +102,7 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 						<Text
 							style={[styles.actionButtonText, { color: colors.statusWarning }]}
 						>
-							Start Preparing
+							{t("start_preparing")}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -108,7 +114,7 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 						<Text
 							style={[styles.actionButtonText, { color: colors.statusSuccess }]}
 						>
-							Mark as Ready
+							{t("mark_as_ready")}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -118,52 +124,55 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 };
 
 // This component renders the 'Kitchen' and 'Bar' toggle buttons.
-const ViewModeToggle = ({ viewMode, setViewMode }) => (
-	<View style={styles.toggleContainer}>
-		<TouchableOpacity
-			style={[
-				styles.toggleButton,
-				viewMode === "kitchen" && styles.toggleButtonActive,
-			]}
-			onPress={() => setViewMode("kitchen")}
-		>
-			<MaterialCommunityIcons
-				name="chef-hat"
-				size={20}
-				color={viewMode === "kitchen" ? colors.primary : colors.textMedium}
-			/>
-			<Text
+const ViewModeToggle = ({ viewMode, setViewMode }) => {
+	const { t } = useTranslation();
+	return (
+		<View style={styles.toggleContainer}>
+			<TouchableOpacity
 				style={[
-					styles.toggleButtonText,
-					viewMode === "kitchen" && styles.toggleButtonTextActive,
+					styles.toggleButton,
+					viewMode === "kitchen" && styles.toggleButtonActive,
 				]}
+				onPress={() => setViewMode("kitchen")}
 			>
-				Kitchen
-			</Text>
-		</TouchableOpacity>
-		<TouchableOpacity
-			style={[
-				styles.toggleButton,
-				viewMode === "bar" && styles.toggleButtonActive,
-			]}
-			onPress={() => setViewMode("bar")}
-		>
-			<MaterialCommunityIcons
-				name="glass-cocktail"
-				size={20}
-				color={viewMode === "bar" ? colors.primary : colors.textMedium}
-			/>
-			<Text
+				<MaterialCommunityIcons
+					name="chef-hat"
+					size={20}
+					color={viewMode === "kitchen" ? colors.primary : colors.textMedium}
+				/>
+				<Text
+					style={[
+						styles.toggleButtonText,
+						viewMode === "kitchen" && styles.toggleButtonTextActive,
+					]}
+				>
+					{t("kitchen")}
+				</Text>
+			</TouchableOpacity>
+			<TouchableOpacity
 				style={[
-					styles.toggleButtonText,
-					viewMode === "bar" && styles.toggleButtonTextActive,
+					styles.toggleButton,
+					viewMode === "bar" && styles.toggleButtonActive,
 				]}
+				onPress={() => setViewMode("bar")}
 			>
-				Bar
-			</Text>
-		</TouchableOpacity>
-	</View>
-);
+				<MaterialCommunityIcons
+					name="glass-cocktail"
+					size={20}
+					color={viewMode === "bar" ? colors.primary : colors.textMedium}
+				/>
+				<Text
+					style={[
+						styles.toggleButtonText,
+						viewMode === "bar" && styles.toggleButtonTextActive,
+					]}
+				>
+					{t("bar")}
+				</Text>
+			</TouchableOpacity>
+		</View>
+	);
+};
 
 const ChefsQScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
@@ -174,13 +183,15 @@ const ChefsQScreen = () => {
 	const [error, setError] = useState(null);
 	const insets = useSafeAreaInsets();
 
+	const { t } = useTranslation();
+
 	const [viewMode, setViewMode] = useState("kitchen"); // 'kitchen' or 'bar'
 
 	useEffect(() => {
 		return sound
 			? () => {
 					sound.unloadAsync();
-			  }
+				}
 			: undefined;
 	}, [sound]);
 
@@ -191,9 +202,9 @@ const ChefsQScreen = () => {
 		if (!restaurantId) {
 			if (!currentUserData) return; // Don't show error while user data is loading
 			console.warn(
-				"ChefsQScreen: No restaurantId found on currentUserData. Cannot fetch orders."
+				"ChefsQScreen: No restaurantId found on currentUserData. Cannot fetch orders.",
 			);
-			setError("Your user profile is not linked to a restaurant.");
+			setError(t("your_user_profile_is_not_linked_to_a_restaurant"));
 			setIsLoading(false);
 			return;
 		}
@@ -226,9 +237,9 @@ const ChefsQScreen = () => {
 			},
 			(err) => {
 				console.error("ChefsQScreen snapshot error:", err);
-				setError("Could not fetch orders.");
+				setError(t("could_not_fetch_orders"));
 				setIsLoading(false);
-			}
+			},
 		);
 
 		return () => unsubscribe();
@@ -239,15 +250,16 @@ const ChefsQScreen = () => {
 		// An order should be shown if it contains at least one item for the current view
 		return orders.filter(
 			(order) =>
-				order.items && order.items.some((item) => item.destination === viewMode)
+				order.items &&
+				order.items.some((item) => item.destination === viewMode),
 		);
 	}, [orders, viewMode]);
 
-	const headingText = viewMode === "kitchen" ? "Chefs Q" : "Bar Q";
+	const headingText = viewMode === "kitchen" ? t("chefs_q") : t("bar_q");
 	const emptyQueueText =
 		viewMode === "kitchen"
-			? "The kitchen queue is clear!"
-			: "The bar queue is clear!";
+			? t("the_kitchen_queue_is_clear")
+			: t("the_bar_queue_is_clear");
 
 	if (isLoading) {
 		return (
@@ -271,7 +283,7 @@ const ChefsQScreen = () => {
 			// The listener will automatically update the UI
 		} catch (error) {
 			console.error(`Error updating order ${orderId} to ${newStatus}:`, error);
-			Alert.alert("Error", "Could not update order status.");
+			Alert.alert(t("error"), t("could_not_update_order_status"));
 		}
 	};
 
@@ -444,4 +456,3 @@ const styles = StyleSheet.create({
 });
 
 export default ChefsQScreen;
-

@@ -26,7 +26,7 @@ import { Button, Divider } from "react-native-paper";
 import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-
+import { useTranslation } from "react-i18next";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
@@ -36,6 +36,7 @@ import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
 
 const PartyCheckoutScreen = () => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const { partyDetails, sharedBaskets } = useParty();
 	const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -96,12 +97,12 @@ const PartyCheckoutScreen = () => {
 						"PartyCheckoutScreen: Stripe publishable key fetched successfully."
 					);
 				} else {
-					throw new Error("Publishable key not returned from server.");
+					throw new Error(t("publishable_key_not_returned_from_server"));
 				}
 			} catch (error) {
 				console.error("Error fetching Stripe publishable key:", error);
 				setPaymentError(
-					"Could not load payment configuration for this restaurant."
+					t("could_not_load_payment_configuration_for_this_restaurant")
 				);
 			}
 		};
@@ -223,7 +224,7 @@ const PartyCheckoutScreen = () => {
 			});
 
 			if (!prepData?.paymentIntentClientSecret) {
-				throw new Error("Failed to get payment details from server.");
+				throw new Error(t("failed_to_get_payment_details_from_server"));
 			}
 
 			// --- Step 3: Initialize the Stripe Payment Sheet ---
@@ -238,7 +239,7 @@ const PartyCheckoutScreen = () => {
 
 			if (initError) {
 				throw new Error(
-					`Failed to initialize payment sheet: ${initError.message}`
+					`${t("failed_to_initialize_payment_sheet")}: ${initError.message}`
 				);
 			}
 
@@ -248,7 +249,7 @@ const PartyCheckoutScreen = () => {
 			if (presentError) {
 				// Handle cases where the user cancels the payment sheet
 				if (presentError.code !== "Canceled") {
-					throw new Error(`Payment failed: ${presentError.message}`);
+					throw new Error(`${t("payment_failed")}: ${presentError.message}`);
 				}
 			} else {
 				navigation.dispatch(
@@ -272,7 +273,7 @@ const PartyCheckoutScreen = () => {
 		} catch (error) {
 			console.error("Party payment process failed:", error);
 			setPaymentError(error.message);
-			Alert.alert("Payment Error", error.message);
+			Alert.alert(t("payment_error"), error.message);
 		} finally {
 			// Reset the loading state if there was an error and we didn't navigate away
 			setIsPreparing(false);
@@ -288,13 +289,13 @@ const PartyCheckoutScreen = () => {
 					contentContainerStyle={styles.scrollContentContainer}
 				>
 					<View style={styles.header}>
-						<Text style={styles.title}>Checkout Your Portion</Text>
+						<Text style={styles.title}>{t("checkout_your_portion")}</Text>
 						<Text style={styles.restaurantName}>{party?.restaurantName}</Text>
 					</View>
 
 					{/* Your Itemized List */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Your Items</Text>
+						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
 						{myItemsInBasket.length > 0 ? (
 							myItemsInBasket.map((item) => {
 								console.log("Item From Party Checkout", item);
@@ -303,7 +304,7 @@ const PartyCheckoutScreen = () => {
 										<Text style={styles.itemName}>
 											{item.quantity}x {item.name}{" "}
 											{item.orderedByPipName
-												? `(For ${item.orderedByPipName})`
+												? `(${t("for")} ${item.orderedByPipName})`
 												: ""}
 										</Text>
 										<Text style={styles.itemPrice}>
@@ -314,45 +315,48 @@ const PartyCheckoutScreen = () => {
 							}) // ✅ missing this parenthesis in your version
 						) : (
 							<Text style={styles.noItemsText}>
-								You have no items in this order.
+								{t("you_have_no_items_in_this_order")}
 							</Text>
 						)}
 					</View>
 
 					{/* Gratuity Section */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Add Gratuity</Text>
+						<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
 						<View style={styles.gratuityContainer}>
 							<Picker
 								selectedValue={gratuityPercentage}
 								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
 								style={styles.gratuityPicker}
 							>
-								<Picker.Item label="5%" value="5" />
-								<Picker.Item label="10%" value="10" />
-								<Picker.Item label="15%" value="15" />
-								<Picker.Item label="18% (Recommended)" value="18" />
-								<Picker.Item label="20%" value="20" />
-								<Picker.Item label="25%" value="25" />
-								<Picker.Item label="No Tip" value="0" />
+								<Picker.Item label={t("5_percent")} value="5" />
+								<Picker.Item label={t("10_percent")} value="10" />
+								<Picker.Item label={t("15_percent")} value="15" />
+								<Picker.Item
+									label={t("18_percent_recommended")}
+									value="18"
+								/>
+								<Picker.Item label={t("20_percent")} value="20" />
+								<Picker.Item label={t("25_percent")} value="25" />
+								<Picker.Item label={t("no_tip")} value="0" />
 							</Picker>
 						</View>
 					</View>
 
 					{/* Order Summary */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Your Bill Summary</Text>
+						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
 						{/* Conditionally show original price and discount if a discount exists */}
 						{myTotalDiscount > 0 && (
 							<>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>Original Subtotal:</Text>
+									<Text style={styles.label}>{t("original_subtotal")}:</Text>
 									<Text style={styles.originalPriceText}>
 										{formatCurrency(mySubtotal)}
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>Discounts:</Text>
+									<Text style={styles.label}>{t("discounts")}:</Text>
 									<Text style={styles.discountText}>
 										-{formatCurrency(myTotalDiscount)}
 									</Text>
@@ -360,24 +364,24 @@ const PartyCheckoutScreen = () => {
 							</>
 						)}
 						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Subtotal:</Text>
+							<Text style={styles.label}>{t("subtotal")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
 						</View>
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>
-								Gratuity ({gratuityPercentage}%):
+								{t("gratuity")} ({gratuityPercentage}%):
 							</Text>
 							<Text style={styles.amount}>{formatCurrency(myGratuity)}</Text>
 						</View>
 						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Service Fee:</Text>
+							<Text style={styles.label}>{t("service_fee")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(myPlatformFee)}</Text>
 						</View>
 
 						<View style={styles.summaryRow}></View>
 						<Divider style={styles.divider} />
 						<View style={styles.summaryRow}>
-							<Text style={styles.totalLabel}>Your Total:</Text>
+							<Text style={styles.totalLabel}>{t("your_total")}:</Text>
 							{isPreparing ? (
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
@@ -402,10 +406,10 @@ const PartyCheckoutScreen = () => {
 						labelStyle={styles.payButtonText}
 					>
 						{isPreparing
-							? "Preparing..."
+							? t("preparing")
 							: isPaying
-							? "Processing..."
-							: `Pay ${formatCurrency(myFinalTotal)}`}
+							? t("processing")
+							: `${t("pay")} ${formatCurrency(myFinalTotal)}`}
 					</Button>
 				</View>
 			</SafeAreaView>

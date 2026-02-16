@@ -9,6 +9,7 @@ import {
 	ScrollView,
 	Alert,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import {
 	Checkbox,
 	Button,
@@ -28,6 +29,7 @@ const PipInstructionModal = ({
 	initialInstructions = "",
 	onSaveInstructions,
 }) => {
+	const { t } = useTranslation();
 	const [instructions, setInstructions] = useState(initialInstructions);
 
 	useEffect(() => {
@@ -51,11 +53,11 @@ const PipInstructionModal = ({
 			<View style={styles.modalOverlay}>
 				<View style={styles.pipInstructionModalContent}>
 					<Text style={styles.modalTitle}>
-						Special Instructions for {pipName}
+						{t('special_instructions_for_pip', { pipName: pipName })}
 					</Text>
 					<TextInput
 						style={styles.specialInstructionsInput}
-						placeholder={`Notes for ${pipName}'s item...`}
+						placeholder={t('notes_for_pip_item_placeholder', { pipName: pipName })}
 						value={instructions}
 						onChangeText={setInstructions}
 						multiline
@@ -68,14 +70,14 @@ const PipInstructionModal = ({
 							mode="outlined"
 							style={styles.modalButton}
 						>
-							Cancel
+							{t('cancel_button')}
 						</Button>
 						<Button
 							onPress={handleSave}
 							mode="contained"
 							style={[styles.modalButton, { backgroundColor: colors.primary }]}
 						>
-							Save Instructions
+							{t('save_instructions_button')}
 						</Button>
 					</View>
 				</View>
@@ -94,6 +96,7 @@ const SelectedItemModal = ({
 	isLoading = false,
 	partyData,
 }) => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 
@@ -119,7 +122,7 @@ const SelectedItemModal = ({
 				setOrderTargets([
 					{
 						id: currentUserData.uid,
-						name: currentUserData.firstName || "Myself",
+						name: currentUserData.firstName || t('myself'),
 						specialInstructions: "",
 					},
 				]);
@@ -183,8 +186,8 @@ const SelectedItemModal = ({
 		}
 		if (orderTargets.length === 0) {
 			Alert.alert(
-				"Order For Whom?",
-				"Please select at least one person for this item."
+				t('order_for_whom_title'),
+				t('select_at_least_one_person_message')
 			);
 			return;
 		}
@@ -201,7 +204,7 @@ const SelectedItemModal = ({
 		} else if (orderingMode === "party") {
 			// This part of your logic was already correct.
 			if (!partyData || !partyData.partyId) {
-				Alert.alert("Error", "Party information is missing. Cannot add item.");
+				Alert.alert(t('error_title'), t('party_info_missing_cannot_add_item_message'));
 				return;
 			}
 			const partyTarget = orderTargets[0] || {};
@@ -253,7 +256,7 @@ const SelectedItemModal = ({
 						<Divider style={styles.divider} />
 
 						<View style={styles.sectionContainer}>
-							<Text style={styles.sectionTitle}>Quantity</Text>
+							<Text style={styles.sectionTitle}>{t('quantity_title')}</Text>
 							<View style={styles.quantitySelector}>
 								<IconButton
 									icon="minus-circle"
@@ -278,7 +281,7 @@ const SelectedItemModal = ({
 						{orderingMode === "party" && (
 							<View style={styles.sectionContainer}>
 								<Text style={styles.sectionTitle}>
-									Order this item for (in party):
+									{t('order_item_for_party_title')}
 								</Text>
 								{displayOptions.map((option) => {
 									const uniqueKey = option.userId || option.localPipId;
@@ -319,8 +322,8 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{orderTargets[0].specialInstructions
-															? "Edit Notes"
-															: "Add Notes"}
+															? t('edit_notes_button')
+															: t('add_notes_button')}
 													</Text>
 												</TouchableOpacity>
 											)}
@@ -332,7 +335,7 @@ const SelectedItemModal = ({
 									orderTargets[0] && ( // Check if target exists
 										<TextInput
 											style={styles.specialInstructionsInput}
-											placeholder={`Special instructions for ${orderTargets[0].name}...`}
+											placeholder={t('special_instructions_for_pip_placeholder', { pipName: orderTargets[0].name })}
 											value={orderTargets[0].specialInstructions}
 											onChangeText={(text) =>
 												setOrderTargets((prev) => [
@@ -351,12 +354,12 @@ const SelectedItemModal = ({
 							<View style={styles.sectionContainer}>
 								<View style={styles.sectionHeaderWithHelp}>
 									<Text style={styles.sectionTitle}>
-										Order for (select all that apply):
+										{t('order_for_select_all_that_apply_title')}
 									</Text>
 									{/* Help icon can be added back if needed */}
 								</View>
 								<Text style={styles.managePipsHintText}>
-									Not eating alone? Add people to your party.
+									{t('not_eating_alone_hint')}
 								</Text>
 								<Button
 									icon="account-multiple-plus-outline"
@@ -370,7 +373,7 @@ const SelectedItemModal = ({
 									style={styles.managePipsButton}
 									labelStyle={{ color: colors.primary, fontSize: 14 }}
 								>
-									Manage Your PIPs (People In Party)
+									{t('manage_pips_button')}
 								</Button>
 
 								{displayOptions.map((target) => {
@@ -407,8 +410,8 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{currentSelection.specialInstructions
-															? "Edit Notes"
-															: "Add Notes"}
+															? t('edit_notes_button')
+															: t('add_notes_button')}
 													</Text>
 												</TouchableOpacity>
 											)}
@@ -417,7 +420,7 @@ const SelectedItemModal = ({
 								})}
 								{displayOptions.length === 0 && (
 									<Text style={styles.noPipsText}>
-										You can add items for yourself.
+										{t('no_pips_message')}
 									</Text>
 								)}
 							</View>
@@ -432,7 +435,7 @@ const SelectedItemModal = ({
 							style={styles.modalActionButton}
 							labelStyle={{ color: colors.textDark, fontSize: 16 }}
 						>
-							Cancel
+							{t('cancel_button')}
 						</Button>
 						<Button
 							onPress={handleConfirmPress}
@@ -445,8 +448,7 @@ const SelectedItemModal = ({
 							disabled={isLoading}
 							loading={isLoading}
 						>
-							Add {quantity} to{" "}
-							{orderingMode === "party" ? "Party Basket" : "My Basket"}
+							{t('add_to_basket_button', { quantity: quantity, basketType: orderingMode === "party" ? t('party_basket') : t('my_basket') })}
 						</Button>
 					</View>
 				</View>

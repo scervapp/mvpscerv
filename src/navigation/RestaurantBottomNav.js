@@ -3,6 +3,7 @@ import React, { useState, useContext, useEffect } from "react";
 import { Platform, View, StyleSheet, Text } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useTranslation } from "react-i18next";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 // --- Import all your screens ---
@@ -58,6 +59,7 @@ const TabBarBadge = ({ count }) => {
 // --- This stack is for all the "Back Office" related management screens ---
 // It is now protected by the BackOfficeAuthGate as its initial route.
 const BackOfficeStackNavigator = () => {
+	const { t } = useTranslation();
 	return (
 		<Stack.Navigator
 			screenOptions={defaultHeaderOptions}
@@ -71,37 +73,37 @@ const BackOfficeStackNavigator = () => {
 			<Stack.Screen
 				name="BackOffice"
 				component={BackOfficeScreen}
-				options={{ headerTitle: "Back Office" }}
+				options={{ headerTitle: t("back_office_title") }}
 			/>
 			<Stack.Screen
 				name="EmployeeScreen"
 				component={EmployeeScreen}
-				options={{ headerTitle: "Employee Management" }}
+				options={{ headerTitle: t("employee_management_title") }}
 			/>
 			<Stack.Screen
 				name="SalesReportScreen"
 				component={SalesReportScreen}
-				options={{ headerTitle: "Daily Sales Summary" }}
+				options={{ headerTitle: t("daily_sales_summary_title") }}
 			/>
 			<Stack.Screen
 				name="DailySalesDetails"
 				component={DailySalesDetailsScreen}
-				options={{ headerTitle: "Daily Sales Details" }}
+				options={{ headerTitle: t("daily_sales_details_title") }}
 			/>
 			<Stack.Screen
 				name="HistoricalReports"
 				component={HistoricalReportsScreen}
-				options={{ headerTitle: "Historical Reports" }}
+				options={{ headerTitle: t("historical_reports_title") }}
 			/>
 			<Stack.Screen
 				name="RestaurantProfile"
 				component={RestaurantProfile}
-				options={{ headerTitle: "Restaurant Profile" }}
+				options={{ headerTitle: t("restaurant_profile_title") }}
 			/>
 			<Stack.Screen
 				name="RestaurantMenu"
 				component={MenuManagementScreen}
-				options={{ headerTitle: "Menu Management" }}
+				options={{ headerTitle: t("menu_management_title") }}
 			/>
 		</Stack.Navigator>
 	);
@@ -109,6 +111,7 @@ const BackOfficeStackNavigator = () => {
 
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
+	const { t } = useTranslation();
 	const { newCheckInCount, newKitchenOrderCount } = useRestaurantData();
 	const insets = useSafeAreaInsets();
 
@@ -163,6 +166,27 @@ const RestaurantBottomNavigation = () => {
 							<TabBarBadge count={badgeCount} />
 						</View>
 					);
+				},
+				tabBarLabel: ({ focused, color }) => {
+					let label;
+					switch (route.name) {
+						case "Dashboard":
+							label = t("dashboard_tab");
+							break;
+						case "Checkins":
+							label = t("checkins_tab");
+							break;
+						case "ChefsQ":
+							label = t("chefs_q_tab");
+							break;
+						case "Tables":
+							label = t("tables_tab");
+							break;
+						case "BackOfficeNavigator":
+							label = t("back_office_tab");
+							break;
+					}
+					return <Text style={{ color: color, fontSize: 12 }}>{label}</Text>;
 				},
 			})}
 		>
@@ -236,4 +260,3 @@ const styles = StyleSheet.create({
 });
 
 export default RestaurantBottomNavigation;
-

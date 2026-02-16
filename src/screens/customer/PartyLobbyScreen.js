@@ -27,7 +27,7 @@ import colors from "../../utils/styles/appStyles";
 
 import { AuthContext } from "../../context/authContext";
 import { useParty } from "../../context/customer/PartyContext"; // Import the hook
-
+import { useTranslation } from "react-i18next";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // For icons
 import * as Clipboard from "expo-clipboard";
 import * as Yup from "yup";
@@ -48,6 +48,7 @@ import { collection } from "@react-native-firebase/firestore";
 import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 
 const PartyLobbyScreen = () => {
+	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
 	const initialPartyIdFromRoute = route.params?.partyId;
@@ -125,7 +126,7 @@ const PartyLobbyScreen = () => {
 			console.log(
 				`PartyLobby: Party ID ${partyId} not found in currentPartyIds. Navigating back.`
 			);
-			Alert.alert("Party Ended", "This party session is no longer active.");
+			Alert.alert(t("party_ended"), t("this_party_session_is_no_longer_active"));
 			if (navigation.canGoBack()) {
 				navigation.goBack();
 			} else {
@@ -177,7 +178,7 @@ const PartyLobbyScreen = () => {
 		basketItems.forEach((item) => {
 			const groupKey =
 				item.orderedByPipName ||
-				`User: ${item.orderedByUserId?.slice(-4) || "Unknown"}`;
+				`${t("user")}: ${item.orderedByUserId?.slice(-4) || t("unknown")}`;
 			if (!groups[groupKey]) {
 				groups[groupKey] = {
 					groupName: groupKey,
@@ -206,7 +207,7 @@ const PartyLobbyScreen = () => {
 			setPips(pipsArray);
 		} catch (error) {
 			console.error("PartyLobby: Error fetching PIPs:", error);
-			Alert.alert("Error", "Could not load your PIPs list.");
+			Alert.alert(t("error"), t("could_not_load_your_pips_list"));
 		} finally {
 			setIsLoadingPips(false);
 		}
@@ -234,7 +235,7 @@ const PartyLobbyScreen = () => {
 		try {
 			const result = await inviteToParty(partyId);
 			if (result) {
-				Alert.alert("Success", `Invite sent to ${pipName}!`);
+				Alert.alert(t("success"), `${t("invite_sent_to")} ${pipName}!`);
 				setIsPipModalVisible(false);
 			}
 		} catch (error) {
@@ -262,7 +263,7 @@ const PartyLobbyScreen = () => {
 			}
 		} catch (error) {
 			console.error("PartyLobby: Error adding local PIP:", error);
-			Alert.alert("Error", `Failed to add local PIP: ${error.message}`);
+			Alert.alert(t("error"), `${t("failed_to_add_local_pip")}: ${error.message}`);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -275,16 +276,19 @@ const PartyLobbyScreen = () => {
 			const result = await inviteToParty(partyId);
 			if (result) {
 				const code = result;
-				const message = `Join my party at ${
-					partyDetails[partyId]?.restaurantName || "the restaurant"
-				}! Use this code in the Scerv app: ${code}`;
+				const message = `${t("join_my_party_at")} ${
+					partyDetails[partyId]?.restaurantName || t("the_restaurant")
+				}! ${t("use_this_code_in_the_scerv_app")}: ${code}`;
 				Alert.alert(
-					"Invite Code Generated",
-					`Code: ${code}\nExpires in approx 1 hour.`,
+					t("invite_code_generated"),
+					`${t("code")}: ${code}\n${t("expires_in_approx_1_hour")}.`,
 					[
-						{ text: "Copy Code", onPress: () => Clipboard.setString(code) },
-						{ text: "Share", onPress: () => Share.share({ message }) },
-						{ text: "OK" },
+						{
+							text: t("copy_code"),
+							onPress: () => Clipboard.setString(code),
+						},
+						{ text: t("share"), onPress: () => Share.share({ message }) },
+						{ text: t("ok") },
 					]
 				);
 			}
@@ -298,30 +302,34 @@ const PartyLobbyScreen = () => {
 	const handleLeaveParty = async () => {
 		const restaurantId = partyDetails[partyId]?.restaurantId;
 		if (!partyId || !restaurantId || isActionLoading) return;
-		Alert.alert("Leave Party", "Are you sure you want to leave this party?", [
-			{ text: "Cancel", style: "cancel" },
-			{
-				text: "Leave",
-				style: "destructive",
-				onPress: async () => {
-					setIsActionLoading(true);
-					await leaveParty(restaurantId);
-					setIsActionLoading(false);
+		Alert.alert(
+			t("leave_party"),
+			t("are_you_sure_you_want_to_leave_this_party"),
+			[
+				{ text: t("cancel"), style: "cancel" },
+				{
+					text: t("leave"),
+					style: "destructive",
+					onPress: async () => {
+						setIsActionLoading(true);
+						await leaveParty(restaurantId);
+						setIsActionLoading(false);
+					},
 				},
-			},
-		]);
+			]
+		);
 	};
 
 	const handleCancelParty = async () => {
 		const restaurantId = partyDetails[partyId]?.restaurantId;
 		if (!partyId || !isHost || !restaurantId || isActionLoading) return;
 		Alert.alert(
-			"Cancel Party",
-			"Are you sure you want to cancel this party? This cannot be undone.",
+			t("cancel_party"),
+			t("are_you_sure_you_want_to_cancel_this_party_this_cannot_be_undone"),
 			[
-				{ text: "Keep Party", style: "cancel" },
+				{ text: t("keep_party"), style: "cancel" },
 				{
-					text: "Cancel Party",
+					text: t("cancel_party"),
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
@@ -335,7 +343,7 @@ const PartyLobbyScreen = () => {
 
 	const handlePartyCheckInSubmit = async (values) => {
 		if (!partyDetails[partyId]?.restaurantId) {
-			Alert.alert("Error", "Restaurant details missing.");
+			Alert.alert(t("error"), t("restaurant_details_missing"));
 			return;
 		}
 		setIsLoadingCheckInAction(true);
@@ -357,7 +365,7 @@ const PartyLobbyScreen = () => {
 
 	const handleNavigateToAddItems = () => {
 		if (!partyDetails[partyId]?.restaurantId || !partyId) {
-			Alert.alert("Error", "Party or restaurant details missing.");
+			Alert.alert(t("error"), t("party_or_restaurant_details_missing"));
 			return;
 		}
 
@@ -373,7 +381,7 @@ const PartyLobbyScreen = () => {
 				partyContext: {
 					partyId,
 					orderingForUserId: currentUserData.uid,
-					orderingForPipName: currentUserData.firstName || "Me",
+					orderingForPipName: currentUserData.firstName || t("me"),
 				},
 			},
 		});
@@ -386,8 +394,8 @@ const PartyLobbyScreen = () => {
 			!partyDetails[partyId]?.checkInId
 		) {
 			Alert.alert(
-				"Cannot Send",
-				"Party must be active and checked in to send the order."
+				t("cannot_send"),
+				t("party_must_be_active_and_checked_in_to_send_the_order")
 			);
 			return;
 		}
@@ -399,13 +407,13 @@ const PartyLobbyScreen = () => {
 			);
 			const result = await sendOrderFunction({ partyId });
 			if (result.data.success) {
-				Alert.alert("Success", "New items sent to the kitchen!");
+				Alert.alert(t("success"), t("new_items_sent_to_the_kitchen"));
 			} else {
-				throw new Error(result.data.error || "Failed to send party order.");
+				throw new Error(result.data.error || t("failed_to_send_party_order"));
 			}
 		} catch (error) {
 			console.error("Error sending party order:", error);
-			Alert.alert("Error", `Could not send order: ${error.message}`);
+			Alert.alert(t("error"), `${t("could_not_send_order")}: ${error.message}`);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -419,8 +427,10 @@ const PartyLobbyScreen = () => {
 			!partyDetails[partyId]?.checkInId
 		) {
 			Alert.alert(
-				"Action Denied",
-				"Only the host can perform this action when the party is active and checked in."
+				t("action_denied"),
+				t(
+					"only_the_host_can_perform_this_action_when_the_party_is_active_and_checked_in"
+				)
 			);
 			return;
 		}
@@ -428,12 +438,15 @@ const PartyLobbyScreen = () => {
 		try {
 			// Placeholder for cloud function
 			Alert.alert(
-				"Success (Placeholder)",
-				"All new items would be sent to the kitchen!"
+				t("success_placeholder"),
+				t("all_new_items_would_be_sent_to_the_kitchen")
 			);
 		} catch (error) {
 			console.error("Error in handleSendAllNewPartyItemsToChefsQ:", error);
-			Alert.alert("Error", `Could not send all items: ${error.message}`);
+			Alert.alert(
+				t("error"),
+				`${t("could_not_send_all_items")}: ${error.message}`
+			);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -441,7 +454,7 @@ const PartyLobbyScreen = () => {
 
 	const handleUpdatePartyBasketItemQuantity = async (itemId, newQuantity) => {
 		if (!partyId || !currentUserData?.uid) {
-			Alert.alert("Error", "Missing party or user information.");
+			Alert.alert(t("error"), t("missing_party_or_user_information"));
 			return;
 		}
 		setIsActionLoading(true);
@@ -454,7 +467,10 @@ const PartyLobbyScreen = () => {
 			);
 		} catch (error) {
 			console.error("PartyLobby: Error updating item quantity:", error);
-			Alert.alert("Error", `Failed to update item quantity: ${error.message}`);
+			Alert.alert(
+				t("error"),
+				`${t("failed_to_update_item_quantity")}: ${error.message}`
+			);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -464,12 +480,12 @@ const PartyLobbyScreen = () => {
 		const restaurantId = partyDetails[partyId]?.restaurantId;
 		if (!partyId || !restaurantId || !isHost) return;
 		Alert.alert(
-			"Cancel Check-In Request",
-			"Are you sure you want to cancel your request for a table?",
+			t("cancel_check_in_request"),
+			t("are_you_sure_you_want_to_cancel_your_request_for_a_table"),
 			[
-				{ text: "Keep Request", style: "cancel" },
+				{ text: t("keep_request"), style: "cancel" },
 				{
-					text: "Cancel Request",
+					text: t("cancel_request"),
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
@@ -478,8 +494,8 @@ const PartyLobbyScreen = () => {
 						} catch (error) {
 							console.error("PartyLobby: Error canceling check-in:", error);
 							Alert.alert(
-								"Error",
-								`Failed to cancel check-in: ${error.message}`
+								t("error"),
+								`${t("failed_to_cancel_check_in")}: ${error.message}`
 							);
 						} finally {
 							setIsActionLoading(false);
@@ -493,8 +509,8 @@ const PartyLobbyScreen = () => {
 	// Validation Schema
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, "Party size must be at least 1")
-			.required("Party size is required"),
+			.min(1, t("party_size_must_be_at_least_1"))
+			.required(t("party_size_is_required")),
 	});
 
 	// --- Render Guest Item ---
@@ -503,7 +519,7 @@ const PartyLobbyScreen = () => {
 			<Ionicons name="person-circle-outline" size={24} color="gray" />
 			<Text style={styles.guestName}>
 				{item.name}
-				{item.userId === currentUserData?.uid ? " (You)" : ""}
+				{item.userId === currentUserData?.uid ? ` (${t("you")})` : ""}
 			</Text>
 		</View>
 	);
@@ -514,7 +530,9 @@ const PartyLobbyScreen = () => {
 		return (
 			<SafeAreaView style={styles.centered}>
 				<ActivityIndicator size="large" color={colors.primary} />
-				<Text style={styles.loadingText}>Loading Party Details...</Text>
+				<Text style={styles.loadingText}>
+					{t("loading_party_details")}...
+				</Text>
 			</SafeAreaView>
 		);
 	}
@@ -528,10 +546,10 @@ const PartyLobbyScreen = () => {
 					color={colors.danger}
 				/>
 				<Text style={styles.errorText}>
-					{partyError || "Party not found or has ended."}
+					{partyError || t("party_not_found_or_has_ended")}
 				</Text>
 				<Button
-					title="Go Back"
+					title={t("go_back")}
 					onPress={() =>
 						navigation.canGoBack()
 							? navigation.goBack()
@@ -562,7 +580,9 @@ const PartyLobbyScreen = () => {
 					/>
 				}
 				ListEmptyComponent={
-					<Text style={styles.emptyText}>No guests have joined yet.</Text>
+					<Text style={styles.emptyText}>
+						{t("no_guests_have_joined_yet")}
+					</Text>
 				}
 				ListFooterComponent={
 					<PartyLobbyFooter

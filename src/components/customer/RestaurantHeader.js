@@ -1,9 +1,11 @@
 // src/components/customer/RestaurantHeader.js
 import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import colors from "../../utils/styles/appStyles"; // Adjust path if needed
 
 const RestaurantHeader = ({ restaurant, initialView, renderActionButtons }) => {
+	const { t } = useTranslation();
 	// If it's the special 'menuForParty' view, we don't render anything.
 	if (initialView === "menuForParty") {
 		return null;
@@ -18,7 +20,7 @@ const RestaurantHeader = ({ restaurant, initialView, renderActionButtons }) => {
 					{restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
 					{restaurant.zipcode}
 				</Text>
-				<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
+				<Text style={styles.cuisine}>{t('cuisine_label')}: {restaurant.cuisineType}</Text>
 			</View>
 
 			{/* The parent screen provides this function to render the correct buttons */}
@@ -26,7 +28,7 @@ const RestaurantHeader = ({ restaurant, initialView, renderActionButtons }) => {
 
 			{/* The "Menu" title is the last part of the header */}
 			<View style={styles.menuSection}>
-				<Text style={styles.menuHeader}>Menu</Text>
+				<Text style={styles.menuHeader}>{t('menu_title')}</Text>
 			</View>
 		</View>
 	);

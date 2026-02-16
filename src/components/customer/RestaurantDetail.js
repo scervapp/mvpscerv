@@ -19,6 +19,7 @@ import {
 	SafeAreaView, // Added SafeAreaView
 	// Removed Button from react-native
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { AuthContext } from "../../context/authContext";
 import { PartyContext, useParty } from "../../context/customer/PartyContext"; // Ensure useParty is exported if preferred
@@ -47,6 +48,7 @@ import {
 } from "@react-native-firebase/firestore";
 
 const RestaurantDetailScreen = () => {
+	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
 	const { restaurant, initialView } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
@@ -240,8 +242,8 @@ const RestaurantDetailScreen = () => {
 			(partyDetails?.status === "active" || partyDetails?.status === "pending")
 		) {
 			Alert.alert(
-				"In a Party",
-				"You are already in a party at this restaurant. Manage your party from the Party Hub."
+				t('in_a_party_title'),
+				t('in_a_party_message')
 			);
 			closeModal();
 			return;
@@ -262,13 +264,13 @@ const RestaurantDetailScreen = () => {
 				console.log("Personal check-in requested successfully:", checkInId);
 			} else {
 				Alert.alert(
-					"Check-In Failed",
-					"Could not submit check-in request. Please try again."
+					t('check_in_failed_title'),
+					t('check_in_failed_message')
 				);
 			}
 		} catch (error) {
 			console.error("Error during personal check-in:", error);
-			Alert.alert("Error", `An error occurred: ${error.message}`);
+			Alert.alert(t('error_title'), t('an_error_occurred_message', { message: error.message }));
 		} finally {
 			setIsProcessingCheckInAction(false);
 			closeModal();
@@ -285,15 +287,15 @@ const RestaurantDetailScreen = () => {
 				checkInObj.id
 			);
 			if (success) {
-				Alert.alert("Success", "Your check-in request has been cancelled.");
+				Alert.alert(t('success_title'), t('check_in_cancelled_message'));
 			} else {
-				Alert.alert("Error", "Could not cancel check-in request.");
+				Alert.alert(t('error_title'), t('could_not_cancel_check_in_message'));
 			}
 		} catch (error) {
 			console.error("Error canceling check-in:", error);
 			Alert.alert(
-				"Error",
-				"An error occurred while canceling your check-in request."
+				t('error_title'),
+				t('an_error_occurred_while_cancelling_check_in_message')
 			);
 		} finally {
 			setIsProcessingCheckInAction(false);
@@ -306,69 +308,69 @@ const RestaurantDetailScreen = () => {
 			setIsAuthModalVisible(true);
 			return;
 		}
-		if (!currentUserData) {
-			Alert.alert("Login Required", "Please log in to start a party.");
-			return;
-		}
-		if (!restaurant?.id) {
-			Alert.alert("Error", "Restaurant details missing.");
-			return;
-		}
-		if (
-			isLoadingParty ||
-			isLoadingCheckInStatus ||
-			checkInStatus === "REQUESTED" ||
-			checkInStatus === "ACCEPTED" ||
-			currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
-		) {
-			if (currentPartyIds[restaurant.id]) {
-				Alert.alert(
-					"Already in a Party",
-					"You are already in a party at this restaurant. Go to the Party Hub to manage it."
-				);
-			} else if (
-				checkInStatus === "REQUESTED" ||
-				checkInStatus === "ACCEPTED"
-			) {
-				Alert.alert(
-					"Already Checked In",
-					"You are already checked in or have a pending check-in at this restaurant."
-				);
-			}
-			return;
-		}
-		setIsStartingPartyProcess(true);
-		try {
-			const newPartyId = await createParty(
-				restaurant.id,
-				restaurant.restaurantName
-			);
-			if (newPartyId) {
-				console.log(
-					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
-				);
-				navigation.navigate("PartyTab", {
-					screen: "PartySession",
-					params: {
-						partyId: newPartyId,
-						restaurantId: restaurant.id,
-						restaurantName: restaurant.restaurantName,
-					},
-				});
-			} else {
-				console.log(
-					"RestaurantDetail: createParty did not return a newPartyId."
-				);
-			}
-		} catch (error) {
-			console.error(
-				"RestaurantDetail: Unexpected error in handleStartParty:",
-				error
-			);
-			Alert.alert(
-				"Error",
-				"An unexpected error occurred while starting the party."
-			);
+				if (!currentUserData) {
+					Alert.alert(t('login_required_title'), t('login_required_to_start_party_message'));
+					return;
+				}
+				if (!restaurant?.id) {
+					Alert.alert(t('error_title'), t('restaurant_details_missing_message'));
+					return;
+				}
+				if (
+					isLoadingParty ||
+					isLoadingCheckInStatus ||
+					checkInStatus === "REQUESTED" ||
+					checkInStatus === "ACCEPTED" ||
+					currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
+				) {
+					if (currentPartyIds[restaurant.id]) {
+						Alert.alert(
+							t('already_in_a_party_title'),
+							t('already_in_a_party_manage_message')
+						);
+					} else if (
+						checkInStatus === "REQUESTED" ||
+						checkInStatus === "ACCEPTED"
+					) {
+						Alert.alert(
+							t('already_checked_in_title'),
+							t('already_checked_in_message')
+						);
+					}
+					return;
+				}
+				setIsStartingPartyProcess(true);
+				try {
+					const newPartyId = await createParty(
+						restaurant.id,
+						restaurant.restaurantName
+					);
+					if (newPartyId) {
+						console.log(
+							`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
+						);
+						navigation.navigate("PartyTab", {
+							screen: "PartySession",
+							params: {
+								partyId: newPartyId,
+								restaurantId: restaurant.id,
+								restaurantName: restaurant.restaurantName,
+							},
+						});
+					} else {
+						console.log(
+							"RestaurantDetail: createParty did not return a newPartyId."
+						);
+					}
+				} catch (error) {
+					console.error(
+						"RestaurantDetail: Unexpected error in handleStartParty:",
+						error
+					);
+					Alert.alert(
+						t('error_title'),
+						t('unexpected_error_starting_party_message')
+					);
 		} finally {
 			setIsStartingPartyProcess(false);
 			closePartyModal();
@@ -397,15 +399,15 @@ const RestaurantDetailScreen = () => {
 			// }
 
 			if (!currentUserData?.uid) {
-				Alert.alert("Login Required", "Please log in to add items.");
+				Alert.alert(t('login_required_title'), t('login_required_to_add_items_message'));
 				return;
 			}
 			if (!addItemToIndividualBasketFromContext) {
-				Alert.alert("Error", "Basket functionality is not available.");
+				Alert.alert(t('error_title'), t('basket_functionality_unavailable_message'));
 				return;
 			}
 			if (!restaurant?.id) {
-				Alert.alert("Error", "Restaurant information is missing.");
+				Alert.alert(t('error_title'), t('restaurant_information_missing_message'));
 				return;
 			}
 
@@ -458,8 +460,8 @@ const RestaurantDetailScreen = () => {
 					error
 				);
 				Alert.alert(
-					"Error",
-					"Could not add item to your basket. " + error.message
+					t('error_title'),
+					t('could_not_add_item_to_basket_message', { message: error.message })
 				);
 			}
 		},
@@ -470,12 +472,12 @@ const RestaurantDetailScreen = () => {
 		if (!checkInObj?.id || isProcessingCheckInAction) return;
 
 		Alert.alert(
-			"Leave Table",
-			"Are you sure you want to leave your table? Any items in your basket will be cleared.",
+			t('leave_table_title'),
+			t('leave_table_message'),
 			[
-				{ text: "Stay", style: "cancel" },
+				{ text: t('stay_button'), style: "cancel" },
 				{
-					text: "Leave",
+					text: t('leave_button'),
 					style: "destructive",
 					onPress: async () => {
 						setIsProcessingCheckInAction(true);
@@ -485,8 +487,8 @@ const RestaurantDetailScreen = () => {
 						} catch (error) {
 							console.error("Error leaving table:", error);
 							Alert.alert(
-								"Error",
-								error.message || "Could not leave the table."
+								t('error_title'),
+								error.message || t('could_not_leave_table_message')
 							);
 						} finally {
 							setIsProcessingCheckInAction(false);
@@ -501,7 +503,7 @@ const RestaurantDetailScreen = () => {
 		if (!currentUserData) return [];
 		const myselfOption = {
 			id: currentUserData.uid,
-			name: currentUserData.firstName || "Myself",
+			name: currentUserData.firstName || t('myself'),
 		};
 		// Prevent adding "Myself" if it's somehow already in the pips list
 		const otherPips = (userPips || []).filter(
@@ -512,10 +514,10 @@ const RestaurantDetailScreen = () => {
 
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, "Min 1")
-			.max(20, "Max 20")
-			.required("Required")
-			.typeError("Must be a number"),
+			.min(1, t('min_party_size', { min: 1 }))
+			.max(20, t('max_party_size', { max: 20 }))
+			.required(t('required_field'))
+			.typeError(t('must_be_a_number')),
 	});
 
 	// // --- ADD OR VERIFY THIS LOGGING BLOCK ---
@@ -532,7 +534,7 @@ const RestaurantDetailScreen = () => {
 
 		// **CHANGE**: Always show "Start Party" or "View Party" regardless of isRestaurantOpen
 		if (currentPartyIds[restaurant.id]) {
-			const buttonText = "View Your Party"; // Since it's for this restaurant
+			const buttonText = t('view_your_party'); // Since it's for this restaurant
 			return (
 				<View style={styles.actionsRow}>
 					<TouchableOpacity
@@ -563,7 +565,7 @@ const RestaurantDetailScreen = () => {
 								color={colors.textLight}
 							/>
 							<Text style={styles.actionButtonTextDisabled}>
-								Waiting to be seated
+								{t('waiting_to_be_seated')}
 							</Text>
 						</View>
 						<TouchableOpacity
@@ -581,7 +583,7 @@ const RestaurantDetailScreen = () => {
 								/>
 							)}
 							<Text style={[styles.cancelButtonText, { color: colors.danger }]}>
-								Cancel
+								{t('cancel_button')}
 							</Text>
 						</TouchableOpacity>
 					</View>
@@ -595,7 +597,7 @@ const RestaurantDetailScreen = () => {
 								size={28}
 								color={colors.statusSuccess}
 							/>
-							<Text style={styles.actionButtonTextCheckedIn}>Checked In!</Text>
+							<Text style={styles.actionButtonTextCheckedIn}>{t('checked_in')}</Text>
 							{checkInObj?.table?.name && (
 								<Text style={styles.tableText}>{checkInObj.table.name}</Text>
 							)}
@@ -614,7 +616,7 @@ const RestaurantDetailScreen = () => {
 									color={colors.danger}
 								/>
 							)}
-							<Text style={styles.cancelButtonText}>Leave Table</Text>
+							<Text style={styles.cancelButtonText}>{t('leave_table_button')}</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -637,7 +639,7 @@ const RestaurantDetailScreen = () => {
 									color={colors.primary}
 								/>
 							)}
-							<Text style={styles.actionButtonText}>Check In Solo</Text>
+							<Text style={styles.actionButtonText}>{t('check_in_solo_button')}</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
 							style={[
@@ -657,7 +659,7 @@ const RestaurantDetailScreen = () => {
 									color={colors.primary}
 								/>
 							)}
-							<Text style={styles.actionButtonText}>Start Party</Text>
+							<Text style={styles.actionButtonText}>{t('start_party_button')}</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -667,8 +669,8 @@ const RestaurantDetailScreen = () => {
 	if (!restaurant) {
 		return (
 			<SafeAreaView style={styles.centered}>
-				<Text style={styles.errorText}>Restaurant data not found.</Text>
-				<PaperButton onPress={() => navigation.goBack()}>Go Back</PaperButton>
+				<Text style={styles.errorText}>{t('restaurant_data_not_found')}</Text>
+				<PaperButton onPress={() => navigation.goBack()}>{t('go_back_button')}</PaperButton>
 			</SafeAreaView>
 		);
 	}
@@ -741,7 +743,7 @@ const RestaurantDetailScreen = () => {
 								}) => (
 									<>
 										<Text style={styles.modalTitle}>
-											How many in your party?
+											{t('how_many_in_your_party')}
 										</Text>
 										<TextInput
 											style={styles.input}
@@ -749,7 +751,7 @@ const RestaurantDetailScreen = () => {
 											onBlur={handleBlur("partySize")}
 											value={values.partySize}
 											keyboardType="numeric"
-											placeholder="e.g., 2"
+											placeholder={t('party_size_placeholder')}
 											textAlign="center"
 										/>
 										{errors.partySize && touched.partySize && (
@@ -762,7 +764,7 @@ const RestaurantDetailScreen = () => {
 												onPress={closeModal}
 												style={[styles.modalButton, styles.cancelModalButton]}
 											>
-												<Text style={styles.modalButtonText}>Cancel</Text>
+												<Text style={styles.modalButtonText}>{t('cancel_button')}</Text>
 											</TouchableOpacity>
 											<TouchableOpacity
 												onPress={handleSubmit}
@@ -776,7 +778,7 @@ const RestaurantDetailScreen = () => {
 													<ActivityIndicator size="small" color="white" />
 												) : (
 													<Text style={styles.modalButtonText}>
-														Request Check-In
+														{t('request_check_in_button')}
 													</Text>
 												)}
 											</TouchableOpacity>

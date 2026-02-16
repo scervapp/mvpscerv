@@ -18,7 +18,7 @@ import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
-
+import { useTranslation } from "react-i18next";
 const { width } = Dimensions.get("window");
 
 // --- Reusable Helper Components ---
@@ -53,56 +53,65 @@ const DetailRow = ({ label, value }) => (
 	</View>
 );
 
-const ItemsSoldList = ({ items, formatCurrency }) => (
-	<View>
-		<View style={styles.tableHeader}>
-			<Text style={[styles.tableHeaderText, { flex: 3 }]}>Item</Text>
-			<Text style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}>
-				Qty
-			</Text>
-			<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
-				Revenue
-			</Text>
-		</View>
-		{(items || []).map((item, index) => (
-			<View key={index} style={styles.tableRow}>
-				<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
-				<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
-					{item.quantity}
+const ItemsSoldList = ({ items, formatCurrency }) => {
+	const { t } = useTranslation();
+	return (
+		<View>
+			<View style={styles.tableHeader}>
+				<Text style={[styles.tableHeaderText, { flex: 3 }]}>{t("item")}</Text>
+				<Text
+					style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}
+				>
+					{t("qty")}
 				</Text>
-				<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
-					{formatCurrency(item.totalRevenue)}
+				<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
+					{t("revenue")}
 				</Text>
 			</View>
-		))}
-	</View>
-);
+			{(items || []).map((item, index) => (
+				<View key={index} style={styles.tableRow}>
+					<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
+					<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
+						{item.quantity}
+					</Text>
+					<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
+						{formatCurrency(item.totalRevenue)}
+					</Text>
+				</View>
+			))}
+		</View>
+	);
+};
 
-const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => (
-	<View style={styles.periodSelectorContainer}>
-		{["Today", "Week", "Month"].map((period) => (
-			<TouchableOpacity
-				key={period}
-				style={[
-					styles.periodButton,
-					selectedPeriod === period && styles.periodButtonActive,
-				]}
-				onPress={() => onSelectPeriod(period)}
-			>
-				<Text
+const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => {
+	const { t } = useTranslation();
+	return (
+		<View style={styles.periodSelectorContainer}>
+			{["Today", "Week", "Month"].map((period) => (
+				<TouchableOpacity
+					key={period}
 					style={[
-						styles.periodButtonText,
-						selectedPeriod === period && styles.periodButtonTextActive,
+						styles.periodButton,
+						selectedPeriod === period && styles.periodButtonActive,
 					]}
+					onPress={() => onSelectPeriod(period)}
 				>
-					{period}
-				</Text>
-			</TouchableOpacity>
-		))}
-	</View>
-);
+					<Text
+						style={[
+							styles.periodButtonText,
+							selectedPeriod === period && styles.periodButtonTextActive,
+						]}
+					>
+						{t(period.toLowerCase())}
+					</Text>
+				</TouchableOpacity>
+			))}
+		</View>
+	);
+};
 
 const SalesReportScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { currentUserData, isLoading: isAuthLoading } = useContext(AuthContext);
 	const [reportData, setReportData] = useState(null);
 	const [isFetching, setIsFetching] = useState(true);
@@ -161,7 +170,7 @@ const SalesReportScreen = ({ navigation }) => {
 		if (!reportData)
 			return (
 				<Text style={styles.noDataText}>
-					No sales data available for this period.
+					{t("no_sales_data_available_for_this_period")}
 				</Text>
 			);
 
@@ -169,50 +178,53 @@ const SalesReportScreen = ({ navigation }) => {
 			<ScrollView contentContainerStyle={styles.scrollContent}>
 				<View style={styles.kpiContainer}>
 					<KPICard
-						title="Gross Sales"
+						title={t("gross_sales")}
 						value={formatCurrency(reportData.grossSales)}
 						iconName="cash-outline"
 					/>
 					<KPICard
-						title="Tips Collected"
+						title={t("tips_collected")}
 						value={formatCurrency(reportData.totalGratuity)}
 						iconName="gift-outline"
 					/>
 					<KPICard
-						title="Transaction Fees"
+						title={t("transaction_fees")}
 						value={`-${formatCurrency(reportData.totalPlatformFees)}`}
 						iconName="trending-down-outline"
 						isDeduction={true}
 					/>
 					<KPICard
-						title="Net Payout"
+						title={t("net_payout")}
 						value={formatCurrency(reportData.netPayout)}
 						iconName="wallet-outline"
 					/>
 				</View>
 
 				<DetailedReportCard
-					title="Operational Metrics"
+					title={t("operational_metrics")}
 					iconName="stats-chart-outline"
 				>
 					<DetailRow
-						label="Total Orders"
+						label={t("total_orders")}
 						value={reportData.totalOrders?.toString() || "0"}
 					/>
 					<DetailRow
-						label="Avg. Table Turnover"
+						label={t("avg_table_turnover")}
 						value={`${reportData.avgTurnoverRate || 0} min`}
 					/>
 				</DetailedReportCard>
 
-				<DetailedReportCard title="Items Sold" iconName="fast-food-outline">
+				<DetailedReportCard
+					title={t("items_sold")}
+					iconName="fast-food-outline"
+				>
 					<ItemsSoldList
 						items={reportData.topSellingItems || []}
 						formatCurrency={formatCurrency}
 					/>
 				</DetailedReportCard>
 
-				<DetailedReportCard title="Server Tips" iconName="people-outline">
+				<DetailedReportCard title={t("server_tips")} iconName="people-outline">
 					{(reportData.serverTips || []).length > 0 ? (
 						reportData.serverTips.map((tip, index) => (
 							<DetailRow
@@ -222,7 +234,9 @@ const SalesReportScreen = ({ navigation }) => {
 							/>
 						))
 					) : (
-						<Text style={styles.noDataText}>No tips were recorded yet.</Text>
+						<Text style={styles.noDataText}>
+							{t("no_tips_were_recorded_yet")}
+						</Text>
 					)}
 				</DetailedReportCard>
 			</ScrollView>
@@ -232,7 +246,7 @@ const SalesReportScreen = ({ navigation }) => {
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.header}>
-				<Text style={styles.headerTitle}>Business Report</Text>
+				<Text style={styles.headerTitle}>{t("business_report")}</Text>
 				<PeriodSelector
 					selectedPeriod={selectedPeriod}
 					onSelectPeriod={setSelectedPeriod}

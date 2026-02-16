@@ -29,8 +29,10 @@ import { CommonActions } from "@react-navigation/native";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import firestore from "@react-native-firebase/firestore";
+import { useTranslation } from "react-i18next";
 
 const CheckoutScreen = ({ route, navigation }) => {
+	const { t } = useTranslation();
 	const { restaurant, baskets } = route.params;
 	const { currentUserData } = useContext(AuthContext);
 	const { clearBasket } = useBasket(); // Keep if needed post-webhook
@@ -109,7 +111,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					}
 				} catch (e) {
 					console.error("Error fetching publishable key:", e);
-					if (isMounted) setPaymentError("Could not load payment config.");
+					if (isMounted) setPaymentError(t("could_not_load_payment_config"));
 				}
 			}
 			if (isMounted) setIsDataLoading(false); // Assuming data loading state exists
@@ -299,7 +301,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			console.log("PrepData:", prepData);
 
 			if (!prepData?.paymentIntentClientSecret) {
-				throw new Error("Failed to get payment details from server.");
+				throw new Error(t("failed_to_get_payment_details_from_server"));
 			}
 
 			// --- Step B: Initialize the Stripe Payment Sheet ---
@@ -314,7 +316,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 			if (initError) {
 				throw new Error(
-					`Failed to initialize payment sheet: ${initError.message}`
+					t("failed_to_initialize_payment_sheet", { message: initError.message })
 				);
 			}
 
@@ -323,7 +325,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 			if (presentError) {
 				if (presentError.code !== "Canceled") {
-					throw new Error(`Payment failed: ${presentError.message}`);
+					throw new Error(t("payment_failed", { message: presentError.message }));
 				}
 				// If user cancels, we simply do nothing.
 			} else {
@@ -359,7 +361,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		} catch (error) {
 			console.error("Payment process failed:", error);
 			setPaymentError(error.message);
-			Alert.alert("Payment Error", error.message);
+			Alert.alert(t("payment_error"), error.message);
 		} finally {
 			setIsPreparing(false);
 		}
@@ -384,12 +386,12 @@ const CheckoutScreen = ({ route, navigation }) => {
 		<StripeProvider publishableKey={stripePublishableKey}>
 			<View style={styles.container}>
 				<ScrollView showsVerticalScrollIndicator={false}>
-					<Text style={styles.mainHeading}>Review Your Order</Text>
+					<Text style={styles.mainHeading}>{t("review_your_order")}</Text>
 					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
 
 					{/* --- PIP Breakdown --- */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Items by Person</Text>
+						<Text style={styles.sectionTitle}>{t("items_by_person")}</Text>
 						{filteredBasketData.map((personData) => {
 							const isExpanded = !!expandedPIPs[personData.personId];
 							// Find matching pip calculated data
@@ -407,11 +409,11 @@ const CheckoutScreen = ({ route, navigation }) => {
 										style={styles.pipHeader}
 									>
 										<Text style={styles.pipName}>
-											{personData.pipName || "Guest"}
+											{personData.pipName || t("guest")}
 										</Text>
 										<View style={styles.pipHeaderTotals}>
 											<Text style={styles.pipTotalDisplay}>
-												Est: {formatCurrency(estimatedPipTotal)}
+												{t("est_amount", { amount: formatCurrency(estimatedPipTotal) })}
 											</Text>
 											<MaterialCommunityIcons
 												name={isExpanded ? "chevron-up" : "chevron-down"}
@@ -450,10 +452,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 					{/* --- Gratuity Picker --- */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Add Gratuity</Text>
+						<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
 						<View style={styles.gratuityContainer}>
 							<Text style={styles.gratuityCurrentText}>
-								Selected: {gratuityPercentage}% ({formatCurrency(gratuity)})
+								{t("selected_gratuity", { percentage: gratuityPercentage, amount: formatCurrency(gratuity) })}
 							</Text>
 							<View style={styles.pickerContainer}>
 								<Picker
@@ -464,13 +466,13 @@ const CheckoutScreen = ({ route, navigation }) => {
 									style={styles.gratuityPicker}
 									itemStyle={styles.gratuityPickerItem}
 								>
-									<Picker.Item label="0%" value="0" />
-									<Picker.Item label="5%" value="5" />
-									<Picker.Item label="10%" value="10" />
-									<Picker.Item label="15%" value="15" />
-									<Picker.Item label="18%" value="18" />
-									<Picker.Item label="20%" value="20" />
-									<Picker.Item label="25%" value="25" />
+									<Picker.Item label={t("0_percent")} value="0" />
+									<Picker.Item label={t("5_percent")} value="5" />
+									<Picker.Item label={t("10_percent")} value="10" />
+									<Picker.Item label={t("15_percent")} value="15" />
+									<Picker.Item label={t("18_percent")} value="18" />
+									<Picker.Item label={t("20_percent")} value="20" />
+									<Picker.Item label={t("25_percent")} value="25" />
 								</Picker>
 								<MaterialCommunityIcons
 									name="chevron-down"
@@ -484,17 +486,17 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 					{/* --- Order Summary Section --- */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>Order Summary</Text>
+						<Text style={styles.sectionTitle}>{t("order_summary")}</Text>
 						{totalDiscount > 0 && (
 							<>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>Original Subtotal:</Text>
+									<Text style={styles.label}>{t("original_subtotal")}:</Text>
 									<Text style={styles.originalPrice}>
 										{formatCurrency(originalSubtotal)}
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>Discounts:</Text>
+									<Text style={styles.label}>{t("discounts")}:</Text>
 									<Text style={styles.discountAmount}>
 										-{formatCurrency(totalDiscount)}
 									</Text>
@@ -502,25 +504,25 @@ const CheckoutScreen = ({ route, navigation }) => {
 							</>
 						)}
 						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Subtotal:</Text>
+							<Text style={styles.label}>{t("subtotal")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(subtotal)}</Text>
 						</View>
 						{/* Gratuity Row */}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>
-								Gratuity ({gratuityPercentage}%):
+								{t("gratuity_with_percentage", { percentage: gratuityPercentage })}:
 							</Text>
 							<Text style={styles.amount}>{formatCurrency(gratuity)}</Text>
 						</View>
 						{/* Platform Fee Row */}
 						<View style={styles.summaryRow}>
-							<Text style={styles.label}>Service Fee:</Text>
+							<Text style={styles.label}>{t("service_fee")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(platformFee)}</Text>
 						</View>
 
 						{/* Final Total Row */}
 						<View style={[styles.summaryRow, styles.totalRow]}>
-							<Text style={styles.totalLabel}>Total Amount:</Text>
+							<Text style={styles.totalLabel}>{t("total_amount")}:</Text>
 							{isPreparing || finalTotal === null ? (
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
@@ -545,12 +547,12 @@ const CheckoutScreen = ({ route, navigation }) => {
 						<Button
 							title={
 								isPreparing
-									? "Calculating..."
+									? t("calculating")
 									: isPaying
-									? "Processing..."
+									? t("processing")
 									: finalTotal !== null
-									? `Pay ${formatCurrency(finalTotal)}`
-									: "Pay Now"
+									? t("pay_amount", { amount: formatCurrency(finalTotal) })
+									: t("pay_now")
 							}
 							onPress={handlePayment}
 							disabled={!isReadyToPay || isPreparing} // Disable until ready & not processing

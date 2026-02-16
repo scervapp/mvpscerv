@@ -7,7 +7,7 @@ import {
 	StyleSheet,
 	TouchableOpacity,
 } from "react-native";
-
+import { useTranslation } from 'react-i18next';
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { Picker } from "@react-native-picker/picker";
@@ -19,6 +19,7 @@ const ServerAssignmentModal = ({
 	onAssignServer,
 	servers,
 }) => {
+	const { t } = useTranslation();
 	const [selectedServer, setSelectedServer] = useState(null);
 
 	const handleAssign = () => {
@@ -26,7 +27,7 @@ const ServerAssignmentModal = ({
 			onAssignServer(selectedServer);
 			onClose();
 		} else {
-			alert("Please select a server");
+			alert(t('please_select_server_alert'));
 		}
 	};
 
@@ -34,7 +35,7 @@ const ServerAssignmentModal = ({
 		<Modal visible={visible} animationType="slide" transparent={true}>
 			<View style={styles.modalContainer}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>Assign Server</Text>
+					<Text style={styles.modalTitle}>{t('assign_server_title')}</Text>
 
 					{/* Server Picker */}
 					<View style={styles.pickerContainer}>
@@ -43,7 +44,7 @@ const ServerAssignmentModal = ({
 							onValueChange={(itemValue) => setSelectedServer(itemValue)}
 							style={styles.picker}
 						>
-							<Picker.Item label="Select Server" value={null} />
+							<Picker.Item label={t('select_server_label')} value={null} />
 							{servers &&
 								servers.map((server) => (
 									<Picker.Item
@@ -58,7 +59,7 @@ const ServerAssignmentModal = ({
 					{/* Buttons */}
 					<View style={styles.buttonContainer}>
 						<TouchableOpacity onPress={onClose} style={styles.cancelButton}>
-							<Text style={styles.cancelButtonText}>Cancel</Text>
+							<Text style={styles.cancelButtonText}>{t('cancel_button')}</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
 							onPress={handleAssign}
@@ -68,7 +69,7 @@ const ServerAssignmentModal = ({
 								!selectedServer && styles.disabledButton,
 							]}
 						>
-							<Text style={styles.assignButtonText}>Assign</Text>
+							<Text style={styles.assignButtonText}>{t('assign_button')}</Text>
 						</TouchableOpacity>
 					</View>
 				</View>

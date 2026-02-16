@@ -6,6 +6,7 @@ import {
 	StyleSheet,
 	ActivityIndicator,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 
 import { useNavigation } from "@react-navigation/native";
 import { fetchRestaurants } from "../../utils/customerUtils";
@@ -21,6 +22,7 @@ const RestaurantList = ({
 	error,
 	listType,
 }) => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 
 	const handleRestaurantPress = (restaurant) => {
@@ -38,7 +40,7 @@ const RestaurantList = ({
 	if (error) {
 		return (
 			<View style={styles.centeredContainer}>
-				<Text style={styles.errorText}>{error}</Text>
+				<Text style={styles.errorText}>{t('error_message', { error: error })}</Text>
 			</View>
 		);
 	}
@@ -47,8 +49,8 @@ const RestaurantList = ({
 		// Display a different message based on the context of the list
 		const message =
 			listType === "search"
-				? "No results found."
-				: "No restaurants available yet.";
+				? t('no_results_found')
+				: t('no_restaurants_available');
 		return (
 			<View style={styles.centeredContainer}>
 				<Text style={styles.noResultsText}>{message}</Text>

@@ -9,7 +9,7 @@ import {
 	ActivityIndicator,
 	Alert,
 } from "react-native";
-
+import { useTranslation } from 'react-i18next';
 import { functions } from "../../config/firebase"; // Adjust path
 
 import colors from "../../utils/styles/appStyles"; // Adjust path
@@ -29,6 +29,7 @@ const ManagerPinModal = ({
 	employeeToVerify, // The employee object {id, name} whose PIN we are checking
 	restaurantId,
 }) => {
+	const { t } = useTranslation();
 	const [pin, setPin] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
@@ -57,14 +58,14 @@ const ManagerPinModal = ({
 
 	const handleSubmit = async () => {
 		if (pin.length < 4) {
-			setError("PIN must be at least 4 digits.");
+			setError(t('pin_min_length_error', { length: 4 }));
 			return;
 		}
 
 		const employeeIdToVerify = employeeToVerify?.id;
 		// Add a guard clause to ensure restaurantId was passed as a prop.
 		if (!restaurantId) {
-			setError("Restaurant information is missing. Cannot verify PIN.");
+			setError(t('restaurant_info_missing_pin_error'));
 			console.error("ManagerPinModal: restaurantId prop is missing!");
 			return;
 		}
@@ -82,11 +83,11 @@ const ManagerPinModal = ({
 				// and pass the verified employee's data to it.
 				onSuccess(result.data.employee);
 			} else {
-				setError(result.data.message || "Invalid PIN.");
+				setError(result.data.message || t('invalid_pin_error'));
 			}
 		} catch (err) {
 			console.error("PIN verification error:", err);
-			setError("An error occurred. Please try again.");
+			setError(t('pin_verification_error'));
 		} finally {
 			setIsLoading(false);
 		}
@@ -101,9 +102,9 @@ const ManagerPinModal = ({
 		>
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>Manager PIN Required</Text>
+					<Text style={styles.modalTitle}>{t('manager_pin_required_title')}</Text>
 					<Text style={styles.modalSubtitle}>
-						Please enter PIN for {employeeToVerify?.name}
+						{t('enter_pin_for_employee', { employeeName: employeeToVerify?.name })}
 					</Text>
 
 					<View style={styles.pinDisplay}>
@@ -144,7 +145,7 @@ const ManagerPinModal = ({
 							</View>
 							<View style={styles.pinRow}>
 								<TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-									<Text style={styles.cancelButtonText}>Cancel</Text>
+									<Text style={styles.cancelButtonText}>{t('cancel_button')}</Text>
 								</TouchableOpacity>
 								<PinPadButton value="0" onPress={handleKeyPress} />
 								<TouchableOpacity
@@ -165,7 +166,7 @@ const ManagerPinModal = ({
 						onPress={handleSubmit}
 						disabled={pin.length < 4}
 					>
-						<Text style={styles.submitButtonText}>Enter</Text>
+						<Text style={styles.submitButtonText}>{t('enter_button')}</Text>
 					</TouchableOpacity>
 				</View>
 			</View>

@@ -19,8 +19,9 @@ import { RefreshControl, ActivityIndicator } from "react-native";
 import TableAndServerSelectionModal from "../../components/restaurant/TableAndServerSelectionModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
-
+import { useTranslation } from "react-i18next";
 const RestaurantCheckin = () => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const [isTableModalVisible, setIsTableModalVisible] = useState(false);
 	const [checkInRequests, setCheckInRequests] = useState([]);
@@ -37,7 +38,7 @@ const RestaurantCheckin = () => {
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
 		if (!restaurantId) {
-			setError("Your user profile is not linked to a restaurant.");
+			setError(t("your_user_profile_is_not_linked_to_a_restaurant"));
 			setIsLoading(false);
 			return;
 		}
@@ -62,7 +63,7 @@ const RestaurantCheckin = () => {
 			},
 			(err) => {
 				console.error("RestaurantCheckin: Snapshot error:", err);
-				setError("Failed to listen for check-in requests.");
+				setError(t("failed_to_listen_for_check_in_requests"));
 				setIsLoading(false);
 				setIsRefreshing(false);
 			}
@@ -84,12 +85,14 @@ const RestaurantCheckin = () => {
 
 	const handleDeclineCheckIn = (checkInItem) => {
 		Alert.alert(
-			"Decline Check-In",
-			`Are you sure you want to decline the check-in for ${checkInItem.customerName}?`,
+			t("decline_check_in"),
+			`${t("are_you_sure_you_want_to_decline_the_check_in_for")} ${
+				checkInItem.customerName
+			}?`,
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Decline",
+					text: t("decline"),
 					style: "destructive",
 					onPress: async () => {
 						setIsProcessing(true);
@@ -99,8 +102,8 @@ const RestaurantCheckin = () => {
 						} catch (error) {
 							console.error("Error declining check-in:", error);
 							Alert.alert(
-								"Error",
-								`Could not decline check-in: ${error.message}`
+								t("error"),
+								`${t("could_not_decline_check_in")}: ${error.message}`
 							);
 						} finally {
 							setIsProcessing(false);
@@ -113,7 +116,7 @@ const RestaurantCheckin = () => {
 
 	const handleConfirmSelection = async ({ table, server }) => {
 		if (!selectedCheckIn || !table || !server) {
-			Alert.alert("Error", "Missing information to confirm seating.");
+			Alert.alert(t("error"), t("missing_information_to_confirm_seating"));
 			return;
 		}
 
@@ -138,11 +141,13 @@ const RestaurantCheckin = () => {
 			});
 
 			if (!result.data.success) {
-				throw new Error(result.data.error || "Failed to confirm check-in.");
+				throw new Error(
+					result.data.error || t("failed_to_confirm_check_in")
+				);
 			}
 		} catch (err) {
 			console.error("Error confirming check-in:", err);
-			Alert.alert("Error", err.message || "An unexpected error occurred.");
+			Alert.alert(t("error"), err.message || t("an_unexpected_error_occurred"));
 		} finally {
 			setIsProcessing(false);
 			setIsSelectionModalVisible(false);
@@ -177,7 +182,7 @@ const RestaurantCheckin = () => {
 						color={colors.textLight}
 					/>
 					<Text style={styles.noCheckinsText}>
-						No customers are waiting at the moment.
+						{t("no_customers_are_waiting_at_the_moment")}
 					</Text>
 				</View>
 			);
@@ -210,7 +215,7 @@ const RestaurantCheckin = () => {
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.container}>
 				<View style={styles.titleContainer}>
-					<Text style={styles.title}>Customers Waiting</Text>
+					<Text style={styles.title}>{t("customers_waiting")}</Text>
 				</View>
 
 				{renderContent()}
@@ -230,7 +235,7 @@ const RestaurantCheckin = () => {
 			{isProcessing && (
 				<View style={styles.processingOverlay}>
 					<ActivityIndicator size="large" color={colors.surfaceWhite} />
-					<Text style={styles.processingText}>Confirming...</Text>
+					<Text style={styles.processingText}>{t("confirming")}...</Text>
 				</View>
 			)}
 		</SafeAreaView>

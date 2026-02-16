@@ -8,6 +8,7 @@ import {
 	StyleSheet,
 	ActivityIndicator,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Formik } from "formik";
 import * as Yup from "yup";
 import colors from "../../../utils/styles/appStyles";
@@ -20,6 +21,7 @@ const PartyCheckInModal = ({
 	onSubmit,
 	isLoadingAction,
 }) => {
+	const { t } = useTranslation();
 	return (
 		<Modal
 			transparent={true}
@@ -43,14 +45,14 @@ const PartyCheckInModal = ({
 							touched,
 						}) => (
 							<>
-								<Text style={styles.modalTitle}>Confirm Party Size</Text>
+								<Text style={styles.modalTitle}>{t('confirm_party_size_title')}</Text>
 								<TextInput
 									style={styles.input}
 									onChangeText={handleChange("partySize")}
 									onBlur={handleBlur("partySize")}
 									value={values.partySize}
 									keyboardType="numeric"
-									placeholder="Party Size"
+									placeholder={t('party_size_placeholder_text')}
 									textAlign="center"
 								/>
 								{errors.partySize && touched.partySize && (
@@ -61,7 +63,7 @@ const PartyCheckInModal = ({
 										onPress={onClose}
 										style={[styles.modalButton, styles.cancelModalButton]}
 									>
-										<Text style={styles.modalButtonText}>Cancel</Text>
+										<Text style={styles.modalButtonText}>{t('cancel_button')}</Text>
 									</TouchableOpacity>
 									<TouchableOpacity
 										onPress={handleSubmit}
@@ -75,7 +77,7 @@ const PartyCheckInModal = ({
 											<ActivityIndicator size="small" color="white" />
 										) : (
 											<Text style={styles.modalButtonText}>
-												Request Check-In
+												{t('request_check_in_button')}
 											</Text>
 										)}
 									</TouchableOpacity>

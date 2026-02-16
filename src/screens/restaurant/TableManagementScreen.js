@@ -30,7 +30,7 @@ import * as Yup from "yup";
 import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 import { httpsCallable } from "@react-native-firebase/functions";
-
+import { useTranslation } from "react-i18next";
 const AddEditTableModal = ({
 	isVisible,
 	onClose,
@@ -39,12 +39,13 @@ const AddEditTableModal = ({
 	isLoading,
 	onDelete,
 }) => {
+	const { t } = useTranslation();
 	const validationSchema = Yup.object().shape({
-		name: Yup.string().required("Table name is required."),
+		name: Yup.string().required(t("table_name_is_required")),
 		capacity: Yup.number()
-			.min(1, "Capacity must be at least 1")
-			.required("Capacity is required.")
-			.typeError("Must be a number"),
+			.min(1, t("capacity_must_be_at_least_1"))
+			.required(t("capacity_is_required"))
+			.typeError(t("must_be_a_number")),
 	});
 
 	return (
@@ -61,7 +62,9 @@ const AddEditTableModal = ({
 			>
 				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 					<Text style={styles.modalTitle}>
-						{initialData ? `Edit ${initialData.name}` : "Add New Table"}
+						{initialData
+							? `${t("edit")} ${initialData.name}`
+							: t("add_new_table")}
 					</Text>
 					<Formik
 						initialValues={{
@@ -83,7 +86,7 @@ const AddEditTableModal = ({
 							<>
 								<TextInput
 									style={styles.input}
-									placeholder="Table Name (e.g., 'Patio 5')"
+									placeholder={t("table_name_e_g_patio_5")}
 									value={values.name}
 									onChangeText={handleChange("name")}
 									onBlur={handleBlur("name")}
@@ -94,7 +97,7 @@ const AddEditTableModal = ({
 								)}
 								<TextInput
 									style={styles.input}
-									placeholder="Seating Capacity"
+									placeholder={t("seating_capacity")}
 									value={values.capacity}
 									onChangeText={handleChange("capacity")}
 									onBlur={handleBlur("capacity")}
@@ -110,7 +113,7 @@ const AddEditTableModal = ({
 										mode="outlined"
 										style={styles.modalButton}
 									>
-										Cancel
+										{t("cancel")}
 									</Button>
 									<Button
 										onPress={handleSubmit}
@@ -122,7 +125,7 @@ const AddEditTableModal = ({
 											{ backgroundColor: colors.primary },
 										]}
 									>
-										{initialData ? "Save Changes" : "Add Table"}
+										{initialData ? t("save_changes") : t("add_table")}
 									</Button>
 								</View>
 							</>
@@ -141,7 +144,7 @@ const AddEditTableModal = ({
 								disabled={isLoading}
 								color={colors.statusDanger}
 							>
-								Delete Table
+								{t("delete_table")}
 							</Button>
 						</View>
 					)}
@@ -166,6 +169,7 @@ const getStatusColor = (status) => {
 };
 
 const TableManagementScreen = () => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const [tables, setTables] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -204,7 +208,7 @@ const TableManagementScreen = () => {
 
 	const forceClearAction = async (tableToClear) => {
 		if (!tableToClear?.currentCheckInId || !tableToClear?.currentCustomerId) {
-			Alert.alert("Error", "Missing information needed to clear this table.");
+			Alert.alert(t("error"), t("missing_information_needed_to_clear_this_table"));
 			return;
 		}
 		setIsActionLoading(true);
@@ -215,10 +219,13 @@ const TableManagementScreen = () => {
 				checkInId: tableToClear.currentCheckInId,
 				customerId: tableToClear.currentCustomerId,
 			});
-			Alert.alert("Success", `${tableToClear.name} has been cleared.`);
+			Alert.alert(t("success"), `${tableToClear.name} ${t("has_been_cleared")}`);
 		} catch (error) {
 			console.error("Error force-clearing table:", error);
-			Alert.alert("Error", `Could not clear the table: ${error.message}`);
+			Alert.alert(
+				t("error"),
+				`${t("could_not_clear_the_table")}: ${error.message}`
+			);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -228,19 +235,21 @@ const TableManagementScreen = () => {
 		if (table.status === "OCCUPIED" || table.status === "occupied") {
 			// Show a confirmation dialog before proceeding.
 			Alert.alert(
-				"Force Clear Table?",
-				`This will clear all data for ${table.name} and check out the current customer. This action cannot be undone.`,
+				t("force_clear_table"),
+				`${t("this_will_clear_all_data_for")} ${
+					table.name
+				} ${t("and_check_out_the_current_customer_this_action_cannot_be_undone")}`,
 				[
-					{ text: "Cancel", style: "cancel" },
+					{ text: t("cancel"), style: "cancel" },
 					{
-						text: "Confirm Clear",
+						text: t("confirm_clear"),
 						style: "destructive",
 						onPress: () => forceClearAction(table), // Call the action function
 					},
 				]
 			);
 		} else {
-			Alert.alert("Info", "Only occupied tables can be force-cleared.");
+			Alert.alert(t("info"), t("only_occupied_tables_can_be_force_cleared"));
 		}
 	};
 
@@ -256,12 +265,12 @@ const TableManagementScreen = () => {
 		try {
 			await clearTable(selectedTable.id, currentUserData.uid);
 			Alert.alert(
-				"Success",
-				`${selectedTable.name} has been cleared and is now available.`
+				t("success"),
+				`${selectedTable.name} ${t("has_been_cleared_and_is_now_available")}`
 			);
 		} catch (error) {
 			console.error("Error clearing table:", error);
-			Alert.alert("Error", "Could not clear the table.");
+			Alert.alert(t("error"), t("could_not_clear_the_table"));
 		} finally {
 			setIsActionLoading(false);
 			setIsModalVisible(false);
@@ -278,14 +287,14 @@ const TableManagementScreen = () => {
 					tableId: selectedTable.id,
 					...values,
 				});
-				Alert.alert("Success", "Table updated successfully.");
+				Alert.alert(t("success"), t("table_updated_successfully"));
 			} else {
 				await addTableFunction({ restaurantId, ...values });
-				Alert.alert("Success", "New table added successfully.");
+				Alert.alert(t("success"), t("new_table_added_successfully"));
 			}
 		} catch (error) {
 			console.error("Error saving table:", error);
-			Alert.alert("Error", error.message || "Could not save the table.");
+			Alert.alert(t("error"), error.message || t("could_not_save_the_table"));
 		} finally {
 			setIsActionLoading(false);
 			setIsModalVisible(false);
@@ -296,18 +305,20 @@ const TableManagementScreen = () => {
 	const handleDeleteTable = () => {
 		if (!selectedTable || selectedTable.status === "OCCUPIED") {
 			Alert.alert(
-				"Cannot Delete",
-				"Occupied tables cannot be deleted. Please check out the guests first."
+				t("cannot_delete"),
+				t("occupied_tables_cannot_be_deleted_please_check_out_the_guests_first")
 			);
 			return;
 		}
 		Alert.alert(
-			"Confirm Deletion",
-			`Are you sure you want to permanently delete ${selectedTable.name}?`,
+			t("confirm_deletion"),
+			`${t("are_you_sure_you_want_to_permanently_delete")} ${
+				selectedTable.name
+			}?`,
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Delete",
+					text: t("delete"),
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
@@ -317,7 +328,10 @@ const TableManagementScreen = () => {
 								tableId: selectedTable.id,
 							});
 						} catch (error) {
-							Alert.alert("Error", error.message || "Could not delete table.");
+							Alert.alert(
+								t("error"),
+								error.message || t("could_not_delete_table")
+							);
 						} finally {
 							setIsActionLoading(false);
 							setIsModalVisible(false);
@@ -352,12 +366,13 @@ const TableManagementScreen = () => {
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.container}>
 				<View style={styles.header}>
-					<Text style={styles.title}>Table Management</Text>
+					<Text style={styles.title}>{t("table_management")}</Text>
 					<Text style={styles.statsText}>
-						{tableStats.available} Available / {tableStats.total} Total
+						{tableStats.available} {t("available")} / {tableStats.total}{" "}
+						{t("total")}
 					</Text>
 					<View style={styles.editToggleContainer}>
-						<Text style={styles.editToggleLabel}>Edit Floor Plan</Text>
+						<Text style={styles.editToggleLabel}>{t("edit_floor_plan")}</Text>
 						<Switch
 							value={isEditMode}
 							onValueChange={setIsEditMode}
@@ -370,7 +385,7 @@ const TableManagementScreen = () => {
 					<View style={styles.centeredContainer}>
 						<Ionicons name="grid-outline" size={60} color={colors.textLight} />
 						<Text style={styles.noDataText}>
-							No tables found. Use Edit Mode to add your first table.
+							{t("no_tables_found_use_edit_mode_to_add_your_first_table")}
 						</Text>
 					</View>
 				) : (
@@ -399,7 +414,7 @@ const TableManagementScreen = () => {
 						onPress={() => handleTablePress(null)}
 						style={styles.fab}
 					>
-						Add Table
+						{t("add_table")}
 					</Button>
 				)}
 
@@ -442,7 +457,7 @@ const TableManagementScreen = () => {
 									{/* --- THIS IS THE MISSING CONTENT FOR THE STATUS/ACTION MODAL --- */}
 									<Text style={styles.modalTitle}>{selectedTable.name}</Text>
 									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>Status:</Text>
+										<Text style={styles.modalDetailLabel}>{t("status")}:</Text>
 										<Text
 											style={[
 												styles.modalDetailValue,
@@ -453,9 +468,11 @@ const TableManagementScreen = () => {
 										</Text>
 									</View>
 									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>Capacity:</Text>
+										<Text style={styles.modalDetailLabel}>
+											{t("capacity")}:
+										</Text>
 										<Text style={styles.modalDetailValue}>
-											{selectedTable.capacity} guests
+											{selectedTable.capacity} {t("guests")}
 										</Text>
 									</View>
 									<View style={styles.modalActions}>
@@ -469,7 +486,7 @@ const TableManagementScreen = () => {
 												disabled={isActionLoading}
 												style={{ backgroundColor: colors.primary }}
 											>
-												Clear & Make Available
+												{t("clear_make_available")}
 											</Button>
 										)}
 										<Button
@@ -477,7 +494,7 @@ const TableManagementScreen = () => {
 											mode="outlined"
 											style={{ marginTop: 10 }}
 										>
-											Close
+											{t("close")}
 										</Button>
 									</View>
 								</TouchableOpacity>

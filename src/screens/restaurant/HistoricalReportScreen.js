@@ -18,7 +18,7 @@ import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
-
+import { useTranslation } from "react-i18next";
 // A reusable helper function to format currency
 const formatCurrency = (cents) => {
 	if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
@@ -26,26 +26,32 @@ const formatCurrency = (cents) => {
 };
 
 // A reusable component for each row in the list
-const ReportRow = ({ item, onPress }) => (
-	<TouchableOpacity style={styles.dayCard} onPress={onPress}>
-		<View style={styles.row}>
-			<Text style={styles.dateText}>{item.date}</Text>
-			<View style={styles.netPayoutContainer}>
-				<Text style={styles.netLabelSmall}>Est. Net Payout:</Text>
-				<Text style={styles.netAmountSmall}>
-					{formatCurrency(item.estimatedNetPayout)}
+const ReportRow = ({ item, onPress }) => {
+	const { t } = useTranslation();
+	return (
+		<TouchableOpacity style={styles.dayCard} onPress={onPress}>
+			<View style={styles.row}>
+				<Text style={styles.dateText}>{item.date}</Text>
+				<View style={styles.netPayoutContainer}>
+					<Text style={styles.netLabelSmall}>{t("est_net_payout")}:</Text>
+					<Text style={styles.netAmountSmall}>
+						{formatCurrency(item.estimatedNetPayout)}
+					</Text>
+				</View>
+			</View>
+			<View style={styles.row}>
+				<Text style={styles.detailLabel}>{t("net_sales")}:</Text>
+				<Text style={styles.detailAmount}>{formatCurrency(item.netSales)}</Text>
+				<Text style={styles.orderCountText}>
+					({item.orderCount} {t("orders")})
 				</Text>
 			</View>
-		</View>
-		<View style={styles.row}>
-			<Text style={styles.detailLabel}>Net Sales:</Text>
-			<Text style={styles.detailAmount}>{formatCurrency(item.netSales)}</Text>
-			<Text style={styles.orderCountText}>({item.orderCount} Orders)</Text>
-		</View>
-	</TouchableOpacity>
-);
+		</TouchableOpacity>
+	);
+};
 
 const HistoricalReportsScreen = () => {
+	const { t } = useTranslation();
 	const [dailyReports, setDailyReports] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const { currentUserData } = useContext(AuthContext);
@@ -69,7 +75,7 @@ const HistoricalReportsScreen = () => {
 				setDailyReports(response.data || []);
 			} catch (error) {
 				console.error("Error fetching daily sales reports:", error);
-				Alert.alert("Error", "Could not load historical reports.");
+				Alert.alert(t("error"), t("could_not_load_historical_reports"));
 				setDailyReports([]);
 			} finally {
 				setIsLoading(false);
@@ -102,7 +108,7 @@ const HistoricalReportsScreen = () => {
 				)}
 				contentContainerStyle={styles.listContainer}
 				ListHeaderComponent={
-					<Text style={styles.header}>Historical Reports</Text>
+					<Text style={styles.header}>{t("historical_reports")}</Text>
 				}
 				ListEmptyComponent={
 					<View style={styles.centeredContainer}>
@@ -112,7 +118,7 @@ const HistoricalReportsScreen = () => {
 							color={colors.textLight}
 						/>
 						<Text style={styles.noDataText}>
-							No daily reports have been generated yet.
+							{t("no_daily_reports_have_been_generated_yet")}
 						</Text>
 					</View>
 				}

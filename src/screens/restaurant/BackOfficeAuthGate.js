@@ -19,44 +19,52 @@ import {
 } from "../../utils/firebaseUtils";
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import colors from "../../utils/styles/appStyles";
-
+import { useTranslation } from "react-i18next";
 // This is a simple modal to let the user select which manager is authorizing the action.
-const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => (
-	<Modal
-		visible={isVisible}
-		transparent={true}
-		animationType="fade"
-		onRequestClose={onClose}
-	>
-		<View style={styles.modalOverlay}>
-			<View style={styles.modalContent}>
-				<Text style={styles.modalTitle}>Manager Authorization Required</Text>
-				<Text style={styles.modalSubtitle}>
-					Please select which manager is present to authorize this action.
-				</Text>
-				<FlatList
-					data={managers}
-					keyExtractor={(item) => item.id}
-					renderItem={({ item }) => (
-						<TouchableOpacity
-							style={styles.managerRow}
-							onPress={() => onSelect(item)}
-						>
-							<Text style={styles.managerName}>
-								{item.firstName} {item.lastName}
-							</Text>
-						</TouchableOpacity>
-					)}
-				/>
-				<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
-					Cancel
-				</Button>
+const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => {
+	const { t } = useTranslation();
+	return (
+		<Modal
+			visible={isVisible}
+			transparent={true}
+			animationType="fade"
+			onRequestClose={onClose}
+		>
+			<View style={styles.modalOverlay}>
+				<View style={styles.modalContent}>
+					<Text style={styles.modalTitle}>
+						{t("manager_authorization_required")}
+					</Text>
+					<Text style={styles.modalSubtitle}>
+						{t(
+							"please_select_which_manager_is_present_to_authorize_this_action"
+						)}
+					</Text>
+					<FlatList
+						data={managers}
+						keyExtractor={(item) => item.id}
+						renderItem={({ item }) => (
+							<TouchableOpacity
+								style={styles.managerRow}
+								onPress={() => onSelect(item)}
+							>
+								<Text style={styles.managerName}>
+									{item.firstName} {item.lastName}
+								</Text>
+							</TouchableOpacity>
+						)}
+					/>
+					<Button onPress={onClose} mode="outlined" style={{ marginTop: 15 }}>
+						{t("cancel")}
+					</Button>
+				</View>
 			</View>
-		</View>
-	</Modal>
-);
+		</Modal>
+	);
+};
 
 const BackOfficeAuthGate = () => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 
@@ -89,9 +97,16 @@ const BackOfficeAuthGate = () => {
 						"BackOfficeAuthGate: New owner detected. Granting one-time access to Back Office."
 					);
 					Alert.alert(
-						"Welcome, Owner!",
-						"To secure your Back Office, please start by creating your own 'Owner' profile on the Employee screen and setting a PIN.",
-						[{ text: "OK", onPress: () => navigation.replace("BackOffice") }] // Use replace to prevent going back to the gate
+						t("welcome_owner"),
+						t(
+							"to_secure_your_back_office_please_start_by_creating_your_own_owner_profile_on_the_employee_screen_and_setting_a_pin"
+						),
+						[
+							{
+								text: t("ok"),
+								onPress: () => navigation.replace("BackOffice"),
+							},
+						] // Use replace to prevent going back to the gate
 					);
 					return;
 				}
@@ -107,17 +122,19 @@ const BackOfficeAuthGate = () => {
 					if (managerList.length === 0) {
 						// This case is a fallback if an owner has somehow deleted all managers including themselves.
 						Alert.alert(
-							"Access Denied",
-							"No managers are configured for this restaurant. Please contact support.",
-							[{ text: "OK", onPress: () => navigation.goBack() }]
+							t("access_denied"),
+							t(
+								"no_managers_are_configured_for_this_restaurant_please_contact_support"
+							),
+							[{ text: t("ok"), onPress: () => navigation.goBack() }]
 						);
 					} else {
 						setManagers(managerList);
 						setIsManagerListVisible(true);
 					}
 				} catch (error) {
-					Alert.alert("Error", "Could not fetch manager list.", [
-						{ text: "OK", onPress: () => navigation.goBack() },
+					Alert.alert(t("error"), t("could_not_fetch_manager_list"), [
+						{ text: t("ok"), onPress: () => navigation.goBack() },
 					]);
 				} finally {
 					setIsLoading(false);
@@ -152,7 +169,7 @@ const BackOfficeAuthGate = () => {
 	return (
 		<View style={styles.container}>
 			<ActivityIndicator size="large" color={colors.primary} />
-			<Text style={styles.loadingText}>Verifying Permissions...</Text>
+			<Text style={styles.loadingText}>{t("verifying_permissions")}...</Text>
 
 			<ManagerSelectionModal
 				isVisible={isManagerListVisible}

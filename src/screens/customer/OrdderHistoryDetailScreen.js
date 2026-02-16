@@ -16,13 +16,15 @@ import { useRoute } from "@react-navigation/native";
 import { AirbnbRating, Rating } from "react-native-ratings";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { Timestamp } from "@react-native-firebase/firestore";
+import { useTranslation } from "react-i18next";
 
 const OrderHistoryDetailScreen = () => {
+	const { t } = useTranslation();
 	const route = useRoute();
 	const orderDocId = route.params?.orderDocId;
 
 	const [orderDetails, setOrderDetails] = useState(null);
-	const [restaurantName, setRestaurantName] = useState("Restaurant");
+	const [restaurantName, setRestaurantName] = useState(t("restaurant"));
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
 	const [ratingStates, setRatingStates] = useState({}); // State to manage loading/error per item rating
@@ -40,7 +42,9 @@ const OrderHistoryDetailScreen = () => {
 				.get()
 				.then((docSnap) => {
 					if (isMounted && docSnap.exists()) {
-						setRestaurantName(docSnap.data().restaurantName || "Restaurant");
+						setRestaurantName(
+							docSnap.data().restaurantName || t("restaurant")
+						);
 					} else if (isMounted) {
 						console.warn(
 							`Restaurant doc ${orderDetails.restaurantId} not found.`
@@ -49,7 +53,7 @@ const OrderHistoryDetailScreen = () => {
 				})
 				.catch((err) => {
 					console.error("Error fetching restaurant name:", err);
-					if (isMounted) setRestaurantName("Restaurant"); // Use default on error
+					if (isMounted) setRestaurantName(t("restaurant")); // Use default on error
 				});
 		}
 		return () => {
@@ -60,7 +64,7 @@ const OrderHistoryDetailScreen = () => {
 	// Listen to the specific order document
 	useEffect(() => {
 		if (!orderDocId) {
-			setError("No Order ID provided.");
+			setError(t("no_order_id_provided"));
 			setLoading(false);
 			return;
 		}
@@ -86,14 +90,14 @@ const OrderHistoryDetailScreen = () => {
 					});
 					setRatingStates({});
 				} else {
-					setError("Order not found.");
+					setError(t("order_not_found"));
 					setOrderDetails(null);
 				}
 				setLoading(false);
 			},
 			(err) => {
 				console.error("Error listening to order snapshot:", err);
-				setError("Error fetching order details.");
+				setError(t("error_fetching_order_details"));
 				setLoading(false);
 			}
 		);
@@ -154,11 +158,14 @@ const OrderHistoryDetailScreen = () => {
 					[itemRatingKey]: { loading: false, error: null },
 				}));
 			} else {
-				throw new Error(result.data.error || "Failed to submit rating.");
+				throw new Error(result.data.error || t("failed_to_submit_rating"));
 			}
 		} catch (error) {
 			console.error("Error submitting rating:", error);
-			Alert.alert("Rating Error", error.message || "Could not submit rating.");
+			Alert.alert(
+				t("rating_error"),
+				error.message || t("could_not_submit_rating")
+			);
 			// Set error state for this specific item
 			setRatingStates((prev) => ({
 				...prev,
@@ -170,7 +177,7 @@ const OrderHistoryDetailScreen = () => {
 
 	// --- Helper to render status ---
 	const renderStatus = () => {
-		const status = orderDetails?.paymentStatus || "Unknown";
+		const status = orderDetails?.paymentStatus || t("unknown");
 		let color = colors.textLight;
 		let icon = "help-circle-outline";
 		switch (status.toLowerCase()) {
@@ -214,7 +221,7 @@ const OrderHistoryDetailScreen = () => {
 		return (
 			<View style={styles.centered}>
 				<Text style={styles.errorText}>
-					{error || "Could not load order details."}
+					{error || t("could_not_load_order_details")}
 				</Text>
 			</View>
 		);
@@ -233,10 +240,10 @@ const OrderHistoryDetailScreen = () => {
 			<View style={styles.headerSection}>
 				<Text style={styles.restaurantTitle}>{restaurantName}</Text>
 				<Text style={styles.orderInfoText}>
-					Order ID: {orderDetails.orderId}
+					{t("order_id")}: {orderDetails.orderId}
 				</Text>
 				<Text style={styles.orderInfoText}>
-					Date: {orderDate.toLocaleDateString()}
+					{t("date")}: {orderDate.toLocaleDateString()}
 					{orderDate.toLocaleTimeString()}
 				</Text>
 				{renderStatus()}
@@ -244,7 +251,7 @@ const OrderHistoryDetailScreen = () => {
 
 			{/* --- Items --- */}
 			<View style={styles.section}>
-				<Text style={styles.sectionTitle}>Items Ordered</Text>
+				<Text style={styles.sectionTitle}>{t("items_ordered")}</Text>
 				{orderDetails.items && orderDetails.items.length > 0 ? (
 					orderDetails.items.map((item, index) => {
 						const itemRatingKey = `${orderDocId}_${index}`; // Unique key for this item's rating}`
@@ -260,12 +267,13 @@ const OrderHistoryDetailScreen = () => {
 							>
 								<View style={styles.itemDetails}>
 									<Text style={styles.itemName}>
-										{item.quantity}x {item.dishName || "Unknown Item"}
+										{item.quantity}x{" "}
+										{item.dishName || t("unknown_item")}
 									</Text>
 									{/* Add modifier display if needed */}
 									{item.specialInstructions && (
 										<Text style={styles.itemInstructions}>
-											Notes: {item.specialInstructions}
+											{t("notes")}: {item.specialInstructions}
 										</Text>
 									)}
 								</View>
@@ -287,7 +295,7 @@ const OrderHistoryDetailScreen = () => {
 											<ActivityIndicator size="small" color={colors.primary} />
 										) : ratingState.error ? (
 											<Text style={styles.ratingErrorText}>
-												Error: {ratingState.error}
+												{t("error")}: {ratingState.error}
 											</Text>
 										) : item.ratedByUser ? (
 											<View style={styles.alreadyRatedContainer}>
@@ -296,7 +304,9 @@ const OrderHistoryDetailScreen = () => {
 													size={18}
 													color={colors.success || "green"}
 												/>
-												<Text style={styles.alreadyRatedText}>Rated</Text>
+												<Text style={styles.alreadyRatedText}>
+													{t("rated")}
+												</Text>
 											</View>
 										) : (
 											// Show AirbnbRating component if not rated and not loading/error
@@ -318,15 +328,17 @@ const OrderHistoryDetailScreen = () => {
 						);
 					})
 				) : (
-					<Text style={styles.noDataText}>No items found for this order.</Text>
+					<Text style={styles.noDataText}>
+						{t("no_items_found_for_this_order")}
+					</Text>
 				)}
 			</View>
 
 			{/* --- Financial Summary --- */}
 			<View style={styles.section}>
-				<Text style={styles.sectionTitle}>Payment Summary</Text>
+				<Text style={styles.sectionTitle}>{t("payment_summary")}</Text>
 				<View style={styles.summaryRow}>
-					<Text style={styles.label}>Subtotal:</Text>
+					<Text style={styles.label}>{t("subtotal")}:</Text>
 					<Text style={styles.amount}>
 						{formatCurrency(orderDetails.subtotal)}
 					</Text>
@@ -334,34 +346,34 @@ const OrderHistoryDetailScreen = () => {
 				{/* Display discount calculated by webhook if available */}
 				{orderDetails.totalDiscountApplied > 0 && (
 					<View style={styles.summaryRow}>
-						<Text style={styles.label}>Discounts:</Text>
+						<Text style={styles.label}>{t("discounts")}:</Text>
 						<Text style={[styles.amount, styles.discountAmount]}>
 							-{formatCurrency(orderDetails.totalDiscountApplied)}
 						</Text>
 					</View>
 				)}
 				<View style={styles.summaryRow}>
-					<Text style={styles.label}>Gratuity:</Text>
+					<Text style={styles.label}>{t("gratuity")}:</Text>
 					<Text style={styles.amount}>
 						{formatCurrency(orderDetails.gratuity)}
 					</Text>
 				</View>
 				<View style={styles.summaryRow}>
-					<Text style={styles.label}>Service Fee:</Text>
+					<Text style={styles.label}>{t("service_fee")}:</Text>
 					<Text style={styles.amount}>
 						{formatCurrency(orderDetails.platformFeeActual)}
 					</Text>
 					{/* Use actual fee collected */}
 				</View>
 				<View style={styles.summaryRow}>
-					<Text style={styles.label}>Sales Tax:</Text>
+					<Text style={styles.label}>{t("sales_tax")}:</Text>
 					<Text style={styles.amount}>
 						{formatCurrency(orderDetails.taxActual)}
 					</Text>
 					{/* Use actual tax */}
 				</View>
 				<View style={[styles.summaryRow, styles.totalRow]}>
-					<Text style={styles.totalLabel}>Total Charged:</Text>
+					<Text style={styles.totalLabel}>{t("total_charged")}:</Text>
 					<Text style={styles.totalAmount}>
 						{formatCurrency(orderDetails.totalPrice)}
 					</Text>
@@ -371,7 +383,7 @@ const OrderHistoryDetailScreen = () => {
 				{orderDetails.platformFeeWaived && (
 					<View style={[styles.summaryRow, styles.waivedRow]}>
 						<Text style={[styles.label, styles.lineThrough]}>
-							Potential Fee:
+							{t("potential_fee")}:
 						</Text>
 						<Text style={[styles.amount, styles.lineThrough]}>
 							(
@@ -386,7 +398,7 @@ const OrderHistoryDetailScreen = () => {
 							color={colors.success || "green"}
 							style={{ marginLeft: 5 }}
 						/>
-						<Text style={styles.waiverText}>Waived</Text>
+						<Text style={styles.waiverText}>{t("waived")}</Text>
 					</View>
 				)}
 			</View>
@@ -394,7 +406,7 @@ const OrderHistoryDetailScreen = () => {
 			{/* --- Server Tips (Optional if needed again) --- */}
 			{orderDetails.serverTips && orderDetails.serverTips.length > 0 && (
 				<View style={styles.section}>
-					<Text style={styles.sectionTitle}>Server Tips Breakdown</Text>
+					<Text style={styles.sectionTitle}>{t("server_tips_breakdown")}</Text>
 					{orderDetails.serverTips.map((tip, index) => (
 						<View key={`${tip.serverName}-${index}`} style={styles.itemRow}>
 							<Text style={styles.serverName}>{tip.serverName}</Text>

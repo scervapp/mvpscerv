@@ -1,12 +1,14 @@
 // components/customer/OrderItemCard.js (or a suitable path)
 import React from "react";
 import { View, Text, StyleSheet, Alert, ActivityIndicator } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { IconButton } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons"; // Or your preferred icon set
 import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 
 const OrderItemCard = (props) => {
+	const { t } = useTranslation();
 	const {
 		restaurantId,
 		item,
@@ -20,7 +22,7 @@ const OrderItemCard = (props) => {
 		// Handle cases where item or item.dish might be undefined
 		return (
 			<View style={styles.basketItemRow}>
-				<Text style={styles.errorText}>Item data is unavailable.</Text>
+				<Text style={styles.errorText}>{t('item_data_unavailable')}</Text>
 			</View>
 		);
 	}
@@ -29,10 +31,10 @@ const OrderItemCard = (props) => {
 		if (!allowEdit || isUpdating) return;
 		const currentQuantity = item.quantity;
 		if (currentQuantity === 1) {
-			Alert.alert("Confirm Remove", `Remove ${item.dishName}?`, [
-				{ text: "Cancel", style: "cancel" },
+			Alert.alert(t('confirm_remove_title'), t('confirm_remove_message', { dishName: item.dishName }), [
+				{ text: t('cancel_button'), style: "cancel" },
 				{
-					text: "Remove",
+					text: t('remove_button'),
 					onPress: () => onQuantityChange(item.id, 0),
 					style: "destructive",
 				},
@@ -103,7 +105,7 @@ const OrderItemCard = (props) => {
 								isSentToKitchen && styles.sentItemText,
 							]}
 						>
-							Notes: {item.specialInstructions}
+							{t('notes_label')}: {item.specialInstructions}
 						</Text>
 					)}
 				</View>
@@ -137,7 +139,7 @@ const OrderItemCard = (props) => {
 						</View>
 					) : (
 						// Display quantity as text if not editable or already sent
-						<Text style={styles.quantityDisplayOnly}>Qty: {item.quantity}</Text>
+						<Text style={styles.quantityDisplayOnly}>{t('qty_label')}: {item.quantity}</Text>
 					)}
 					<Text
 						style={[

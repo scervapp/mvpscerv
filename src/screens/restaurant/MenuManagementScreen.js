@@ -21,7 +21,7 @@ import {
 	SafeAreaView,
 	useSafeAreaInsets,
 } from "react-native-safe-area-context";
-
+import { useTranslation } from "react-i18next";
 const MenuSectionHeader = ({ title }) => (
 	<View style={styles.sectionHeaderContainer}>
 		<Text style={styles.sectionHeaderText}>{title}</Text>
@@ -29,20 +29,30 @@ const MenuSectionHeader = ({ title }) => (
 );
 
 // A better empty state component
-const EmptyMenu = ({ onAddItem }) => (
-	<View style={styles.emptyContainer}>
-		<Ionicons name="document-text-outline" size={80} color={colors.textLight} />
-		<Text style={styles.emptyTitle}>Your Menu is Empty</Text>
-		<Text style={styles.emptySubtitle}>
-			Tap the button below to add your first appetizer, entree, or drink.
-		</Text>
-		<TouchableOpacity style={styles.emptyButton} onPress={onAddItem}>
-			<Text style={styles.emptyButtonText}>Add First Item</Text>
-		</TouchableOpacity>
-	</View>
-);
+const EmptyMenu = ({ onAddItem }) => {
+	const { t } = useTranslation();
+	return (
+		<View style={styles.emptyContainer}>
+			<Ionicons
+				name="document-text-outline"
+				size={80}
+				color={colors.textLight}
+			/>
+			<Text style={styles.emptyTitle}>{t("your_menu_is_empty")}</Text>
+			<Text style={styles.emptySubtitle}>
+				{t(
+					"tap_the_button_below_to_add_your_first_appetizer_entree_or_drink"
+				)}
+			</Text>
+			<TouchableOpacity style={styles.emptyButton} onPress={onAddItem}>
+				<Text style={styles.emptyButtonText}>{t("add_first_item")}</Text>
+			</TouchableOpacity>
+		</View>
+	);
+};
 
 const MenuManagementScreen = () => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const insets = useSafeAreaInsets();
 
@@ -57,28 +67,29 @@ const MenuManagementScreen = () => {
 	useEffect(() => {
 		if (!currentUserData?.uid) {
 			setIsLoading(false);
-			setError("Could not identify the restaurant. Please try again.");
+			setError(t("could_not_identify_the_restaurant_please_try_again"));
 			return;
 		}
 
-		const unsubscribe = db.collection("menuItems")
+		const unsubscribe = db
+			.collection("menuItems")
 			.where("restaurantId", "==", currentUserData.uid)
 			.onSnapshot(
-			(snapshot) => {
-				const items = snapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setMenuItems(items);
-				setIsLoading(false);
-				setError(null);
-			},
-			(err) => {
-				console.error("MenuManagementScreen snapshot error:", err);
-				setError("Failed to load menu. Please check your connection.");
-				setIsLoading(false);
-			}
-		);
+				(snapshot) => {
+					const items = snapshot.docs.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}));
+					setMenuItems(items);
+					setIsLoading(false);
+					setError(null);
+				},
+				(err) => {
+					console.error("MenuManagementScreen snapshot error:", err);
+					setError(t("failed_to_load_menu_please_check_your_connection"));
+					setIsLoading(false);
+				}
+			);
 
 		return () => unsubscribe(); // Cleanup on unmount
 	}, [currentUserData?.uid]);
@@ -105,7 +116,7 @@ const MenuManagementScreen = () => {
 
 		// Group items by category
 		const grouped = filteredItems.reduce((acc, item) => {
-			const category = item.category || "Uncategorized";
+			const category = item.category || t("uncategorized");
 			if (!acc[category]) {
 				acc[category] = [];
 			}
@@ -115,16 +126,16 @@ const MenuManagementScreen = () => {
 
 		// Define a preferred order for categories
 		const categoryOrder = [
-			"Daily Special",
-			"Appetizers",
-			"Entrees",
-			"Desserts",
-			"Drinks",
-			"Beer",
-			"Wine",
-			"Cocktails",
-			"Spirits",
-			"Non-Alcoholic Drinks",
+			t("daily_special"),
+			t("appetizers"),
+			t("entrees"),
+			t("desserts"),
+			t("drinks"),
+			t("beer"),
+			t("wine"),
+			t("cocktails"),
+			t("spirits"),
+			t("non_alcoholic_drinks"),
 		];
 
 		// Create the final structure for the SectionList
@@ -173,13 +184,13 @@ const MenuManagementScreen = () => {
 				<View style={styles.container}>
 					{/* --- Header --- */}
 					<View style={styles.header}>
-						<Text style={styles.headerTitle}>Manage Menu</Text>
+						<Text style={styles.headerTitle}>{t("manage_menu")}</Text>
 						<TouchableOpacity
 							style={styles.headerButton}
 							onPress={handleAddItem}
 						>
 							<Ionicons name="add" size={24} color={colors.primary} />
-							<Text style={styles.headerButtonText}>Add Item</Text>
+							<Text style={styles.headerButtonText}>{t("add_item")}</Text>
 						</TouchableOpacity>
 					</View>
 
@@ -193,7 +204,7 @@ const MenuManagementScreen = () => {
 						/>
 						<TextInput
 							style={styles.searchInput}
-							placeholder="Search for a dish..."
+							placeholder={t("search_for_a_dish")}
 							placeholderTextColor={colors.textLight}
 							value={searchTerm}
 							onChangeText={setSearchTerm}
@@ -207,9 +218,11 @@ const MenuManagementScreen = () => {
 							<EmptyMenu onAddItem={handleAddItem} />
 						) : processedMenu.length === 0 ? (
 							<View style={styles.emptyContainer}>
-								<Text style={styles.emptyTitle}>No Results Found</Text>
+								<Text style={styles.emptyTitle}>{t("no_results_found")}</Text>
 								<Text style={styles.emptySubtitle}>
-									No menu items match your search for "{searchTerm}".
+									{t("no_menu_items_match_your_search_for", {
+										searchTerm: searchTerm,
+									})}
 								</Text>
 							</View>
 						) : (

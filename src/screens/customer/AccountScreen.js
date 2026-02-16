@@ -14,6 +14,10 @@ import {
 import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import i18n from "../../config/i18n";
 
 const AccountRow = ({ label, iconName, onPress, isDestructive = false }) => (
 	<TouchableOpacity style={styles.listItem} onPress={onPress}>
@@ -43,6 +47,7 @@ const SettingsCard = ({ children }) => (
 );
 
 const AccountScreen = () => {
+	const { t } = useTranslation();
 	const { logout, deleteUserFunction, currentUserData } =
 		useContext(AuthContext);
 	const [showDelete, setShowDelete] = useState(false);
@@ -54,7 +59,7 @@ const AccountScreen = () => {
 			await logout();
 		} catch (error) {
 			console.log("error signing out: ", error);
-			Alert.alert("Error", "Could not sign out. Please try again.");
+			Alert.alert(t("error"), t("could_not_sign_out_please_try_again"));
 		}
 	};
 
@@ -62,14 +67,22 @@ const AccountScreen = () => {
 		setShowDelete(!showDelete);
 	};
 
+	const toggleLanguage = async () => {
+		const nextLanguage = i18n.language === "en" ? "es" : "en";
+		await i18n.changeLanguage(nextLanguage);
+		// The persistence is handled automatically by our new i18n.js detector!
+	};
+
 	const handleDeleteAccount = async () => {
 		Alert.alert(
-			"Delete Account",
-			"Are you sure you want to delete your account? This action cannot be undone.",
+			t("delete_account"),
+			t(
+				"are_you_sure_you_want_to_delete_your_account_this_action_cannot_be_undone",
+			),
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Delete",
+					text: t("delete"),
 					style: "destructive",
 					onPress: async () => {
 						try {
@@ -79,13 +92,13 @@ const AccountScreen = () => {
 						} catch (error) {
 							console.error("Error deleting account:", error);
 							Alert.alert(
-								"Error",
-								"Failed to delete account. Please try again."
+								t("error"),
+								t("failed_to_delete_account_please_try_again"),
 							);
 						}
 					},
 				},
-			]
+			],
 		);
 	};
 
@@ -106,27 +119,59 @@ const AccountScreen = () => {
 				{/* The main screen now has clearer sections */}
 				<SettingsCard>
 					<AccountRow
-						label="My PIPs (People In Party)"
+						label={t("my_pips_people_in_party")}
 						iconName="people-outline"
 						onPress={() => navigation.navigate("PipsScreenInner")}
 					/>
 					<View style={styles.divider} />
 					<AccountRow
-						label="Order History"
+						label={t("order_history")}
 						iconName="receipt-outline"
 						onPress={() => navigation.navigate("OrderHistoryScreenInner")}
 					/>
 				</SettingsCard>
 				<SettingsCard>
 					<AccountRow
-						label="Manage Account"
+						label={t("manage_account")}
 						iconName="settings-outline"
 						onPress={() => navigation.navigate("ManageAccountScreen")} // Navigate to the new screen
 					/>
+					<TouchableOpacity
+						style={{
+							flexDirection: "row",
+							alignItems: "center",
+							justifyContent: "space-between",
+							paddingVertical: 15,
+							paddingHorizontal: 15, // Matches standard list padding
+						}}
+						onPress={toggleLanguage}
+					>
+						<View style={{ flexDirection: "row", alignItems: "center" }}>
+							{/* Globe Icon */}
+							<Ionicons
+								name="globe-outline"
+								size={24}
+								color={colors.primary}
+								style={{ marginRight: 15 }}
+							/>
+							<Text style={{ fontSize: 16, color: "black" }}>
+								{t("language_settings_label")}
+							</Text>
+						</View>
+
+						{/* Current Language Display (e.g. 🇺🇸 English) */}
+						<View style={{ flexDirection: "row", alignItems: "center" }}>
+							<Text style={{ fontSize: 14, color: "#666", marginRight: 8 }}>
+								{i18n.language === "en" ? "🇺🇸 English" : "🇵🇦 Español"}
+							</Text>
+							{/* Small arrow to indicate it's clickable */}
+							<Ionicons name="swap-horizontal" size={18} color="#ccc" />
+						</View>
+					</TouchableOpacity>
 				</SettingsCard>
 				<SettingsCard>
 					<AccountRow
-						label="Contact Support"
+						label={t("contact_support")}
 						iconName="mail-outline"
 						onPress={() => Linking.openURL("mailto:support@scerv.com")}
 					/>
@@ -134,7 +179,7 @@ const AccountScreen = () => {
 				{/* --- END OF FIX --- */}
 				{/* --- END OF FIX --- */}
 				<TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
-					<Text style={styles.logoutButtonText}>Sign Out</Text>
+					<Text style={styles.logoutButtonText}>{t("sign_out")}</Text>
 				</TouchableOpacity>
 			</ScrollView>
 		</SafeAreaView>
@@ -185,4 +230,3 @@ const styles = StyleSheet.create({
 export default AccountScreen;
 
 //AccountScreen
-

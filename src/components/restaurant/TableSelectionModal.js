@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useContext } from "react";
 import { View, Text, Modal, FlatList, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import {
 	fetchTables,
 	updateCheckIn,
@@ -23,6 +24,7 @@ const TableSelectionModal = ({
 	selectedCustomerId,
 	numInParty,
 }) => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const [tables, setTables] = useState([]);
 	const [selectedTableId, setSelectedTableId] = useState(null);
@@ -103,8 +105,8 @@ const TableSelectionModal = ({
 					// Handle error from the Cloud Function
 					console.error("Error accepting check-in:", result.data.error);
 					Alert.alert(
-						"Error",
-						result.data.error || "Failed to accept check-in. Please try again."
+						t('error_title'),
+						result.data.error || t('failed_to_accept_check_in_error')
 					);
 				}
 
@@ -121,7 +123,7 @@ const TableSelectionModal = ({
 	return (
 		<Modal>
 			<View style={styles.container}>
-				<Text style={styles.title}>Tables Available</Text>
+				<Text style={styles.title}>{t('tables_available_title')}</Text>
 
 				<FlatList
 					data={tables}
@@ -132,8 +134,8 @@ const TableSelectionModal = ({
 					showsVerticalScrollIndicator={false}
 				/>
 				<View style={styles.buttonContainer}>
-					<Button title="Cancel" onPress={onClose} />
-					<Button title="Confirm" onPress={handleConfirm} disabled={!table} />
+					<Button title={t('cancel_button')} onPress={onClose} />
+					<Button title={t('confirm_button')} onPress={handleConfirm} disabled={!table} />
 				</View>
 				{/*Server assignment modal*/}
 				{isServerModalVisible && (

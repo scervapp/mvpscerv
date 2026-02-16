@@ -11,6 +11,7 @@ import {
 import { AuthContext } from "../../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 // Reusable component for the destructive action row
 const DestructiveActionRow = ({ label, iconName, onPress }) => (
@@ -26,16 +27,19 @@ const DestructiveActionRow = ({ label, iconName, onPress }) => (
 );
 
 const ManageAccountScreen = () => {
+	const { t } = useTranslation();
 	const { deleteUserFunction } = useContext(AuthContext);
 
 	const handleDeleteAccount = () => {
 		Alert.alert(
-			"Delete Account",
-			"Are you sure you want to permanently delete your account? This action cannot be undone.",
+			t("delete_account"),
+			t(
+				"are_you_sure_you_want_to_permanently_delete_your_account_this_action_cannot_be_undone"
+			),
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Delete",
+					text: t("delete"),
 					style: "destructive",
 					onPress: async () => {
 						try {
@@ -48,8 +52,8 @@ const ManageAccountScreen = () => {
 						} catch (error) {
 							console.error("Error deleting account:", error);
 							Alert.alert(
-								"Error",
-								"Failed to delete account. Please try again."
+								t("error"),
+								t("failed_to_delete_account_please_try_again")
 							);
 						}
 					},
@@ -64,14 +68,15 @@ const ManageAccountScreen = () => {
 				<View style={styles.card}>
 					{/* You can add other settings here in the future, like "Change Phone Number" */}
 					<DestructiveActionRow
-						label="Delete Account"
+						label={t("delete_account")}
 						iconName="trash-outline"
 						onPress={handleDeleteAccount}
 					/>
 				</View>
 				<Text style={styles.footerText}>
-					Deleting your account will permanently remove all of your data,
-					including order history and saved PIPs.
+					{t(
+						"deleting_your_account_will_permanently_remove_all_of_your_data_including_order_history_and_saved_pips"
+					)}
 				</Text>
 			</View>
 		</SafeAreaView>

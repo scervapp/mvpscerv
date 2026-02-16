@@ -18,8 +18,10 @@ import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 import { auth } from "../../config/firebase.native";
+import { useTranslation } from "react-i18next";
 
 const CustomerSignupScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [confirmation, setConfirmation] = useState(null);
@@ -54,8 +56,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 				error
 			);
 			Alert.alert(
-				"Error",
-				`Could not send verification code. Please check the console for details. Code: ${error.code}`
+				t("error"),
+				t("could_not_send_verification_code_please_check_the_console_for_details_code", { code: error.code })
 			);
 		} finally {
 			setIsSubmitting(false);
@@ -68,7 +70,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 		// **NEW VALIDATION**: Check code length before attempting
 		if (!verificationCode || verificationCode.trim().length !== 6) {
-			setCodeError("Please enter a valid 6-digit code");
+			setCodeError(t("please_enter_a_valid_6_digit_code"));
 			return;
 		}
 
@@ -91,8 +93,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 	};
 	const validationSchema = Yup.object().shape({
 		phoneNumber: Yup.string()
-			.matches(/^[0-9]{10}$/, "Must be a valid 10-digit phone number")
-			.required("Phone number is required"),
+			.matches(/^[0-9]{10}$/, t("must_be_a_valid_10_digit_phone_number"))
+			.required(t("phone_number_is_required")),
 	});
 
 	return (
@@ -104,12 +106,12 @@ const CustomerSignupScreen = ({ navigation }) => {
 				<ScrollView contentContainerStyle={styles.scrollContentContainer}>
 					<View style={styles.header}>
 						<Text style={styles.title}>
-							{!confirmation ? "Create Your Account" : "Verify Your Phone"}
+							{!confirmation ? t("create_your_account") : t("verify_your_phone")}
 						</Text>
 						<Text style={styles.subtitle}>
 							{!confirmation
-								? "Enter your 10-digit phone number to begin."
-								: `Enter the 6-digit code sent to +1 ${formValues?.phoneNumber}`}
+								? t("enter_your_10_digit_phone_number_to_begin")
+								: t("enter_the_6_digit_code_sent_to_1", {phoneNumber: formValues?.phoneNumber})}
 						</Text>
 					</View>
 
@@ -149,7 +151,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 									{/* Phone Number Input */}
 									<TextInput
 										style={styles.input}
-										placeholder="10-Digit Phone Number"
+										placeholder={t("10_digit_phone_number")}
 										placeholderTextColor={colors.textMedium}
 										value={values.phoneNumber}
 										onChangeText={handleChange("phoneNumber")}
@@ -168,7 +170,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 										loading={isSubmitting}
 										style={styles.button}
 									>
-										Send Verification Code
+										{t("send_verification_code")}
 									</Button>
 								</View>
 							)}
@@ -178,7 +180,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 						<View style={styles.form}>
 							<TextInput
 								style={[styles.input, codeError && styles.inputError]}
-								placeholder="6-Digit Code"
+								placeholder={t("6_digit_code")}
 								value={verificationCode}
 								onChangeText={(text) => {
 									setVerificationCode(text);
@@ -199,7 +201,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 								loading={isLoading || isSubmitting}
 								style={styles.button}
 							>
-								Verify & Continue
+								{t("verify_and_continue")}
 							</Button>
 
 							<Button
@@ -207,16 +209,16 @@ const CustomerSignupScreen = ({ navigation }) => {
 								onPress={() => setConfirmation(null)}
 								disabled={isSubmitting}
 							>
-								Use a different number
+								{t("use_a_different_number")}
 							</Button>
 						</View>
 					)}
 
 					{/* Footer (Always Visible) */}
 					<View style={styles.footer}>
-						<Text style={styles.footerText}>Already have an account?</Text>
+						<Text style={styles.footerText}>{t("already_have_an_account")}</Text>
 						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
-							<Text style={styles.linkTextFooter}> Log In</Text>
+							<Text style={styles.linkTextFooter}>{t("log_in")}</Text>
 						</TouchableOpacity>
 					</View>
 				</ScrollView>

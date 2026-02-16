@@ -1,0 +1,11 @@
+{
+  "party": "party",
+  "individual": "individual",
+  "party_basket": "Party Basket",
+  "my_basket": "My Basket",
+  "minutes_ago": "{{count}}m ago",
+  "party_of_label": "Party of {{count}}",
+  "someone": "Someone",
+  "add_member_button": "Add {{count}} Member",
+  "add_member_button_plural": "Add {{count}} Members"
+}

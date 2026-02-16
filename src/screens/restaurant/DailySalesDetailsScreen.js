@@ -13,7 +13,7 @@ import {
 	useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-
+import { useTranslation } from "react-i18next";
 const ReportCard = ({ title, children, iconName }) => (
 	<View style={styles.card}>
 		<View style={styles.cardHeader}>
@@ -44,6 +44,7 @@ const SummaryRow = ({ label, value, isTotal = false, isDeduction = false }) => (
 
 // The list component for top items, now with sorting
 const TopItemsList = ({ items, formatCurrency, sortBy }) => {
+	const { t } = useTranslation();
 	const sortedItems = useMemo(() => {
 		if (!items) return [];
 		// Sort by the selected criteria
@@ -53,14 +54,14 @@ const TopItemsList = ({ items, formatCurrency, sortBy }) => {
 	return (
 		<View>
 			<View style={styles.tableHeader}>
-				<Text style={[styles.tableHeaderText, { flex: 3 }]}>Item</Text>
+				<Text style={[styles.tableHeaderText, { flex: 3 }]}>{t("item")}</Text>
 				<Text
 					style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}
 				>
-					Qty
+					{t("qty")}
 				</Text>
 				<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
-					Revenue
+					{t("revenue")}
 				</Text>
 			</View>
 			{sortedItems.map((item, index) => (
@@ -79,6 +80,7 @@ const TopItemsList = ({ items, formatCurrency, sortBy }) => {
 };
 
 const DailySalesDetailsScreen = ({ route }) => {
+	const { t } = useTranslation();
 	const { dayReport } = route.params;
 	const insets = useSafeAreaInsets();
 	const [itemSortKey, setItemSortKey] = useState("totalRevenue"); // 'totalRevenue' or 'count'
@@ -106,35 +108,35 @@ const DailySalesDetailsScreen = ({ route }) => {
 				<View style={styles.header}>
 					<Text style={styles.headerDate}>{dayReport.date}</Text>
 					<Text style={styles.headerSubtitle}>
-						{dayReport.orderCount} Orders
+						{dayReport.orderCount} {t("orders")}
 					</Text>
 				</View>
 
-				<ReportCard title="Financials" iconName="cash-outline">
+				<ReportCard title={t("financials")} iconName="cash-outline">
 					<SummaryRow
-						label="Gross Sales"
+						label={t("gross_sales")}
 						value={formatCurrency(dayReport.grossSales)}
 					/>
 					<SummaryRow
-						label="Discounts Applied"
+						label={t("discounts_applied")}
 						value={`-${formatCurrency(dayReport.totalDiscountApplied)}`}
 						isDeduction
 					/>
 					<View style={styles.divider} />
 					<SummaryRow
-						label="Net Sales"
+						label={t("net_sales")}
 						value={formatCurrency(dayReport.netSales)}
 					/>
 					<SummaryRow
-						label="Tax Collected"
+						label={t("tax_collected")}
 						value={formatCurrency(dayReport.totalTaxCollected)}
 					/>
 					<SummaryRow
-						label="Gratuity Received"
+						label={t("gratuity_received")}
 						value={formatCurrency(dayReport.totalGratuityReceived)}
 					/>
 					<SummaryRow
-						label={`Transaction Fees (${transactionFeePercentage})`}
+						label={`${t("transaction_fees")} (${transactionFeePercentage})`}
 						value={`-${formatCurrency(
 							dayReport.estimatedProcessingFeesDeducted
 						)}`}
@@ -142,13 +144,13 @@ const DailySalesDetailsScreen = ({ route }) => {
 					/>
 					<View style={styles.divider} />
 					<SummaryRow
-						label="Est. Net Payout"
+						label={t("est_net_payout")}
 						value={formatCurrency(dayReport.estimatedNetPayout)}
 						isTotal
 					/>
 				</ReportCard>
 
-				<ReportCard title="Top Selling Items" iconName="star-outline">
+				<ReportCard title={t("top_selling_items")} iconName="star-outline">
 					<View style={styles.tabContainer}>
 						<TouchableOpacity
 							style={[
@@ -163,7 +165,7 @@ const DailySalesDetailsScreen = ({ route }) => {
 									itemSortKey === "totalRevenue" && styles.tabTextActive,
 								]}
 							>
-								By Revenue
+								{t("by_revenue")}
 							</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
@@ -179,7 +181,7 @@ const DailySalesDetailsScreen = ({ route }) => {
 									itemSortKey === "count" && styles.tabTextActive,
 								]}
 							>
-								By Quantity
+								{t("by_quantity")}
 							</Text>
 						</TouchableOpacity>
 					</View>
@@ -190,7 +192,10 @@ const DailySalesDetailsScreen = ({ route }) => {
 					/>
 				</ReportCard>
 
-				<ReportCard title="Server Performance" iconName="people-outline">
+				<ReportCard
+					title={t("server_performance")}
+					iconName="people-outline"
+				>
 					{dayReport.serverTips && dayReport.serverTips.length > 0 ? (
 						dayReport.serverTips.map((tip, index) => (
 							<SummaryRow
@@ -201,7 +206,7 @@ const DailySalesDetailsScreen = ({ route }) => {
 						))
 					) : (
 						<Text style={styles.noDataText}>
-							No tips were recorded for this day.
+							{t("no_tips_were_recorded_for_this_day")}
 						</Text>
 					)}
 				</ReportCard>

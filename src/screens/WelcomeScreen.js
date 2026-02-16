@@ -14,8 +14,11 @@ import colors from "../utils/styles/appStyles";
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
+import LanguageToggle from "../components/global/LanguageToggle";
 
 const WelcomeScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { continueAsGuest, isLoading } = useContext(AuthContext);
 
 	const handleContinueAsGuest = async () => {
@@ -33,15 +36,18 @@ const WelcomeScreen = ({ navigation }) => {
 			style={styles.gradientContainer}
 		>
 			<SafeAreaView style={styles.safeArea}>
+				<View style={{ position: "absolute", top: 50, right: 20, zIndex: 10 }}>
+					<LanguageToggle />
+				</View>
 				<View style={styles.contentContainer}>
 					<View style={styles.header}>
 						<Image
 							source={require("../../assets/scerv_logo.png")} // Make sure this path is correct
 							style={styles.logo}
 						/>
-						<Text style={styles.title}>Welcome to Scerv</Text>
+						<Text style={styles.title}>{t("welcome_to_scerv_title")}</Text>
 						<Text style={styles.subtitle}>
-							Your seamless dining experience starts here.
+							{t("seamless_dining_experience_subtitle")}
 						</Text>
 					</View>
 
@@ -56,7 +62,7 @@ const WelcomeScreen = ({ navigation }) => {
 								labelStyle={styles.buttonText}
 								icon="account-plus-outline"
 							>
-								Create Account
+								{t("create_account_button")}
 							</Button>
 
 							<Button
@@ -66,11 +72,13 @@ const WelcomeScreen = ({ navigation }) => {
 								labelStyle={styles.loginButtonText}
 								icon="login"
 							>
-								Log In
+								{t("log_in_button")}
 							</Button>
 
 							<TouchableOpacity onPress={handleContinueAsGuest}>
-								<Text style={styles.guestLink}>Continue as Guest</Text>
+								<Text style={styles.guestLink}>
+									{t("continue_as_guest_link")}
+								</Text>
 							</TouchableOpacity>
 						</View>
 					)}
@@ -81,8 +89,10 @@ const WelcomeScreen = ({ navigation }) => {
 						style={styles.restaurantPromptContainer}
 						onPress={() => navigation.navigate("RestaurantSignup")}
 					>
-						<Text style={styles.restaurantPrompt}>Are you a restaurant?</Text>
-						<Text style={styles.restaurantLink}>Sign up here</Text>
+						<Text style={styles.restaurantPrompt}>
+							{t("are_you_a_restaurant_question")}
+						</Text>
+						<Text style={styles.restaurantLink}>{t("sign_up_here_link")}</Text>
 					</TouchableOpacity>
 				</View>
 			</SafeAreaView>

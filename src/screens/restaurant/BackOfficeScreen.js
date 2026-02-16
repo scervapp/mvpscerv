@@ -19,6 +19,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { StatusIndicator } from "./StatusIndicator";
+import { useTranslation } from "react-i18next";
+
+// --- 1. IMPORT i18n DIRECTLY (The Fix) ---
+import i18n from "../../config/i18n";
 
 const { width } = Dimensions.get("window");
 const cardMargin = 10;
@@ -26,71 +30,97 @@ const numColumns = 2;
 const cardWidth = width / numColumns - cardMargin * (numColumns + 1);
 
 const BackOfficeScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
 	const [restaurantData, setRestaurantData] = useState(null);
 	const [isLoading, setIsLoading] = useState(false);
-	const [isStripeLoading, setIsStripeLoading] = useState(false); // Specific loading for Stripe actions
-	const [isLogoutLoading, setIsLogoutLoading] = useState(false); // Specific loading for logout
+	const [isStripeLoading, setIsStripeLoading] = useState(false);
+	const [isLogoutLoading, setIsLogoutLoading] = useState(false);
 
 	const isTestMode = currentUserData?.isTestAccount !== false;
 
-	console.log("TestMode", isTestMode);
-	// Define an array of screen names and their display labels
+	// --- 2. ADD TOGGLE FUNCTION ---
+	const toggleLanguage = () => {
+		const nextLanguage = i18n.language === "en" ? "es" : "en";
+		i18n.changeLanguage(nextLanguage);
+	};
+
 	const baseScreens = [
 		{
 			name: "RestaurantMenu",
-			label: "Menu",
+			label: t("menu"),
 			iconName: "silverware-fork-knife",
 		},
 		{
 			name: "RestaurantProfile",
-			label: "Profile",
+			label: t("profile"),
 			iconName: "store-settings-outline",
 		},
 		{
 			name: "EmployeeScreen",
-			label: "Employee",
+			label: t("employee"),
 			iconName: "account-group-outline",
 		},
 		{
 			name: "SalesReportScreen",
-			label: "Daily Sales Report",
+			label: t("daily_sales_report"),
 			iconName: "chart-line",
 		},
-
-		// Add more screens as needed
 	];
 
 	const [screens, setScreens] = useState(baseScreens);
 
+	// Update screens when language changes or user data changes
 	useEffect(() => {
-		let dynamicScreens = [...baseScreens];
+		let dynamicScreens = [
+			{
+				name: "RestaurantMenu",
+				label: t("menu"),
+				iconName: "silverware-fork-knife",
+			},
+			{
+				name: "RestaurantProfile",
+				label: t("profile"),
+				iconName: "store-settings-outline",
+			},
+			{
+				name: "EmployeeScreen",
+				label: t("employee"),
+				iconName: "account-group-outline",
+			},
+			{
+				name: "SalesReportScreen",
+				label: t("daily_sales_report"),
+				iconName: "chart-line",
+			},
+		];
+
 		if (!currentUserData?.stripeAccountId) {
 			dynamicScreens.push({
 				name: "CreateStripeAccount",
-				label: "Setup Payouts",
+				label: t("setup_payouts"),
 				iconName: "credit-card-plus-outline",
-				action: handleCreateConnectedAccount, // Assign action directly
+				action: handleCreateConnectedAccount,
 			});
 		} else {
 			dynamicScreens.push({
 				name: "ConnectAccount",
-				label: "Payouts Dashboard",
-				iconName: "open-in-new", // Or 'link-variant'
-				action: handleCheckOnboardingStatus, // Assign action directly
+				label: t("payouts_dashboard"),
+				iconName: "open-in-new",
+				action: handleCheckOnboardingStatus,
 			});
 		}
 		setScreens(dynamicScreens);
-	}, [currentUserData?.stripeAccountId]);
+	}, [currentUserData?.stripeAccountId, t]); // Added 't' dependency so labels update
 
 	const handleCreateConnectedAccount = async () => {
 		try {
 			const createAccount = httpsCallable(functions, "createConnectedAccount");
 			await createAccount(currentUserData);
-			Alert.alert("Successfully Initialized");
+			Alert.alert(t("successfully_initialized"));
 		} catch (error) {
 			console.error("Error creating connected account:", error);
-			Alert.alert("Failed to initialize. Please try again.");
+			Alert.alert(t("failed_to_initialize_please_try_again"));
 		}
 	};
 
@@ -101,7 +131,7 @@ const BackOfficeScreen = ({ navigation }) => {
 		try {
 			const checkOnboardingStatus = httpsCallable(
 				functions,
-				"checkOnboardingStatus"
+				"checkOnboardingStatus",
 			);
 			const response = await checkOnboardingStatus({
 				accountId: currentUserData.stripeAccountId,
@@ -109,20 +139,17 @@ const BackOfficeScreen = ({ navigation }) => {
 			});
 
 			if (response.data.isOnboarded) {
-				// Account is onboarded, proceed with your logic
 				console.log("Account is onboarded");
 				handleConnectAccount();
-				// Proceed to create login link or other actions
 			} else {
-				// Account is not onboarded, prompt user to complete onboarding
 				console.log("Account is not onboarded");
 				Linking.openURL(response.data.accountLinkUrl);
 			}
 		} catch (error) {
 			console.error("Error checking onboarding status:", error);
 			Alert.alert(
-				"Error",
-				"Failed to check onboarding status. Please try again."
+				t("error"),
+				t("failed_to_check_onboarding_status_please_try_again"),
 			);
 		} finally {
 			setIsStripeLoading(false);
@@ -134,7 +161,7 @@ const BackOfficeScreen = ({ navigation }) => {
 			const createLoginLink = httpsCallable(functions, "createLoginLink");
 			const response = await createLoginLink({
 				accountId: currentUserData.stripeAccountId,
-				restaurantId: currentUserData.uid, // This was the missing piece
+				restaurantId: currentUserData.uid,
 			});
 
 			if (response.data.url) {
@@ -144,45 +171,38 @@ const BackOfficeScreen = ({ navigation }) => {
 			}
 		} catch (error) {
 			console.error("Error creating Stripe login link:", error);
-			Alert.alert("Error", "Could not open the Stripe Dashboard.");
+			Alert.alert(t("error"), t("could_not_open_the_stripe_dashboard"));
 		} finally {
-			// This ensures the loading spinner is always turned off.
 			setIsStripeLoading(false);
 		}
 	};
 
 	const handleScreenPress = (screenName) => {
-		navigation.navigate(screenName); // Navigate to the selected screen
+		navigation.navigate(screenName);
 	};
 
-	// --- Logout Function ---
 	const handleLogout = async () => {
 		setIsLogoutLoading(true);
 		try {
 			await logout();
-			// Navigation will likely be handled by your AuthContext/Navigator setup
 		} catch (error) {
 			console.error("Logout failed:", error);
-			Alert.alert("Logout Error", "Could not log out. Please try again.");
+			Alert.alert(t("logout_error"), t("could_not_log_out_please_try_again"));
 			setIsLogoutLoading(false);
 		}
-		// No finally needed if navigation takes over
 	};
 
-	// --- Render Item Function for FlatList ---
 	const renderGridItem = ({ item }) => (
 		<TouchableOpacity
 			onPress={() => {
 				if (item.action) {
-					// If an action is defined (like Stripe actions)
 					item.action();
 				} else {
-					// Otherwise, navigate
 					handleScreenPress(item.name);
 				}
 			}}
 			style={styles.card}
-			disabled={isStripeLoading} // Disable card during Stripe loading
+			disabled={isStripeLoading}
 		>
 			<View style={styles.iconContainer}>
 				{isStripeLoading &&
@@ -203,16 +223,36 @@ const BackOfficeScreen = ({ navigation }) => {
 
 	return (
 		<View style={styles.container}>
+			{/* --- 3. LANGUAGE TOGGLE (Top Right) --- */}
+			<View
+				style={{
+					flexDirection: "row",
+					justifyContent: "flex-end",
+					marginBottom: 5,
+				}}
+			>
+				<TouchableOpacity
+					onPress={toggleLanguage}
+					style={styles.languageButton}
+				>
+					<Text
+						style={{ fontSize: 13, fontWeight: "bold", color: colors.textDark }}
+					>
+						{i18n.language === "en" ? "🇺🇸 EN" : "🇵🇦 ES"}
+					</Text>
+				</TouchableOpacity>
+			</View>
+
 			<Text style={styles.welcomeText}>
-				Welcome, {currentUserData?.firstName || "Admin"}!
+				{t("welcome")}, {currentUserData?.firstName || t("admin")}!
 			</Text>
-			<Text style={styles.heading}>Back Office</Text>
+			<Text style={styles.heading}>{t("back_office")}</Text>
 
 			<View style={styles.indicatorContainer}>
 				<StatusIndicator isTestMode={isTestMode} />
 			</View>
 
-			{isLoading ? ( // Use this for initial screen loading if needed
+			{isLoading ? (
 				<ActivityIndicator size="large" color={colors.primary} />
 			) : (
 				<FlatList
@@ -224,7 +264,6 @@ const BackOfficeScreen = ({ navigation }) => {
 				/>
 			)}
 
-			{/* More prominent Logout Button */}
 			<TouchableOpacity
 				style={[styles.button, styles.logoutButton]}
 				onPress={handleLogout}
@@ -233,7 +272,7 @@ const BackOfficeScreen = ({ navigation }) => {
 				{isLogoutLoading ? (
 					<ActivityIndicator color="#fff" />
 				) : (
-					<Text style={styles.buttonText}>Logout</Text>
+					<Text style={styles.buttonText}>{t("logout")}</Text>
 				)}
 			</TouchableOpacity>
 		</View>
@@ -243,8 +282,22 @@ const BackOfficeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		padding: cardMargin, // Use cardMargin for consistent padding
-		backgroundColor: colors.background || "#f8f9fa", // Default background
+		padding: cardMargin,
+		backgroundColor: colors.background || "#f8f9fa",
+	},
+	// --- NEW STYLE FOR LANGUAGE BUTTON ---
+	languageButton: {
+		backgroundColor: "#fff",
+		paddingVertical: 6,
+		paddingHorizontal: 12,
+		borderRadius: 20,
+		borderWidth: 1,
+		borderColor: "#ddd",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.1,
+		shadowRadius: 1,
+		elevation: 2,
 	},
 	welcomeText: {
 		fontSize: 18,
@@ -257,32 +310,33 @@ const styles = StyleSheet.create({
 		fontSize: 28,
 		fontWeight: "bold",
 		marginBottom: 20,
-		color: colors.primary || "#007bff", // Use primary color
+		color: colors.primary || "#007bff",
 		textAlign: "center",
 	},
+	indicatorContainer: {
+		marginBottom: 15, // Added some spacing
+	},
 	listContainer: {
-		paddingBottom: 20, // Add padding at the bottom of the list
+		paddingBottom: 20,
 	},
 	card: {
-		flex: 1, // Take up equal space
+		flex: 1,
 		margin: cardMargin,
-		width: cardWidth, // Calculated width
-		aspectRatio: 1, // Make cards square-ish
-		backgroundColor: "#ffffff", // White background for cards
-		borderRadius: 15, // More rounded corners
+		width: cardWidth,
+		aspectRatio: 1,
+		backgroundColor: "#ffffff",
+		borderRadius: 15,
 		padding: 15,
 		alignItems: "center",
 		justifyContent: "center",
-		// iOS Shadow
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.15,
 		shadowRadius: 3.84,
-		// Android Shadow
 		elevation: 5,
 	},
 	iconContainer: {
-		width: 60, // Fixed size container for icon or loader
+		width: 60,
 		height: 60,
 		marginBottom: 12,
 		alignItems: "center",
@@ -290,22 +344,22 @@ const styles = StyleSheet.create({
 	},
 	cardLabel: {
 		fontSize: 15,
-		fontWeight: "600", // Semi-bold
+		fontWeight: "600",
 		textAlign: "center",
-		color: colors.text || "#343a40", // Default text color
+		color: colors.text || "#343a40",
 	},
 	button: {
 		paddingVertical: 12,
 		paddingHorizontal: 30,
-		borderRadius: 25, // Rounded button
+		borderRadius: 25,
 		alignItems: "center",
 		justifyContent: "center",
 		marginTop: 20,
 	},
 	logoutButton: {
-		backgroundColor: colors.danger || "#dc3545", // Use a danger color for logout
-		alignSelf: "center", // Center the button
-		width: "80%", // Make it reasonably wide
+		backgroundColor: colors.danger || "#dc3545",
+		alignSelf: "center",
+		width: "80%",
 		marginBottom: 20,
 	},
 	buttonText: {

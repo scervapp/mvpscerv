@@ -8,6 +8,8 @@ import { WorkDayProvider } from "./src/context/restaurant/WorkDayContext";
 import { EmployeeSessionProvider } from "./src/context/restaurant/EmployeeSessionContext";
 import { RestaurantDataProvider } from "./src/context/restaurant/RestaurantDataContext";
 import { NotificationProvider } from "./src/context/NotificationProvider";
+import { I18nextProvider } from "react-i18next";
+import i18n from "./src/config/i18n"; // <-- Import i18n object
 
 export default function App() {
 	return (
@@ -20,7 +22,9 @@ export default function App() {
 								<EmployeeSessionProvider>
 									<PartyProvider>
 										<BasketProvider>
-											<AppNavigator />
+											<I18nextProvider i18n={i18n}>
+												<AppNavigator />
+											</I18nextProvider>
 										</BasketProvider>
 									</PartyProvider>
 								</EmployeeSessionProvider>

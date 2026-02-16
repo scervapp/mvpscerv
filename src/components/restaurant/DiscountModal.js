@@ -7,10 +7,12 @@ import {
 	TouchableOpacity,
 	StyleSheet,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 
 const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
+	const { t } = useTranslation();
 	// It's better to reset state when the modal becomes visible
 	const [amount, setAmount] = useState("");
 	const [reason, setReason] = useState("");
@@ -38,24 +40,24 @@ const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
 				onPressOut={onClose}
 			>
 				<TouchableOpacity style={styles.discountModalContent} activeOpacity={1}>
-					<Text style={styles.modalTitle}>Discount Item</Text>
+					<Text style={styles.modalTitle}>{t('discount_item_title')}</Text>
 					<Text style={styles.discountItemName}>{item.dishName}</Text>
 					<TextInput
 						style={styles.input}
-						placeholder="Discount Amount (e.g., 2.50)"
+						placeholder={t('discount_amount_placeholder')}
 						value={amount}
 						onChangeText={setAmount}
 						keyboardType="decimal-pad" // More appropriate for currency
 					/>
 					<TextInput
 						style={styles.input}
-						placeholder="Reason (e.g., 'Food cold')"
+						placeholder={t('reason_placeholder')}
 						value={reason}
 						onChangeText={setReason}
 					/>
 					<View style={styles.modalActions}>
 						<Button onPress={onClose} mode="outlined">
-							Cancel
+							{t('cancel_button')}
 						</Button>
 						<Button
 							onPress={handleApply}
@@ -63,7 +65,7 @@ const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
 							loading={isLoading}
 							disabled={isLoading}
 						>
-							Apply
+							{t('apply_button')}
 						</Button>
 					</View>
 				</TouchableOpacity>

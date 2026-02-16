@@ -13,8 +13,10 @@ import { doc, getDoc, setDoc } from "@react-native-firebase/firestore";
 import { db } from "../../config/firebase"; // Check your path. usually just 'firebase', not 'firebase.native' unless you specifically named it that.
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 export default function CompleteProfileScreen() {
+	const { t } = useTranslation();
 	const [firstName, setFirstName] = useState("");
 	const [lastName, setLastName] = useState("");
 	const [loading, setLoading] = useState(false);
@@ -24,7 +26,10 @@ export default function CompleteProfileScreen() {
 
 	const saveProfile = async () => {
 		if (!firstName.trim() || !lastName.trim()) {
-			return Alert.alert("Required", "Please enter your first and last name.");
+			return Alert.alert(
+				t("required"),
+				t("please_enter_your_first_and_last_name"),
+			);
 		}
 
 		setLoading(true);
@@ -46,7 +51,7 @@ export default function CompleteProfileScreen() {
 					createdAt: new Date(),
 					profileCompleted: true,
 				},
-				{ merge: true }
+				{ merge: true },
 			);
 
 			// 2. Do NOTHING else.
@@ -55,28 +60,28 @@ export default function CompleteProfileScreen() {
 			console.log("Profile created successfully.");
 		} catch (e) {
 			console.error(e);
-			Alert.alert("Error saving profile", e.message);
+			//Alert.alert(t("error_saving_profile"), e.message);
 			setLoading(false); // Only stop loading if there is an error
 		}
 	};
 
 	return (
 		<View style={styles.container}>
-			<Text style={styles.title}>Almost there!</Text>
+			<Text style={styles.title}>{t("almost_there")}</Text>
 			<Text style={styles.subtitle}>
-				Please confirm your name to finish setup.
+				{t("please_confirm_your_name_to_finish_setup")}
 			</Text>
 
 			<TextInput
 				style={styles.input}
-				placeholder="First name"
+				placeholder={t("first_name")}
 				value={firstName}
 				onChangeText={setFirstName}
 				placeholderTextColor={colors.textMedium}
 			/>
 			<TextInput
 				style={styles.input}
-				placeholder="Last name"
+				placeholder={t("last_name")}
 				value={lastName}
 				onChangeText={setLastName}
 				placeholderTextColor={colors.textMedium}
@@ -87,7 +92,7 @@ export default function CompleteProfileScreen() {
 			) : (
 				<Button
 					color={colors.primary}
-					title="Complete Setup"
+					title={t("complete_setup")}
 					onPress={saveProfile}
 				/>
 			)}

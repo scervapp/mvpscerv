@@ -30,7 +30,7 @@ import {
 	MaterialCommunityIcons,
 	FontAwesome5,
 } from "@expo/vector-icons"; // Popular icon sets
-
+import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
@@ -95,6 +95,7 @@ const IconTextButton = ({
 };
 
 const PartySessionScreen = () => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 	const {
@@ -148,10 +149,10 @@ const PartySessionScreen = () => {
 
 	const partyCheckInValidationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, "Party must have at least 1 person.")
-			.max(50, "Party size cannot exceed 50.") // Example max
-			.required("Party size is required.")
-			.typeError("Must be a valid number."),
+			.min(1, t("party_must_have_at_least_1_person"))
+			.max(50, t("party_size_cannot_exceed_50")) // Example max
+			.required(t("party_size_is_required"))
+			.typeError(t("must_be_a_valid_number")),
 	});
 
 	useEffect(() => {
@@ -218,17 +219,19 @@ const PartySessionScreen = () => {
 	// --- Action Handlers ---
 	const handleStartNewPartyGuidance = () => {
 		Alert.alert(
-			"Start a New Party",
-			"To begin a new party, please find a restaurant from the Home screen. You can then start a party directly from the restaurant's detail page.",
+			t("start_a_new_party"),
+			t(
+				"to_begin_a_new_party_please_find_a_restaurant_from_the_home_screen_you_can_then_start_a_party_directly_from_the_restaurants_detail_page"
+			),
 			[
 				{
-					text: "Go to Home",
+					text: t("go_to_home"),
 					// Navigate to your main restaurant discovery tab/screen.
 					// Replace 'CustomerDashboard' with the actual route name of your home/discovery tab/stack.
 					onPress: () => navigation.navigate("CustomerDashboard"),
 				},
 				{
-					text: "OK",
+					text: t("ok"),
 					style: "cancel",
 				},
 			]
@@ -238,7 +241,7 @@ const PartySessionScreen = () => {
 	// Handler for the "Join Party" button on the hub screen
 	const handleJoinPartyAttempt = async () => {
 		if (!inviteCode.trim()) {
-			Alert.alert("Invalid Code", "Please enter an invite code.");
+			Alert.alert(t("invalid_code"), t("please_enter_an_invite_code"));
 			return;
 		}
 		setUiJoinLoading(true);
@@ -249,30 +252,34 @@ const PartySessionScreen = () => {
 	};
 
 	const handleLeaveParty = async () => {
-		Alert.alert("Leave Party", "Are you sure you want to leave this party?", [
-			{ text: "Cancel", style: "cancel" },
-			{
-				text: "Leave",
-				style: "destructive",
-				onPress: async () => {
-					setUiLoading(true);
-					try {
-						await leaveParty(); // Context handles navigation or state clearing
-					} catch (e) {
-						Alert.alert("Error", "Could not leave party.");
-					} finally {
-						setUiLoading(false);
-					}
+		Alert.alert(
+			t("leave_party"),
+			t("are_you_sure_you_want_to_leave_this_party"),
+			[
+				{ text: t("cancel"), style: "cancel" },
+				{
+					text: t("leave"),
+					style: "destructive",
+					onPress: async () => {
+						setUiLoading(true);
+						try {
+							await leaveParty(); // Context handles navigation or state clearing
+						} catch (e) {
+							Alert.alert(t("error"), t("could_not_leave_party"));
+						} finally {
+							setUiLoading(false);
+						}
+					},
 				},
-			},
-		]);
+			]
+		);
 	};
 	const handleLeavePartyAction = useCallback(() => {
 		setIsActionsModalVisible(false); // Close the modal first
-		Alert.alert("Leave Party", "Are you sure?", [
-			{ text: "Cancel", style: "cancel" },
+		Alert.alert(t("leave_party"), t("are_you_sure"), [
+			{ text: t("cancel"), style: "cancel" },
 			{
-				text: "Leave",
+				text: t("leave"),
 				style: "destructive",
 				onPress: async () => await leaveParty(currentPartyId),
 			},
@@ -282,19 +289,19 @@ const PartySessionScreen = () => {
 	const handleCancelPartyAction = async () => {
 		// Host only
 		Alert.alert(
-			"Cancel Party",
-			"Are you sure you want to cancel this entire party? This cannot be undone.",
+			t("cancel_party"),
+			t("are_you_sure_you_want_to_cancel_this_entire_party_this_cannot_be_undone"),
 			[
-				{ text: "Keep Party", style: "cancel" },
+				{ text: t("keep_party"), style: "cancel" },
 				{
-					text: "Cancel Party",
+					text: t("cancel_party"),
 					style: "destructive",
 					onPress: async () => {
 						setUiLoading(true);
 						try {
 							await cancelParty(); // Context handles navigation or state clearing
 						} catch (e) {
-							Alert.alert("Error", "Could not cancel party.");
+							Alert.alert(t("error"), t("could_not_cancel_party"));
 						} finally {
 							setUiLoading(false);
 						}
@@ -310,8 +317,8 @@ const PartySessionScreen = () => {
 			setIsPartyCheckInModalVisible(true); // Open the party check-in modal
 		} else {
 			Alert.alert(
-				"Info",
-				"Only the host can activate a pending party by checking in."
+				t("info"),
+				t("only_the_host_can_activate_a_pending_party_by_checking_in")
 			);
 		}
 	};
@@ -319,12 +326,14 @@ const PartySessionScreen = () => {
 	const handleCancelCheckInRequest = useCallback(() => {
 		setIsActionsModalVisible(false); // Close the modal first
 		Alert.alert(
-			"Cancel Check-In Request",
-			"Are you sure you want to cancel your request for a table? This will revert the party to a 'pending' state.",
+			t("cancel_check_in_request"),
+			t(
+				"are_you_sure_you_want_to_cancel_your_request_for_a_table_this_will_revert_the_party_to_a_pending_state"
+			),
 			[
-				{ text: "Don't Cancel", style: "cancel" },
+				{ text: t("dont_cancel"), style: "cancel" },
 				{
-					text: "Yes, Cancel",
+					text: t("yes_cancel"),
 					style: "destructive",
 					onPress: async () => {
 						// The context function handles loading states and alerts
@@ -338,12 +347,14 @@ const PartySessionScreen = () => {
 	const handleCancelParty = useCallback(() => {
 		setIsActionsModalVisible(false);
 		Alert.alert(
-			"Cancel Entire Party",
-			"Are you sure you want to permanently cancel this party? This action cannot be undone.",
+			t("cancel_entire_party"),
+			t(
+				"are_you_sure_you_want_to_permanently_cancel_this_party_this_action_cannot_be_undone"
+			),
 			[
-				{ text: "Keep Party", style: "cancel" },
+				{ text: t("keep_party"), style: "cancel" },
 				{
-					text: "Cancel Party",
+					text: t("cancel_party"),
 					style: "destructive",
 					onPress: async () => {
 						await cancelParty();
@@ -361,7 +372,7 @@ const PartySessionScreen = () => {
 			!currentPartyId ||
 			!partyDetails[currentPartyId]
 		) {
-			Alert.alert("Error", "Missing party or user information.");
+			Alert.alert(t("error"), t("missing_party_or_user_information"));
 			setIsPartyCheckInModalVisible(false); // Close modal on error
 			return;
 		}
@@ -370,7 +381,7 @@ const PartySessionScreen = () => {
 			const checkInResult = await requestPartyTableCheckIn(
 				partyDetails[currentPartyId].restaurantId,
 				currentUserData.uid,
-				currentUserData.firstName || "Party Host",
+				currentUserData.firstName || t("party_host"),
 				values.partySize,
 				currentPartyId
 			);
@@ -387,8 +398,8 @@ const PartySessionScreen = () => {
 				// Error alerts for activation failure are likely handled within activatePartyCheckIn context function
 			} else {
 				Alert.alert(
-					"Check-In Failed",
-					checkInResult.error || "Could not request a table for the party."
+					t("check-in_failed"),
+					checkInResult.error || t("could_not_request_a_table_for_the_party")
 				);
 			}
 		} catch (error) {
@@ -397,8 +408,8 @@ const PartySessionScreen = () => {
 				error
 			);
 			Alert.alert(
-				"Error",
-				"An unexpected error occurred during party check-in."
+				t("error"),
+				t("an_unexpected_error_occurred_during_party_check-in")
 			);
 		} finally {
 			setIsProcessingPartyCheckIn(false);
@@ -412,31 +423,36 @@ const PartySessionScreen = () => {
 
 		try {
 			if (typeof inviteToParty !== "function") {
-				Alert.alert("Error", "Invite function is not available.");
+				Alert.alert(t("error"), t("invite_function_is_not_available"));
 				return;
 			}
 
 			const generatedCode = await inviteToParty();
 
 			if (generatedCode) {
-				const message = `Join my party at ${
-					partyDetails[currentPartyId]?.restaurantName || "the restaurant"
-				}! Use this code in the Scerv app: ${generatedCode}`;
+				const message = `${t("join_my_party_at")} ${
+					partyDetails[currentPartyId]?.restaurantName || t("the_restaurant")
+				}! ${t("use_this_code_in_the_scerv_app")}: ${generatedCode}`;
 
 				Alert.alert(
-					"Invite Code Generated!",
-					`Code: ${generatedCode}\n\nThis code expires in about 1 hour.`,
+					t("invite_code_generated"),
+					`${t("code")}: ${generatedCode}\n\n${t(
+						"this_code_expires_in_about_1_hour"
+					)}`,
 					[
 						{
-							text: "Copy Code",
+							text: t("copy_code"),
 							onPress: () => Clipboard.setString(generatedCode),
 						},
 						{
-							text: "Share",
+							text: t("share"),
 							onPress: () =>
-								Share.share({ message, title: "Scerv Party Invite" }),
+								Share.share({
+									message,
+									title: t("scerv_party_invite"),
+								}),
 						},
-						{ text: "OK", style: "cancel" },
+						{ text: t("ok"), style: "cancel" },
 					]
 				);
 			}
@@ -460,8 +476,8 @@ const PartySessionScreen = () => {
 			const success = await addLocalPIPToParty(currentPartyId, pipsToAdd);
 			if (success) {
 				Alert.alert(
-					"Success",
-					`${pipsToAdd.length} member(s) added to the party.`
+					t("success"),
+					`${pipsToAdd.length} ${t("member_s_added_to_the_party")}`
 				);
 				setIsAddMembersModalVisible(false); // Close the modal on success
 			}
@@ -472,7 +488,7 @@ const PartySessionScreen = () => {
 				"PartySessionScreen: Error in handleAddMembersToParty:",
 				error
 			);
-			Alert.alert("Error", "An unexpected error occurred.");
+			Alert.alert(t("error"), t("an_unexpected_error_occurred"));
 		} finally {
 			setIsLoadingMembers(false);
 		}
@@ -493,8 +509,8 @@ const PartySessionScreen = () => {
 					{ partyIdToUse, uid: currentUserData?.uid }
 				);
 				Alert.alert(
-					"Error",
-					"There was a problem updating your item. Please try again."
+					t("error"),
+					t("there_was_a_problem_updating_your_item_please_try_again")
 				);
 				return;
 			}
@@ -503,7 +519,7 @@ const PartySessionScreen = () => {
 				console.error(
 					"PartySessionScreen: The handlePartyItemQuantityChange function from context is not available!"
 				);
-				Alert.alert("Error", "Action is currently unavailable.");
+				Alert.alert(t("error"), t("action_is_currently_unavailable"));
 				return;
 			}
 
@@ -560,16 +576,18 @@ const PartySessionScreen = () => {
 			if (!groups[groupOwnerUserId]) {
 				let groupDisplayName;
 				if (groupOwnerUserId === currentUserData?.uid) {
-					groupDisplayName = currentUserData.firstName || "Your Items";
+					groupDisplayName = currentUserData.firstName || t("your_items");
 				} else if (partyDetails[currentPartyId]?.guestPips) {
 					const guestInfo = partyDetails[currentPartyId].guestPips.find(
 						(p) => p.userId === groupOwnerUserId
 					);
 					groupDisplayName =
 						guestInfo?.name ||
-						`User ${groupOwnerUserId.slice(-4) || "Unknown"}`;
+						`${t("user")} ${groupOwnerUserId.slice(-4) || t("unknown")}`;
 				} else {
-					groupDisplayName = `User ${groupOwnerUserId.slice(-4) || "Unknown"}`;
+					groupDisplayName = `${t("user")} ${
+						groupOwnerUserId.slice(-4) || t("unknown")
+					}`;
 				}
 				groups[groupOwnerUserId] = {
 					userId: groupOwnerUserId,
@@ -591,8 +609,10 @@ const PartySessionScreen = () => {
 	const handleAddMyItems = () => {
 		if (myPartyStatus?.paymentStatus === "paid") {
 			Alert.alert(
-				"Already Paid",
-				"You have already paid your portion of the bill and cannot add more items."
+				t("already_paid"),
+				t(
+					"you_have_already_paid_your_portion_of_the_bill_and_cannot_add_more_items"
+				)
 			);
 			return;
 		}
@@ -601,14 +621,17 @@ const PartySessionScreen = () => {
 			!currentPartyId ||
 			!currentUserData
 		) {
-			Alert.alert("Error", "Party, restaurant, or user details are missing.");
+			Alert.alert(
+				t("error"),
+				t("party_restaurant_or_user_details_are_missing")
+			);
 			return;
 		}
 
 		if (!currentPartyId) {
 			Alert.alert(
-				"Error",
-				"You are not currently in a party or it's still loading."
+				t("error"),
+				t("you_are_not_currently_in_a_party_or_its_still_loading")
 			);
 			return;
 		}
@@ -622,38 +645,40 @@ const PartySessionScreen = () => {
 
 	const handleShareInvite = async (code) => {
 		const restaurantName =
-			partyDetails[currentPartyId]?.restaurantName || "a restaurant";
+			partyDetails[currentPartyId]?.restaurantName || t("a_restaurant");
 
-		const message = `Join my party at ${restaurantName} on Scerv!
+		const message = `${t("join_my_party_at")} ${restaurantName} ${t("on_scerv")}!
 
-Invite Code: ${code}
+${t("invite_code")}: ${code}
 
-iPhone users → Download here:
+${t("iphone_users_download_here")}:
 https://apps.apple.com/app/id1591335061
 
-Android users → Download here:
+${t("android_users_download_here")}:
 https://play.google.com/store/apps/details?id=com.scerv.eat`;
 
 		try {
 			await Share.share({ message });
 		} catch (error) {
-			Alert.alert("Share Failed", "Could not share invite.");
+			Alert.alert(t("share_failed"), t("could_not_share_invite"));
 		}
 	};
 
 	// Handler for the button press
 	const handleSendMyItems = () => {
 		if (!sendMyItemsToKitchen) {
-			Alert.alert("Error", "Action not available.");
+			Alert.alert(t("error"), t("action_not_available"));
 			return;
 		}
 		Alert.alert(
-			"Confirm Order",
-			"Are you sure you want to send your new items to the kitchen? You won't be able to edit them after.",
+			t("confirm_order"),
+			t(
+				"are_you_sure_you_want_to_send_your_new_items_to_the_kitchen_you_wont_be_able_to_edit_them_after"
+			),
 			[
-				{ text: "Cancel", style: "cancel" },
+				{ text: t("cancel"), style: "cancel" },
 				{
-					text: "Yes, Send",
+					text: t("yes_send"),
 					onPress: async () => {
 						setIsSendingItems(true); // <<< Set local loading state immediately
 						try {
@@ -710,8 +735,10 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 	const handleGoToCheckout = () => {
 		if (!canCurrentUserCheckout) {
 			Alert.alert(
-				"Not Ready",
-				"You can only checkout when the party is active and all your items have been sent to the kitchen."
+				t("not_ready"),
+				t(
+					"you_can_only_checkout_when_the_party_is_active_and_all_your_items_have_been_sent_to_the_kitchen"
+				)
 			);
 			return;
 		}
@@ -734,7 +761,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 			>
 				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
 				<Text style={[styles.statusText, { color: colors.textDark || "#333" }]}>
-					Loading your party details...
+					{t("loading_your_party_details")}...
 				</Text>
 			</SafeAreaView>
 		);
@@ -754,7 +781,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 					color={isUserTheHost ? colors.primary : colors.textMedium}
 				/>
 				<Text style={styles.memberItemText}>{item.name}</Text>
-				{isUserTheHost && <Text style={styles.hostLabel}>(Host)</Text>}
+				{isUserTheHost && <Text style={styles.hostLabel}>({t("host")})</Text>}
 			</View>
 		);
 	};
@@ -801,7 +828,8 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 									color={colors.statusSuccess}
 								/>
 								<Text style={[styles.headerPartyStatus, styles.statusActive]}>
-									Seated at {partyDetails[currentPartyId].table.name}
+									{t("seated_at")}{" "}
+									{partyDetails[currentPartyId].table.name}
 								</Text>
 							</View>
 						) : (
@@ -813,8 +841,10 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								/>
 								<Text style={[styles.headerPartyStatus, styles.statusPending]}>
 									{partyDetails[currentPartyId]?.status === "AWAITING_TABLE"
-										? "Waiting for Table"
-										: `Status: ${partyDetails[currentPartyId]?.status}`}
+										? t("waiting_for_table")
+										: `${t("status")}: ${
+												partyDetails[currentPartyId]?.status
+										  }`}
 								</Text>
 							</View>
 						)}
@@ -934,7 +964,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 						style={styles.actionButton}
 					>
 						<Text style={styles.toggleText}>
-							{showInviteCode ? "Hide Code ▲" : "Show Invite Code ▼"}
+							{showInviteCode ? t("hide_code") : t("show_invite_code")}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -942,7 +972,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 				{/* The display block remains the same */}
 				{currentParty?.inviteCode && showInviteCode && (
 					<View style={styles.inviteCodeBanner}>
-						<Text style={styles.inviteLabel}>Invite Code</Text>
+						<Text style={styles.inviteLabel}>{t("invite_code")}</Text>
 						<View style={styles.inviteCodeBox}>
 							<Text style={styles.inviteCodeText}>
 								{currentParty.inviteCode}
@@ -958,7 +988,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 							</TouchableOpacity>
 						</View>
 						<Text style={styles.expiryText}>
-							Expires in {formatTimeLeft(currentParty.inviteCodeExpiry)}
+							{t("expires_in")} {formatTimeLeft(currentParty.inviteCodeExpiry)}
 						</Text>
 					</View>
 				)}
@@ -972,7 +1002,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								(p) => p.userId === group.userId
 							)?.paymentStatus === "paid" && (
 								<View style={styles.paidBadge}>
-									<Text style={styles.paidBadgeText}>PAID</Text>
+									<Text style={styles.paidBadgeText}>{t("paid")}</Text>
 								</View>
 							)}
 							{group.items.length > 0 ? (
@@ -1002,7 +1032,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								})
 							) : (
 								<Text style={styles.emptyUserBasketText}>
-									No items added yet.
+									{t("no_items_added_yet")}
 								</Text>
 							)}
 
@@ -1027,7 +1057,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 												/>
 											) : (
 												<Text style={styles.actionButtonText}>
-													Send My New Items
+													{t("send_my_new_items")}
 												</Text>
 											)}
 										</TouchableOpacity>
@@ -1046,7 +1076,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 												style={{ marginRight: 8 }}
 											/>
 											<Text style={styles.actionButtonText}>
-												Checkout My Items
+												{t("checkout_my_items")}
 											</Text>
 										</TouchableOpacity>
 									)}
@@ -1089,7 +1119,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 						onPressOut={() => setIsMembersModalVisible(false)}
 					>
 						<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
-							<Text style={styles.modalTitle}>Party Members</Text>
+							<Text style={styles.modalTitle}>{t("party_members")}</Text>
 							<FlatList
 								data={partyDetails[currentPartyId]?.guestPips || []}
 								keyExtractor={(pip) => pip.userId || pip.localPipId}
@@ -1105,14 +1135,14 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 									}}
 									style={styles.addMemberButton}
 								>
-									Add Members from PIPs
+									{t("add_members_from_pips")}
 								</Button>
 							)}
 							<TouchableOpacity
 								style={styles.modalCloseButton}
 								onPress={() => setIsMembersModalVisible(false)}
 							>
-								<Text style={styles.modalCloseButtonText}>Close</Text>
+								<Text style={styles.modalCloseButtonText}>{t("close")}</Text>
 							</TouchableOpacity>
 						</TouchableOpacity>
 					</TouchableOpacity>
@@ -1142,11 +1172,11 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 							style={styles.modalActionsContent}
 							activeOpacity={1}
 						>
-							<Text style={styles.modalTitle}>Party Actions</Text>
+							<Text style={styles.modalTitle}>{t("party_actions")}</Text>
 							{isHost &&
 								partyDetails[currentPartyId].status === "AWAITING_TABLE" && (
 									<IconTextButton
-										text="Cancel Check-In Request"
+										text={t("cancel_check_in_request")}
 										iconName="close-circle-outline"
 										iconSet="MaterialCommunityIcons"
 										onPress={handleCancelCheckInRequest}
@@ -1158,7 +1188,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								)}
 							{isHost && (partyIsPending || partyIsActive) && (
 								<IconTextButton
-									text="Invite Guests"
+									text={t("invite_guests")}
 									iconName="person-add-outline"
 									onPress={handleInviteAction}
 									style={styles.modalActionButton}
@@ -1168,7 +1198,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 							)}
 							{isHost && partyIsPending && (
 								<IconTextButton
-									text="Activate Party Check-In"
+									text={t("activate_party_check_in")}
 									iconName="location-enter"
 									iconSet="MaterialCommunityIcons"
 									onPress={handleOpenPartyCheckInModal} // THIS OPENS THE PartyCheckInModal
@@ -1180,7 +1210,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 							)}
 							{isHost && partyIsPending ? (
 								<IconTextButton
-									text="Cancel Party"
+									text={t("cancel_party")}
 									iconName="close-circle-outline"
 									iconSet="MaterialCommunityIcons"
 									color={colors.statusDanger}
@@ -1190,7 +1220,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								/>
 							) : (
 								<IconTextButton
-									text="Leave Party"
+									text={t("leave_party")}
 									iconName="exit-outline"
 									color={colors.statusDanger}
 									onPress={handleLeaveParty}
@@ -1205,7 +1235,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 								]}
 								onPress={() => setIsActionsModalVisible(false)}
 							>
-								<Text style={styles.modalCloseButtonText}>Close</Text>
+								<Text style={styles.modalCloseButtonText}>{t("close")}</Text>
 							</TouchableOpacity>
 						</TouchableOpacity>
 					</TouchableOpacity>
@@ -1231,9 +1261,11 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 				color={colors.primary}
 				style={{ marginBottom: 20 }}
 			/>
-			<Text style={styles.hubTitle}>Party Hub</Text>
+			<Text style={styles.hubTitle}>{t("party_hub")}</Text>
 			<Text style={styles.hubSubtitle}>
-				Join an existing party or start a new one from a restaurant's page.
+				{t(
+					"join_an_existing_party_or_start_a_new_one_from_a_restaurants_page"
+				)}
 			</Text>
 
 			{partyError && <Text style={styles.errorText}>{partyError}</Text>}
@@ -1244,7 +1276,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 				<IconTextButton
 					iconSet="MaterialCommunityIcons"
 					iconName="creation" // Changed icon to reflect guidance
-					text="How to Start a Party"
+					text={t("how_to_start_a_party")}
 					onPress={handleStartNewPartyGuidance} // Calls the guidance alert
 					style={styles.mainAction}
 					iconSize={40}
@@ -1252,11 +1284,11 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 					color={colors.primary} // Use your primary color
 				/>
 
-				<Text style={styles.orText}>or</Text>
+				<Text style={styles.orText}>{t("or")}</Text>
 
 				<View style={styles.joinPartyContainer}>
 					<TextInput
-						placeholder="Enter Party Code"
+						placeholder={t("enter_party_code")}
 						value={inviteCode}
 						onChangeText={setInviteCode}
 						style={styles.joinInput}
@@ -1267,7 +1299,7 @@ https://play.google.com/store/apps/details?id=com.scerv.eat`;
 					<IconTextButton
 						iconSet="Ionicons"
 						iconName="log-in-outline"
-						text="Join Party"
+						text={t("join_party")}
 						onPress={handleJoinPartyAttempt}
 						disabled={uiLoading || !inviteCode}
 						color={

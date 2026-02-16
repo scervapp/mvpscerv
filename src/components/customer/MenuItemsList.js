@@ -12,6 +12,7 @@ import {
 	TextInput,
 	ScrollView,
 } from "react-native";
+import { useTranslation } from "react-i18next";
 import { useBasket } from "../../context/customer/BasketContext";
 import { Button, Snackbar } from "react-native-paper";
 import { AuthContext } from "../../context/authContext";
@@ -34,8 +35,8 @@ const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
 						i <= fullStars
 							? "star"
 							: i === fullStars + 1 && hasHalf
-							? "star-half"
-							: "star-outline"
+								? "star-half"
+								: "star-outline"
 					}
 					size={size}
 					color="#FFD700"
@@ -47,9 +48,11 @@ const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
 };
 
 const MenuItemRow = ({ item, onPress }) => {
+	const { t } = useTranslation();
 	// Helper to safely format currency
 	const formatCurrency = (price) => {
-		if (typeof price !== "number" || isNaN(price)) return "N/A";
+		if (typeof price !== "number" || isNaN(price))
+			return t("not_available_abbreviation");
 		return `$${price.toFixed(2)}`;
 	};
 	const { averageRating = 0, ratingCount = 0 } = item;
@@ -69,7 +72,7 @@ const MenuItemRow = ({ item, onPress }) => {
 						<StarRatingDisplay rating={averageRating} />
 						<Text style={styles.ratingText}>
 							{averageRating.toFixed(1)} ({ratingCount}{" "}
-							{ratingCount === 1 ? "rating" : "ratings"})
+							{ratingCount === 1 ? t("rating") : t("ratings")})
 						</Text>
 					</View>
 				)}
@@ -98,6 +101,7 @@ const MenuItemsList = ({
 
 	partyData,
 }) => {
+	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
 
 	const [isModalVisible, setIsModalVisible] = useState(false);
@@ -110,21 +114,21 @@ const MenuItemsList = ({
 	const handleSelectItem = (menuItem) => {
 		if (isGuest) {
 			Alert.alert(
-				"Create an Account to Order",
-				"Please sign up or log in to add items and place an order.",
+				t("create_account_to_order_title"),
+				t("create_account_to_order_message"),
 				[
 					{
-						text: "Cancel",
+						text: t("cancel_button"),
 						style: "cancel",
 					},
 					{
-						text: "Sign Up / Login",
+						text: t("signup_login_button"),
 						// --- THIS IS THE FIX ---
 						// On press, call logout() to reset the app state and
 						// send the user back to the WelcomeScreen.
 						onPress: () => logout(),
 					},
-				]
+				],
 			);
 			return;
 		}
@@ -140,13 +144,16 @@ const MenuItemsList = ({
 			await onConfirmAddItemToContext(itemDataFromModal);
 			setSnackbar({
 				visible: true,
-				message: `Added to your ${
-					orderingMode === "party" ? "party" : "individual"
-				} order!`,
+				message: t("item_added_to_order_snackbar", {
+					orderType: orderingMode === "party" ? t("party") : t("individual"),
+				}),
 			});
 		} catch (error) {
 			console.error("MenuItemsList: Error confirming item add:", error);
-			Alert.alert("Error", `Could not add item: ${error.message}`);
+			Alert.alert(
+				t("error_title"),
+				t("could_not_add_item_error", { message: error.message }),
+			);
 		} finally {
 			setIsSubmitting(false);
 			setIsModalVisible(false);
@@ -159,8 +166,8 @@ const MenuItemsList = ({
 
 		const grouped = menuItems.reduce((acc, item) => {
 			const category = item.isDailySpecial
-				? "Daily Special"
-				: item.category || "Other";
+				? t("daily_special_category")
+				: item.category || t("other_category");
 			if (!acc[category]) {
 				acc[category] = [];
 			}
@@ -169,17 +176,17 @@ const MenuItemsList = ({
 		}, {});
 
 		const categoryOrder = [
-			"Daily Special",
-			"Appetizers",
-			"Entrees",
-			"Desserts",
-			"Sides",
-			"Drinks",
-			"Beer",
-			"Wine",
-			"Cocktails",
-			"Non-Alcoholic Drinks",
-			"Other",
+			t("daily_special_category"),
+			t("appetizers_category"),
+			t("entrees_category"),
+			t("desserts_category"),
+			t("sides_category"),
+			t("drinks_category"),
+			t("beer_category"),
+			t("wine_category"),
+			t("cocktails_category"),
+			t("non_alcoholic_drinks_category"),
+			t("other_category"),
 		];
 
 		return Object.keys(grouped)
@@ -211,11 +218,7 @@ const MenuItemsList = ({
 	}
 
 	if (!menuItems || menuItems.length === 0) {
-		return (
-			<Text style={styles.noItemsText}>
-				No menu items found for this restaurant.
-			</Text>
-		);
+		return <Text style={styles.noItemsText}>{t("no_menu_items_found")}</Text>;
 	}
 	return (
 		<View style={styles.container}>

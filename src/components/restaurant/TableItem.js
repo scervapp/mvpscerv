@@ -1,34 +1,36 @@
 // src/components/restaurant/TableItem.js
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
 const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
+	const { t } = useTranslation();
 	if (!item || !item.name || !item.status) {
 		return null; // Render nothing to prevent the crash
 	}
 	// --- Determine table status and corresponding styles ---
-	let statusText = "Unknown";
+	let statusText = t('unknown_status');
 	let statusColor = colors.textLight;
 	let iconName = "help-circle-outline";
 	let canBePressed = false;
 
 	switch (item.status) {
 		case "available":
-			statusText = "Available";
+			statusText = t('available_status');
 			statusColor = colors.statusSuccess;
 			iconName = "checkmark-circle-outline";
 			canBePressed = true;
 			break;
 		case "OCCUPIED": // Handle both cases for robustness
 		case "occupied":
-			statusText = "Occupied";
+			statusText = t('occupied_status');
 			statusColor = colors.statusDanger;
 			iconName = "person";
 			break;
 		case "checkedOut":
-			statusText = "Needs Cleaning";
+			statusText = t('needs_cleaning_status');
 			statusColor = colors.statusWarning;
 			iconName = "alert-circle-outline";
 			break;
@@ -70,7 +72,7 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 					{statusText}
 				</Text>
 				<Text style={[styles.capacityText, isSelected && styles.textSelected]}>
-					Seats: {item.capacity}
+					{t('seats_label')}: {item.capacity}
 				</Text>
 			</View>
 		</TouchableOpacity>

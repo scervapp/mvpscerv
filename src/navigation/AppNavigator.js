@@ -3,7 +3,7 @@ import React, { useContext, useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, ActivityIndicator } from "react-native";
-
+import { useTranslation } from 'react-i18next';
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 
@@ -49,6 +49,7 @@ const AuthStack = () => (
 // Its only job is to decide which major part of the app to show:
 // the Auth flow, the Customer app, or the Restaurant app.
 const AppNavigator = () => {
+	const { t } = useTranslation();
 	const { currentUserData, isLoading, clearRedirectPath, redirectPath } =
 		useContext(AuthContext);
 	const navigationRef = useRef();

@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
 
@@ -9,40 +10,41 @@ const PartyLobbyHeaderContent = ({
 	partyError,
 	isHost,
 }) => {
+	const { t } = useTranslation();
 	if (!partyDetails) {
 		return null; // Or a loading/error state specific to header
 	}
 
 	return (
 		<>
-			<Text style={styles.title}>Party Lobby</Text>
+			<Text style={styles.title}>{t('party_lobby_title')}</Text>
 			<Text style={styles.restaurantName}>
-				{partyDetails?.restaurantName || "Loading Restaurant..."}
+				{partyDetails?.restaurantName || t('loading_restaurant_message')}
 			</Text>
 			<Text style={styles.statusText}>
-				Status:{" "}
+				{t('status_label')}:{" "}
 				<Text
 					style={[
 						styles.statusValue,
 						styles[`status_${partyStatus || "unknown"}`],
 					]}
 				>
-					{(partyStatus || "Unknown").toUpperCase()}
+					{(partyStatus || t('unknown_status_text')).toUpperCase()}
 				</Text>
 			</Text>
 			{partyError && <Text style={styles.inlineErrorText}>{partyError}</Text>}
 
 			<View style={styles.hostSection}>
-				<Text style={styles.sectionTitle}>Host</Text>
+				<Text style={styles.sectionTitle}>{t('host_label')}</Text>
 				<View style={styles.guestItem}>
 					<Ionicons name="person-circle" size={24} color={colors.primary} />
 					<Text style={styles.guestName}>
-						{partyDetails?.hostName || "Host"} {isHost ? "(You)" : ""}
+						{partyDetails?.hostName || t('host_name_fallback')} {isHost ? t('you_label') : ""}
 					</Text>
 				</View>
 			</View>
 			<Text style={styles.sectionTitle}>
-				Guests ({partyDetails?.guestPips?.length || 0})
+				{t('guests_label', { count: partyDetails?.guestPips?.length || 0 })}
 			</Text>
 		</>
 	);

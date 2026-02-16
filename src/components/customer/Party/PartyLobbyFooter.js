@@ -7,6 +7,7 @@ import {
 	ActivityIndicator,
 	StyleSheet,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
 import { IconButton } from "react-native-paper";
@@ -37,6 +38,7 @@ const PartyLobbyFooter = ({
 	handleCancelParty,
 	navigation, // For the "Pay Bill" navigation
 }) => {
+	const { t } = useTranslation();
 	const renderSharedBasketItem = ({ item: basketItem, isCurrentUserGroup }) => {
 		const itemTotal =
 			(basketItem.priceAtOrder || (basketItem.dish?.price || 0) * 100) *
@@ -144,7 +146,7 @@ const PartyLobbyFooter = ({
 		<>
 			{/* --- Shared Basket Section --- */}
 			<View style={styles.section}>
-				<Text style={styles.sectionTitle}>Shared Table Order</Text>
+				<Text style={styles.sectionTitle}>{t('shared_table_order_title')}</Text>
 				{isLoadingBasket &&
 					(!sharedBasketItems || sharedBasketItems.length === 0) && (
 						<ActivityIndicator
@@ -156,7 +158,7 @@ const PartyLobbyFooter = ({
 					(!sharedBasketItems || sharedBasketItems.length === 0) &&
 					(partyStatus === "pending" || partyStatus === "active") && (
 						<Text style={styles.emptyText}>
-							No items added to the party order yet.
+							{t('no_items_added_to_party_order_message')}
 						</Text>
 					)}
 				{/* Render grouped items. If groupedBasketItems is large, consider a FlatList here too */}
@@ -179,7 +181,7 @@ const PartyLobbyFooter = ({
 							size={28}
 							color={colors.primary}
 						/>
-						<Text style={styles.actionIconText}>My Items</Text>
+						<Text style={styles.actionIconText}>{t('my_items_button')}</Text>
 					</TouchableOpacity>
 				)}
 				{isHost && (partyStatus === "pending" || partyStatus === "active") && (
@@ -193,7 +195,7 @@ const PartyLobbyFooter = ({
 							size={28}
 							color={colors.primary}
 						/>
-						<Text style={styles.actionIconText}>Invite PIP</Text>
+						<Text style={styles.actionIconText}>{t('invite_pip_button')}</Text>
 					</TouchableOpacity>
 				)}
 				{isHost && (partyStatus === "pending" || partyStatus === "active") && (
@@ -207,7 +209,7 @@ const PartyLobbyFooter = ({
 							size={28}
 							color={colors.primary}
 						/>
-						<Text style={styles.actionIconText}>Get Code</Text>
+						<Text style={styles.actionIconText}>{t('get_code_button')}</Text>
 					</TouchableOpacity>
 				)}
 			</View>
@@ -219,7 +221,7 @@ const PartyLobbyFooter = ({
 					(hostCheckInStatus === "REQUESTED" ? (
 						<View style={styles.actionIconDisabled}>
 							<ActivityIndicator color={colors.primary} size="small" />
-							<Text style={styles.actionIconTextDisabled}>Waiting...</Text>
+							<Text style={styles.actionIconTextDisabled}>{t('waiting_status')}</Text>
 						</View>
 					) : hostCheckInStatus === "ACCEPTED" ? (
 						<View style={styles.actionIconDisabled}>
@@ -229,7 +231,7 @@ const PartyLobbyFooter = ({
 								color={colors.success}
 							/>
 							<Text style={[styles.actionIconText, { color: colors.success }]}>
-								Checked In
+								{t('checked_in_status')}
 							</Text>
 						</View>
 					) : (
@@ -244,7 +246,7 @@ const PartyLobbyFooter = ({
 								color="#4CAF50"
 							/>
 							<Text style={[styles.actionIconText, { color: "#4CAF50" }]}>
-								Check-In Party
+								{t('check_in_party_button')}
 							</Text>
 						</TouchableOpacity>
 					))}
@@ -266,7 +268,7 @@ const PartyLobbyFooter = ({
 								size={28}
 								color={colors.primary}
 							/>
-							<Text style={styles.actionIconText}>Send My Items</Text>
+							<Text style={styles.actionIconText}>{t('send_my_items_button')}</Text>
 						</TouchableOpacity>
 					)}
 
@@ -291,7 +293,7 @@ const PartyLobbyFooter = ({
 									{ color: colors.accent || colors.primary },
 								]}
 							>
-								Send All to Kitchen
+								{t('send_all_to_kitchen_button')}
 							</Text>
 						</TouchableOpacity>
 					)}
@@ -311,7 +313,7 @@ const PartyLobbyFooter = ({
 							color={colors.danger}
 						/>
 						<Text style={[styles.actionIconText, { color: colors.danger }]}>
-							Leave Party
+							{t('leave_party_button')}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -327,7 +329,7 @@ const PartyLobbyFooter = ({
 							color="#F44336"
 						/>
 						<Text style={[styles.actionIconText, { color: "#F44336" }]}>
-							Cancel Party
+							{t('cancel_party_button')}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -352,7 +354,7 @@ const PartyLobbyFooter = ({
 								color={colors.success}
 							/>
 							<Text style={[styles.actionIconText, { color: colors.success }]}>
-								Pay Bill
+								{t('pay_bill_button')}
 							</Text>
 						</TouchableOpacity>
 					)}
@@ -363,14 +365,14 @@ const PartyLobbyFooter = ({
 				!sharedBasketItems.some((item) => !item.sentToChefQ) &&
 				sharedBasketItems.length > 0 && (
 					<Text style={[styles.infoText, { color: colors.success }]}>
-						All items sent to kitchen! Ready to pay.
+						{t('all_items_sent_ready_to_pay_message')}
 					</Text>
 				)}
 			{partyStatus === "completed" && (
-				<Text style={styles.infoText}>This party session has ended.</Text>
+				<Text style={styles.infoText}>{t('party_session_ended_message')}</Text>
 			)}
 			{partyStatus === "cancelled" && (
-				<Text style={styles.infoText}>This party session was cancelled.</Text>
+				<Text style={styles.infoText}>{t('party_session_cancelled_message')}</Text>
 			)}
 		</>
 	);

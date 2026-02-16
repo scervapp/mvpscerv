@@ -19,7 +19,7 @@ import { AuthContext } from "../../context/authContext";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { SwipeListView } from "react-native-swipe-list-view";
 import PartyLobbyScreen from "./PartyLobbyScreen"; // Ensure correct path
-
+import { useTranslation } from "react-i18next";
 import { scale, moderateScale } from "react-native-size-matters";
 
 // Reusable button component with explicit colors
@@ -101,6 +101,7 @@ const renderHiddenItem = ({ item }) => (
 );
 
 const PartyHubScreen = () => {
+	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const scheme = useColorScheme(); // For light/dark mode
 	const { currentUserData } = React.useContext(AuthContext);
@@ -156,7 +157,7 @@ const PartyHubScreen = () => {
 	// Handle joining a party
 	const handleJoinPartyAttempt = async () => {
 		if (!inviteCode.trim()) {
-			Alert.alert("Invalid Code", "Please enter an invite code.");
+			Alert.alert(t("invalid_code"), t("please_enter_an_invite_code"));
 			return;
 		}
 		setUiJoinLoading(true);
@@ -173,8 +174,8 @@ const PartyHubScreen = () => {
 				});
 			}
 		} catch (error) {
-			setUiError(error.message || "Could not join party.");
-			Alert.alert("Error", error.message || "Could not join party.");
+			setUiError(error.message || t("could_not_join_party"));
+			Alert.alert(t("error"), error.message || t("could_not_join_party"));
 		} finally {
 			setUiJoinLoading(false);
 			setInviteCode("");
@@ -183,30 +184,32 @@ const PartyHubScreen = () => {
 	// Handle starting a new party guidance
 	const handleStartNewPartyGuidance = () => {
 		Alert.alert(
-			"Start a New Party",
-			"To begin a new party, please find a restaurant from the Home screen. You can then start a party directly from the restaurant's detail page.",
+			t("start_a_new_party"),
+			t(
+				"to_begin_a_new_party_please_find_a_restaurant_from_the_home_screen_you_can_then_start_a_party_directly_from_the_restaurants_detail_page"
+			),
 			[
 				{
-					text: "Go to Home",
+					text: t("go_to_home"),
 					onPress: () => navigation.navigate("CustomerHome"),
 				},
-				{ text: "OK", style: "cancel" },
+				{ text: t("ok"), style: "cancel" },
 			]
 		);
 	};
 
 	// Handle party deletion
 	const handleDeleteParty = async (partyId) => {
-		Alert.alert("Delete Party", "Are you sure?", [
-			{ text: "Cancel", style: "cancel" },
+		Alert.alert(t("delete_party"), t("are_you_sure"), [
+			{ text: t("cancel"), style: "cancel" },
 			{
-				text: "Delete",
+				text: t("delete"),
 				style: "destructive",
 				onPress: async () => {
 					try {
 						await cancelParty(partyId);
 					} catch (error) {
-						Alert.alert("Error", "Failed to delete party.");
+						Alert.alert(t("error"), t("failed_to_delete_party"));
 					}
 				},
 			},
@@ -230,7 +233,10 @@ const PartyHubScreen = () => {
 							status: item.status,
 						}); // Debug
 						if (!item.partyId || !item.restaurantId) {
-							Alert.alert("Error", "Invalid party data. Please try again.");
+							Alert.alert(
+								t("error"),
+								t("invalid_party_data_please_try_again")
+							);
 							return;
 						}
 						navigation.navigate("PartyTab", {
@@ -243,7 +249,7 @@ const PartyHubScreen = () => {
 						});
 					}}
 					accessibilityRole="button"
-					accessibilityLabel={`View party at ${item.restaurantName}`}
+					accessibilityLabel={`${t("view_party_at")} ${item.restaurantName}`}
 				>
 					<View style={styles.partyHeader}>
 						<Text style={[styles.partyTitle, { color: colors.textDark }]}>
@@ -263,10 +269,10 @@ const PartyHubScreen = () => {
 					<View style={styles.partyStats}>
 						<Stat
 							icon="people"
-							label="Guests"
+							label={t("guests")}
 							value={(item.guestPips || []).length}
 						/>
-						<Stat icon="cart" label="Items" value={basketItems.length} />
+						<Stat icon="cart" label={t("items")} value={basketItems.length} />
 					</View>
 				</TouchableOpacity>
 			</Animated.View>
@@ -284,7 +290,7 @@ const PartyHubScreen = () => {
 			>
 				<ActivityIndicator size="large" color={colors.primary} />
 				<Text style={[styles.statusText, { color: colors.textDark }]}>
-					Loading your parties...
+					{t("loading_your_parties")}...
 				</Text>
 			</SafeAreaView>
 		);
@@ -307,7 +313,7 @@ const PartyHubScreen = () => {
 				</Text>
 				<IconTextButton
 					iconName="arrow-back"
-					text="Go Back"
+					text={t("go_back")}
 					onPress={() =>
 						navigation.canGoBack()
 							? navigation.goBack()
@@ -333,10 +339,10 @@ const PartyHubScreen = () => {
 				]}
 			>
 				<Text style={[styles.hubTitle, { color: colors.primary }]}>
-					Party Hub
+					{t("party_hub")}
 				</Text>
 				<Text style={[styles.hubSubtitle, { color: colors.textMedium }]}>
-					View your active parties or join one with a code.
+					{t("view_your_active_parties_or_join_one_with_a_code")}
 				</Text>
 			</View>
 
@@ -350,15 +356,17 @@ const PartyHubScreen = () => {
 				keyExtractor={(item) => item.partyId}
 				ListEmptyComponent={
 					<View style={styles.emptyContainer}>
-						<Text style={styles.emptyTitle}>No active parties</Text>
+						<Text style={styles.emptyTitle}>{t("no_active_parties")}</Text>
 						<Text style={styles.emptyMessage}>
-							To start a new party, go to the Home screen and pick a restaurant.
+							{t(
+								"to_start_a_new_party_go_to_the_home_screen_and_pick_a_restaurant"
+							)}
 						</Text>
 						<TouchableOpacity
 							style={[styles.goButton, { backgroundColor: colors.primary }]}
 							onPress={() => navigation.navigate("CustomerDashboard")}
 						>
-							<Text style={styles.goButtonText}>Go to Restaurants</Text>
+							<Text style={styles.goButtonText}>{t("go_to_restaurants")}</Text>
 						</TouchableOpacity>
 					</View>
 				}
@@ -379,10 +387,10 @@ const PartyHubScreen = () => {
 				]}
 			>
 				<Text style={[styles.joinPartyTitle, { color: colors.textDark }]}>
-					Join a Party
+					{t("join_a_party")}
 				</Text>
 				<TextInput
-					placeholder="Enter Party Code"
+					placeholder={t("enter_party_code")}
 					value={inviteCode}
 					onChangeText={setInviteCode}
 					style={[
@@ -397,11 +405,11 @@ const PartyHubScreen = () => {
 					placeholderTextColor={colors.textLight}
 					maxLength={6}
 					accessibilityRole="text"
-					accessibilityLabel="Enter party code"
+					accessibilityLabel={t("enter_party_code")}
 				/>
 				<IconTextButton
 					iconName="log-in-outline"
-					text="Join Party"
+					text={t("join_party")}
 					onPress={handleJoinPartyAttempt}
 					disabled={uiJoinLoading || !inviteCode}
 					color={

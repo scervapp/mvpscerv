@@ -16,7 +16,7 @@ import * as Yup from "yup";
 import { AuthContext } from "../context/authContext";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../utils/styles/appStyles";
-
+import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
 
 import { auth } from "../config/firebase";
@@ -32,119 +32,133 @@ const CustomerLoginForm = ({
 	handleConfirmCode,
 	isSubmitting,
 	isLoading,
-}) => (
-	<View style={styles.form}>
-		{!confirmation ? (
-			<>
-				<TextInput
-					style={styles.input}
-					placeholder="10-Digit Phone Number"
-					placeholderTextColor={colors.textLight} // Added for better visibility
-					value={phoneNumber}
-					onChangeText={setPhoneNumber}
-					keyboardType="phone-pad"
-					maxLength={10}
-				/>
-				<Button
-					mode="contained"
-					onPress={handleSendCode}
-					disabled={isSubmitting}
-					loading={isSubmitting}
-					style={styles.button}
-				>
-					Send Code
-				</Button>
-			</>
-		) : (
-			<>
-				<TextInput
-					style={styles.input}
-					placeholder="6-Digit Code"
-					placeholderTextColor={colors.textLight} // Added for better visibility
-					value={verificationCode}
-					onChangeText={setVerificationCode}
-					keyboardType="number-pad"
-					maxLength={6}
-					textAlign="center"
-				/>
-				<Button
-					mode="contained"
-					onPress={handleConfirmCode}
-					disabled={isLoading || isSubmitting || verificationCode.length < 6}
-					loading={isLoading || isSubmitting}
-					style={styles.button}
-				>
-					Sign In
-				</Button>
-				<Button
-					mode="text"
-					onPress={() => {
-						setConfirmation(null);
-						setVerificationCode("");
-					}}
-				>
-					Use a different number
-				</Button>
-			</>
-		)}
-	</View>
-);
+}) => {
+	const { t } = useTranslation();
+	return (
+		<View style={styles.form}>
+			{!confirmation ? (
+				<>
+					<TextInput
+						style={styles.input}
+						placeholder={t("10_digit_phone_number")}
+						placeholderTextColor={colors.textLight} // Added for better visibility
+						value={phoneNumber}
+						onChangeText={setPhoneNumber}
+						keyboardType="phone-pad"
+						maxLength={10}
+					/>
+					<Button
+						mode="contained"
+						onPress={handleSendCode}
+						disabled={isSubmitting}
+						loading={isSubmitting}
+						style={styles.button}
+					>
+						{t("send_code")}
+					</Button>
+				</>
+			) : (
+				<>
+					<TextInput
+						style={styles.input}
+						placeholder={t("6_digit_code")}
+						placeholderTextColor={colors.textLight} // Added for better visibility
+						value={verificationCode}
+						onChangeText={setVerificationCode}
+						keyboardType="number-pad"
+						maxLength={6}
+						textAlign="center"
+					/>
+					<Button
+						mode="contained"
+						onPress={handleConfirmCode}
+						disabled={isLoading || isSubmitting || verificationCode.length < 6}
+						loading={isLoading || isSubmitting}
+						style={styles.button}
+					>
+						{t("sign_in")}
+					</Button>
+					<Button
+						mode="text"
+						onPress={() => {
+							setConfirmation(null);
+							setVerificationCode("");
+						}}
+					>
+						{t("use_a_different_number")}
+					</Button>
+				</>
+			)}
+		</View>
+	);
+};
 
-const emailValidationSchema = Yup.object().shape({
-	email: Yup.string()
-		.email("Please enter a valid email")
-		.required("Email is required"),
-	password: Yup.string().required("Password is required"),
-});
+const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => {
+	const { t } = useTranslation();
 
-const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => (
-	<Formik
-		initialValues={{ email: "", password: "" }}
-		validationSchema={emailValidationSchema}
-		onSubmit={handleEmailLogin}
-	>
-		{({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
-			<View style={styles.form}>
-				<TextInput
-					style={styles.input}
-					placeholder="Email Address"
-					value={values.email}
-					onChangeText={handleChange("email")}
-					onBlur={handleBlur("email")}
-					keyboardType="email-address"
-					autoCapitalize="none"
-					placeholderTextColor={colors.textMedium}
-				/>
-				{touched.email && errors.email && (
-					<Text style={styles.errorText}>{errors.email}</Text>
-				)}
-				<TextInput
-					style={styles.input}
-					placeholder="Password"
-					value={values.password}
-					onChangeText={handleChange("password")}
-					onBlur={handleBlur("password")}
-					secureTextEntry
-					placeholderTextColor={colors.textMedium}
-				/>
-				{touched.password && errors.password && (
-					<Text style={styles.errorText}>{errors.password}</Text>
-				)}
-				<Button
-					mode="contained"
-					onPress={handleSubmit}
-					disabled={isLoading || isSubmitting}
-					loading={isLoading || isSubmitting}
-					style={styles.button}
-				>
-					Sign In
-				</Button>
-			</View>
-		)}
-	</Formik>
-);
+	const emailValidationSchema = Yup.object().shape({
+		email: Yup.string()
+			.email(t("validation.invalid_email"))
+			.required(t("validation.email_required")),
+		password: Yup.string().required(t("validation.password_required")),
+	});
+	return (
+		<Formik
+			initialValues={{ email: "", password: "" }}
+			validationSchema={emailValidationSchema}
+			onSubmit={handleEmailLogin}
+		>
+			{({
+				handleChange,
+				handleBlur,
+				handleSubmit,
+				values,
+				errors,
+				touched,
+			}) => (
+				<View style={styles.form}>
+					<TextInput
+						style={styles.input}
+						placeholder={t("email_address_placeholder")}
+						value={values.email}
+						onChangeText={handleChange("email")}
+						onBlur={handleBlur("email")}
+						keyboardType="email-address"
+						autoCapitalize="none"
+						placeholderTextColor={colors.textMedium}
+					/>
+					{touched.email && errors.email && (
+						<Text style={styles.errorText}>{errors.email}</Text>
+					)}
+					<TextInput
+						style={styles.input}
+						placeholder={t("password_placeholder")}
+						value={values.password}
+						onChangeText={handleChange("password")}
+						onBlur={handleBlur("password")}
+						secureTextEntry
+						placeholderTextColor={colors.textMedium}
+					/>
+					{touched.password && errors.password && (
+						<Text style={styles.errorText}>{errors.password}</Text>
+					)}
+					<Button
+						mode="contained"
+						onPress={handleSubmit}
+						disabled={isLoading || isSubmitting}
+						loading={isLoading || isSubmitting}
+						style={styles.button}
+					>
+						{t("sign_in_button")}
+					</Button>
+				</View>
+			)}
+		</Formik>
+	);
+};
 
 const LoginScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { login, isLoading, authError, signInWithPhoneCredential } =
 		useContext(AuthContext);
 	const [activeTab, setActiveTab] = useState("customer");
@@ -156,8 +170,8 @@ const LoginScreen = ({ navigation }) => {
 	const handleSendCode = async () => {
 		if (!/^[0-9]{10}$/.test(phoneNumber)) {
 			Alert.alert(
-				"Invalid Number",
-				"Please enter a valid 10-digit phone number."
+				t("alert.invalid_number_title"),
+				t("alert.invalid_10_digit_phone_number_message"),
 			);
 			return;
 		}
@@ -165,12 +179,14 @@ const LoginScreen = ({ navigation }) => {
 		try {
 			const fullPhoneNumber = `+1${phoneNumber}`;
 			// Use the native auth service to send the code
-			const confirmationResult = await auth.signInWithPhoneNumber(
-				fullPhoneNumber
-			);
+			const confirmationResult =
+				await auth.signInWithPhoneNumber(fullPhoneNumber);
 			setConfirmation(confirmationResult);
 		} catch (error) {
-			Alert.alert("Error", `Could not send code: ${error.message}`);
+			Alert.alert(
+				t("alert.error_title"),
+				`${t("alert.could_not_send_code_message")}: ${error.message}`,
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -183,7 +199,10 @@ const LoginScreen = ({ navigation }) => {
 			// Pass the confirmation object and code to the context
 			await signInWithPhoneCredential(confirmation, verificationCode, null);
 		} catch (error) {
-			Alert.alert("Login Failed", `Could not verify code: ${error.message}`);
+			Alert.alert(
+				t("alert.login_failed_title"),
+				`${t("alert.could_not_verify_code_message")}: ${error.message}`,
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -216,8 +235,10 @@ const LoginScreen = ({ navigation }) => {
 							size={60}
 							color={colors.primary}
 						/>
-						<Text style={styles.title}>Welcome Back</Text>
-						<Text style={styles.subtitle}>Sign in to access your account</Text>
+						<Text style={styles.title}>{t("welcome_back_title")}</Text>
+						<Text style={styles.subtitle}>
+							{t("sign_in_to_access_account_subtitle")}
+						</Text>
 					</View>
 
 					<View style={styles.tabContainer}>
@@ -232,7 +253,7 @@ const LoginScreen = ({ navigation }) => {
 								]}
 								placeholderTextColor={colors.textMedium}
 							>
-								Customer
+								{t("customer_tab")}
 							</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
@@ -248,7 +269,7 @@ const LoginScreen = ({ navigation }) => {
 									activeTab === "restaurant" && styles.activeTabText,
 								]}
 							>
-								Restaurant
+								{t("restaurant_tab")}
 							</Text>
 						</TouchableOpacity>
 					</View>
@@ -281,21 +302,21 @@ const LoginScreen = ({ navigation }) => {
 					<TouchableOpacity
 						onPress={() => navigation.navigate("PasswordReset")}
 					>
-						<Text style={styles.linkText}>Forgot Password?</Text>
+						<Text style={styles.linkText}>{t("forgot_password_link")}</Text>
 					</TouchableOpacity>
 
 					<View style={styles.footer}>
-						<Text style={styles.footerText}>Don't have an account?</Text>
+						<Text style={styles.footerText}>{t("dont_have_account_text")}</Text>
 						<TouchableOpacity
 							onPress={() =>
 								navigation.navigate(
 									activeTab === "customer"
 										? "CustomerSignup"
-										: "RestaurantSignup"
+										: "RestaurantSignup",
 								)
 							}
 						>
-							<Text style={styles.linkTextFooter}> Sign Up</Text>
+							<Text style={styles.linkTextFooter}> {t("signup_link")}</Text>
 						</TouchableOpacity>
 					</View>
 				</ScrollView>

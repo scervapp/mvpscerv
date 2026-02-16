@@ -8,6 +8,7 @@ import {
 	ActivityIndicator,
 	StyleSheet,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
@@ -47,6 +48,7 @@ const StarRating = ({ rating }) => {
 };
 
 const TopRatedSection = ({ category, title, onPressItem }) => {
+	const { t } = useTranslation();
 	const [items, setItems] = useState([]);
 	const [loading, setLoading] = useState(true);
 

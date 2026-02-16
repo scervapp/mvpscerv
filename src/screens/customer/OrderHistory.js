@@ -16,8 +16,10 @@ import { AuthContext } from "../../context/authContext";
 import formatCurrency from "../../utils/currencyFormatter";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"; // For icons
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 const OrderHistoryScreen = () => {
+	const { t } = useTranslation();
 	const [orders, setOrders] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
@@ -27,7 +29,7 @@ const OrderHistoryScreen = () => {
 
 	const fetchOrders = useCallback(async () => {
 		if (!currentUserData?.uid) {
-			setError("User not available.");
+			setError(t("user_not_available"));
 			setOrders([]);
 			setLoading(false);
 			setRefreshing(false);
@@ -57,8 +59,8 @@ const OrderHistoryScreen = () => {
 					orderId: data.readableOrderId || doc.id,
 					// Pro-tip: For better performance, consider saving 'restaurantName'
 					// directly on the order document when it's created.
-					restaurantName: data.restaurantName || "Restaurant",
-					status: data.paymentStatus || "Unknown",
+					restaurantName: data.restaurantName || t("restaurant"),
+					status: data.paymentStatus || t("unknown"),
 					totalPrice: data.totalPrice || 0,
 					// Use the correct 'fulfilledAt' timestamp field.
 					orderDate: data.fulfilledAt ? data.fulfilledAt.toDate() : new Date(),
@@ -68,7 +70,7 @@ const OrderHistoryScreen = () => {
 			setOrders(orderList);
 		} catch (err) {
 			console.error("Error fetching order history: ", err);
-			setError(err.message || "Failed to load order history.");
+			setError(err.message || t("failed_to_load_order_history"));
 		} finally {
 			setLoading(false);
 			setRefreshing(false);
@@ -114,7 +116,9 @@ const OrderHistoryScreen = () => {
 					</Text>
 				</View>
 				<View style={styles.cardBody}>
-					<Text style={styles.orderIdText}>ID: {item.orderId}</Text>
+					<Text style={styles.orderIdText}>
+						{t("id")}: {item.orderId}
+					</Text>
 					<Text style={styles.totalPriceText}>
 						{formatCurrency(item.totalPrice)}
 					</Text>
@@ -145,7 +149,9 @@ const OrderHistoryScreen = () => {
 	if (error) {
 		return (
 			<View style={styles.centered}>
-				<Text style={styles.errorText}>Error: {error}</Text>
+				<Text style={styles.errorText}>
+					{t("error")}: {error}
+				</Text>
 			</View>
 		);
 	}
@@ -161,7 +167,7 @@ const OrderHistoryScreen = () => {
 				ListEmptyComponent={() => (
 					<View style={styles.centered}>
 						<Text style={styles.emptyText}>
-							You haven't placed any orders yet.
+							{t("you_havent_placed_any_orders_yet")}
 						</Text>
 					</View>
 				)}

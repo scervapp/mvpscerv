@@ -1,12 +1,13 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import colors from "../../utils/styles/appStyles";
-
+import { useTranslation } from "react-i18next";
 export const StatusIndicator = ({ isTestMode }) => {
+	const { t } = useTranslation();
 	const indicatorColor = isTestMode
 		? colors.statusDanger
 		: colors.statusSuccess;
-	const labelText = isTestMode ? "Test Mode" : "Live Mode";
+	const labelText = isTestMode ? t("test_mode") : t("live_mode");
 
 	return (
 		<View style={styles.container}>

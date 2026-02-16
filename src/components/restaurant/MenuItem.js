@@ -8,11 +8,13 @@ import {
 	Alert,
 	TouchableOpacity,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import AddItemModal from "./AddItemModal";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
 const MenuItem = ({ item, restaurantId, onEdit }) => {
+	const { t } = useTranslation();
 	const [showModal, setShowModal] = useState(false);
 
 	const handleEdit = () => {
@@ -21,15 +23,15 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 	const handleDelete = () => {
 		try {
 			Alert.alert(
-				"Delete Menu Item",
-				"Are you sure you want to delete this menu item?",
+				t('delete_menu_item_title'),
+				t('confirm_delete_menu_item_message'),
 				[
 					{
-						text: "Cancel",
+						text: t('cancel_button'),
 						style: "cancel",
 					},
 					{
-						text: "Delete",
+						text: t('delete_button'),
 						onPress: () => deleteMenuItem(restaurantId, item),
 					},
 				]
@@ -45,7 +47,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 			await db.collection("menuItems").doc(menuItem.id).delete();
 		} catch (error) {
 			console.log("Error deleting menu item:", error);
-			Alert.alert("Error", "There was an error deleting the menu item.");
+			Alert.alert(t('error_title'), t('error_deleting_menu_item_message'));
 		}
 	};
 
@@ -67,7 +69,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 			console.log("Menu Item updated successfully");
 		} catch (error) {
 			console.log("Error updating menu item:", error);
-			Alert.alert("Error", "There was an error updating the menu item.");
+			Alert.alert(t('error_title'), t('error_updating_menu_item_message'));
 		}
 	};
 
@@ -87,10 +89,10 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 			{/* Action Buttons */}
 			<View style={styles.actionButtonsContainer}>
 				<TouchableOpacity style={styles.editButton} onPress={handleEdit}>
-					<Text style={styles.editButtonText}>Edit</Text>
+					<Text style={styles.editButtonText}>{t('edit_button')}</Text>
 				</TouchableOpacity>
 				<TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-					<Text style={styles.deleteButtonText}>Delete</Text>
+					<Text style={styles.deleteButtonText}>{t('delete_button')}</Text>
 				</TouchableOpacity>
 			</View>
 			<AddItemModal

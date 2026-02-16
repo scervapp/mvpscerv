@@ -15,6 +15,7 @@ import {
 	Platform,
 	Image,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Picker } from "@react-native-picker/picker";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,6 +30,7 @@ import { pickImage, uploadImageAndGetDownloadURL } from "../../utils/firebaseUti
 // You can re-integrate your 'pickImage' and 'uploadImage' utilities.
 
 const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
+	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const insets = useSafeAreaInsets(); // For better layout on all devices
 
@@ -87,15 +89,15 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 	const validateForm = () => {
 		if (!name.trim() || !price.trim() || !category) {
 			Alert.alert(
-				"Missing Information",
-				"Please fill out the item name, price, and category."
+				t('missing_information_title'),
+				t('fill_out_item_details_message')
 			);
 			return false;
 		}
 		if (isNaN(parseFloat(price))) {
 			Alert.alert(
-				"Invalid Price",
-				"Please enter a valid number for the price."
+				t('invalid_price_title'),
+				t('enter_valid_price_message')
 			);
 			return false;
 		}
@@ -127,16 +129,16 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 					.collection("menuItems")
 					.doc(itemToEdit.id)
 					.update(menuItemData);
-				Alert.alert("Success", "Menu item has been updated.");
+				Alert.alert(t('success_title'), t('menu_item_updated_message'));
 			} else {
 				// Create new document
 				await db.collection("menuItems").add(menuItemData);
-				Alert.alert("Success", "New menu item has been added.");
+				Alert.alert(t('success_title'), t('new_menu_item_added_message'));
 			}
 			onClose(); // Close the modal on success
 		} catch (error) {
 			console.error("Error saving menu item:", error);
-			Alert.alert("Error", "Could not save the menu item. Please try again.");
+			Alert.alert(t('error_title'), t('could_not_save_menu_item_message'));
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -162,14 +164,14 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 					<ScrollView showsVerticalScrollIndicator={false}>
 						<View style={styles.header}>
 							<Text style={styles.modalTitle}>
-								{isEditMode ? "Edit Item" : "Add New Item"}
+								{isEditMode ? t('edit_item_title') : t('add_new_item_title')}
 							</Text>
 							<TouchableOpacity onPress={onClose} style={styles.closeButton}>
-								<Text style={styles.closeButtonText}>Cancel</Text>
+								<Text style={styles.closeButtonText}>{t('cancel_button')}</Text>
 							</TouchableOpacity>
 						</View>
 
-						<Text style={styles.label}>Item Image</Text>
+						<Text style={styles.label}>{t('item_image_label')}</Text>
 						<View style={styles.imagePickerContainer}>
 							{imageUri ? (
 								<Image source={{ uri: imageUri }} style={styles.imagePreview} />
@@ -190,61 +192,61 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 									<ActivityIndicator color={colors.primary} />
 								) : (
 									<Text style={styles.uploadButtonText}>
-										{imageUri ? "Change Image" : "Upload Image"}
+										{imageUri ? t('change_image_button') : t('upload_image_button')}
 									</Text>
 								)}
 							</TouchableOpacity>
 						</View>
 
-						<Text style={styles.label}>Item Name</Text>
+						<Text style={styles.label}>{t('item_name_label')}</Text>
 						<TextInput
 							value={name}
 							onChangeText={setName}
-							placeholder="e.g., Classic Burger"
+							placeholder={t('classic_burger_placeholder')}
 							style={styles.input}
 							placeholderTextColor={colors.textLight}
 						/>
 
-						<Text style={styles.label}>Description</Text>
+						<Text style={styles.label}>{t('description_label')}</Text>
 						<TextInput
 							value={description}
 							onChangeText={setDescription}
-							placeholder="Juicy beef patty, fresh lettuce, tomato..."
+							placeholder={t('description_placeholder')}
 							style={[styles.input, styles.descriptionInput]}
 							multiline
 							placeholderTextColor={colors.textLight}
 						/>
 
-						<Text style={styles.label}>Price</Text>
+						<Text style={styles.label}>{t('price_label')}</Text>
 						<TextInput
 							value={price}
 							onChangeText={setPrice}
-							placeholder="e.g., 12.99"
+							placeholder={t('price_placeholder')}
 							style={styles.input}
 							keyboardType="numeric"
 							placeholderTextColor={colors.textLight}
 						/>
 
-						<Text style={styles.label}>Category</Text>
+						<Text style={styles.label}>{t('category_label')}</Text>
 						<View style={styles.pickerContainer}>
 							<Picker
 								selectedValue={category}
 								onValueChange={(itemValue) => setCategory(itemValue)}
 								style={styles.picker}
 							>
-								<Picker.Item label="Select a Category..." value="" />
-								<Picker.Item label="Appetizers" value="Appetizers" />
-								<Picker.Item label="Entrees" value="Entrees" />
-								<Picker.Item label="Desserts" value="Desserts" />
-								<Picker.Item label="Drinks" value="Drinks" />
-								<Picker.Item label="Beer" value="Beer" />
-								<Picker.Item label="Wine" value="Wine" />
-								<Picker.Item label="Cocktails" value="Cocktails" />
+								<Picker.Item label={t('select_category_placeholder')} value="" />
+								<Picker.Item label={t('appetizers_category')} value="Appetizers" />
+								<Picker.Item label={t('entrees_category')} value="Entrees" />
+								<Picker.Item label={t('desserts_category')} value="Desserts" />
+								<Picker.Item label={t('drinks_category')} value="Drinks" />
+								<Picker.Item label={t('beer_category')} value="Beer" />
+								<Picker.Item label={t('wine_category')} value="Wine" />
+								<Picker.Item label={t('cocktails_category')} value="Cocktails" />
 							</Picker>
 						</View>
 
 						<View style={styles.switchContainer}>
-							<Text style={styles.label}>Daily Special</Text>
+							<Text style={styles.label}>{t('daily_special_label')}</Text>
 							<Switch
 								value={isDailySpecial}
 								onValueChange={setIsDailySpecial}
@@ -266,7 +268,7 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 							<ActivityIndicator color="#FFFFFF" />
 						) : (
 							<Text style={styles.submitButtonText}>
-								{isEditMode ? "Update Item" : "Add Item to Menu"}
+								{isEditMode ? t('update_item_button') : t('add_item_to_menu_button')}
 							</Text>
 						)}
 					</TouchableOpacity>

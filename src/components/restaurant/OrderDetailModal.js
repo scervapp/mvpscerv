@@ -10,6 +10,7 @@ import {
 	TouchableOpacity,
 	SafeAreaView,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Button } from "react-native-paper";
 
 import { db, functions } from "../../config/firebase"; // Adjust path
@@ -41,7 +42,7 @@ const normalizeIndividualItem = (docSnap) => {
 		dishName: item.dish?.name,
 		quantity: item.quantity,
 		specialInstructions: item.specialInstructions,
-		orderedFor: item.pipName || item.customerName || "Guest",
+		orderedFor: item.pipName || item.customerName || t('guest'),
 		price: item.dish?.price,
 		discount: item.discount,
 		discountedPrice: item.discountedPrice,
@@ -50,6 +51,7 @@ const normalizeIndividualItem = (docSnap) => {
 };
 
 const OrderDetailsModal = ({ isVisible, onClose, table }) => {
+	const { t } = useTranslation();
 	const [orderedItems, setOrderedItems] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState(null);
@@ -76,7 +78,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			try {
 				const checkInSnap = await checkInRef.get();
 				if (!checkInSnap.exists()) {
-					throw new Error("Associated check-in document could not be found.");
+					throw new Error(t('associated_check_in_document_not_found_error'));
 				}
 
 				const checkInData = checkInSnap.data();
@@ -109,7 +111,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				}
 			} catch (err) {
 				console.error("Error setting up order details listener:", err);
-				setError("Could not load order details.");
+				setError(t('could_not_load_order_details_error'));
 				setIsLoading(false);
 			}
 		};
@@ -148,8 +150,8 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			!reason?.trim()
 		) {
 			return Alert.alert(
-				"Invalid Input",
-				"Please enter a valid discount amount and reason."
+				t('invalid_input_title'),
+				t('enter_valid_discount_amount_and_reason_message')
 			);
 		}
 		console.log("CLIENT-SIDE: Attempting to discount item with this data:", {
@@ -175,15 +177,15 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			// This check prevents sending a request that is guaranteed to fail
 			if (!payload.partyId && !payload.checkInId) {
 				throw new Error(
-					"Could not determine Party ID or Check-In ID for the discount."
+					t('could_not_determine_party_or_check_in_id_for_discount_error')
 				);
 			}
 
 			await discountFunction(payload);
-			Alert.alert("Success", "Discount has been applied.");
+			Alert.alert(t('success_title'), t('discount_applied_message'));
 		} catch (error) {
 			console.error("Error applying discount on client:", error);
-			Alert.alert("Error", error.message || "Could not apply discount.");
+			Alert.alert(t('error_title'), error.message || t('could_not_apply_discount_message'));
 		} finally {
 			setIsDiscounting(false);
 			setIsDiscountModalVisible(false);
@@ -200,7 +202,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName}</Text>
-					<Text style={styles.itemFor}>For: {item.orderedFor}</Text>
+					<Text style={styles.itemFor}>{t('for_label')}: {item.orderedFor}</Text>
 					{item.specialInstructions && (
 						<Text style={styles.itemInstructions}>
 							"{item.specialInstructions}"
@@ -208,7 +210,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 					)}
 					{item.discount > 0 && (
 						<Text style={styles.discountText}>
-							Discounted by {formatCurrency(item.discount * 100)} - New Price:{" "}
+							{t('discounted_by_label')} {formatCurrency(item.discount * 100)} - {t('new_price_label')}:{" "}
 							{formatCurrency(item.discountedPrice * 100)}
 						</Text>
 					)}
@@ -233,7 +235,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				<View style={styles.modalContainer}>
 					<View style={styles.header}>
 						<Text style={styles.modalTitle}>
-							Order Details for {table?.name}
+							{t('order_details_for_table', { tableName: table?.name })}
 						</Text>
 					</View>
 
@@ -250,13 +252,13 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 									keyExtractor={(item) => item.id}
 									ListEmptyComponent={
 										<Text style={styles.noDataText}>
-											No items sent to the kitchen yet.
+											{t('no_items_sent_to_kitchen_yet_message')}
 										</Text>
 									}
 								/>
 								{orderedItems.length > 0 && (
 									<Text style={styles.tooltipText}>
-										Long-press an item to apply a discount.
+										{t('long_press_item_for_discount_tooltip')}
 									</Text>
 								)}
 							</>
@@ -265,7 +267,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 
 					<View style={styles.footer}>
 						<Button onPress={onClose} mode="contained">
-							Close
+							{t('close_button')}
 						</Button>
 					</View>
 				</View>

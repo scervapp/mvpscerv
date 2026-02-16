@@ -1,9 +1,11 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
 
 const PartyBasketGuide = ({ isHost }) => {
+	const { t } = useTranslation();
 	return (
 		<View style={styles.guideContainer}>
 			<MaterialCommunityIcons
@@ -11,23 +13,23 @@ const PartyBasketGuide = ({ isHost }) => {
 				size={60}
 				color={colors.textLight}
 			/>
-			<Text style={styles.guideTitle}>Your Party Basket is Empty</Text>
+			<Text style={styles.guideTitle}>{t('your_party_basket_is_empty_title')}</Text>
 			<View style={styles.subtitleContainer}>
-				<Text style={styles.guideSubtitle}>Tap the </Text>
+				<Text style={styles.guideSubtitle}>{t('tap_the_text')} </Text>
 				<Ionicons name="add-circle" size={16} color={colors.brandOrange} />
 				<Text style={styles.guideSubtitle}>
-					{" button below to add your first item to the order."} 
+					{t('button_below_to_add_first_item_text')} 
 				</Text>
 			</View>
 
 			<View style={styles.iconGuideSection}>
-				<Text style={styles.iconGuideHeader}>Header Actions</Text>
+				<Text style={styles.iconGuideHeader}>{t('header_actions_title')}</Text>
 
 				{/* Always show the Members icon explanation */}
 				<View style={styles.iconGuideRow}>
 					<Ionicons name="people-outline" size={24} color={colors.primary} />
 					<Text style={styles.iconGuideText}>
-						Tap to see who is currently in the party.
+						{t('members_icon_description')}
 					</Text>
 				</View>
 
@@ -41,8 +43,7 @@ const PartyBasketGuide = ({ isHost }) => {
 								color={colors.primary}
 							/>
 							<Text style={styles.iconGuideText}>
-								As the host, tap here to generate an invite code and share it
-								with friends.
+								{t('host_invite_icon_description')}
 							</Text>
 						</View>
 						<View style={styles.iconGuideRow}>
@@ -52,8 +53,7 @@ const PartyBasketGuide = ({ isHost }) => {
 								color={colors.primary}
 							/>
 							<Text style={styles.iconGuideText}>
-								When you arrive at the restaurant, tap here to activate the
-								check-in for your party.
+								{t('host_activate_check_in_icon_description')}
 							</Text>
 						</View>
 					</>

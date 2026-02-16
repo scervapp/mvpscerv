@@ -19,10 +19,11 @@ import { db, functions } from "../../config/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
-
+import { useTranslation } from "react-i18next";
 // Creating a pips screen that allows customers to create pips using firestore
 // and the pips go into the customers collection / uid/ pips
 const PIPSListScreen = () => {
+	const { t } = useTranslation();
 	// Get auth context
 	const { currentUserData } = useContext(AuthContext);
 	const [newPipName, setNewPipName] = useState("");
@@ -85,7 +86,7 @@ const PIPSListScreen = () => {
 			},
 			(error) => {
 				console.error("Error fetching PIPs:", error);
-				Alert.alert("Error", "Could not load your PIPs.");
+				Alert.alert(t("error"), t("could_not_load_your_pips"));
 				setIsLoading(false); // Also stop loading on error
 			}
 		);
@@ -95,28 +96,32 @@ const PIPSListScreen = () => {
 	}, [currentUserData?.uid]);
 
 	const handleDeletePip = async (pipId) => {
-		Alert.alert("Confirm Delete", "Are you sure you want to delete this PIP?", [
-			{ text: "Cancel", style: "cancel" },
-			{
-				text: "Delete",
-				style: "destructive",
-				onPress: async () => {
-					try {
-						// --- REFACTORED FIRESTORE DELETE ---
-						await db
-							.collection("customers")
-							.doc(currentUserData.uid)
-							.collection("pips")
-							.doc(pipId)
-							.delete();
-						setPIPs(pips.filter((pip) => pip.id !== pipId));
-					} catch (error) {
-						console.error("Error deleting PIP:", error);
-						Alert.alert("Error", "Failed to delete PIP.");
-					}
+		Alert.alert(
+			t("confirm_delete"),
+			t("are_you_sure_you_want_to_delete_this_pip"),
+			[
+				{ text: t("cancel"), style: "cancel" },
+				{
+					text: t("delete"),
+					style: "destructive",
+					onPress: async () => {
+						try {
+							// --- REFACTORED FIRESTORE DELETE ---
+							await db
+								.collection("customers")
+								.doc(currentUserData.uid)
+								.collection("pips")
+								.doc(pipId)
+								.delete();
+							setPIPs(pips.filter((pip) => pip.id !== pipId));
+						} catch (error) {
+							console.error("Error deleting PIP:", error);
+							Alert.alert(t("error"), t("failed_to_delete_pip"));
+						}
+					},
 				},
-			},
-		]);
+			]
+		);
 	};
 
 	const fetchPIPS = async () => {
@@ -161,7 +166,7 @@ const PIPSListScreen = () => {
 				},
 				(error) => {
 					console.error("Error fetching PIPs:", error);
-					Alert.alert("Error", "Could not load your PIPs.");
+					Alert.alert(t("error"), t("could_not_load_your_pips"));
 					setIsLoading(false);
 				}
 			);
@@ -185,7 +190,7 @@ const PIPSListScreen = () => {
 			setNewPipName("");
 		} catch (error) {
 			console.error("Error adding placeholder PIP:", error);
-			Alert.alert("Error", "Could not add PIP.");
+			Alert.alert(t("error"), t("could_not_add_pip"));
 		}
 	};
 
@@ -197,7 +202,7 @@ const PIPSListScreen = () => {
 		setIsSearching
 	) => {
 		if (searchTerm.trim().length < 3) {
-			setSearchError("Search term must be at least 3 characters.");
+			setSearchError(t("search_term_must_be_at_least_3_characters"));
 			setSearchResults([]);
 			return;
 		}
@@ -217,14 +222,14 @@ const PIPSListScreen = () => {
 				);
 				setSearchResults(filteredResults);
 				if (filteredResults.length === 0) {
-					setSearchError("No matching users found.");
+					setSearchError(t("no_matching_users_found"));
 				}
 			} else {
-				throw new Error(result.data.error || "Search failed.");
+				throw new Error(result.data.error || t("search_failed"));
 			}
 		} catch (error) {
 			console.error("Error searching users:", error);
-			setSearchError(error.message || "An error occurred during search.");
+			setSearchError(error.message || t("an_error_occurred_during_search"));
 		} finally {
 			setIsSearching(false);
 		}
@@ -243,7 +248,7 @@ const PIPSListScreen = () => {
 			(pip) => pip.isUser && pip.userId === userToAdd.id
 		);
 		if (alreadyExists) {
-			Alert.alert("Info", `${userToAdd.name} is already in your PIPs list.`);
+			Alert.alert(t("info"), `${userToAdd.name} ${t("is_already_in_your_pips_list")}`);
 			return;
 		}
 
@@ -258,10 +263,10 @@ const PIPSListScreen = () => {
 				isUser: true,
 				addedAt: new Date(),
 			});
-			Alert.alert("Success", `${userToAdd.name} added to your PIPs.`);
+			Alert.alert(t("success"), `${userToAdd.name} ${t("added_to_your_pips")}`);
 		} catch (error) {
 			console.error("Error adding user PIP:", error);
-			Alert.alert("Error", `Could not add ${userToAdd.name} to PIPs.`);
+			Alert.alert(t("error"), `${t("could_not_add")} ${userToAdd.name} ${t("to_pips")}`);
 		}
 	};
 
@@ -296,20 +301,21 @@ const PIPSListScreen = () => {
 	return (
 		<View style={styles.container}>
 			<Text style={styles.instructions}>
-				Create a local PIP for your personal party, or search for other Scerv
-				users to add them.
+				{t(
+					"create_a_local_pip_for_your_personal_party_or_search_for_other_scerv_users_to_add_them"
+				)}
 			</Text>
 			{/* Input for adding placeholder PIPs (Existing) */}
 			<View style={styles.addPipContainer}>
 				<TextInput
 					style={styles.input}
-					placeholder="Enter Local PIP Name"
+					placeholder={t("enter_local_pip_name")}
 					value={newPipName}
 					onChangeText={setNewPipName}
 					placeholderTextColor={colors.textMedium}
 				/>
 				<TouchableOpacity style={styles.addButton} onPress={handleAddPip}>
-					<Text style={styles.addButtonText}>Add Local PIP</Text>
+					<Text style={styles.addButtonText}>{t("add_local_pip")}</Text>
 				</TouchableOpacity>
 			</View>
 
@@ -324,7 +330,7 @@ const PIPSListScreen = () => {
 					color="white"
 					style={{ marginRight: 5 }}
 				/>
-				<Text style={styles.addButtonText}>Find & Add User PIP</Text>
+				<Text style={styles.addButtonText}>{t("find_add_user_pip")}</Text>
 			</TouchableOpacity>
 			{/* --- End Button --- */}
 
@@ -337,7 +343,7 @@ const PIPSListScreen = () => {
 					renderItem={renderPipItem}
 					keyExtractor={(item) => item.id}
 					ListEmptyComponent={
-						<Text style={styles.emptyText}>No PIPs added yet.</Text>
+						<Text style={styles.emptyText}>{t("no_pips_added_yet")}</Text>
 					}
 				/>
 			)}
@@ -350,7 +356,7 @@ const PIPSListScreen = () => {
 			>
 				<SafeAreaView style={styles.modalContainer}>
 					<View style={styles.modalHeader}>
-						<Text style={styles.modalTitle}>Find User PIP</Text>
+						<Text style={styles.modalTitle}>{t("find_user_pip")}</Text>
 						<TouchableOpacity onPress={() => setIsSearchModalVisible(false)}>
 							<Ionicons
 								name="close-circle"
@@ -362,7 +368,7 @@ const PIPSListScreen = () => {
 					<View style={styles.searchContainer}>
 						<TextInput
 							style={styles.searchInput}
-							placeholder="Search by email or name..."
+							placeholder={t("search_by_email_or_name")}
 							value={searchTerm}
 							onChangeText={setSearchTerm}
 							autoCapitalize="none"
@@ -380,7 +386,7 @@ const PIPSListScreen = () => {
 							{isSearching ? (
 								<ActivityIndicator color="white" size="small" />
 							) : (
-								<Text style={styles.searchButtonText}>Search</Text>
+								<Text style={styles.searchButtonText}>{t("search")}</Text>
 							)}
 						</TouchableOpacity>
 					</View>
@@ -414,7 +420,9 @@ const PIPSListScreen = () => {
 						)}
 						ListEmptyComponent={
 							!isSearching && !searchError ? (
-								<Text style={styles.emptyText}>Enter search term above.</Text>
+								<Text style={styles.emptyText}>
+									{t("enter_search_term_above")}
+								</Text>
 							) : null
 						}
 					/>

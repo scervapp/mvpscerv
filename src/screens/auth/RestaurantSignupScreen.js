@@ -18,8 +18,10 @@ import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext"; // Adjust path
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles"; // Adjust path
+import { useTranslation } from "react-i18next";
 
 const RestaurantSignupScreen = ({ navigation }) => {
+	const { t } = useTranslation();
 	const { signup, isLoading, authError } = useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,24 +47,24 @@ const RestaurantSignupScreen = ({ navigation }) => {
 	};
 
 	const validationSchema = Yup.object().shape({
-		restaurantName: Yup.string().required("Restaurant name is required"),
-		firstName: Yup.string().required("Owner's first name is required"),
-		lastName: Yup.string().required("Owner's last name is required"),
+		restaurantName: Yup.string().required(t("restaurant_name_is_required")),
+		firstName: Yup.string().required(t("owners_first_name_is_required")),
+		lastName: Yup.string().required(t("owners_last_name_is_required")),
 		email: Yup.string()
-			.email("Please enter a valid email")
-			.required("Email is required"),
+			.email(t("please_enter_a_valid_email"))
+			.required(t("email_is_required")),
 		phoneNumber: Yup.string()
-			.matches(/^[0-9]{10}$/, "Must be a valid 10-digit phone number")
-			.required("Phone number is required"),
+			.matches(/^[0-9]{10}$/, t("must_be_a_valid_10_digit_phone_number"))
+			.required(t("phone_number_is_required")),
 		password: Yup.string()
-			.min(6, "Password must be at least 6 characters")
-			.required("Password is required"),
-		address: Yup.string().required("Street address is required"),
-		city: Yup.string().required("City is required"),
-		state: Yup.string().required("State is required"),
+			.min(6, t("password_must_be_at_least_6_characters"))
+			.required(t("password_is_required")),
+		address: Yup.string().required(t("street_address_is_required")),
+		city: Yup.string().required(t("city_is_required")),
+		state: Yup.string().required(t("state_is_required")),
 		zipcode: Yup.string()
-			.matches(/^[0-9]{5}$/, "Must be a valid 5-digit zip code")
-			.required("Zip code is required"),
+			.matches(/^[0-9]{5}$/, t("must_be_a_valid_5_digit_zip_code"))
+			.required(t("zip_code_is_required")),
 	});
 
 	return (
@@ -74,9 +76,9 @@ const RestaurantSignupScreen = ({ navigation }) => {
 			<SafeAreaView style={styles.safeArea}>
 				<ScrollView contentContainerStyle={styles.container}>
 					<View style={styles.header}>
-						<Text style={styles.title}>Join as a Partner</Text>
+						<Text style={styles.title}>{t("join_as_a_partner")}</Text>
 						<Text style={styles.subtitle}>
-							Create your restaurant's account
+							{t("create_your_restaurants_account")}
 						</Text>
 					</View>
 
@@ -107,7 +109,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 							<View style={styles.form}>
 								<TextInput
 									style={styles.input}
-									placeholder="Restaurant Name"
+									placeholder={t("restaurant_name")}
 									placeholderTextColor={colors.textMedium}
 									value={values.restaurantName}
 									onChangeText={handleChange("restaurantName")}
@@ -119,7 +121,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Owner's First Name"
+									placeholder={t("owners_first_name")}
 									placeholderTextColor={colors.textMedium}
 									value={values.firstName}
 									onChangeText={handleChange("firstName")}
@@ -131,7 +133,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Owner's Last Name"
+									placeholder={t("owners_last_name")}
 									placeholderTextColor={colors.textMedium}
 									value={values.lastName}
 									onChangeText={handleChange("lastName")}
@@ -143,7 +145,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Business Email"
+									placeholder={t("business_email")}
 									placeholderTextColor={colors.textMedium}
 									value={values.email}
 									onChangeText={handleChange("email")}
@@ -156,7 +158,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Business Phone"
+									placeholder={t("business_phone")}
 									placeholderTextColor={colors.textMedium}
 									value={values.phoneNumber}
 									onChangeText={handleChange("phoneNumber")}
@@ -169,7 +171,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Password"
+									placeholder={t("password")}
 									placeholderTextColor={colors.textMedium}
 									value={values.password}
 									onChangeText={handleChange("password")}
@@ -181,7 +183,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Street Address"
+									placeholder={t("street_address")}
 									placeholderTextColor={colors.textMedium}
 									value={values.address}
 									onChangeText={handleChange("address")}
@@ -195,7 +197,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									<View style={styles.cityInput}>
 										<TextInput
 											style={styles.input}
-											placeholder="City"
+											placeholder={t("city")}
 											placeholderTextColor={colors.textMedium}
 											value={values.city}
 											onChangeText={handleChange("city")}
@@ -207,7 +209,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									<View style={styles.stateInput}>
 										<TextInput
 											style={styles.input}
-											placeholder="State"
+											placeholder={t("state")}
 											placeholderTextColor={colors.textMedium}
 											value={values.state}
 											onChangeText={handleChange("state")}
@@ -222,7 +224,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 
 								<TextInput
 									style={styles.input}
-									placeholder="Zip Code"
+									placeholder={t("zip_code")}
 									placeholderTextColor={colors.textMedium}
 									value={values.zipcode}
 									onChangeText={handleChange("zipcode")}
@@ -244,16 +246,16 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									style={styles.button}
 									labelStyle={styles.buttonText}
 								>
-									Create Restaurant Account
+									{t("create_restaurant_account")}
 								</Button>
 							</View>
 						)}
 					</Formik>
 
 					<View style={styles.footer}>
-						<Text style={styles.footerText}>Already have an account?</Text>
+						<Text style={styles.footerText}>{t("already_have_an_account")}</Text>
 						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
-							<Text style={styles.linkTextFooter}> Log In</Text>
+							<Text style={styles.linkTextFooter}>{t("log_in")}</Text>
 						</TouchableOpacity>
 					</View>
 				</ScrollView>

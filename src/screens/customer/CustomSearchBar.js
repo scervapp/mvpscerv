@@ -8,14 +8,16 @@ import {
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import colors from "../../utils/styles/appStyles";
+import { useTranslation } from "react-i18next";
 
 const CustomSearchBar = ({ value, onChangeText, placeholder }) => {
+	const { t } = useTranslation();
 	return (
 		<View style={styles.searchBarContainer}>
 			<Icon name="search" size={24} color="#888" style={styles.icon} />
 			<TextInput
 				style={styles.textInput}
-				placeholder={placeholder || "Search..."}
+				placeholder={placeholder || t("search")}
 				value={value} // Use the value from props
 				onChangeText={onChangeText} // Use the handler from props
 				clearButtonMode="while-editing"

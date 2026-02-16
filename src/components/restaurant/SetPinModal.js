@@ -8,6 +8,7 @@ import {
 	TextInput,
 	TouchableOpacity,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Button } from "react-native-paper";
 import { Formik } from "formik";
 import * as Yup from "yup";
@@ -20,15 +21,16 @@ const SetPinModal = ({
 	employeeName,
 	isLoading = false,
 }) => {
+	const { t } = useTranslation();
 	const validationSchema = Yup.object().shape({
 		pin: Yup.string()
-			.required("A PIN is required.")
-			.matches(/^\d+$/, "PIN must only contain numbers.")
-			.min(4, "PIN must be at least 4 digits.")
-			.max(6, "PIN cannot be more than 6 digits."),
+			.required(t('pin_required_error'))
+			.matches(/^\d+$/, t('pin_numeric_error'))
+			.min(4, t('pin_min_length_error', { length: 4 }))
+			.max(6, t('pin_max_length_error', { length: 6 })),
 		confirmPin: Yup.string()
-			.oneOf([Yup.ref("pin"), null], "PINs must match.")
-			.required("Please confirm your PIN."),
+			.oneOf([Yup.ref("pin"), null], t('pins_must_match_error'))
+			.required(t('confirm_pin_required_error')),
 	});
 
 	return (
@@ -44,7 +46,7 @@ const SetPinModal = ({
 				onPressOut={onClose}
 			>
 				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
-					<Text style={styles.modalTitle}>Set PIN for {employeeName}</Text>
+					<Text style={styles.modalTitle}>{t('set_pin_for_employee', { employeeName: employeeName })}</Text>
 					<Formik
 						initialValues={{ pin: "", confirmPin: "" }}
 						validationSchema={validationSchema}
@@ -61,7 +63,7 @@ const SetPinModal = ({
 							<>
 								<TextInput
 									style={styles.input}
-									placeholder="Enter 4-6 Digit PIN"
+									placeholder={t('enter_pin_placeholder')}
 									value={values.pin}
 									onChangeText={handleChange("pin")}
 									onBlur={handleBlur("pin")}
@@ -75,7 +77,7 @@ const SetPinModal = ({
 
 								<TextInput
 									style={styles.input}
-									placeholder="Confirm New PIN"
+									placeholder={t('confirm_pin_placeholder')}
 									value={values.confirmPin}
 									onChangeText={handleChange("confirmPin")}
 									onBlur={handleBlur("confirmPin")}
@@ -94,7 +96,7 @@ const SetPinModal = ({
 										style={styles.modalButton}
 										disabled={isLoading}
 									>
-										Cancel
+										{t('cancel_button')}
 									</Button>
 									<Button
 										onPress={handleSubmit}
@@ -106,7 +108,7 @@ const SetPinModal = ({
 											{ backgroundColor: colors.primary },
 										]}
 									>
-										Save PIN
+										{t('save_pin_button')}
 									</Button>
 								</View>
 							</>

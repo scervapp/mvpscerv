@@ -8,6 +8,7 @@ import {
 	StyleSheet,
 	ActivityIndicator,
 } from "react-native";
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../../utils/styles/appStyles";
 
@@ -21,6 +22,7 @@ const PipInvitationModal = ({
 	onSelectUserPip,
 	onSelectLocalPip,
 }) => {
+	const { t } = useTranslation();
 	const renderPipSelectionItem = ({ item: pip }) => {
 		const isAlreadyGuest = partyDetails?.guestPips?.some(
 			(guestPip) =>
@@ -62,13 +64,13 @@ const PipInvitationModal = ({
 					{pip.name}
 				</Text>
 				{isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Already in party)</Text>
+					<Text style={styles.alreadyInvitedText}>{t('already_in_party_status')}</Text>
 				)}
 				{!pip.isUser && !isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Local)</Text>
+					<Text style={styles.alreadyInvitedText}>{t('local_status')}</Text>
 				)}
 				{pip.isUser && !pip.userId && !isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>(Invalid User Data)</Text>
+					<Text style={styles.alreadyInvitedText}>{t('invalid_user_data_status')}</Text>
 				)}
 			</TouchableOpacity>
 		);
@@ -83,12 +85,12 @@ const PipInvitationModal = ({
 		>
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>Select PIP to Invite/Add</Text>
+					<Text style={styles.modalTitle}>{t('select_pip_to_invite_add_title')}</Text>
 					{isLoadingPips ? (
 						<ActivityIndicator size="small" color={colors.primary} />
 					) : pips.length === 0 ? (
 						<Text style={styles.noPipsText}>
-							You haven't added any PIPs yet. Go to Account PIPs to add some.
+							{t('no_pips_added_instructions')}
 						</Text>
 					) : (
 						<FlatList
@@ -99,7 +101,7 @@ const PipInvitationModal = ({
 						/>
 					)}
 					<TouchableOpacity style={styles.closeButton} onPress={onClose}>
-						<Text style={styles.closeButtonText}>Close</Text>
+						<Text style={styles.closeButtonText}>{t('close_button')}</Text>
 					</TouchableOpacity>
 				</View>
 			</View>

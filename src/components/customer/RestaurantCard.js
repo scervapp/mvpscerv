@@ -1,8 +1,10 @@
 import React from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
+import { useTranslation } from 'react-i18next';
 import colors from "../../utils/styles/appStyles";
 
 const RestaurantCard = ({ restaurant, onPress }) => {
+	const { t } = useTranslation();
 	const isComingSoon = restaurant.isComingSoon === true;
 	return (
 		<TouchableOpacity
@@ -13,7 +15,7 @@ const RestaurantCard = ({ restaurant, onPress }) => {
 			<Image source={{ uri: restaurant.imageUri }} style={styles.thumbnail} />
 			{isComingSoon && (
 				<View style={styles.overlay}>
-					<Text style={styles.overlayText}>Coming Soon</Text>
+					<Text style={styles.overlayText}>{t('coming_soon')}</Text>
 				</View>
 			)}
 			<View style={styles.infoContainer}>
@@ -22,7 +24,7 @@ const RestaurantCard = ({ restaurant, onPress }) => {
 					{restaurant.address}, {restaurant.city}, {restaurant.state}{" "}
 					{restaurant.zipcode}
 				</Text>
-				<Text style={styles.cuisine}>Cuisine: {restaurant.cuisineType}</Text>
+				<Text style={styles.cuisine}>{t('cuisine_label')}: {restaurant.cuisineType}</Text>
 			</View>
 		</TouchableOpacity>
 	);
