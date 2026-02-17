@@ -2,6 +2,9 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 const bcrypt = require("bcrypt");
+const { Translate } = require("@google-cloud/translate").v2;
+
+const translate = new Translate();
 
 /**
  * Starts a new work day for a restaurant.
@@ -16,14 +19,14 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const { restaurantId } = data;
 	if (!restaurantId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID is required."
+			"Restaurant ID is required.",
 		);
 	}
 
@@ -37,13 +40,13 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		if (!openDaysSnapshot.empty) {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"A work day is already open."
+				"A work day is already open.",
 			);
 		}
 
 		// --- Cleanup Routine ---
 		console.log(
-			`startWorkDay: Running cleanup routine for restaurant ${restaurantId}...`
+			`startWorkDay: Running cleanup routine for restaurant ${restaurantId}...`,
 		);
 		const cleanupBatch = db.batch();
 
@@ -56,7 +59,7 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			console.log(
 				`... Resetting table ${doc.id} from status '${
 					doc.data().status
-				}' to 'available'.`
+				}' to 'available'.`,
 			);
 			cleanupBatch.update(doc.ref, {
 				status: "available",
@@ -74,14 +77,14 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		const activeOrdersSnapshot = await activeOrdersQuery.get();
 		activeOrdersSnapshot.docs.forEach((doc) => {
 			console.log(
-				`... Archiving stale kitchen order ${doc.id} from previous day.`
+				`... Archiving stale kitchen order ${doc.id} from previous day.`,
 			);
 			cleanupBatch.update(doc.ref, { status: "archived_stale" });
 		});
 
 		await cleanupBatch.commit();
 		console.log(
-			`startWorkDay: Cleanup complete. Reset ${tablesSnapshot.size} tables and archived ${activeOrdersSnapshot.size} kitchen orders.`
+			`startWorkDay: Cleanup complete. Reset ${tablesSnapshot.size} tables and archived ${activeOrdersSnapshot.size} kitchen orders.`,
 		);
 
 		// --- Create New Work Day ---
@@ -105,18 +108,18 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		await finalBatch.commit();
 
 		console.log(
-			`Successfully started new work day ${newWorkDayRef.id} and set restaurant to OPEN.`
+			`Successfully started new work day ${newWorkDayRef.id} and set restaurant to OPEN.`,
 		);
 		return { success: true, workDayId: newWorkDayRef.id };
 	} catch (error) {
 		console.error(
 			`Error starting work day for restaurant ${restaurantId}:`,
-			error
+			error,
 		);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not start the work day."
+			"Could not start the work day.",
 		);
 	}
 });
@@ -135,14 +138,14 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const { restaurantId, workDayId } = data;
 	if (!restaurantId || !workDayId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant and Work Day IDs are required."
+			"Restaurant and Work Day IDs are required.",
 		);
 	}
 
@@ -162,11 +165,11 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			const unresolvedCount = unresolvedSnapshot.size;
 			const sampleTable = unresolvedSnapshot.docs[0].data();
 			console.warn(
-				`endWorkDay attempt failed: ${unresolvedCount} tables are not available (e.g., status: ${sampleTable.status}).`
+				`endWorkDay attempt failed: ${unresolvedCount} tables are not available (e.g., status: ${sampleTable.status}).`,
 			);
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				`Cannot end the day while ${unresolvedCount} table(s) are still occupied or need cleaning. Please clear all tables first.`
+				`Cannot end the day while ${unresolvedCount} table(s) are still occupied or need cleaning. Please clear all tables first.`,
 			);
 		}
 
@@ -174,7 +177,7 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		if (!workDayDoc.exists || workDayDoc.data().status !== "OPEN") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"There is no open work day to end."
+				"There is no open work day to end.",
 			);
 		}
 
@@ -197,7 +200,7 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		await batch.commit();
 
 		console.log(
-			`Successfully ended work day ${workDayId} and set restaurant to CLOSED.`
+			`Successfully ended work day ${workDayId} and set restaurant to CLOSED.`,
 		);
 		return { success: true };
 	} catch (error) {
@@ -205,7 +208,7 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not end the work day."
+			"Could not end the work day.",
 		);
 	}
 });
@@ -270,14 +273,14 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const { restaurantId, name, capacity } = data;
 	if (!restaurantId || !name || !capacity) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID, table name, and capacity are required."
+			"Restaurant ID, table name, and capacity are required.",
 		);
 	}
 
@@ -300,7 +303,7 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not add new table.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -312,14 +315,14 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const { restaurantId, tableId, name, capacity } = data;
 	if (!restaurantId || !tableId || !name || !capacity) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID, table ID, name, and capacity are required."
+			"Restaurant ID, table ID, name, and capacity are required.",
 		);
 	}
 
@@ -339,7 +342,7 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not update table.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -351,14 +354,14 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const { restaurantId, tableId } = data;
 	if (!restaurantId || !tableId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID and Table ID are required."
+			"Restaurant ID and Table ID are required.",
 		);
 	}
 
@@ -376,7 +379,7 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 		if (tableDoc.data().status === "OCCUPIED") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"Cannot delete a table that is currently occupied."
+				"Cannot delete a table that is currently occupied.",
 			);
 		}
 
@@ -388,7 +391,7 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not delete table.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -412,7 +415,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authorized."
+			"User must be authorized.",
 		);
 	}
 	const manager = {
@@ -425,13 +428,13 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 	if (!itemId || typeof discountAmount !== "number" || !reason) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Item ID, discount amount, and reason are required."
+			"Item ID, discount amount, and reason are required.",
 		);
 	}
 	if (!partyId && !checkInId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Either a partyId or checkInId is required."
+			"Either a partyId or checkInId is required.",
 		);
 	}
 
@@ -446,7 +449,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 				if (!docSnap.exists)
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Party basket not found."
+						"Party basket not found.",
 					);
 
 				const data = docSnap.data();
@@ -473,7 +476,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 				if (!itemUpdated)
 					throw new functions.https.HttpsError(
 						"not-found",
-						"The specific item to discount was not found in the party order."
+						"The specific item to discount was not found in the party order.",
 					);
 
 				transaction.update(docRef, { items: updatedItems });
@@ -487,7 +490,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 			if (!docSnap.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"The specific item to discount was not found."
+					"The specific item to discount was not found.",
 				);
 			}
 
@@ -512,7 +515,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not apply discount.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -530,7 +533,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 	if (!context.auth || context.auth.token.role !== "owner") {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"Only the owner can set manager PINs."
+			"Only the owner can set manager PINs.",
 		);
 	}
 
@@ -538,7 +541,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 	if (!restaurantId || !employeeId || !pin || pin.length < 4) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"A restaurant ID, target employee ID, and a valid PIN are required."
+			"A restaurant ID, target employee ID, and a valid PIN are required.",
 		);
 	}
 
@@ -556,7 +559,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 		if (!employeeDoc.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
-				"The manager/owner employee profile could not be found."
+				"The manager/owner employee profile could not be found.",
 			);
 		}
 
@@ -565,7 +568,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 		if (employeeData.role !== "manager" && employeeData.role !== "owner") {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"PINs can only be set for managers or owners."
+				"PINs can only be set for managers or owners.",
 			);
 		}
 
@@ -586,7 +589,7 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 		}
 		throw new functions.https.HttpsError(
 			"internal",
-			"An unexpected error occurred while setting the PIN."
+			"An unexpected error occurred while setting the PIN.",
 		);
 	}
 });
@@ -613,7 +616,7 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 	if (!context.auth) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"Authentication is required."
+			"Authentication is required.",
 		);
 	}
 
@@ -621,7 +624,7 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 	if (!restaurantId || !employeeId || !pin) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID, Employee ID, and PIN are required."
+			"Restaurant ID, Employee ID, and PIN are required.",
 		);
 	}
 
@@ -635,7 +638,7 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 
 		if (!employeeDoc.exists) {
 			console.error(
-				`verifyEmployeePin: Employee doc not found at path: ${employeeRef.path}`
+				`verifyEmployeePin: Employee doc not found at path: ${employeeRef.path}`,
 			);
 			return { success: false, message: "Invalid credentials." };
 		}
@@ -643,7 +646,7 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 		const employeeData = employeeDoc.data();
 		if (!employeeData.pinHash) {
 			console.error(
-				`verifyEmployeePin: PIN hash does not exist for employee ${employeeId}.`
+				`verifyEmployeePin: PIN hash does not exist for employee ${employeeId}.`,
 			);
 			return { success: false, message: "No PIN is set for this manager." };
 		}
@@ -668,7 +671,7 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 		console.error("Error verifying PIN:", error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"An error occurred during PIN verification."
+			"An error occurred during PIN verification.",
 		);
 	}
 });
@@ -690,7 +693,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 	) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"You must be a manager or owner to add employees."
+			"You must be a manager or owner to add employees.",
 		);
 	}
 
@@ -699,7 +702,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 	if (!restaurantId || !firstName || !lastName || !role) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing required employee details (name, role)."
+			"Missing required employee details (name, role).",
 		);
 	}
 
@@ -714,7 +717,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 	if (roleToSet === "owner" && !isFirstEmployee) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"The 'owner' role can only be assigned to the first employee."
+			"The 'owner' role can only be assigned to the first employee.",
 		);
 	}
 
@@ -741,7 +744,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 		});
 
 		console.log(
-			`Successfully added employee ${newEmployeeRef.id} with role ${roleToSet}.`
+			`Successfully added employee ${newEmployeeRef.id} with role ${roleToSet}.`,
 		);
 		// Return the unique Firestore document ID
 		return { success: true, employeeId: newEmployeeRef.id };
@@ -749,7 +752,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 		console.error("Error adding employee:", error);
 		throw new functions.https.HttpsError(
 			"internal",
-			error.message || "Could not add new employee."
+			error.message || "Could not add new employee.",
 		);
 	}
 });
@@ -764,14 +767,14 @@ exports.deleteEmployee = functions.https.onCall(async (data, context) => {
 	) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"You must be a manager or owner to delete employees."
+			"You must be a manager or owner to delete employees.",
 		);
 	}
 	const { restaurantId, employeeId } = data;
 	if (!restaurantId || !employeeId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant and Employee IDs are required."
+			"Restaurant and Employee IDs are required.",
 		);
 	}
 
@@ -797,7 +800,7 @@ exports.deleteEmployee = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not delete employee.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -819,7 +822,7 @@ exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
 	) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"You must be a manager or owner to set employee roles."
+			"You must be a manager or owner to set employee roles.",
 		);
 	}
 
@@ -829,13 +832,13 @@ exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
 	if (!validRoles.includes(role) || !targetUserId || !restaurantId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Invalid data provided."
+			"Invalid data provided.",
 		);
 	}
 
 	try {
 		console.log(
-			`Setting custom claims for user ${targetUserId} to role: ${role}, restaurantId: ${restaurantId}`
+			`Setting custom claims for user ${targetUserId} to role: ${role}, restaurantId: ${restaurantId}`,
 		);
 		// --- THIS IS THE FIX ---
 		// 1. Set the custom claims on the target user's Firebase Auth account.
@@ -862,7 +865,7 @@ exports.setEmployeeRole = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"An error occurred while setting the user role.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -882,14 +885,14 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be staff and authenticated."
+			"User must be staff and authenticated.",
 		);
 	}
 	const { restaurantId, tableId, checkInId, customerId } = data;
 	if (!restaurantId || !tableId || !checkInId || !customerId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing required IDs to clear the table."
+			"Missing required IDs to clear the table.",
 		);
 	}
 
@@ -927,7 +930,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 			// WRITE 1: Queue deletions for each found basket item.
 			if (!basketItemsSnapshot.empty) {
 				console.log(
-					`Found ${basketItemsSnapshot.size} basket items to delete.`
+					`Found ${basketItemsSnapshot.size} basket items to delete.`,
 				);
 				basketItemsSnapshot.forEach((doc) => {
 					transaction.delete(doc.ref);
@@ -956,7 +959,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 			// WRITE 5: If a party was associated, delete the party and its basket.
 			if (associatedPartyId) {
 				console.log(
-					`Found associated party ${associatedPartyId}. Queuing for deletion.`
+					`Found associated party ${associatedPartyId}. Queuing for deletion.`,
 				);
 				const partyRef = db.collection("parties").doc(associatedPartyId);
 				const sharedBasketRef = db
@@ -969,7 +972,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		// --- END OF FIX ---
 
 		console.log(
-			`✅ Successfully force-cleared table ${tableId} and all associated data.`
+			`✅ Successfully force-cleared table ${tableId} and all associated data.`,
 		);
 		return { success: true, message: "Table has been successfully cleared." };
 	} catch (error) {
@@ -977,7 +980,85 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"An unexpected error occurred while clearing the table."
+			"An unexpected error occurred while clearing the table.",
 		);
 	}
 });
+
+// Listen for changes in the 'menuItems' collection
+exports.autoTranslateMenuItem = functions.firestore
+	.document("menuItems/{itemId}")
+	.onWrite(async (change, context) => {
+		const newData = change.after.exists ? change.after.data() : null;
+		const oldData = change.before.exists ? change.before.data() : null;
+
+		// 1. Exit if deleted
+		if (!newData) return null;
+
+		// 2. Exit if 'name' and 'description' haven't changed (Prevents Infinite Loops)
+		if (
+			oldData &&
+			newData.name === oldData.name &&
+			newData.description === oldData.description
+		) {
+			return null;
+		}
+
+		// 3. Exit if this update was triggered by our own translation (Prevents Infinite Loops)
+		// We check if the update only added the '_en' or '_es' fields
+		if (
+			oldData &&
+			(newData.name_en !== oldData.name_en ||
+				newData.description_en !== oldData.description_en) &&
+			newData.name === oldData.name
+		) {
+			return null;
+		}
+
+		const promises = [];
+		const updates = {};
+
+		try {
+			// --- TRANSLATE NAME ---
+			if (newData.name) {
+				// Detect language of the name (e.g., 'es' for Spanish)
+				let [detection] = await translate.detect(newData.name);
+				let sourceLang = detection.language;
+
+				// If it's Spanish, translate to English. If English, to Spanish.
+				let targetLang = sourceLang === "es" ? "en" : "es";
+
+				let [translatedName] = await translate.translate(
+					newData.name,
+					targetLang,
+				);
+
+				updates[`name_${targetLang}`] = translatedName;
+				updates[`name_${sourceLang}`] = newData.name; // Keep the original tagged correctly
+			}
+
+			// --- TRANSLATE DESCRIPTION ---
+			if (newData.description) {
+				let [detection] = await translate.detect(newData.description);
+				let sourceLang = detection.language;
+				let targetLang = sourceLang === "es" ? "en" : "es";
+
+				let [translatedDesc] = await translate.translate(
+					newData.description,
+					targetLang,
+				);
+
+				updates[`description_${targetLang}`] = translatedDesc;
+				updates[`description_${sourceLang}`] = newData.description;
+			}
+
+			// 4. Write back to Firestore
+			if (Object.keys(updates).length > 0) {
+				return change.after.ref.update(updates);
+			}
+		} catch (error) {
+			console.error("Translation Error:", error);
+		}
+
+		return null;
+	});

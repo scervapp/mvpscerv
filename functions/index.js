@@ -115,4 +115,6 @@ exports.addTable = restaurantFunctions.addTable;
 exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
 
+exports.autoTranslateMenuItem = restaurantFunctions.autoTranslateMenuItem;
+
 //

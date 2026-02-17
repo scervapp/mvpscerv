@@ -23,6 +23,9 @@ import { Tooltip } from "react-native-elements";
 import formatCurrency from "../../utils/currencyFormatter";
 import { Ionicons } from "@expo/vector-icons";
 
+// --- IMPORT THE HELPER HERE ---
+import { getLocalizedValue } from "../../utils/localizationHelper";
+
 const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
 	const fullStars = Math.floor(rating);
 	const hasHalf = rating % 1 >= 0.5;
@@ -48,9 +51,15 @@ const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
 };
 
 const MenuItemRow = ({ item, onPress }) => {
+	// We keep useTranslation here to ensure the row re-renders when language changes
 	const { t } = useTranslation();
-	// Helper to safely format currency
-	const formatCurrency = (price) => {
+
+	// USE THE IMPORTED HELPER
+	// Note: The helper uses the global i18n instance internally
+	const displayName = getLocalizedValue(item, "name");
+	const displayDescription = getLocalizedValue(item, "description");
+
+	const safeFormatCurrency = (price) => {
 		if (typeof price !== "number" || isNaN(price))
 			return t("not_available_abbreviation");
 		return `$${price.toFixed(2)}`;
@@ -60,13 +69,16 @@ const MenuItemRow = ({ item, onPress }) => {
 	return (
 		<TouchableOpacity onPress={onPress} style={styles.menuItem}>
 			<View style={styles.contentContainer}>
-				{/* Name and Price are no longer in a separate "titleRow" View */}
-				<Text style={styles.name}>{item.name}</Text>
-				{item.description ? (
+				{/* Localized Name */}
+				<Text style={styles.name}>{displayName}</Text>
+
+				{/* Localized Description */}
+				{displayDescription ? (
 					<Text style={styles.description} numberOfLines={2}>
-						{item.description}
+						{displayDescription}
 					</Text>
 				) : null}
+
 				{averageRating > 0 && (
 					<View style={styles.ratingRow}>
 						<StarRatingDisplay rating={averageRating} />
@@ -77,7 +89,7 @@ const MenuItemRow = ({ item, onPress }) => {
 					</View>
 				)}
 
-				<Text style={styles.price}>{formatCurrency(item.price)}</Text>
+				<Text style={styles.price}>{safeFormatCurrency(item.price)}</Text>
 			</View>
 			{item.imageUri && (
 				<Image
@@ -98,10 +110,9 @@ const MenuItemsList = ({
 	ListHeaderComponent,
 	onConfirmAddItemToContext,
 	orderingMode = "individual",
-
 	partyData,
 }) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
 
 	const [isModalVisible, setIsModalVisible] = useState(false);
@@ -123,9 +134,6 @@ const MenuItemsList = ({
 					},
 					{
 						text: t("signup_login_button"),
-						// --- THIS IS THE FIX ---
-						// On press, call logout() to reset the app state and
-						// send the user back to the WelcomeScreen.
 						onPress: () => logout(),
 					},
 				],
@@ -136,11 +144,9 @@ const MenuItemsList = ({
 		setIsModalVisible(true);
 	};
 
-	// This callback is triggered from the modal and calls the function passed down from the parent screen.
 	const handleModalConfirm = async (itemDataFromModal) => {
 		setIsSubmitting(true);
 		try {
-			// The parent (RestaurantDetails or PartySession) provides this function, which contains the correct logic.
 			await onConfirmAddItemToContext(itemDataFromModal);
 			setSnackbar({
 				visible: true,
@@ -160,14 +166,17 @@ const MenuItemsList = ({
 		}
 	};
 
-	// This useMemo hook efficiently processes the flat menuItems array into sections for the SectionList.
 	const menuSections = useMemo(() => {
 		if (!menuItems || menuItems.length === 0) return [];
 
 		const grouped = menuItems.reduce((acc, item) => {
+			// OPTIONAL: If you want categories to translate dynamically from DB:
+			// const categoryFromDB = getLocalizedValue(item, 'category');
+
 			const category = item.isDailySpecial
 				? t("daily_special_category")
 				: item.category || t("other_category");
+
 			if (!acc[category]) {
 				acc[category] = [];
 			}
@@ -193,16 +202,18 @@ const MenuItemsList = ({
 			.sort((a, b) => {
 				const indexA = categoryOrder.indexOf(a);
 				const indexB = categoryOrder.indexOf(b);
-				if (indexA === -1 && indexB > -1) return 1; // B is preferred
-				if (indexA > -1 && indexB === -1) return -1; // A is preferred
-				return indexA - indexB; // Both are preferred, sort by order
+				if (indexA === -1 && indexB > -1) return 1;
+				if (indexA > -1 && indexB === -1) return -1;
+				return indexA - indexB;
 			})
 			.map((category) => ({
 				title: category,
 				data: grouped[category],
 			}))
 			.filter((section) => section.data.length > 0);
-	}, [menuItems]);
+
+		// Keep i18n.language here so the entire list rebuilds when language toggles
+	}, [menuItems, t, i18n.language]);
 
 	if (isLoading) {
 		return (
@@ -234,6 +245,8 @@ const MenuItemsList = ({
 				ListHeaderComponent={ListHeaderComponent}
 				showsVerticalScrollIndicator={false}
 				contentContainerStyle={{ paddingBottom: 20 }}
+				// IMPORTANT: Helps SectionList update when language changes
+				extraData={i18n.language}
 			/>
 
 			{selectedItem && (
@@ -243,9 +256,9 @@ const MenuItemsList = ({
 					pips={pips || []}
 					onClose={() => setIsModalVisible(false)}
 					onConfirm={handleModalConfirm}
-					orderingMode={orderingMode} // Pass the mode to the modal
+					orderingMode={orderingMode}
 					isLoading={isSubmitting}
-					partyData={partyData} // Pass party data to the modal
+					partyData={partyData}
 				/>
 			)}
 
@@ -264,70 +277,67 @@ const MenuItemsList = ({
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-	},
-	noItemsText: {
-		textAlign: "center",
-		marginTop: 30,
-		fontSize: 16,
-		color: colors.textLight,
-		paddingHorizontal: 20,
-	},
-	menuCategoryHeader: {
-		fontSize: 20,
-		fontWeight: "bold",
-		color: colors.textDark,
-		paddingVertical: 15,
-		paddingHorizontal: 20,
-		backgroundColor: colors.backgroundLight,
+		backgroundColor: colors.background,
 	},
 	menuItem: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		paddingVertical: 15,
-		paddingHorizontal: 20,
-		backgroundColor: colors.surfaceWhite,
+		padding: 15,
 		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
+		borderBottomColor: "#eee",
+		backgroundColor: "#fff",
 	},
 	contentContainer: {
 		flex: 1,
 		marginRight: 10,
 	},
-	ratingRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		marginTop: 4,
-		marginBottom: 4,
-	},
-	ratingText: {
-		marginLeft: 6,
-		fontSize: 13,
-		color: colors.textMedium,
-	},
-
-	// (optional) make the name a bit tighter if you want
 	name: {
 		fontSize: 16,
 		fontWeight: "bold",
-		color: colors.textDark,
+		color: "#333",
+		marginBottom: 4,
 	},
 	description: {
 		fontSize: 14,
-		color: colors.textMedium,
-		marginTop: 4,
+		color: "#666",
+		marginBottom: 6,
 	},
 	price: {
-		fontSize: 16,
+		fontSize: 15,
 		fontWeight: "bold",
 		color: colors.primary,
-		marginTop: 8, // Price is back on its own line with margin
+		marginTop: 4,
 	},
 	image: {
 		width: 80,
 		height: 80,
 		borderRadius: 8,
-		backgroundColor: colors.backgroundMedium,
+		backgroundColor: "#f0f0f0",
+	},
+	menuCategoryHeader: {
+		fontSize: 20,
+		fontWeight: "bold",
+		backgroundColor: "#f4f4f4",
+		paddingVertical: 10,
+		paddingHorizontal: 15,
+		color: "#333",
+	},
+	ratingRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 5,
+	},
+	ratingText: {
+		fontSize: 12,
+		color: "#777",
+		marginLeft: 5,
+	},
+	noItemsText: {
+		textAlign: "center",
+		marginTop: 20,
+		fontSize: 16,
+		color: "#666",
 	},
 });
 
