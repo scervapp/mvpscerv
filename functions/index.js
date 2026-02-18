@@ -15,6 +15,7 @@ const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
 const basketFunctions = require("./basketFunctions");
 const restaurantFunctions = require("./restaurantFunctions");
+const paypalHandlers = require("./paypalHandlers");
 
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
@@ -116,5 +117,8 @@ exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
 
 exports.autoTranslateMenuItem = restaurantFunctions.autoTranslateMenuItem;
+
+exports.createPayPalOrder = paypalHandlers.createPayPalOrder;
+exports.capturePayPalOrder = paypalHandlers.capturePayPalOrder;
 
 //
