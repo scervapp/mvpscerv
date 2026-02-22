@@ -30,6 +30,8 @@ import { httpsCallable } from "@react-native-firebase/functions";
 
 import firestore from "@react-native-firebase/firestore";
 import { useTranslation } from "react-i18next";
+import { chargeSavedCard } from "../../services/PaypalAdapter";
+import { Ionicons } from "@expo/vector-icons";
 
 const CheckoutScreen = ({ route, navigation }) => {
 	const { t } = useTranslation();
@@ -46,6 +48,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [fees, setFees] = useState(0.05); // Your platform fee percentage (e.g., 5%) - fetch this
 	const [gratuityPercentage, setGratuityPercentage] = useState("15");
 	const [expandedPIPs, setExpandedPIPs] = useState({}); // For collapsible sections
+	const [savedCards, setSavedCards] = useState([]);
+	const [selectedVaultId, setSelectedVaultId] = useState(null);
+	const [isDropdownExpanded, setIsDropdownExpanded] = useState(false);
 
 	// Use useRef to store the orderId across the reidrect reliably
 	const pendingOrderIdRef = useRef(null);
@@ -53,18 +58,26 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 	const { checkInObj } = useCheckInStatus(
 		restaurant?.uid,
-		currentUserData?.uid
+		currentUserData?.uid,
 	); // Keep if needed for metadata
 
 	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false); // <<< ADD BACK
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 	const [calculatedTax, setCalculatedTax] = useState(0); // Tax from server
 	const [finalTotal, setFinalTotal] = useState(0); // Final total from server
-	const [selectedCard, setSelectedCard] = useState(null); // State for saved card selection
+
 	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe(); // <<< ADD BACK
+	const country = restaurant?.countryCode;
 
+	const isPanama =
+		country === "PA" || country === "Panama" || country === "panama";
+	const isUSA = country === "US" || country === "USA" || country === "usa";
+
+	const selectedCard =
+		savedCards?.find((card) => card.vaultId === selectedVaultId) ||
+		savedCards?.[0];
 	// --- Memoized Basket Items (Keep this) ---
 	const restaurantBasketItems = useMemo(() => {
 		const items = baskets[restaurant?.id]?.items || [];
@@ -75,7 +88,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const filteredBasketData = useMemo(() => {
 		const transformedData = transformBasketData(restaurantBasketItems);
 		return transformedData.filter(
-			(personData) => personData.items && personData.items.length > 0
+			(personData) => personData.items && personData.items.length > 0,
 		);
 	}, [restaurantBasketItems]);
 
@@ -99,7 +112,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 				try {
 					const getStripePublishableKeyFunction = httpsCallable(
 						functions,
-						"getStripePublishableKey"
+						"getStripePublishableKey",
 					);
 					const { data } = await getStripePublishableKeyFunction({
 						restaurantId: restaurant.uid,
@@ -143,7 +156,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			typeof fees !== "number"
 		) {
 			console.log(
-				"Calculate Totals Memo: Skipping, missing required data or basket is not ready."
+				"Calculate Totals Memo: Skipping, missing required data or basket is not ready.",
 			);
 			return {
 				subtotal: 0,
@@ -173,7 +186,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		}
 
 		const calcGratuityAmount = Math.round(
-			calcSubtotal * (parseFloat(gratuityPercentage) / 100)
+			calcSubtotal * (parseFloat(gratuityPercentage) / 100),
 		);
 
 		// Calculate details per PIP
@@ -185,7 +198,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			if (Array.isArray(itemsToReduce)) {
 				pipSubtotal = itemsToReduce.reduce((total, item) => {
 					const originalPrice = Math.round(
-						(Number(item?.dish?.price) || 0) * 100
+						(Number(item?.dish?.price) || 0) * 100,
 					);
 					const quantity = Number(item?.quantity) || 1;
 					const price = item?.discount
@@ -216,7 +229,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		// Calculate overall platform fee by summing pipFees
 		const calculated_platform_fee = calcPipTotals.reduce(
 			(sum, pip) => sum + (pip.fee || 0),
-			0
+			0,
 		);
 
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
@@ -256,7 +269,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		console.log(
 			"4. Is finalTotal > 0:",
 			finalTotal > 0,
-			`(Value: ${finalTotal})`
+			`(Value: ${finalTotal})`,
 		);
 		const canPay =
 			currentUserData?.uid &&
@@ -316,7 +329,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 			if (initError) {
 				throw new Error(
-					t("failed_to_initialize_payment_sheet", { message: initError.message })
+					t("failed_to_initialize_payment_sheet", {
+						message: initError.message,
+					}),
 				);
 			}
 
@@ -325,7 +340,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 			if (presentError) {
 				if (presentError.code !== "Canceled") {
-					throw new Error(t("payment_failed", { message: presentError.message }));
+					throw new Error(
+						t("payment_failed", { message: presentError.message }),
+					);
 				}
 				// If user cancels, we simply do nothing.
 			} else {
@@ -355,7 +372,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 								},
 							},
 						],
-					})
+					}),
 				);
 			}
 		} catch (error) {
@@ -365,6 +382,260 @@ const CheckoutScreen = ({ route, navigation }) => {
 		} finally {
 			setIsPreparing(false);
 		}
+	};
+
+	useEffect(() => {
+		const fetchSavedCards = async () => {
+			const uid = currentUserData.uid;
+			if (!uid) return;
+
+			try {
+				const cardsSnapshot = await db
+					.collection("customers")
+					.doc(uid)
+					.collection("savedPaymentMethods")
+					.where("processor", "==", "paypal")
+					.get();
+
+				const cards = cardsSnapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+
+				console.log("Has card", cards);
+				setSavedCards(cards);
+
+				// Auto-select the first card if they have one
+				if (cards.length > 0) {
+					setSelectedVaultId(cards[0].vaultId);
+				}
+			} catch (error) {
+				console.error("Error fetching saved cards: ", error);
+			}
+		};
+
+		fetchSavedCards();
+	}, []);
+
+	useEffect(() => {
+		if (savedCards && savedCards.length > 0 && !selectedVaultId) {
+			setSelectedVaultId(savedCards[0].vaultId);
+		}
+	}, [savedCards, selectedVaultId]);
+
+	const handlePayPalCheckout = async () => {
+		if (!isReadyToPay || isPreparing || finalTotal <= 0) return;
+
+		try {
+			setIsPreparing(true);
+			setIsLoading(true);
+
+			const uid = currentUserData?.uid; // Use your existing user auth variable
+
+			console.log("Creating pending order for Standard PayPal checkout...");
+
+			// 1. Build the pending order just like the vaulted flow
+			const pendingOrderData = {
+				restaurantId: restaurant.uid,
+				customerId: uid,
+				subtotal: originalSubtotal,
+				gratuity: gratuity,
+				platformFee: platformFee,
+				totalPrice: finalTotal,
+				items: restaurantBasketItems,
+				table: checkInObj?.table || null,
+				checkInId: checkInObj?.id || null,
+				server: checkInObj?.server || null,
+				status: "pending",
+				type: "individual",
+				createdAt: firestore.FieldValue.serverTimestamp(),
+			};
+
+			const pendingOrderRef = await firestore()
+				.collection("pending_orders")
+				.add(pendingOrderData);
+			const pendingOrderId = pendingOrderRef.id;
+			console.log("✅ Created Pending Order ID:", pendingOrderId);
+
+			// 2. Build the itemsToRate array so we don't lose the rating feature in the WebView!
+			const itemsToRate = restaurantBasketItems.map((i) => ({
+				id: i.id,
+				name: i.dish.name,
+				menuItemId: i.menuItemId,
+				restaurantId: i.restaurantId,
+				price: i.price,
+				quantity: i.quantity,
+				discountedPrice: i.discountedPrice,
+			}));
+
+			// 3. Pass all the math AND the new IDs to the PayPal WebView Screen
+			navigation.navigate("PayPalScreen", {
+				restaurantId: restaurant.uid,
+				amount: (finalTotal / 100).toFixed(2),
+				subtotal: (originalSubtotal / 100).toFixed(2),
+				gratuity: (gratuity / 100).toFixed(2),
+				platformFee: (platformFee / 100).toFixed(2),
+				appOrderId: pendingOrderId, // <--- NEW: The DB Document ID
+				paymentType: "individual", // <--- NEW: For fulfillOrder
+				itemsToRate: itemsToRate, // <--- NEW: Passing ratings data forward
+			});
+		} catch (error) {
+			console.error("Error creating pending order:", error);
+			Alert.alert("Error", "Could not initialize PayPal checkout.");
+		} finally {
+			setIsPreparing(false);
+			setIsLoading(false);
+		}
+	};
+	// Make sure you have this import at the top:
+	// import firestore from '@react-native-firebase/firestore';
+
+	const handleVaultedCheckout = async () => {
+		// 1. Validation
+		if (!isReadyToPay || isPreparing || !selectedVaultId || finalTotal <= 0) {
+			return; // Silent return, just like your Stripe code
+		}
+
+		try {
+			setIsPreparing(true); // Matching your state name from the Stripe code
+			setIsLoading(true);
+
+			const payPalAmount = (finalTotal / 100).toFixed(2);
+			const uid = currentUserData?.uid; // Or however you get the current user ID in this file
+
+			// =========================================================
+			// 2. CREATE THE PENDING ORDER (Bypassing Stripe preparePayment)
+			// =========================================================
+			console.log("Creating pending order for PayPal Vault checkout...");
+
+			const pendingOrderData = {
+				restaurantId: restaurant.uid,
+				customerId: uid,
+				subtotal: originalSubtotal,
+				gratuity: gratuity,
+				platformFee: platformFee, // Add this if you have it in state
+				totalPrice: finalTotal,
+				// We pass the full items so fulfillOrder can delete them from the basket later
+				items: restaurantBasketItems,
+				table: checkInObj?.table || null,
+				checkInId: checkInObj?.id || null,
+				server: checkInObj?.server || null,
+				status: "pending",
+				type: "individual", // So fulfillOrder knows how to clean it up
+				createdAt: firestore.FieldValue.serverTimestamp(),
+			};
+
+			const pendingOrderRef = await db
+				.collection("pending_orders")
+				.add(pendingOrderData);
+			const pendingOrderId = pendingOrderRef.id;
+			console.log("✅ Created Pending Order ID:", pendingOrderId);
+
+			// =========================================================
+			// 3. CHARGE THE SAVED CARD
+			// =========================================================
+			console.log(
+				`Charging Vault ID ${selectedVaultId} for $${payPalAmount}...`,
+			);
+
+			const result = await chargeSavedCard(
+				selectedVaultId,
+				payPalAmount,
+				restaurant.uid,
+				pendingOrderId,
+				"individual",
+			);
+
+			// =========================================================
+			// 4. SUCCESS & NAVIGATION (Matching your exact original payload)
+			// =========================================================
+			if (result && result.success) {
+				console.log(
+					"✅ Payment successful! Navigating to confirmation screen.",
+				);
+
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 0,
+						routes: [
+							{
+								name: "OrderConfirmation",
+								params: {
+									initialStatus: "processing",
+									// Keeping your exact rating payload!
+									itemsToRate: restaurantBasketItems.map((i) => ({
+										id: i.id,
+										name: i.dish.name,
+										menuItemId: i.menuItemId,
+										restaurantId: i.restaurantId,
+										price: i.price,
+										quantity: i.quantity,
+										discountedPrice: i.discountedPrice,
+									})),
+									isIndividual: true,
+									origin: "individual",
+								},
+							},
+						],
+					}),
+				);
+			}
+		} catch (error) {
+			console.error("Payment process failed:", error);
+			setPaymentError(error.message);
+			Alert.alert(
+				"Payment Error",
+				"Could not process your saved card. " + String(error.message),
+			);
+		} finally {
+			setIsPreparing(false);
+			setIsLoading(false);
+		}
+	};
+
+	const handleDeleteCard = (documentId, vaultIdToDelete) => {
+		Alert.alert(
+			"Remove Card",
+			"Are you sure you want to delete this saved card?",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Delete",
+					style: "destructive",
+					onPress: async () => {
+						try {
+							const uid = currentUserData?.uid; // Or however you get your uid
+
+							// 1. Delete from Firestore
+							await firestore()
+								.collection("customers")
+								.doc(uid)
+								.collection("savedPaymentMethods")
+								.doc(documentId)
+								.delete();
+
+							// 2. Remove it from the local screen state instantly
+							setSavedCards((prevCards) =>
+								prevCards.filter((card) => card.id !== documentId),
+							);
+
+							// 3. If they just deleted the card they had selected, deselect it
+							if (selectedVaultId === vaultIdToDelete) {
+								setSelectedVaultId(null);
+							}
+
+							console.log("Card successfully deleted.");
+						} catch (error) {
+							console.error("Error deleting card:", error);
+							Alert.alert(
+								"Error",
+								"Could not remove this card. Please try again.",
+							);
+						}
+					},
+				},
+			],
+		);
 	};
 
 	// Function to toggle PIP section expansion
@@ -396,7 +667,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 							const isExpanded = !!expandedPIPs[personData.personId];
 							// Find matching pip calculated data
 							const pipData = pipTotals.find(
-								(p) => p.personId === personData.personId
+								(p) => p.personId === personData.personId,
 							);
 							// Calculate estimated total for this PIP including client-estimated tax
 							const estimatedPipTotal = pipData ? pipData.total : 0;
@@ -413,7 +684,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 										</Text>
 										<View style={styles.pipHeaderTotals}>
 											<Text style={styles.pipTotalDisplay}>
-												{t("est_amount", { amount: formatCurrency(estimatedPipTotal) })}
+												{t("est_amount", {
+													amount: formatCurrency(estimatedPipTotal),
+												})}
 											</Text>
 											<MaterialCommunityIcons
 												name={isExpanded ? "chevron-up" : "chevron-down"}
@@ -437,8 +710,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 															Math.round(
 																(item.discount
 																	? parseFloat(item.discountedPrice)
-																	: item.dish?.price || 0) * 100
-															) * item.quantity
+																	: item.dish?.price || 0) * 100,
+															) * item.quantity,
 														)}
 													</Text>
 												</View>
@@ -455,7 +728,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 						<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
 						<View style={styles.gratuityContainer}>
 							<Text style={styles.gratuityCurrentText}>
-								{t("selected_gratuity", { percentage: gratuityPercentage, amount: formatCurrency(gratuity) })}
+								{t("selected_gratuity", {
+									percentage: gratuityPercentage,
+									amount: formatCurrency(gratuity),
+								})}
 							</Text>
 							<View style={styles.pickerContainer}>
 								<Picker
@@ -510,7 +786,10 @@ const CheckoutScreen = ({ route, navigation }) => {
 						{/* Gratuity Row */}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>
-								{t("gratuity_with_percentage", { percentage: gratuityPercentage })}:
+								{t("gratuity_with_percentage", {
+									percentage: gratuityPercentage,
+								})}
+								:
 							</Text>
 							<Text style={styles.amount}>{formatCurrency(gratuity)}</Text>
 						</View>
@@ -543,22 +822,153 @@ const CheckoutScreen = ({ route, navigation }) => {
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 
 					{/* --- Pay Button --- */}
-					<View style={styles.payButtonContainer}>
-						<Button
-							title={
-								isPreparing
-									? t("calculating")
-									: isPaying
-									? t("processing")
-									: finalTotal !== null
-									? t("pay_amount", { amount: formatCurrency(finalTotal) })
-									: t("pay_now")
-							}
-							onPress={handlePayment}
-							disabled={!isReadyToPay || isPreparing} // Disable until ready & not processing
-							color={colors.primary} // Use theme color
-						/>
-					</View>
+					{isPanama && (
+						<>
+							{/* THE SAVED CARDS DROPDOWN (PayPal) */}
+							{selectedCard && (
+								<View style={styles.savedCardsWrapper}>
+									<View style={styles.selectedCardRow}>
+										<TouchableOpacity
+											style={styles.cardSelectArea}
+											onPress={() => setIsDropdownExpanded(!isDropdownExpanded)}
+										>
+											<Ionicons
+												name="card"
+												size={24}
+												color="#333"
+												style={styles.cardIcon}
+											/>
+											<Text style={styles.cardText}>
+												{selectedCard.brand} •••• {selectedCard.last4}
+											</Text>
+											<Ionicons
+												name={
+													isDropdownExpanded ? "chevron-up" : "chevron-down"
+												}
+												size={20}
+												color="#666"
+											/>
+										</TouchableOpacity>
+
+										<TouchableOpacity
+											style={styles.deleteButton}
+											onPress={() =>
+												handleDeleteCard(selectedCard.id, selectedCard.vaultId)
+											}
+										>
+											<Ionicons
+												name="trash-outline"
+												size={24}
+												color="#FF3B30"
+											/>
+										</TouchableOpacity>
+									</View>
+
+									{isDropdownExpanded && (
+										<View style={styles.dropdownContainer}>
+											{savedCards.map((card) => {
+												if (card.id === selectedCard.id) return null;
+												return (
+													<TouchableOpacity
+														key={card.id}
+														style={styles.dropdownItem}
+														onPress={() => {
+															setSelectedVaultId(card.vaultId);
+															setIsDropdownExpanded(false);
+														}}
+													>
+														<Ionicons
+															name="card-outline"
+															size={20}
+															color="#888"
+															style={styles.cardIcon}
+														/>
+														<Text style={styles.dropdownCardText}>
+															{card.brand} •••• {card.last4}
+														</Text>
+													</TouchableOpacity>
+												);
+											})}
+										</View>
+									)}
+								</View>
+							)}
+
+							{/* THE PAYPAL CHECKOUT BUTTONS */}
+							<View style={styles.checkoutButtonsContainer}>
+								{selectedCard ? (
+									// ===============================================
+									// STATE 1: USER HAS A SAVED CARD
+									// ===============================================
+									<>
+										{/* Primary Button: Pay with Vault */}
+										<TouchableOpacity
+											style={[
+												styles.paypalButton,
+												styles.buttonMargin,
+												(!isReadyToPay || isPreparing) && styles.buttonDisabled,
+											]}
+											onPress={handleVaultedCheckout}
+											disabled={
+												!isReadyToPay || isPreparing || !selectedVaultId
+											}
+										>
+											<Text style={styles.buttonText}>
+												Pay with Selected Card
+											</Text>
+										</TouchableOpacity>
+
+										{/* Secondary Button: Add a New Card (Smaller, Text-Only) */}
+										<TouchableOpacity
+											style={styles.secondaryTextButton}
+											onPress={handlePayPalCheckout}
+											disabled={!isReadyToPay || isPreparing}
+										>
+											<Text style={styles.secondaryButtonText}>
+												Add a New Card
+											</Text>
+										</TouchableOpacity>
+									</>
+								) : (
+									// ===============================================
+									// STATE 2: NO SAVED CARDS (First-time user)
+									// ===============================================
+									<TouchableOpacity
+										style={[
+											styles.paypalButton,
+											(!isReadyToPay || isPreparing) && styles.buttonDisabled,
+										]}
+										onPress={handlePayPalCheckout}
+										disabled={!isReadyToPay || isPreparing}
+									>
+										<Text style={styles.buttonText}>
+											Pay {formatCurrency(finalTotal)}
+										</Text>
+									</TouchableOpacity>
+								)}
+							</View>
+						</>
+					)}
+
+					{/* ========================================== */}
+					{/* 🇺🇸 USA CHECKOUT (Stripe)                   */}
+					{/* ========================================== */}
+					{isUSA && (
+						<View style={styles.checkoutButtonsContainer}>
+							<TouchableOpacity
+								style={[
+									styles.standardButton,
+									(!isReadyToPay || isPreparing) && styles.buttonDisabled,
+								]}
+								onPress={handlePayment}
+								disabled={!isReadyToPay || isPreparing}
+							>
+								<Text style={styles.buttonText}>
+									Pay {formatCurrency(finalTotal)}
+								</Text>
+							</TouchableOpacity>
+						</View>
+					)}
 				</ScrollView>
 			</View>
 		</StripeProvider>
@@ -569,7 +979,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 // (Use styles from previous examples, ensure they cover elements used)
 const styles = StyleSheet.create({
 	loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-	container: { flex: 1, backgroundColor: colors.background || "#f4f4f8" }, // Lighter background
+	container: { flex: 1, backgroundColor: colors.background || "#f4f4f8" },
 	mainHeading: {
 		fontSize: 24,
 		fontWeight: "bold",
@@ -624,14 +1034,14 @@ const styles = StyleSheet.create({
 		flexShrink: 1,
 		marginRight: 8,
 		color: colors.textDark,
-	}, // Allow name to shrink
-	pipHeaderTotals: { flexDirection: "row", alignItems: "center" }, // Container for total and icon
+	},
+	pipHeaderTotals: { flexDirection: "row", alignItems: "center" },
 	pipTotalDisplay: {
 		fontSize: 15,
 		fontWeight: "500",
 		color: colors.text,
 		marginRight: 5,
-	}, // Style for PIP total in header
+	},
 	pipItemsContainer: {
 		paddingLeft: 15,
 		marginTop: 8,
@@ -650,7 +1060,7 @@ const styles = StyleSheet.create({
 		color: colors.textLight,
 		fontStyle: "italic",
 		marginTop: 2,
-	}, // For optional PIP breakdown details
+	},
 	// Summary Styles
 	summaryRow: {
 		flexDirection: "row",
@@ -692,7 +1102,7 @@ const styles = StyleSheet.create({
 	totalLabel: { fontSize: 17, fontWeight: "bold", color: colors.primary },
 	totalAmount: { fontSize: 17, fontWeight: "bold", color: colors.primary },
 	// Gratuity Styles
-	gratuityContainer: { paddingVertical: 10 }, // Container for the whole gratuity section
+	gratuityContainer: { paddingVertical: 10 },
 	gratuityCurrentText: {
 		fontSize: 15,
 		color: colors.textDark,
@@ -712,7 +1122,6 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 	},
 	gratuityPickerItem: {
-		// iOS only
 		height: 120,
 		color: colors.textDark,
 	},
@@ -726,14 +1135,146 @@ const styles = StyleSheet.create({
 		fontWeight: "500",
 		color: colors.textDark,
 		marginLeft: 10,
-	}, // Display calculated amount
+	},
 	errorText: {
 		color: colors.danger || "red",
 		textAlign: "center",
 		marginVertical: 10,
 		paddingHorizontal: 10,
 	},
-	payButtonContainer: { margin: 20, marginTop: 10 },
+
+	// ==========================================
+	// 💳 PAYMENT UI STYLES
+	// ==========================================
+
+	// Dropdown Container
+	savedCardsWrapper: {
+		backgroundColor: "#FFFFFF",
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: "#E5E5EA",
+		marginVertical: 16,
+		marginHorizontal: 20, // aligns perfectly with the buttons
+		overflow: "hidden",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.05,
+		shadowRadius: 3,
+		elevation: 2,
+	},
+	selectedCardRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingVertical: 16,
+		paddingHorizontal: 16,
+		backgroundColor: "#FAFAFA",
+	},
+	cardSelectArea: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	cardIcon: {
+		marginRight: 12,
+	},
+	cardText: {
+		fontSize: 16,
+		color: "#1C1C1E",
+		fontWeight: "600",
+		flex: 1,
+	},
+	deleteButton: {
+		paddingLeft: 16,
+		paddingVertical: 4,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	dropdownContainer: {
+		backgroundColor: "#FFFFFF",
+		borderTopWidth: 1,
+		borderTopColor: "#E5E5EA",
+	},
+	dropdownItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 16,
+		paddingHorizontal: 16,
+		borderBottomWidth: 1,
+		borderBottomColor: "#F2F2F7",
+	},
+	dropdownCardText: {
+		fontSize: 15,
+		color: "#8E8E93",
+		fontWeight: "500",
+	},
+
+	// Buttons Container
+	checkoutButtonsContainer: {
+		marginTop: 24,
+		paddingHorizontal: 20, // Keeps buttons off screen edges
+		paddingBottom: 40,
+		width: "100%",
+	},
+	buttonMargin: {
+		marginBottom: 16, // Perfect gap between stacked buttons
+	},
+
+	// 🔵 PayPal Specific Button
+	paypalButton: {
+		backgroundColor: colors.primary, // Official PayPal Blue
+		paddingVertical: 16,
+		borderRadius: 12,
+		alignItems: "center",
+		justifyContent: "center",
+		width: "100%",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 3,
+	},
+
+	// ⚫ Standard / Stripe Button
+	standardButton: {
+		backgroundColor: colors.primary || "#111111",
+		paddingVertical: 16,
+		borderRadius: 12,
+		alignItems: "center",
+		justifyContent: "center",
+		width: "100%",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 3,
+	},
+
+	// ⚪ Disabled State (Applies to both)
+	buttonDisabled: {
+		backgroundColor: "#D1D1D6",
+		shadowOpacity: 0,
+		elevation: 0,
+	},
+
+	// Text Style (Applies to both)
+	buttonText: {
+		color: "#FFFFFF",
+		fontSize: 18,
+		fontWeight: "700",
+		letterSpacing: 0.5,
+	},
+	secondaryTextButton: {
+		paddingVertical: 12,
+		alignItems: "center",
+		justifyContent: "center",
+		width: "100%",
+	},
+	secondaryButtonText: {
+		color: "#0070BA", // Keeps the PayPal blue, but as text
+		fontSize: 16,
+		fontWeight: "600",
+	},
 });
 
 export default CheckoutScreen;

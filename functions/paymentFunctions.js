@@ -33,7 +33,7 @@ const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 async function getRestaurantTier(restaurantId) {
 	if (!restaurantId) {
 		throw new Error(
-			"getRestaurantTier Error: restaurantId cannot be null or empty."
+			"getRestaurantTier Error: restaurantId cannot be null or empty.",
 		);
 	}
 
@@ -44,7 +44,7 @@ async function getRestaurantTier(restaurantId) {
 	if (!restaurantDoc.exists) {
 		// This is a critical failure, as we cannot determine the pricing.
 		throw new Error(
-			`getRestaurantTier Error: Restaurant ${restaurantId} not found.`
+			`getRestaurantTier Error: Restaurant ${restaurantId} not found.`,
 		);
 	}
 
@@ -60,7 +60,7 @@ async function getRestaurantTier(restaurantId) {
 	if (!tiersDoc.exists) {
 		// This is a system-level critical failure.
 		throw new Error(
-			"getRestaurantTier Error: The 'pricingTiers' document was not found in 'appConfig'."
+			"getRestaurantTier Error: The 'pricingTiers' document was not found in 'appConfig'.",
 		);
 	}
 
@@ -71,7 +71,7 @@ async function getRestaurantTier(restaurantId) {
 	if (!tierConfig || typeof tierConfig.payoutPercentage !== "number") {
 		// This indicates a configuration error (e.g., a typo in the restaurant's tier name).
 		throw new Error(
-			`getRestaurantTier Error: Configuration for tier "${tierName}" is missing or invalid in the pricingTiers document.`
+			`getRestaurantTier Error: Configuration for tier "${tierName}" is missing or invalid in the pricingTiers document.`,
 		);
 	}
 
@@ -96,7 +96,7 @@ const handleStripeEvent = async (event, stripeInstance) => {
 
 	console.log(
 		"Webhook received. Metadata content:",
-		JSON.stringify(metadata, null, 2)
+		JSON.stringify(metadata, null, 2),
 	);
 
 	switch (event.type) {
@@ -111,7 +111,7 @@ const handleStripeEvent = async (event, stripeInstance) => {
 						paymentIntent.latest_charge,
 						{
 							expand: ["balance_transaction"],
-						}
+						},
 					);
 					if (charge.balance_transaction) {
 						stripeFeeActual = charge.balance_transaction.fee;
@@ -120,7 +120,7 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			} catch (feeError) {
 				console.warn(
 					`[Webhook] Could not retrieve exact fee for PI ${paymentIntent.id}.`,
-					feeError
+					feeError,
 				);
 			}
 			if (stripeFeeActual === 0) {
@@ -140,14 +140,14 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			// --- THIS IS THE FIX ---
 			// We add detailed logs to trace the entire process.
 			console.log(
-				`[Webhook Log] 1. Received 'account.updated' for Stripe Account: ${accountId}`
+				`[Webhook Log] 1. Received 'account.updated' for Stripe Account: ${accountId}`,
 			);
 
 			const isOnboarded = account.charges_enabled && account.details_submitted;
 			const newStatus = isOnboarded ? "verified" : "pending";
 
 			console.log(
-				`[Webhook Log] 2. Determined onboarding status. charges_enabled: ${account.charges_enabled}, details_submitted: ${account.details_submitted}. New status will be: ${newStatus}`
+				`[Webhook Log] 2. Determined onboarding status. charges_enabled: ${account.charges_enabled}, details_submitted: ${account.details_submitted}. New status will be: ${newStatus}`,
 			);
 
 			try {
@@ -157,13 +157,13 @@ const handleStripeEvent = async (event, stripeInstance) => {
 					.limit(1);
 
 				console.log(
-					`[Webhook Log] 3. Querying Firestore for restaurant with stripeAccountId: ${accountId}`
+					`[Webhook Log] 3. Querying Firestore for restaurant with stripeAccountId: ${accountId}`,
 				);
 				const snapshot = await q.get();
 
 				if (snapshot.empty) {
 					console.error(
-						`[Webhook Log] 4. CRITICAL: No matching restaurant found for Stripe account ${accountId}. Aborting update.`
+						`[Webhook Log] 4. CRITICAL: No matching restaurant found for Stripe account ${accountId}. Aborting update.`,
 					);
 					return; // Stop processing
 				}
@@ -171,7 +171,7 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				const restaurantDoc = snapshot.docs[0];
 				const restaurantRef = restaurantDoc.ref;
 				console.log(
-					`[Webhook Log] 4. Found matching restaurant document: ${restaurantRef.id}`
+					`[Webhook Log] 4. Found matching restaurant document: ${restaurantRef.id}`,
 				);
 
 				await restaurantRef.update({
@@ -180,12 +180,12 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				});
 
 				console.log(
-					`[Webhook Log] 5. ✅ Successfully updated restaurant ${restaurantRef.id} with Stripe status: ${newStatus}`
+					`[Webhook Log] 5. ✅ Successfully updated restaurant ${restaurantRef.id} with Stripe status: ${newStatus}`,
 				);
 			} catch (error) {
 				console.error(
 					`[Webhook Log] 5. CRITICAL ERROR while updating restaurant for Stripe account ${accountId}:`,
-					error
+					error,
 				);
 			}
 			break;
@@ -229,7 +229,7 @@ exports.preparePayment = functions
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"The function must be called while authenticated."
+				"The function must be called while authenticated.",
 			);
 		}
 		const userId = context.auth.uid;
@@ -256,7 +256,7 @@ exports.preparePayment = functions
 		) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"The function was called with missing or invalid data."
+				"The function was called with missing or invalid data.",
 			);
 		}
 
@@ -270,7 +270,7 @@ exports.preparePayment = functions
 			if (!userDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Customer profile not found."
+					"Customer profile not found.",
 				);
 			}
 
@@ -289,7 +289,7 @@ exports.preparePayment = functions
 				if (!partyId) {
 					throw new functions.https.HttpsError(
 						"invalid-argument",
-						"Party ID is required."
+						"Party ID is required.",
 					);
 				}
 
@@ -297,7 +297,7 @@ exports.preparePayment = functions
 				if (!partyDoc.exists) {
 					throw new functions.https.HttpsError(
 						"not-found",
-						`Party ${partyId} not found.`
+						`Party ${partyId} not found.`,
 					);
 				}
 
@@ -309,7 +309,7 @@ exports.preparePayment = functions
 					// If the user isn't in the party, stop immediately.
 					throw new functions.https.HttpsError(
 						"permission-denied",
-						"User is not a member of this party."
+						"User is not a member of this party.",
 					);
 				}
 
@@ -317,7 +317,7 @@ exports.preparePayment = functions
 				if (!sharedBasketId) {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						`Party ${partyId} is missing a sharedBasketId.`
+						`Party ${partyId} is missing a sharedBasketId.`,
 					);
 				}
 
@@ -328,20 +328,20 @@ exports.preparePayment = functions
 				if (!sharedBasketDoc.exists) {
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Shared basket not found."
+						"Shared basket not found.",
 					);
 				}
 
 				const allItemsInBasket = sharedBasketDoc.data().items || [];
 				const clientItemIds = new Set(items.map((item) => item.id));
 				itemsToProcess = allItemsInBasket.filter((itemInDb) =>
-					clientItemIds.has(itemInDb.id)
+					clientItemIds.has(itemInDb.id),
 				);
 			} else {
 				// 'individual' checkout
 				// For an individual, fetch each item as a separate document from the /baskets collection.
 				const basketPromises = items.map((item) =>
-					db.collection("baskets").doc(item.id).get()
+					db.collection("baskets").doc(item.id).get(),
 				);
 				const fetchedBasketDocs = await Promise.all(basketPromises);
 				itemsToProcess = fetchedBasketDocs
@@ -359,14 +359,14 @@ exports.preparePayment = functions
 			if (!basketId) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"No valid basket found."
+					"No valid basket found.",
 				);
 			}
 
 			if (itemsToProcess.length === 0) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"No valid basket items were found for this payment."
+					"No valid basket items were found for this payment.",
 				);
 			}
 
@@ -409,14 +409,14 @@ exports.preparePayment = functions
 			if (calculatedSubtotal <= 0) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Cannot process a payment with a zero or negative subtotal."
+					"Cannot process a payment with a zero or negative subtotal.",
 				);
 			}
 
 			const configDoc = await db.collection("appConfig").doc("general").get();
 			const platformFeePercentage = configDoc.data().fees || 0;
 			const calculatedPlatformFee = Math.round(
-				calculatedSubtotal * platformFeePercentage
+				calculatedSubtotal * platformFeePercentage,
 			);
 			const finalAmount = calculatedSubtotal + gratuity + calculatedPlatformFee;
 
@@ -452,25 +452,25 @@ exports.preparePayment = functions
 				stripeCustomerId = await createStripeCustomerHelper(
 					userId,
 					restaurantId,
-					stripeInstance
+					stripeInstance,
 				);
 			}
 
 			try {
 				ephemeralKey = await stripeInstance.ephemeralKeys.create(
 					{ customer: stripeCustomerId },
-					{ apiVersion: "2024-04-10" }
+					{ apiVersion: "2024-04-10" },
 				);
 			} catch (err) {
 				if (err.code === "resource_missing") {
 					stripeCustomerId = await createStripeCustomerHelper(
 						userId,
 						restaurantId,
-						stripeInstance
+						stripeInstance,
 					);
 					ephemeralKey = await stripeInstance.ephemeralKeys.create(
 						{ customer: stripeCustomerId },
-						{ apiVersion: "2024-04-10" }
+						{ apiVersion: "2024-04-10" },
 					);
 				} else {
 					throw err;
@@ -506,36 +506,54 @@ exports.preparePayment = functions
 			// For unexpected errors, throw a generic internal error.
 			throw new functions.https.HttpsError(
 				"internal",
-				"An unexpected error occurred while preparing the payment."
+				"An unexpected error occurred while preparing the payment.",
 			);
 		}
 	});
 
 /**
  * @function fulfillOrder
- * @description A consolidated and robust function to process a successful payment.
+ * @description A consolidated, robust, and GATEWAY-AGNOSTIC function to process a successful payment.
  * It creates a permanent order, performs all necessary database cleanup in a
- * single atomic transaction, and only then creates the Stripe Transfer.
+ * single atomic transaction, and handles Stripe Transfers if applicable.
  *
- * @param {object} stripeInstance The initialized Stripe instance.
- * @param {object} paymentIntent The full PaymentIntent object from the Stripe webhook.
- * @param {number} stripeFeeActual The calculated Stripe fee for accurate accounting.
+ * @param {object} params The consolidated order parameters.
+ * @param {string} params.orderId The ID of the pending_orders document.
+ * @param {string} params.paymentType 'individual' or 'party'.
+ * @param {string} params.userId The ID of the paying customer.
+ * @param {string} params.restaurantId The ID of the restaurant.
+ * @param {string} params.processor 'stripe' or 'paypal'.
+ * @param {string} params.processorTransactionId The Stripe PaymentIntent ID or PayPal Capture ID.
+ * @param {number} params.totalPrice The total amount paid in cents.
+ * @param {number} params.processorFeeActual The calculated processing fee for accurate accounting.
+ * @param {number} params.platformFeeActual (Optional) The application fee taken by the platform.
+ * @param {object} params.stripeInstance (Optional) The initialized Stripe instance (required for Stripe).
+ * @param {string} params.latestChargeId (Optional) The Stripe charge ID (required for Stripe Transfers).
  * @returns {Promise<void>}
  */
-const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
+const fulfillOrder = async ({
+	orderId,
+	paymentType,
+	userId,
+	restaurantId,
+	processor,
+	processorTransactionId,
+	totalPrice,
+	processorFeeActual,
+	platformFeeActual = 0,
+	stripeInstance = null,
+	latestChargeId = null,
+}) => {
 	// 1. ============== PREPARATION (Outside the Transaction) ==============
-	const metadata = paymentIntent.metadata || {};
-	const { orderId, type: paymentType, userId, restaurantId } = metadata;
-
 	if (!orderId || !paymentType) {
 		console.error(
-			`[Webhook] Critical: Webhook for Payment Intent ${paymentIntent.id} is missing orderId or type in metadata.`
+			`[Fulfill] Critical: Missing orderId or paymentType for ${processorTransactionId}.`,
 		);
 		return;
 	}
 
 	console.log(
-		`[Webhook] Fulfilling ${paymentType} order ${orderId} for PI ${paymentIntent.id}.`
+		`[Fulfill] Fulfilling ${paymentType} order ${orderId} via ${processor.toUpperCase()}.`,
 	);
 
 	const pendingOrderRef = db.collection("pending_orders").doc(orderId);
@@ -543,17 +561,18 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 
 	if (!pendingOrderSnap.exists) {
 		console.log(
-			`[Webhook] Idempotency check: Pending order ${orderId} has already been processed. Aborting.`
+			`[Fulfill] Idempotency check: Pending order ${orderId} has already been processed. Aborting.`,
 		);
 		return;
 	}
 
 	const pendingOrderData = pendingOrderSnap.data();
 
-	const readableOrderId = await generateOrderId(pendingOrderData.restaurantId);
-	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
+	// Assuming you have these helper functions defined elsewhere in your file
+	const readableOrderId = await generateOrderId(restaurantId);
 
-	// This logic can be abstracted to a helper function if desired.
+	// Calculate payouts
+	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
 	const restaurantTierInfo = await getRestaurantTier(restaurantId);
 	const payoutPercentage = restaurantTierInfo.payoutPercentage || 0.9;
 	const restaurantSubtotalPayout = Math.round(subtotal * payoutPercentage);
@@ -563,13 +582,13 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 		id: orderId,
 		readableOrderId: readableOrderId,
 		...pendingOrderData, // Spread all data from the pending order
-		paymentIntentId: paymentIntent.id,
+		paymentProcessor: processor, // 'stripe' or 'paypal'
+		paymentProcessorId: processorTransactionId, // PI or Capture ID
 		paymentStatus: "paid",
 		orderStatus: "confirmed",
-		platformFeeActual:
-			paymentIntent.application_fee_amount || pendingOrderData.platformFee || 0,
-		stripeFeeActual,
-		totalPrice: paymentIntent.amount,
+		platformFeeActual: platformFeeActual || pendingOrderData.platformFee || 0,
+		processorFeeActual: processorFeeActual || 0,
+		totalPrice: totalPrice,
 		fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
 	};
 
@@ -580,7 +599,6 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 			// ============== 1. ALL READS MUST GO FIRST ============
 			// ======================================================
 			console.log("[Transaction] Performing all reads...");
-			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 
 			// READ 1: The pending order document.
 			const transactionalPendingOrderSnap = await t.get(pendingOrderRef);
@@ -610,15 +628,14 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 				console.log("[Transaction] Performing individual cleanup writes...");
 				const { items, checkInId, table } = pendingOrderData;
 
-				// Delete user's basket items. The 'items' array in pendingOrderData
-				// now contains the full basket item details, including their document IDs.
+				// Delete user's basket items.
 				items.forEach((item) => {
 					const basketItemRef = db.collection("baskets").doc(item.id);
 					t.delete(basketItemRef);
 				});
 
 				// Update table status
-				if (table.id) {
+				if (table && table.id) {
 					const tableRef = db
 						.collection("restaurants")
 						.doc(restaurantId)
@@ -630,12 +647,14 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 						currentCustomerId: null,
 					});
 				}
+
 				// Update check-in status
 				if (checkInId) {
 					t.update(db.collection("checkIns").doc(checkInId), {
 						status: "COMPLETED",
 					});
 				}
+
 				// Update customer status
 				t.update(db.collection("customers").doc(userId), {
 					activeCheckIn: null,
@@ -646,9 +665,11 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 					const partyData = partySnap.data();
 
 					// ONLY mark the paying user as paid
-					const payerUserId = pendingOrderData.customerId;
+					const payerUserId = pendingOrderData.customerId || userId;
 					const updatedGuestPips = partyData.guestPips.map((pip) =>
-						pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip
+						pip.userId === payerUserId
+							? { ...pip, paymentStatus: "paid" }
+							: pip,
 					);
 
 					t.update(partySnap.ref, { guestPips: updatedGuestPips });
@@ -662,14 +683,14 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 
 					// Only close party if EVERYONE paid
 					const allPaid = updatedGuestPips.every(
-						(pip) => pip.paymentStatus === "paid"
+						(pip) => pip.paymentStatus === "paid",
 					);
 
 					if (allPaid) {
 						console.log("All party members paid. Closing party...");
-						// Your existing cleanup code
 						t.delete(partySnap.ref);
-						if (partyData.table.id) {
+
+						if (partyData.table && partyData.table.id) {
 							const tableRef = db
 								.collection("restaurants")
 								.doc(partyData.restaurantId)
@@ -681,12 +702,14 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 								currentCustomerId: null,
 							});
 						}
+
 						if (partyData.checkInId) {
 							t.update(db.collection("checkIns").doc(partyData.checkInId), {
 								status: "COMPLETED",
 								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 							});
 						}
+
 						updatedGuestPips.forEach((member) => {
 							if (member.userId) {
 								t.update(db.collection("customers").doc(member.userId), {
@@ -703,39 +726,57 @@ const fulfillOrder = async (stripeInstance, paymentIntent, stripeFeeActual) => {
 		});
 
 		console.log(
-			`[Webhook] ✅ Successfully committed DB transaction for order ${orderId}.`
+			`[Fulfill] ✅ Successfully committed DB transaction for order ${orderId}.`,
 		);
 	} catch (error) {
 		console.error(
-			`[Webhook] ❌ DB transaction for order ${orderId} failed:`,
-			error
+			`[Fulfill] ❌ DB transaction for order ${orderId} failed:`,
+			error,
 		);
-		return;
+		throw error; // Rethrow so the calling function knows the DB write failed!
 	}
 
 	// 3. ============== EXTERNAL API CALL (After Successful Transaction) ==============
-	try {
-		const transfer = await stripeInstance.transfers.create({
-			amount: amountToTransfer,
-			currency: "usd",
-			destination: connectedAccountId,
-			source_transaction: paymentIntent.latest_charge,
-			metadata: { orderId: orderId },
-		});
-		console.log(
-			`[Webhook] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`
-		);
 
-		await db
-			.collection("orders")
-			.doc(orderId)
-			.update({ stripeTransferId: transfer.id });
-	} catch (apiError) {
-		console.error(
-			`[Webhook] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
-			apiError
+	// STRIPE PAYOUTS
+	if (
+		processor === "stripe" &&
+		stripeInstance &&
+		latestChargeId &&
+		connectedAccountId
+	) {
+		try {
+			const transfer = await stripeInstance.transfers.create({
+				amount: amountToTransfer,
+				currency: "usd",
+				destination: connectedAccountId,
+				source_transaction: latestChargeId,
+				metadata: { orderId: orderId },
+			});
+			console.log(
+				`[Fulfill] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`,
+			);
+
+			await db
+				.collection("orders")
+				.doc(orderId)
+				.update({ stripeTransferId: transfer.id });
+		} catch (apiError) {
+			console.error(
+				`[Fulfill] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
+				apiError,
+			);
+			// Add this failed transfer to a retry queue or alert an admin.
+		}
+	}
+
+	// PAYPAL PAYOUTS
+	else if (processor === "paypal") {
+		// Since PayPal handles marketplace payouts during the transaction payload itself,
+		// or settles to a primary account depending on your setup, no extra API call is needed here.
+		console.log(
+			`[Fulfill] ✅ PayPal order ${orderId} finalized. No secondary transfer required.`,
 		);
-		// Add this failed transfer to a retry queue or alert an admin.
 	}
 };
 
@@ -761,11 +802,11 @@ exports.stripeWebhookTest = functions
 			event = stripeInstance.webhooks.constructEvent(
 				request.rawBody,
 				sig,
-				webhookSecret
+				webhookSecret,
 			);
 			console.log(
 				"✅ TEST Webhook signature verified. Event type:",
-				event.type
+				event.type,
 			);
 		} catch (err) {
 			console.error("❌ TEST Webhook signature verification failed.", err);
@@ -778,7 +819,7 @@ exports.stripeWebhookTest = functions
 		} catch (err) {
 			console.error(
 				`Error in TEST handleStripeEvent for event ${event.id}:`,
-				err
+				err,
 			);
 			response.status(500).send(`Webhook Processing Error: ${err.message}`); // Send 500 on processing errors
 		}
@@ -806,11 +847,11 @@ exports.stripeWebhookLive = functions
 			event = stripeInstance.webhooks.constructEvent(
 				request.rawBody,
 				sig,
-				webhookSecret
+				webhookSecret,
 			);
 			console.log(
 				"✅ LIVE Webhook signature verified. Event type:",
-				event.type
+				event.type,
 			);
 		} catch (err) {
 			console.error("❌ LIVE Webhook signature verification failed.", err);
@@ -823,7 +864,7 @@ exports.stripeWebhookLive = functions
 		} catch (err) {
 			console.error(
 				`Error in LIVE handleStripeEvent for event ${event.id}:`,
-				err
+				err,
 			);
 			response.status(500).send(`Webhook Processing Error: ${err.message}`); // Send 500 on processing errors
 		}
@@ -869,18 +910,18 @@ exports.getStripePublishableKey = functions
 				//check for returned object, and key
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Stripe Publishable key is not set"
+					"Stripe Publishable key is not set",
 				);
 			}
 			return { stripePublishableKey: keys.publishableKey }; //return named property.
 		} catch (error) {
 			console.error(
 				"Error fetching stripe publishable key: ", // removed "from Remote Config"
-				error
+				error,
 			);
 			throw new functions.https.HttpsError(
 				"internal",
-				"An error occurred while fetching the Stripe publishable key."
+				"An error occurred while fetching the Stripe publishable key.",
 			);
 		}
 	});
@@ -897,7 +938,7 @@ exports.createEphemeralKey = functions
 		if (!customerId || !apiVersion || !restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Customer ID, API version, and Restaurant ID are required."
+				"Customer ID, API version, and Restaurant ID are required.",
 			);
 		}
 
@@ -910,7 +951,7 @@ exports.createEphemeralKey = functions
 				{
 					customer: customerId,
 				},
-				{ apiVersion: apiVersion }
+				{ apiVersion: apiVersion },
 			);
 
 			console.log("EphermeralKey Successfuly created");
@@ -922,3 +963,7 @@ exports.createEphemeralKey = functions
 			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
+
+module.exports = {
+	fulfillOrder,
+};

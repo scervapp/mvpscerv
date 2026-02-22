@@ -120,5 +120,6 @@ exports.autoTranslateMenuItem = restaurantFunctions.autoTranslateMenuItem;
 
 exports.createPayPalOrder = paypalHandlers.createPayPalOrder;
 exports.capturePayPalOrder = paypalHandlers.capturePayPalOrder;
+exports.chargeVaultedCard = paypalHandlers.chargeVaultedCard;
 
 //

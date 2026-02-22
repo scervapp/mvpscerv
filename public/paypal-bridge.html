@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+ <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #F4F5F7;
+            padding: 20px;
+            margin: 0;
+            color: #111;
+        }
+        .summary-card {
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        .summary-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #333;
+            border-bottom: 1px solid #EAEAEA;
+            padding-bottom: 10px;
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 15px;
+            color: #666;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px dashed #CCC;
+            font-size: 20px;
+            font-weight: 700;
+            color: #000;
+        }
+        .payment-container {
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        .payment-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #333;
+        }
+        .card-field {
+            border: 1px solid #EAEAEA;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #FAFAFA;
+            height: 45px;
+        }
+        #pay-button {
+            width: 100%;
+            background-color: #0070BA;
+            color: white;
+            border: none;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+    </style>
+    
+    <script src="https://www.paypal.com/sdk/js?client-id=ASG4x6OgddU2kqoldpJLAKY8JUUJiAKEGkdvmVToCXkQATALl0ucfx1COY9s77VO1_gTsXo8FGTi4hGY&components=card-fields&currency=USD"></script>
+</head>
+<div class="summary-card">
+        <div class="summary-header">Order Summary</div>
+        <div class="row">
+            <span>Subtotal</span>
+            <span id="display-subtotal">$0.00</span>
+        </div>
+        <div class="row">
+            <span>Gratuity</span>
+            <span id="display-gratuity">$0.00</span>
+        </div>
+        <div class="row">
+            <span>Platform Fee</span>
+            <span id="display-fee">$0.00</span>
+        </div>
+        <div class="total-row">
+            <span>Total to Pay</span>
+            <span id="display-total">$0.00</span>
+        </div>
+    </div>
+
+    <div class="payment-container">
+        <div class="payment-header">Enter Card Details</div>
+        <div id="card-name-field-container" class="card-field"></div>
+        <div id="card-number-field-container" class="card-field"></div>
+        <div style="display: flex; gap: 10px;">
+            <div id="card-expiry-field-container" class="card-field" style="flex: 1;"></div>
+            <div id="card-cvv-field-container" class="card-field" style="flex: 1;"></div>
+        </div>
+        <div style="margin-top: 15px; margin-bottom: 15px; display: flex; align-items: center;">
+    <input type="checkbox" id="save-card-checkbox" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+    <label for="save-card-checkbox" style="font-size: 14px; color: #333; cursor: pointer;">Save this card for future purchases</label>
+</div>
+        <button id="pay-button" onclick="handlePay()">Pay Now</button>
+    </div>
+    
+    <div id="status" style="margin-top:10px; font-size: 12px; color: #666;"></div>
+
+    <script>
+        const log = (msg) => {
+            document.getElementById('status').innerText = msg;
+        };
+
+        const sendMessageToApp = (msg) => {
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+            }
+        };
+
+        // 1. Catch the UI Totals from React Native
+        document.addEventListener("message", function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'SET_UI_TOTALS') {
+                    document.getElementById('display-subtotal').innerText = '$' + data.subtotal;
+                    document.getElementById('display-gratuity').innerText = '$' + data.gratuity;
+                    document.getElementById('display-fee').innerText = '$' + data.platformFee;
+                    document.getElementById('display-total').innerText = '$' + data.finalTotal;
+                    document.getElementById('pay-button').innerText = `Pay $${data.finalTotal}`;
+                }
+            } catch (e) {
+                log("Error parsing UI data: " + e.message);
+            }
+        });
+
+        // 2. Initialize PayPal Card Fields
+        let cardField;
+        if (paypal.CardFields) {
+            cardField = paypal.CardFields({
+                createOrder: function() {
+    // Check if the user wants to save the card
+    const shouldSaveCard = document.getElementById('save-card-checkbox').checked;
+    
+    log("Requesting Order ID...");
+    
+    // Pass the boolean to React Native!
+    sendMessageToApp({ type: 'CREATE_ORDER', saveCard: shouldSaveCard });
+    
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject("App timeout"), 10000);
+        window.resolveOrder = (orderID) => {
+            clearTimeout(timeout);
+            if (orderID && orderID !== 'null') {
+                log("Processing payment...");
+                resolve(orderID);
+            } else {
+                reject("Invalid Order ID");
+            }
+        };
+    });
+},
+                onApprove: function(data) {
+                    log("Payment Approved! Finalizing...");
+                    sendMessageToApp({ type: 'CAPTURE_ORDER', orderID: data.orderID });
+                },
+                onError: function(err) {
+                    const msg = err.message || JSON.stringify(err);
+                    log("Error: " + msg);
+                    sendMessageToApp({ type: 'ERROR', message: msg });
+                }
+            });
+
+            if (cardField.isEligible()) {
+                cardField.NameField().render('#card-name-field-container');
+                cardField.NumberField().render('#card-number-field-container');
+                cardField.ExpiryField().render('#card-expiry-field-container');
+                cardField.CVVField().render('#card-cvv-field-container');
+            } else {
+                log("Card fields not eligible for this account.");
+            }
+        } else {
+            log("PayPal CardFields SDK failed to load.");
+        }
+
+        // 3. Handle Pay Button Click
+        function handlePay() {
+            if (cardField) {
+                cardField.submit().catch((err) => {
+                    log("Submit Error: " + err);
+                });
+            }
+        }
+    </script>
+</body>
+</html>

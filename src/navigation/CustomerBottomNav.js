@@ -34,6 +34,7 @@ import PartyMenuScreen from "../screens/customer/PartyMenuScreen";
 import PartyCheckoutScreen from "../screens/customer/PartyCheckoutScreen";
 import ManageAccountScreen from "../screens/customer/ManageAccountScreen";
 import PartyHubScreen from "../screens/customer/PartyHubScreen";
+import PayPalScreen from "../screens/customer/PayPalScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -119,6 +120,15 @@ const CustomerDashboardStack = () => {
 					headerTitle: t("order_confirmation_title"),
 					headerLeft: () => null,
 				}}
+			/>
+
+			<Stack.Screen
+				name="PayPalScreen"
+				component={PayPalScreen}
+				options={() => ({
+					headerTitle: "Secure Checkout",
+					headerBackTitleVisible: false,
+				})}
 			/>
 		</Stack.Navigator>
 	);

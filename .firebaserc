@@ -13,6 +13,9 @@
         ],
         "scervmvp": [
           "scervmvp"
+        ],
+        "mobile": [
+          "scerv-mobile-assets"
         ]
       }
     }
