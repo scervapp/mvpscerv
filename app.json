@@ -62,7 +62,13 @@
           }
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Scerv to access your camera to scan table QR codes."
+        }
+      ]
     
     ],
     "extra": {

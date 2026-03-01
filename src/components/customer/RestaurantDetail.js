@@ -19,7 +19,7 @@ import {
 	SafeAreaView, // Added SafeAreaView
 	// Removed Button from react-native
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { AuthContext } from "../../context/authContext";
 import { PartyContext, useParty } from "../../context/customer/PartyContext"; // Ensure useParty is exported if preferred
@@ -81,7 +81,7 @@ const RestaurantDetailScreen = () => {
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
-		"customerCancelSeatedCheckIn"
+		"customerCancelSeatedCheckIn",
 	);
 
 	// --- Call useCheckInStatus unconditionally at the top ---
@@ -96,7 +96,7 @@ const RestaurantDetailScreen = () => {
 			: null,
 		currentUserData?.role === "customer" && currentUserData?.uid
 			? currentUserData.uid
-			: null
+			: null,
 	);
 
 	const restaurantBasket = useMemo(() => {
@@ -111,13 +111,13 @@ const RestaurantDetailScreen = () => {
 			const unsubscribe = pipsRef.onSnapshot(
 				(snapshot) => {
 					setUserPips(
-						snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+						snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
 					);
 				},
 				(error) => {
 					console.error("RestaurantDetailScreen: Error fetching PIPs:", error);
 					setUserPips([]);
-				}
+				},
 			);
 			return () => unsubscribe();
 		} else {
@@ -144,7 +144,7 @@ const RestaurantDetailScreen = () => {
 			(error) => {
 				console.error("Error fetching real-time restaurant data:", error);
 				setIsLoadingRestaurant(false);
-			}
+			},
 		);
 
 		return () => unsubscribe();
@@ -159,7 +159,7 @@ const RestaurantDetailScreen = () => {
 
 		const menuQuery = query(
 			collection(db, "menuItems"),
-			where("restaurantId", "==", restaurant.id)
+			where("restaurantId", "==", restaurant.id),
 		);
 
 		const unsubscribe = onSnapshot(
@@ -176,7 +176,7 @@ const RestaurantDetailScreen = () => {
 				console.error("Error fetching menu: ", err);
 				setMenuError("Failed to load the menu.");
 				setIsLoadingMenu(false);
-			}
+			},
 		);
 
 		return () => unsubscribe();
@@ -195,7 +195,7 @@ const RestaurantDetailScreen = () => {
 			partyDetails?.hostUserId === currentUserData?.uid // 7. The current user IS the host of that party
 		) {
 			console.log(
-				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyIds} with checkIn ${checkInObj.id}`
+				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyIds} with checkIn ${checkInObj.id}`,
 			);
 			activatePartyCheckIn(checkInObj.id); // Call context function
 		}
@@ -211,7 +211,7 @@ const RestaurantDetailScreen = () => {
 
 	const openModal = () => {
 		console.log(
-			"RestaurantDetailScreen: openModal() called! Setting isModalVisible to true."
+			"RestaurantDetailScreen: openModal() called! Setting isModalVisible to true.",
 		);
 		setIsModalVisible(true);
 	};
@@ -241,10 +241,7 @@ const RestaurantDetailScreen = () => {
 			partyDetails?.restaurantId === restaurant.id &&
 			(partyDetails?.status === "active" || partyDetails?.status === "pending")
 		) {
-			Alert.alert(
-				t('in_a_party_title'),
-				t('in_a_party_message')
-			);
+			Alert.alert(t("in_a_party_title"), t("in_a_party_message"));
 			closeModal();
 			return;
 		}
@@ -258,19 +255,19 @@ const RestaurantDetailScreen = () => {
 				restaurant.id,
 				currentUserData.uid,
 				values.partySize,
-				customerName
+				customerName,
 			);
 			if (success && checkInId) {
 				console.log("Personal check-in requested successfully:", checkInId);
 			} else {
-				Alert.alert(
-					t('check_in_failed_title'),
-					t('check_in_failed_message')
-				);
+				Alert.alert(t("check_in_failed_title"), t("check_in_failed_message"));
 			}
 		} catch (error) {
 			console.error("Error during personal check-in:", error);
-			Alert.alert(t('error_title'), t('an_error_occurred_message', { message: error.message }));
+			Alert.alert(
+				t("error_title"),
+				t("an_error_occurred_message", { message: error.message }),
+			);
 		} finally {
 			setIsProcessingCheckInAction(false);
 			closeModal();
@@ -284,18 +281,18 @@ const RestaurantDetailScreen = () => {
 			const success = await handleCancelCheckIn(
 				restaurant.id,
 				currentUserData.uid,
-				checkInObj.id
+				checkInObj.id,
 			);
 			if (success) {
-				Alert.alert(t('success_title'), t('check_in_cancelled_message'));
+				Alert.alert(t("success_title"), t("check_in_cancelled_message"));
 			} else {
-				Alert.alert(t('error_title'), t('could_not_cancel_check_in_message'));
+				Alert.alert(t("error_title"), t("could_not_cancel_check_in_message"));
 			}
 		} catch (error) {
 			console.error("Error canceling check-in:", error);
 			Alert.alert(
-				t('error_title'),
-				t('an_error_occurred_while_cancelling_check_in_message')
+				t("error_title"),
+				t("an_error_occurred_while_cancelling_check_in_message"),
 			);
 		} finally {
 			setIsProcessingCheckInAction(false);
@@ -308,69 +305,72 @@ const RestaurantDetailScreen = () => {
 			setIsAuthModalVisible(true);
 			return;
 		}
-				if (!currentUserData) {
-					Alert.alert(t('login_required_title'), t('login_required_to_start_party_message'));
-					return;
-				}
-				if (!restaurant?.id) {
-					Alert.alert(t('error_title'), t('restaurant_details_missing_message'));
-					return;
-				}
-				if (
-					isLoadingParty ||
-					isLoadingCheckInStatus ||
-					checkInStatus === "REQUESTED" ||
-					checkInStatus === "ACCEPTED" ||
-					currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
-				) {
-					if (currentPartyIds[restaurant.id]) {
-						Alert.alert(
-							t('already_in_a_party_title'),
-							t('already_in_a_party_manage_message')
-						);
-					} else if (
-						checkInStatus === "REQUESTED" ||
-						checkInStatus === "ACCEPTED"
-					) {
-						Alert.alert(
-							t('already_checked_in_title'),
-							t('already_checked_in_message')
-						);
-					}
-					return;
-				}
-				setIsStartingPartyProcess(true);
-				try {
-					const newPartyId = await createParty(
-						restaurant.id,
-						restaurant.restaurantName
-					);
-					if (newPartyId) {
-						console.log(
-							`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`
-						);
-						navigation.navigate("PartyTab", {
-							screen: "PartySession",
-							params: {
-								partyId: newPartyId,
-								restaurantId: restaurant.id,
-								restaurantName: restaurant.restaurantName,
-							},
-						});
-					} else {
-						console.log(
-							"RestaurantDetail: createParty did not return a newPartyId."
-						);
-					}
-				} catch (error) {
-					console.error(
-						"RestaurantDetail: Unexpected error in handleStartParty:",
-						error
-					);
-					Alert.alert(
-						t('error_title'),
-						t('unexpected_error_starting_party_message')
-					);
+		if (!currentUserData) {
+			Alert.alert(
+				t("login_required_title"),
+				t("login_required_to_start_party_message"),
+			);
+			return;
+		}
+		if (!restaurant?.id) {
+			Alert.alert(t("error_title"), t("restaurant_details_missing_message"));
+			return;
+		}
+		if (
+			isLoadingParty ||
+			isLoadingCheckInStatus ||
+			checkInStatus === "REQUESTED" ||
+			checkInStatus === "ACCEPTED" ||
+			currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
+		) {
+			if (currentPartyIds[restaurant.id]) {
+				Alert.alert(
+					t("already_in_a_party_title"),
+					t("already_in_a_party_manage_message"),
+				);
+			} else if (
+				checkInStatus === "REQUESTED" ||
+				checkInStatus === "ACCEPTED"
+			) {
+				Alert.alert(
+					t("already_checked_in_title"),
+					t("already_checked_in_message"),
+				);
+			}
+			return;
+		}
+		setIsStartingPartyProcess(true);
+		try {
+			const newPartyId = await createParty(
+				restaurant.id,
+				restaurant.restaurantName,
+			);
+			if (newPartyId) {
+				console.log(
+					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`,
+				);
+				navigation.navigate("PartyTab", {
+					screen: "PartySession",
+					params: {
+						partyId: newPartyId,
+						restaurantId: restaurant.id,
+						restaurantName: restaurant.restaurantName,
+					},
+				});
+			} else {
+				console.log(
+					"RestaurantDetail: createParty did not return a newPartyId.",
+				);
+			}
+		} catch (error) {
+			console.error(
+				"RestaurantDetail: Unexpected error in handleStartParty:",
+				error,
+			);
+			Alert.alert(
+				t("error_title"),
+				t("unexpected_error_starting_party_message"),
+			);
 		} finally {
 			setIsStartingPartyProcess(false);
 			closePartyModal();
@@ -399,15 +399,24 @@ const RestaurantDetailScreen = () => {
 			// }
 
 			if (!currentUserData?.uid) {
-				Alert.alert(t('login_required_title'), t('login_required_to_add_items_message'));
+				Alert.alert(
+					t("login_required_title"),
+					t("login_required_to_add_items_message"),
+				);
 				return;
 			}
 			if (!addItemToIndividualBasketFromContext) {
-				Alert.alert(t('error_title'), t('basket_functionality_unavailable_message'));
+				Alert.alert(
+					t("error_title"),
+					t("basket_functionality_unavailable_message"),
+				);
 				return;
 			}
 			if (!restaurant?.id) {
-				Alert.alert(t('error_title'), t('restaurant_information_missing_message'));
+				Alert.alert(
+					t("error_title"),
+					t("restaurant_information_missing_message"),
+				);
 				return;
 			}
 
@@ -436,7 +445,7 @@ const RestaurantDetailScreen = () => {
 						selectedPIPs: individualPips || [],
 						generalSpecialInstructions,
 						quantity,
-					}
+					},
 				);
 
 				// Ensure your BasketContext.addItemToBasket and its Cloud Function
@@ -448,76 +457,76 @@ const RestaurantDetailScreen = () => {
 					{}, // server placeholder
 					generalSpecialInstructions,
 					{}, // table placeholder
-					quantity // Pass quantity
+					quantity, // Pass quantity
 				);
 				// Snackbar is shown by MenuItemsList
 				console.log(
-					"RestaurantDetailScreen: Item added to individual basket successfully."
+					"RestaurantDetailScreen: Item added to individual basket successfully.",
 				);
 			} catch (error) {
 				console.error(
 					"RestaurantDetailScreen: Error in Individual addItemToBasket call:",
-					error
+					error,
 				);
 				Alert.alert(
-					t('error_title'),
-					t('could_not_add_item_to_basket_message', { message: error.message })
+					t("error_title"),
+					t("could_not_add_item_to_basket_message", { message: error.message }),
 				);
 			}
 		},
-		[currentUserData?.uid, addItemToIndividualBasketFromContext, restaurant?.id]
+		[
+			currentUserData?.uid,
+			addItemToIndividualBasketFromContext,
+			restaurant?.id,
+		],
 	);
 
 	const handleLeaveTable = () => {
 		if (!checkInObj?.id || isProcessingCheckInAction) return;
 
-		Alert.alert(
-			t('leave_table_title'),
-			t('leave_table_message'),
-			[
-				{ text: t('stay_button'), style: "cancel" },
-				{
-					text: t('leave_button'),
-					style: "destructive",
-					onPress: async () => {
-						setIsProcessingCheckInAction(true);
-						try {
-							await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
-							// The real-time listeners will handle the UI update automatically.
-						} catch (error) {
-							console.error("Error leaving table:", error);
-							Alert.alert(
-								t('error_title'),
-								error.message || t('could_not_leave_table_message')
-							);
-						} finally {
-							setIsProcessingCheckInAction(false);
-						}
-					},
+		Alert.alert(t("leave_table_title"), t("leave_table_message"), [
+			{ text: t("stay_button"), style: "cancel" },
+			{
+				text: t("leave_button"),
+				style: "destructive",
+				onPress: async () => {
+					setIsProcessingCheckInAction(true);
+					try {
+						await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
+						// The real-time listeners will handle the UI update automatically.
+					} catch (error) {
+						console.error("Error leaving table:", error);
+						Alert.alert(
+							t("error_title"),
+							error.message || t("could_not_leave_table_message"),
+						);
+					} finally {
+						setIsProcessingCheckInAction(false);
+					}
 				},
-			]
-		);
+			},
+		]);
 	};
 
 	const optionsForIndividualOrder = useMemo(() => {
 		if (!currentUserData) return [];
 		const myselfOption = {
 			id: currentUserData.uid,
-			name: currentUserData.firstName || t('myself'),
+			name: currentUserData.firstName || t("myself"),
 		};
 		// Prevent adding "Myself" if it's somehow already in the pips list
 		const otherPips = (userPips || []).filter(
-			(p) => p.id !== currentUserData.uid
+			(p) => p.id !== currentUserData.uid,
 		);
 		return [myselfOption, ...otherPips];
 	}, [userPips, currentUserData]);
 
 	const validationSchema = Yup.object().shape({
 		partySize: Yup.number()
-			.min(1, t('min_party_size', { min: 1 }))
-			.max(20, t('max_party_size', { max: 20 }))
-			.required(t('required_field'))
-			.typeError(t('must_be_a_number')),
+			.min(1, t("min_party_size", { min: 1 }))
+			.max(20, t("max_party_size", { max: 20 }))
+			.required(t("required_field"))
+			.typeError(t("must_be_a_number")),
 	});
 
 	// // --- ADD OR VERIFY THIS LOGGING BLOCK ---
@@ -534,7 +543,7 @@ const RestaurantDetailScreen = () => {
 
 		// **CHANGE**: Always show "Start Party" or "View Party" regardless of isRestaurantOpen
 		if (currentPartyIds[restaurant.id]) {
-			const buttonText = t('view_your_party'); // Since it's for this restaurant
+			const buttonText = t("view_your_party"); // Since it's for this restaurant
 			return (
 				<View style={styles.actionsRow}>
 					<TouchableOpacity
@@ -565,7 +574,7 @@ const RestaurantDetailScreen = () => {
 								color={colors.textLight}
 							/>
 							<Text style={styles.actionButtonTextDisabled}>
-								{t('waiting_to_be_seated')}
+								{t("waiting_to_be_seated")}
 							</Text>
 						</View>
 						<TouchableOpacity
@@ -583,7 +592,7 @@ const RestaurantDetailScreen = () => {
 								/>
 							)}
 							<Text style={[styles.cancelButtonText, { color: colors.danger }]}>
-								{t('cancel_button')}
+								{t("cancel_button")}
 							</Text>
 						</TouchableOpacity>
 					</View>
@@ -597,7 +606,9 @@ const RestaurantDetailScreen = () => {
 								size={28}
 								color={colors.statusSuccess}
 							/>
-							<Text style={styles.actionButtonTextCheckedIn}>{t('checked_in')}</Text>
+							<Text style={styles.actionButtonTextCheckedIn}>
+								{t("checked_in")}
+							</Text>
 							{checkInObj?.table?.name && (
 								<Text style={styles.tableText}>{checkInObj.table.name}</Text>
 							)}
@@ -616,7 +627,9 @@ const RestaurantDetailScreen = () => {
 									color={colors.danger}
 								/>
 							)}
-							<Text style={styles.cancelButtonText}>{t('leave_table_button')}</Text>
+							<Text style={styles.cancelButtonText}>
+								{t("leave_table_button")}
+							</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -639,7 +652,9 @@ const RestaurantDetailScreen = () => {
 									color={colors.primary}
 								/>
 							)}
-							<Text style={styles.actionButtonText}>{t('check_in_solo_button')}</Text>
+							<Text style={styles.actionButtonText}>
+								{t("check_in_solo_button")}
+							</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
 							style={[
@@ -659,7 +674,26 @@ const RestaurantDetailScreen = () => {
 									color={colors.primary}
 								/>
 							)}
-							<Text style={styles.actionButtonText}>{t('start_party_button')}</Text>
+							<Text style={styles.actionButtonText}>
+								{t("start_party_button")}
+							</Text>
+						</TouchableOpacity>
+						{/* NEW: Scan QR Code Button */}
+						<TouchableOpacity
+							style={styles.actionButton}
+							onPress={() =>
+								navigation.navigate("QRScannerScreen", {
+									restaurantId: restaurant.id,
+								})
+							}
+							disabled={isProcessingCheckInAction}
+						>
+							<MaterialCommunityIcons
+								name="qrcode-scan"
+								size={28}
+								color={colors.primary}
+							/>
+							<Text style={styles.actionButtonText}>{t("scan_table_qr")}</Text>
 						</TouchableOpacity>
 					</View>
 				);
@@ -669,8 +703,10 @@ const RestaurantDetailScreen = () => {
 	if (!restaurant) {
 		return (
 			<SafeAreaView style={styles.centered}>
-				<Text style={styles.errorText}>{t('restaurant_data_not_found')}</Text>
-				<PaperButton onPress={() => navigation.goBack()}>{t('go_back_button')}</PaperButton>
+				<Text style={styles.errorText}>{t("restaurant_data_not_found")}</Text>
+				<PaperButton onPress={() => navigation.goBack()}>
+					{t("go_back_button")}
+				</PaperButton>
 			</SafeAreaView>
 		);
 	}
@@ -743,7 +779,7 @@ const RestaurantDetailScreen = () => {
 								}) => (
 									<>
 										<Text style={styles.modalTitle}>
-											{t('how_many_in_your_party')}
+											{t("how_many_in_your_party")}
 										</Text>
 										<TextInput
 											style={styles.input}
@@ -751,7 +787,7 @@ const RestaurantDetailScreen = () => {
 											onBlur={handleBlur("partySize")}
 											value={values.partySize}
 											keyboardType="numeric"
-											placeholder={t('party_size_placeholder')}
+											placeholder={t("party_size_placeholder")}
 											textAlign="center"
 										/>
 										{errors.partySize && touched.partySize && (
@@ -764,7 +800,9 @@ const RestaurantDetailScreen = () => {
 												onPress={closeModal}
 												style={[styles.modalButton, styles.cancelModalButton]}
 											>
-												<Text style={styles.modalButtonText}>{t('cancel_button')}</Text>
+												<Text style={styles.modalButtonText}>
+													{t("cancel_button")}
+												</Text>
 											</TouchableOpacity>
 											<TouchableOpacity
 												onPress={handleSubmit}
@@ -778,7 +816,7 @@ const RestaurantDetailScreen = () => {
 													<ActivityIndicator size="small" color="white" />
 												) : (
 													<Text style={styles.modalButtonText}>
-														{t('request_check_in_button')}
+														{t("request_check_in_button")}
 													</Text>
 												)}
 											</TouchableOpacity>

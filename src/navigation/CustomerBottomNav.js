@@ -35,6 +35,7 @@ import PartyCheckoutScreen from "../screens/customer/PartyCheckoutScreen";
 import ManageAccountScreen from "../screens/customer/ManageAccountScreen";
 import PartyHubScreen from "../screens/customer/PartyHubScreen";
 import PayPalScreen from "../screens/customer/PayPalScreen";
+import QRScannerScreen from "../screens/customer/QRScannerScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -91,6 +92,15 @@ const CustomerDashboardStack = () => {
 				component={RestaurantDetail}
 				options={() => ({
 					headerTitle: t("restaurant_details_title"),
+				})}
+			/>
+			<Stack.Screen
+				name="QRScannerScreen"
+				component={QRScannerScreen}
+				options={() => ({
+					headerTitle: t("scan_table_qr"), // Or just "Scan to Check In"
+					// Optional: Make it present as a modal instead of a card slide
+					presentation: "modal",
 				})}
 			/>
 			{/* <Stack.Screen

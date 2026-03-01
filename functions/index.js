@@ -16,7 +16,7 @@ const userSearchFunctions = require("./userSearchFunctions");
 const basketFunctions = require("./basketFunctions");
 const restaurantFunctions = require("./restaurantFunctions");
 const paypalHandlers = require("./paypalHandlers");
-
+const dLocalFunctions = require("./dLocalFunctions");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -34,6 +34,8 @@ exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
 exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
+exports.selfSeatingCheckIn = checkInFunctions.selfSeatingCheckIn;
+
 exports.declineCheckIn = checkInFunctions.declineCheckIn;
 exports.customerCancelSeatedCheckIn =
 	checkInFunctions.customerCancelSeatedCheckIn;
@@ -121,5 +123,9 @@ exports.autoTranslateMenuItem = restaurantFunctions.autoTranslateMenuItem;
 exports.createPayPalOrder = paypalHandlers.createPayPalOrder;
 exports.capturePayPalOrder = paypalHandlers.capturePayPalOrder;
 exports.chargeVaultedCard = paypalHandlers.chargeVaultedCard;
+
+exports.createDlocalCheckout = dLocalFunctions.createDlocalCheckout;
+exports.dlocalWebhook = dLocalFunctions.dlocalWebhook;
+exports.processDlocalNativePayment = dLocalFunctions.processDlocalNativePayment;
 
 //

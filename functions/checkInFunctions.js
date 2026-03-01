@@ -6,11 +6,20 @@ exports.handleCheckIn = functions.firestore
 	.document("checkIns/{checkInId}")
 	.onCreate(async (snapshot, context) => {
 		const checkInData = snapshot.data();
+
+		// NEW: Ignore self-seated QR check-ins so we don't spam the host iPad
+		if (
+			checkInData.status === "ACCEPTED" ||
+			checkInData.type === "self-seated"
+		) {
+			console.log("Self-seated check-in detected. Skipping host notification.");
+			return null;
+		}
 		const checkInId = context.params.checkInId;
 
 		console.log(
 			`handleCheckIn trigger fired for new check-in: ${checkInId}`,
-			checkInData
+			checkInData,
 		);
 
 		try {
@@ -25,7 +34,7 @@ exports.handleCheckIn = functions.firestore
 				checkInData;
 			if (!restaurantId || !customerId || !customerName) {
 				console.error(
-					`handleCheckIn trigger: Missing critical data (restaurantId, userId, or customerName) for check-in ${checkInId}.`
+					`handleCheckIn trigger: Missing critical data (restaurantId, userId, or customerName) for check-in ${checkInId}.`,
 				);
 				// Throw an error to trigger the catch block and set status to "error".
 				throw new Error("Check-in document is missing required fields.");
@@ -46,11 +55,11 @@ exports.handleCheckIn = functions.firestore
 
 			console.log(
 				`handleCheckIn trigger: Creating notification for check-in ${checkInId} with data:`,
-				notificationData
+				notificationData,
 			);
 			await db.collection("notifications").add(notificationData);
 			console.log(
-				`handleCheckIn trigger: Notification created successfully for check-in ${checkInId}.`
+				`handleCheckIn trigger: Notification created successfully for check-in ${checkInId}.`,
 			);
 
 			// Optionally, send a push notification to the restaurant staff
@@ -80,14 +89,14 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User not authenticated"
+				"User not authenticated",
 			);
 		}
 
 		if (!restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid restaurant ID provided"
+				"Invalid restaurant ID provided",
 			);
 		}
 
@@ -121,7 +130,7 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 			const notificationQuery = notificationsRef.where(
 				"checkInId",
 				"==",
-				checkInDoc.id
+				checkInDoc.id,
 			);
 			const notificationSnapshot = await notificationQuery.get();
 
@@ -157,7 +166,7 @@ exports.declineCheckIn = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be staff and authenticated."
+			"User must be staff and authenticated.",
 		);
 	}
 
@@ -166,7 +175,7 @@ exports.declineCheckIn = functions.https.onCall(async (data, context) => {
 	if (!checkInId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Check-in ID is required."
+			"Check-in ID is required.",
 		);
 	}
 
@@ -179,7 +188,7 @@ exports.declineCheckIn = functions.https.onCall(async (data, context) => {
 			if (!checkInDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Check-in request not found."
+					"Check-in request not found.",
 				);
 			}
 			const checkInData = checkInDoc.data();
@@ -188,7 +197,7 @@ exports.declineCheckIn = functions.https.onCall(async (data, context) => {
 			if (checkInData.status !== "REQUESTED") {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"This check-in has already been processed."
+					"This check-in has already been processed.",
 				);
 			}
 
@@ -215,7 +224,7 @@ exports.declineCheckIn = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not decline the check-in request."
+			"Could not decline the check-in request.",
 		);
 	}
 });
@@ -234,14 +243,14 @@ exports.customerCancelSeatedCheckIn = functions.https.onCall(
 		if (!context.auth || !context.auth.uid) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const { checkInId } = data;
 		if (!checkInId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Check-in ID is required."
+				"Check-in ID is required.",
 			);
 		}
 
@@ -255,7 +264,7 @@ exports.customerCancelSeatedCheckIn = functions.https.onCall(
 				if (!checkInDoc.exists) {
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Check-in not found."
+						"Check-in not found.",
 					);
 				}
 				const checkInData = checkInDoc.data();
@@ -264,13 +273,13 @@ exports.customerCancelSeatedCheckIn = functions.https.onCall(
 				if (checkInData.customerId !== customerId) {
 					throw new functions.https.HttpsError(
 						"permission-denied",
-						"You can only cancel your own check-in."
+						"You can only cancel your own check-in.",
 					);
 				}
 				if (checkInData.status !== "ACCEPTED") {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						"This check-in is not currently active."
+						"This check-in is not currently active.",
 					);
 				}
 
@@ -281,18 +290,18 @@ exports.customerCancelSeatedCheckIn = functions.https.onCall(
 				const basketSnapshot = await basketQuery.get(); // This read must happen BEFORE the transaction writes.
 
 				const hasSentItems = basketSnapshot.docs.some(
-					(doc) => doc.data().sentToChefQ === true
+					(doc) => doc.data().sentToChefQ === true,
 				);
 				if (hasSentItems) {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						"Cannot leave table after an order has been sent to the kitchen. Please proceed to checkout."
+						"Cannot leave table after an order has been sent to the kitchen. Please proceed to checkout.",
 					);
 				}
 
 				// 5. Perform Cleanup (all writes happen after all reads)
 				console.log(
-					`User ${customerId} is leaving table. Cleaning up check-in ${checkInId}.`
+					`User ${customerId} is leaving table. Cleaning up check-in ${checkInId}.`,
 				);
 
 				// Delete all basket items associated with this check-in
@@ -332,10 +341,10 @@ exports.customerCancelSeatedCheckIn = functions.https.onCall(
 			if (error instanceof functions.https.HttpsError) throw error;
 			throw new functions.https.HttpsError(
 				"internal",
-				"Could not leave the table."
+				"Could not leave the table.",
 			);
 		}
-	}
+	},
 );
 
 // Handle Checkin-In Response (Accept or Decline)
@@ -359,7 +368,7 @@ exports.handleCheckInResponse = functions.https.onCall(
 		if (!context.auth || !context.auth.uid) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be staff and authenticated."
+				"User must be staff and authenticated.",
 			);
 		}
 
@@ -376,11 +385,11 @@ exports.handleCheckInResponse = functions.https.onCall(
 		if (!checkInId || !table.id || !server.id || !customerId || !restaurantId) {
 			console.error(
 				"handleCheckInResponse: Invalid input. Missing required IDs.",
-				data
+				data,
 			);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Missing critical information."
+				"Missing critical information.",
 			);
 		}
 
@@ -398,7 +407,7 @@ exports.handleCheckInResponse = functions.https.onCall(
 				if (!checkInDoc.exists) {
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Check-in request not found."
+						"Check-in request not found.",
 					);
 				}
 				const checkInData = checkInDoc.data();
@@ -406,7 +415,7 @@ exports.handleCheckInResponse = functions.https.onCall(
 				if (checkInData.status !== "REQUESTED") {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						`This check-in has already been processed.`
+						`This check-in has already been processed.`,
 					);
 				}
 
@@ -455,28 +464,134 @@ exports.handleCheckInResponse = functions.https.onCall(
 					// --- END OF FIX ---
 
 					console.log(
-						`handleCheckInResponse: Updated associated party ${checkInData.associatedPartyId} to active.`
+						`handleCheckInResponse: Updated associated party ${checkInData.associatedPartyId} to active.`,
 					);
 				}
 
 				console.log(
-					`handleCheckInResponse: Successfully accepted check-in ${checkInId} for table ${table.name}.`
+					`handleCheckInResponse: Successfully accepted check-in ${checkInId} for table ${table.name}.`,
 				);
 				return { success: true };
 			});
 		} catch (error) {
 			console.error(
 				`Error handling check-in response for ${checkInId}:`,
-				error
+				error,
 			);
 			if (error instanceof functions.https.HttpsError) throw error;
 			throw new functions.https.HttpsError(
 				"internal",
-				"An unexpected error occurred while confirming the check-in."
+				"An unexpected error occurred while confirming the check-in.",
 			);
 		}
-	}
+	},
 );
+
+/**
+ * Fast-track check-in for QR code / self-seating.
+ * Bypasses the host and instantly marks the table as occupied.
+ */
+exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
+	// 1. Auth Check
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated to check in.",
+		);
+	}
+
+	const customerId = context.auth.uid;
+	const { restaurantId, tableId, tableName, customerName, numberOfPeople } =
+		data;
+
+	// 2. Input Validation
+	if (!restaurantId || !tableId || !customerName) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required QR code data (restaurantId or tableId).",
+		);
+	}
+
+	const tableRef = db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("tables")
+		.doc(tableId);
+	const customerRef = db.collection("customers").doc(customerId);
+	const newCheckInRef = db.collection("checkIns").doc(); // Auto-generate new ID
+
+	try {
+		return await db.runTransaction(async (transaction) => {
+			// 3. Read the Table status FIRST
+			const tableDoc = await transaction.get(tableRef);
+
+			if (!tableDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Table not found.");
+			}
+
+			const tableData = tableDoc.data();
+
+			// CRITICAL: Make sure someone else didn't just sit here!
+			if (tableData.status !== "available") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This table is currently occupied. Please scan a different table.",
+				);
+			}
+
+			// 4. Perform the Writes (The Fast-Track)
+			const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+			// A. Create the CheckIn document directly as ACCEPTED
+			const checkInData = {
+				id: newCheckInRef.id,
+				restaurantId: restaurantId,
+				customerId: customerId,
+				customerName: customerName,
+				numberOfPeople: numberOfPeople || 1,
+				status: "ACCEPTED", // Bypasses the host!
+				type: "self-seated", // Good for your analytics
+				table: { id: tableId, name: tableName || tableData.name },
+				// Dummy server object since there is no host to assign one yet
+				server: { id: "unassigned", name: "Self-Seated" },
+				createdAt: timestamp,
+				acceptedAt: timestamp,
+			};
+			transaction.set(newCheckInRef, checkInData);
+
+			// B. Mark the Table as OCCUPIED
+			transaction.update(tableRef, {
+				status: "OCCUPIED",
+				currentCheckInId: newCheckInRef.id,
+				currentCustomerId: customerId,
+				seatedAt: timestamp,
+			});
+
+			// C. Update the Customer's Profile
+			transaction.update(customerRef, {
+				activeCheckIn: {
+					checkInId: newCheckInRef.id,
+					restaurantId: restaurantId,
+					status: "ACCEPTED",
+					table: { id: tableId, name: tableName || tableData.name },
+				},
+			});
+
+			return {
+				success: true,
+				checkInId: newCheckInRef.id,
+				message: "Successfully checked in to table!",
+			};
+		});
+	} catch (error) {
+		console.error("QR Check-in Error:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not process QR check-in.",
+		);
+	}
+});
 
 exports.clearTable = functions.firestore
 	.document("restaurants/{restaurantId}/tables/{tableId}")
@@ -515,11 +630,11 @@ exports.clearTable = functions.firestore
 					}
 
 					console.log(
-						`Successfully deleted check-in and notification for table ${tableId}.`
+						`Successfully deleted check-in and notification for table ${tableId}.`,
 					);
 				} else {
 					console.log(
-						`No check-in found for customer ${customerId} and table ${tableId}.`
+						`No check-in found for customer ${customerId} and table ${tableId}.`,
 					);
 				}
 			} catch (error) {

@@ -156,9 +156,10 @@ const PrivacyPolicy = () => {
 						<Bold>Service Providers:</Bold> We may share your information with
 						third-party service providers who perform services on our behalf,
 						such as payment processing, data analytics, email delivery, hosting
-						services, and customer support. We use Stripe for payment
-						processing. These service providers are contractually obligated to
-						protect your information.
+						services, and customer support. We use secure third-party payment
+						gateways (such as Stripe, PayPal, and localized processors) to
+						handle transactions.. These service providers are contractually
+						obligated to protect your information.
 					</ListItem>
 					<ListItem>
 						<Bold>Business Partners:</Bold> We *may* share your information with

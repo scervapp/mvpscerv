@@ -32,6 +32,11 @@ import firestore from "@react-native-firebase/firestore";
 import { useTranslation } from "react-i18next";
 import { chargeSavedCard } from "../../services/PaypalAdapter";
 import { Ionicons } from "@expo/vector-icons";
+import dLocalAdapter from "../../services/dLocalAdapter";
+
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
+import NativeCheckoutForm from "./NativeCheckoutForm";
 
 const CheckoutScreen = ({ route, navigation }) => {
 	const { t } = useTranslation();
@@ -51,6 +56,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [savedCards, setSavedCards] = useState([]);
 	const [selectedVaultId, setSelectedVaultId] = useState(null);
 	const [isDropdownExpanded, setIsDropdownExpanded] = useState(false);
+	const [isDlocalLoading, setIsDlocalLoading] = useState(false);
 
 	// Use useRef to store the orderId across the reidrect reliably
 	const pendingOrderIdRef = useRef(null);
@@ -91,6 +97,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 			(personData) => personData.items && personData.items.length > 0,
 		);
 	}, [restaurantBasketItems]);
+
+	const { i18n } = useTranslation();
 
 	// --- useEffect to Fetch Initial Config (e.g., Fees) ---
 	useEffect(() => {
@@ -423,6 +431,29 @@ const CheckoutScreen = ({ route, navigation }) => {
 		}
 	}, [savedCards, selectedVaultId]);
 
+	useEffect(() => {
+		const handleDeepLink = (event) => {
+			if (!event.url) return;
+
+			const parsedUrl = Linking.parse(event.url);
+			const { path } = parsedUrl;
+
+			// 🚨 If it's a success OR a cancel, just dismiss the browser.
+			// Your adapter will take over from here!
+			if (path === "payment-success" || path === "payment-cancel") {
+				WebBrowser.dismissBrowser();
+			}
+		};
+
+		const subscription = Linking.addEventListener("url", handleDeepLink);
+
+		Linking.getInitialURL().then((url) => {
+			if (url) handleDeepLink({ url });
+		});
+
+		return () => subscription.remove();
+	}, []);
+
 	const handlePayPalCheckout = async () => {
 		if (!isReadyToPay || isPreparing || finalTotal <= 0) return;
 
@@ -589,6 +620,229 @@ const CheckoutScreen = ({ route, navigation }) => {
 			);
 		} finally {
 			setIsPreparing(false);
+			setIsLoading(false);
+		}
+	};
+
+	const handleDlocalPress = async () => {
+		// 1. Validation
+		if (!isReadyToPay || isPreparing || finalTotal <= 0) return;
+
+		const currentLanguage = i18n.language;
+
+		try {
+			setIsPreparing(true);
+			setIsDlocalLoading(true);
+
+			const uid = currentUserData?.uid;
+
+			// =========================================================
+			// 2. CREATE THE PENDING ORDER
+			// =========================================================
+			console.log("Creating pending order for dLocal checkout...");
+
+			const pendingOrderData = {
+				restaurantId: restaurant.uid,
+				customerId: uid,
+				subtotal: originalSubtotal,
+				gratuity: gratuity,
+				platformFee: platformFee,
+
+				totalPrice: finalTotal,
+				items: restaurantBasketItems,
+				table: checkInObj?.table || null,
+				checkInId: checkInObj?.id || null,
+				server: checkInObj?.server || null,
+				status: "pending",
+				type: "individual",
+				createdAt: firestore.FieldValue.serverTimestamp(),
+			};
+
+			const pendingOrderRef = await firestore()
+				.collection("pending_orders")
+				.add(pendingOrderData);
+
+			const pendingOrderId = pendingOrderRef.id;
+			console.log("✅ Created Pending Order ID:", pendingOrderId);
+
+			// =========================================================
+			// 3. CHARGE VIA DLOCAL ADAPTER
+			// =========================================================
+			// We pass finalTotal (in cents/raw format depending on your adapter setup)
+			// and the real document ID we just created!
+			const result = await dLocalAdapter.processPayment(
+				finalTotal,
+				pendingOrderId,
+				currentLanguage,
+			);
+
+			setIsDlocalLoading(false);
+
+			// =========================================================
+			// 4. SUCCESS & NAVIGATION
+			// =========================================================
+			if (result.success) {
+				console.log(
+					"✅ dLocal Payment successful! Navigating to confirmation screen.",
+				);
+
+				// Build the itemsToRate array
+				const itemsToRate = restaurantBasketItems.map((i) => ({
+					id: i.id,
+					name: i.dish.name,
+					menuItemId: i.menuItemId,
+					restaurantId: i.restaurantId,
+					price: i.price,
+					quantity: i.quantity,
+					discountedPrice: i.discountedPrice,
+				}));
+
+				// THE FIX: Wait 500ms for the WebBrowser to finish its slide-down animation!
+				setTimeout(() => {
+					navigation.dispatch(
+						CommonActions.reset({
+							index: 0,
+							routes: [
+								{
+									name: "OrderConfirmation",
+									params: {
+										initialStatus: "processing",
+										itemsToRate: itemsToRate,
+										isIndividual: true,
+										origin: "individual",
+										appOrderId: pendingOrderId,
+									},
+								},
+							],
+						}),
+					);
+				}, 500);
+			} else if (result.reason === "cancelled_by_user") {
+				console.log("User closed the dLocal checkout window early.");
+				// We do not navigate away; we just let them try again.
+			} else {
+				Alert.alert(
+					t("checkout.payment_error_title"),
+					t("checkout.payment_error_message"),
+				);
+			}
+		} catch (error) {
+			console.error("Unexpected error in handleDlocalPress:", error);
+			Alert.alert(
+				t("checkout.payment_error_title"),
+				t("checkout.payment_error_message"),
+			);
+		} finally {
+			setIsPreparing(false);
+			setIsDlocalLoading(false);
+		}
+	};
+
+	const handleNativePayment = async (cardData) => {
+		// 1. Basic Validation Check before we do any heavy lifting
+		if (!cardData.number || cardData.number.length < 15) {
+			Alert.alert("Invalid Card", "Please enter a valid credit card number.");
+			return;
+		}
+		if (!cardData.document) {
+			Alert.alert(
+				"Missing ID",
+				"Please enter a Cedula, Passport, or Driver's License number.",
+			);
+			return;
+		}
+
+		// 2. Start the loading spinner on the button
+		setIsLoading(true);
+
+		try {
+			const uid = currentUserData?.uid;
+
+			// =========================================================
+			// 3. CREATE THE PENDING ORDER
+			// =========================================================
+			console.log("Creating pending order for Native dLocal checkout...");
+
+			const pendingOrderData = {
+				restaurantId: restaurant.uid,
+				customerId: uid,
+				subtotal: originalSubtotal,
+				gratuity: gratuity,
+				platformFee: platformFee,
+				totalPrice: finalTotal,
+				items: restaurantBasketItems,
+				table: checkInObj?.table || null,
+				checkInId: checkInObj?.id || null,
+				server: checkInObj?.server || null,
+				status: "pending",
+				type: "individual",
+				createdAt: firestore.FieldValue.serverTimestamp(),
+			};
+
+			const pendingOrderRef = await firestore()
+				.collection("pending_orders")
+				.add(pendingOrderData);
+
+			const pendingOrderId = pendingOrderRef.id;
+			console.log("✅ Created Pending Order ID:", pendingOrderId);
+
+			// =========================================================
+			// 4. CHARGE VIA DLOCAL ADAPTER
+			// =========================================================
+			const result = await dLocalAdapter.processNativePayment(
+				finalTotal,
+				pendingOrderId,
+				cardData,
+			);
+
+			// 5. Handle the result
+			if (result.success) {
+				console.log(
+					"✅ Native Payment successful! Navigating to confirmation.",
+				);
+
+				const itemsToRate = restaurantBasketItems.map((i) => ({
+					id: i.id,
+					name: i.dish.name,
+					menuItemId: i.menuItemId,
+					restaurantId: i.restaurantId,
+					price: i.price,
+					quantity: i.quantity,
+					discountedPrice: i.discountedPrice,
+				}));
+
+				setTimeout(() => {
+					navigation.dispatch(
+						CommonActions.reset({
+							index: 0,
+							routes: [
+								{
+									name: "OrderConfirmation",
+									params: {
+										initialStatus: "processing",
+										itemsToRate: itemsToRate,
+										isIndividual: true,
+										origin: "individual",
+										appOrderId: pendingOrderId,
+									},
+								},
+							],
+						}),
+					);
+				}, 300);
+			} else {
+				// If the card declined or failed, show the user why
+				Alert.alert(
+					"Payment Failed",
+					result.error ||
+						"There was an issue processing your card. Please try again.",
+				);
+			}
+		} catch (error) {
+			console.error("Error in Native Payment:", error);
+			Alert.alert("Error", "Could not initialize checkout. Please try again.");
+		} finally {
+			// Stop the loading spinner
 			setIsLoading(false);
 		}
 	};
@@ -823,131 +1077,75 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 					{/* --- Pay Button --- */}
 					{isPanama && (
-						<>
-							{/* THE SAVED CARDS DROPDOWN (PayPal) */}
-							{selectedCard && (
-								<View style={styles.savedCardsWrapper}>
-									<View style={styles.selectedCardRow}>
-										<TouchableOpacity
-											style={styles.cardSelectArea}
-											onPress={() => setIsDropdownExpanded(!isDropdownExpanded)}
-										>
-											<Ionicons
-												name="card"
-												size={24}
-												color="#333"
-												style={styles.cardIcon}
-											/>
-											<Text style={styles.cardText}>
-												{selectedCard.brand} •••• {selectedCard.last4}
-											</Text>
-											<Ionicons
-												name={
-													isDropdownExpanded ? "chevron-up" : "chevron-down"
-												}
-												size={20}
-												color="#666"
-											/>
-										</TouchableOpacity>
-
-										<TouchableOpacity
-											style={styles.deleteButton}
-											onPress={() =>
-												handleDeleteCard(selectedCard.id, selectedCard.vaultId)
-											}
-										>
-											<Ionicons
-												name="trash-outline"
-												size={24}
-												color="#FF3B30"
-											/>
-										</TouchableOpacity>
-									</View>
-
-									{isDropdownExpanded && (
-										<View style={styles.dropdownContainer}>
-											{savedCards.map((card) => {
-												if (card.id === selectedCard.id) return null;
-												return (
-													<TouchableOpacity
-														key={card.id}
-														style={styles.dropdownItem}
-														onPress={() => {
-															setSelectedVaultId(card.vaultId);
-															setIsDropdownExpanded(false);
-														}}
-													>
-														<Ionicons
-															name="card-outline"
-															size={20}
-															color="#888"
-															style={styles.cardIcon}
-														/>
-														<Text style={styles.dropdownCardText}>
-															{card.brand} •••• {card.last4}
-														</Text>
-													</TouchableOpacity>
-												);
-											})}
-										</View>
-									)}
-								</View>
-							)}
-
-							{/* THE PAYPAL CHECKOUT BUTTONS */}
-							<View style={styles.checkoutButtonsContainer}>
-								{selectedCard ? (
-									// ===============================================
-									// STATE 1: USER HAS A SAVED CARD
-									// ===============================================
-									<>
-										{/* Primary Button: Pay with Vault */}
-										<TouchableOpacity
-											style={[
-												styles.paypalButton,
-												styles.buttonMargin,
-												(!isReadyToPay || isPreparing) && styles.buttonDisabled,
-											]}
-											onPress={handleVaultedCheckout}
-											disabled={
-												!isReadyToPay || isPreparing || !selectedVaultId
-											}
-										>
-											<Text style={styles.buttonText}>
-												Pay with Selected Card
-											</Text>
-										</TouchableOpacity>
-
-										{/* Secondary Button: Add a New Card (Smaller, Text-Only) */}
-										<TouchableOpacity
-											style={styles.secondaryTextButton}
-											onPress={handlePayPalCheckout}
-											disabled={!isReadyToPay || isPreparing}
-										>
-											<Text style={styles.secondaryButtonText}>
-												Add a New Card
-											</Text>
-										</TouchableOpacity>
-									</>
-								) : (
-									// ===============================================
-									// STATE 2: NO SAVED CARDS (First-time user)
-									// ===============================================
+						<View style={styles.checkoutButtonsContainer}>
+							{/* --- 1. THE PAYPAL SECTION --- */}
+							{selectedCard ? (
+								<>
 									<TouchableOpacity
 										style={[
 											styles.paypalButton,
-											(!isReadyToPay || isPreparing) && styles.buttonDisabled,
+											styles.buttonMargin,
+											(!isReadyToPay || isPreparing || isDlocalLoading) &&
+												styles.buttonDisabled,
 										]}
-										onPress={handlePayPalCheckout}
-										disabled={!isReadyToPay || isPreparing}
+										onPress={handleVaultedCheckout}
+										disabled={
+											!isReadyToPay ||
+											isPreparing ||
+											isDlocalLoading ||
+											!selectedVaultId
+										}
 									>
 										<Text style={styles.buttonText}>
-											Pay {formatCurrency(finalTotal)}
+											{t("checkout.pay_with_selected_card")}
 										</Text>
 									</TouchableOpacity>
-								)}
-							</View>
-						</>
+
+									<TouchableOpacity
+										style={styles.secondaryTextButton}
+										onPress={handlePayPalCheckout}
+										disabled={!isReadyToPay || isPreparing || isDlocalLoading}
+									>
+										<Text style={styles.secondaryButtonText}>
+											{t("checkout.add_new_card")}
+										</Text>
+									</TouchableOpacity>
+								</>
+							) : (
+								<TouchableOpacity
+									style={[
+										styles.paypalButton,
+										styles.buttonMargin,
+										(!isReadyToPay || isPreparing || isDlocalLoading) &&
+											styles.buttonDisabled,
+									]}
+									onPress={handlePayPalCheckout}
+									disabled={!isReadyToPay || isPreparing || isDlocalLoading}
+								>
+									<Text style={styles.buttonText}>
+										{/* Combines translated "Pay" with the dynamic currency */}
+										{t("checkout.pay_button")} {formatCurrency(finalTotal)}
+									</Text>
+								</TouchableOpacity>
+							)}
+
+							{/* --- 2. THE DLOCAL GO SECTION (Tarjeta Clave / Local Cards) --- */}
+							<TouchableOpacity
+								style={[
+									styles.standardButton,
+									(!isReadyToPay || isPreparing || isDlocalLoading) &&
+										styles.buttonDisabled,
+								]}
+								onPress={handleDlocalPress}
+								disabled={!isReadyToPay || isPreparing || isDlocalLoading}
+							>
+								<Text style={styles.buttonText}>
+									{isDlocalLoading
+										? t("checkout.loading_secure_checkout")
+										: t("checkout.pay_with_local_card")}
+								</Text>
+							</TouchableOpacity>
+						</View>
 					)}
 
 					{/* ========================================== */}
@@ -969,6 +1167,11 @@ const CheckoutScreen = ({ route, navigation }) => {
 							</TouchableOpacity>
 						</View>
 					)}
+					<NativeCheckoutForm
+						totalAmount={finalTotal}
+						isProcessing={isLoading}
+						onPayPress={(cardData) => handleNativePayment(cardData)}
+					/>
 				</ScrollView>
 			</View>
 		</StripeProvider>

@@ -54,7 +54,7 @@ const TermsOfService = () => {
 			<Container>
 				<H1>Scerv Terms of Service</H1>
 
-				<P>Last Updated: Jan. 2025</P>
+				<P>Last Updated: February 2026</P>
 
 				<P>
 					Welcome to Scerv! These Terms of Service ("Terms") govern your access
@@ -97,10 +97,13 @@ const TermsOfService = () => {
 
 				<H2>2. Service Description</H2>
 				<P>
-					Scerv provides a platform for restaurants to manage orders, streamline
-					kitchen operations, and access analytics. The specific features and
-					functionality of the Service may vary depending on your subscription
-					plan.
+					Scerv operates a dual-sided marketplace platform. For consumers
+					("Diners"), Scerv provides a mobile application to browse menus, place
+					food orders, and facilitate payments with local restaurant partners.
+					For restaurants ("Merchants"), Scerv provides tools to manage orders,
+					streamline kitchen operations, and access analytics. The specific
+					features and functionality of the Service may vary depending on your
+					user type and subscription plan.
 				</P>
 				<List>
 					<ListItem>
@@ -119,19 +122,26 @@ const TermsOfService = () => {
 				<H2>3. Fees and Payment</H2>
 				<P>
 					You agree to pay all fees associated with your use of the Service, as
-					described in the pricing plan you select. Fees are non-refundable,
-					except as required by law.
+					applicable to your user type.
 				</P>
 				<List>
 					<ListItem>
-						<Bold>Subscription Fees:</Bold> If you subscribe to a paid plan, you
-						will be charged the applicable fees on a recurring basis (e.g.,
-						monthly or annually).
+						<Bold>Marketplace Pricing (Diners):</Bold> The prices of food and
+						beverages are determined solely by the individual Merchants and are
+						displayed dynamically within the Scerv application. Scerv may charge
+						Diners a platform fee or service fee per order, which will be
+						clearly displayed at checkout prior to finalizing the payment.
+					</ListItem>
+					<ListItem>
+						<Bold>Subscription Fees (Merchants):</Bold> If you subscribe to a
+						paid B2B plan, you will be charged the applicable fees on a
+						recurring basis (e.g., monthly or annually). These fees are
+						non-refundable, except as required by law.
 					</ListItem>
 					<ListItem>
 						<Bold>Payment Methods:</Bold> We accept various payment methods, as
-						indicated on our website. You are responsible for providing valid
-						payment information.
+						indicated in the application or on our website. You are responsible
+						for providing valid payment information.
 					</ListItem>
 					<ListItem>
 						<Bold>Taxes:</Bold> You are responsible for any applicable taxes,
@@ -139,12 +149,36 @@ const TermsOfService = () => {
 						the Service.
 					</ListItem>
 					<ListItem>
-						<Bold>Price Changes: </Bold>We may change our prices at any time. We
-						will provide you with reasonable notice of any price changes.
+						<Bold>Price Changes: </Bold>We may change our platform fees or
+						subscription prices at any time. We will provide reasonable notice
+						of any material price changes.
 					</ListItem>
 				</List>
 
-				<H2>4. Intellectual Property</H2>
+				<H2>4. Order Cancellations and Refund Policy</H2>
+				<P>
+					Because Scerv is a marketplace facilitator, food preparation and
+					fulfillment are the sole responsibility of the Merchant.
+				</P>
+				<List>
+					<ListItem>
+						<Bold>Cancellations:</Bold> Diners may cancel an order without
+						charge only if the Merchant has not yet accepted and begun preparing
+						the order. Once an order is in preparation, it cannot be canceled by
+						the Diner.
+					</ListItem>
+					<ListItem>
+						<Bold>Refunds:</Bold> If an order is missing items, completely
+						incorrect, or never fulfilled, the Diner must contact Scerv Support
+						at support@scerv.com within 24 hours of the transaction. Scerv will
+						investigate the claim with the Merchant. Refunds are issued at the
+						sole discretion of Scerv and the Merchant. If approved, refunds will
+						be credited back to the original payment method within 5-10 business
+						days.
+					</ListItem>
+				</List>
+
+				<H2>5. Intellectual Property</H2>
 				<P>
 					The Service and its entire contents, features, and functionality
 					(including but not limited to all information, software, text,
@@ -163,7 +197,7 @@ const TermsOfService = () => {
 					<ListItem>
 						<Bold>License:</Bold> Subject to these Terms, Scerv grants you a
 						limited, non-exclusive, non-transferable, revocable license to use
-						the Service for your internal business purposes.
+						the Service in accordance with your user type.
 					</ListItem>
 					<ListItem>
 						<Bold>Restrictions:</Bold> You may not copy, modify, distribute,
@@ -179,7 +213,7 @@ const TermsOfService = () => {
 					</ListItem>
 				</List>
 
-				<H2>5. User Conduct</H2>
+				<H2>6. User Conduct</H2>
 				<P>You agree not to:</P>
 				<List>
 					<ListItem>
@@ -205,7 +239,7 @@ const TermsOfService = () => {
 					</ListItem>
 				</List>
 
-				<H2>6. Disclaimer of Warranties</H2>
+				<H2>7. Disclaimer of Warranties</H2>
 				<P>
 					THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF
 					ANY KIND, EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE
@@ -214,7 +248,7 @@ const TermsOfService = () => {
 					WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE.
 				</P>
 
-				<H2>7. Limitation of Liability</H2>
+				<H2>8. Limitation of Liability</H2>
 				<P>
 					IN NO EVENT SHALL SCERV BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
 					SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR
@@ -229,7 +263,7 @@ const TermsOfService = () => {
 					SUCH DAMAGE.
 				</P>
 
-				<H2>8. Indemnification</H2>
+				<H2>9. Indemnification</H2>
 				<P>
 					You agree to indemnify and hold harmless Scerv and its officers,
 					directors, employees, and agents from and against any and all claims,
@@ -238,7 +272,7 @@ const TermsOfService = () => {
 					the Service or your violation of these Terms.
 				</P>
 
-				<H2>9. Termination</H2>
+				<H2>10. Termination</H2>
 				<P>
 					We may terminate or suspend your account and access to the Service
 					immediately, without prior notice or liability, for any reason
@@ -263,23 +297,23 @@ const TermsOfService = () => {
 					</ListItem>
 				</List>
 
-				<H2>10. Governing Law and Dispute Resolution</H2>
+				<H2>11. Governing Law and Dispute Resolution</H2>
 				<P>
 					These Terms shall be governed by and construed in accordance with the
-					laws of [Your State/Jurisdiction], without regard to its conflict of
-					law provisions. Any dispute arising out of or relating to these Terms
-					or the Service shall be resolved exclusively in the state or federal
-					courts located in [Your City, State].
+					laws of the State of Delaware, without regard to its conflict of law
+					provisions. Any dispute arising out of or relating to these Terms or
+					the Service shall be resolved exclusively in the state or federal
+					courts located in the State of Delaware.
 				</P>
 
-				<H2>11. Changes to Terms</H2>
+				<H2>12. Changes to Terms</H2>
 				<P>
 					Scerv reserves the right to modify these Terms at any time. We will
 					post the updated Terms on the Service, and your continued use of the
 					Service after the posting of the revised Terms constitutes your
 					acceptance of the changes.
 				</P>
-				<H2>12. Entire Agreement</H2>
+				<H2>13. Entire Agreement</H2>
 				<P>
 					These Terms constitute the entire agreement between you and Scerv
 					regarding your use of the Service and supersede all prior or
@@ -287,7 +321,7 @@ const TermsOfService = () => {
 					or electronic) between you and Scerv.
 				</P>
 
-				<H2>13. Contact Us</H2>
+				<H2>14. Contact Us</H2>
 				<P>
 					If you have any questions about these Terms, please contact us at
 					support@scerv.com.

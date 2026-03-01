@@ -1,6 +1,11 @@
 import React from "react";
 
-import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
+import {
+	BrowserRouter as Router,
+	Route,
+	Routes,
+	Outlet,
+} from "react-router-dom";
 import { ThemeProvider } from "styled-components";
 import "./App.css";
 import Header from "./components/Header";
@@ -17,6 +22,21 @@ import TermsOfService from "./components/TermsOfService";
 import PrivacyPolicy from "./components/PrivacyPolicy";
 import ContactUs from "./components/ContactUs";
 import Pricing from "./components/Pricing";
+import { PaymentCancel, PaymentSuccess } from "./components/PayRedirects";
+
+const WebsiteLayout = () => {
+	return (
+		<div
+			style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}
+		>
+			<Header />
+			<main style={{ flexGrow: 1 }}>
+				<Outlet /> {/* This is where the specific page content will load */}
+			</main>
+			<Footer />
+		</div>
+	);
+};
 
 const App = () => {
 	return (
@@ -30,26 +50,38 @@ const App = () => {
 						minHeight: "100vh",
 					}}
 				>
-					<Header />
 					<main style={{ flexGrow: 1 }}>
 						<div>
 							<Routes>
-								<Route
-									path="/"
-									element={
-										<>
-											<Hero />
-											<FeaturesRestaurants />
+								{/* ========================================= */}
+								{/* 2. MAIN WEBSITE (WITH HEADER & FOOTER)    */}
+								{/* ========================================= */}
+								<Route element={<WebsiteLayout />}>
+									<Route
+										path="/"
+										element={
+											<>
+												<Hero />
+												<FeaturesRestaurants />
+												<CallToAction />
+											</>
+										}
+									/>
+									<Route path="/request-demo" element={<RequestDemo />} />
+									<Route
+										path="/terms-of-service"
+										element={<TermsOfService />}
+									/>
+									<Route path="/privacy-policy" element={<PrivacyPolicy />} />
+									<Route path="/contact" element={<ContactUs />} />
+									<Route path="/pricing" element={<Pricing />} />
+								</Route>
 
-											<CallToAction />
-										</>
-									}
-								/>
-								<Route path="/request-demo" element={<RequestDemo />} />
-								<Route path="/terms-of-service" element={<TermsOfService />} />
-								<Route path="/privacy-policy" element={<PrivacyPolicy />} />
-								<Route path="/contact" element={<ContactUs />} />
-								<Route path="/pricing" element={<Pricing />} />
+								{/* ========================================= */}
+								{/* 3. APP REDIRECTS (NO HEADER, NO FOOTER)   */}
+								{/* ========================================= */}
+								<Route path="/payment-success" element={<PaymentSuccess />} />
+								<Route path="/payment-cancel" element={<PaymentCancel />} />
 							</Routes>
 						</div>
 					</main>
@@ -61,4 +93,3 @@ const App = () => {
 };
 
 export default App;
-

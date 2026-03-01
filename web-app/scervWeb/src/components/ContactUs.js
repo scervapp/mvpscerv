@@ -253,7 +253,7 @@ const ContactUs = () => {
 					</ContactItem>
 					<ContactItem>
 						<i className="fas fa-phone"></i> {/* Example icon */}
-						<a href="tel:+15551234567">(315) 816-4744</a>{" "}
+						<a href="tel:+15551234567">(646) 980-9827</a>{" "}
 						{/* Replace with your phone number */}
 					</ContactItem>
 					{/* Add other contact methods, e.g., social media links */}
