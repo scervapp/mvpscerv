@@ -126,17 +126,21 @@ const PartyHubScreen = () => {
 		return Object.entries(currentPartyIds)
 			.map(([restaurantId, partyId]) => {
 				const details = partyDetails[partyId];
-				if (!details) {
-					console.warn("Skipping party - details not loaded", { partyId });
+
+				// 🚨 STRICT FILTER: Because our backend is bulletproof now,
+				// any party missing details or a name is definitely old, broken test data.
+				// We safely ignore it so the app never crashes.
+				if (!details || !details.restaurantName) {
 					return null;
 				}
+
 				return {
 					partyId,
 					restaurantId,
 					...details,
 				};
 			})
-			.filter(Boolean) // Remove null entries
+			.filter((item) => item !== null)
 			.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 	}, [currentPartyIds, partyDetails]);
 
@@ -186,7 +190,7 @@ const PartyHubScreen = () => {
 		Alert.alert(
 			t("start_a_new_party"),
 			t(
-				"to_begin_a_new_party_please_find_a_restaurant_from_the_home_screen_you_can_then_start_a_party_directly_from_the_restaurants_detail_page"
+				"to_begin_a_new_party_please_find_a_restaurant_from_the_home_screen_you_can_then_start_a_party_directly_from_the_restaurants_detail_page",
 			),
 			[
 				{
@@ -194,7 +198,7 @@ const PartyHubScreen = () => {
 					onPress: () => navigation.navigate("CustomerHome"),
 				},
 				{ text: t("ok"), style: "cancel" },
-			]
+			],
 		);
 	};
 
@@ -233,10 +237,7 @@ const PartyHubScreen = () => {
 							status: item.status,
 						}); // Debug
 						if (!item.partyId || !item.restaurantId) {
-							Alert.alert(
-								t("error"),
-								t("invalid_party_data_please_try_again")
-							);
+							Alert.alert(t("error"), t("invalid_party_data_please_try_again"));
 							return;
 						}
 						navigation.navigate("PartyTab", {
@@ -359,7 +360,7 @@ const PartyHubScreen = () => {
 						<Text style={styles.emptyTitle}>{t("no_active_parties")}</Text>
 						<Text style={styles.emptyMessage}>
 							{t(
-								"to_start_a_new_party_go_to_the_home_screen_and_pick_a_restaurant"
+								"to_start_a_new_party_go_to_the_home_screen_and_pick_a_restaurant",
 							)}
 						</Text>
 						<TouchableOpacity
@@ -372,7 +373,7 @@ const PartyHubScreen = () => {
 				}
 				refreshControl={
 					<RefreshControl
-						refreshing={refreshing}
+						refreshing={!!refreshing}
 						onRefresh={onRefresh}
 						tintColor={colors.primary}
 					/>

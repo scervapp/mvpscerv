@@ -9,39 +9,40 @@ import { functions } from "../config/firebase.native";
  * @returns {Promise<{success: boolean, url?: string, reason?: string, error?: any}>}
  */
 const processPayment = async (amount, orderId, language) => {
-	console.log("Language", language);
 	try {
-		// 1. Call your Cloud Function
 		const createCheckout = functions.httpsCallable("createDlocalCheckout");
-		const response = await createCheckout({
-			amount,
-			orderId,
-			language,
-		});
+		const response = await createCheckout({ amount, orderId, language });
 
 		const { redirectUrl } = response.data;
-
-		// 🚨 THE FIX: Append the language to the URL string
-		// Try '?lang=en' first. If it fails, try '?locale=en'
 		const urlLang = language === "en" ? "en" : "es";
 		const finalRedirectUrl = redirectUrl.includes("?")
 			? `${redirectUrl}&lang=${urlLang}`
 			: `${redirectUrl}?lang=${urlLang}`;
 
-		console.log("Opening dLocal Go with URL:", finalRedirectUrl);
+		// 🚨 THE FIX: Use AuthSession. It listens for your 'scerv://' deep link!
+		const returnUrl = "scerv://";
+		const browserResult = await WebBrowser.openAuthSessionAsync(
+			finalRedirectUrl,
+			returnUrl,
+		);
 
-		// 2. Open the browser with the MODIFIED URL
-		const browserResult = await WebBrowser.openBrowserAsync(finalRedirectUrl);
-
-		// 3. Determine why it closed!
-		if (browserResult.type === "dismiss" || browserResult.type === "cancel") {
-			return { success: true };
+		// If the browser caught the deep link, it returns type: "success" and the URL
+		if (browserResult.type === "success" && browserResult.url) {
+			if (browserResult.url.includes("payment-success")) {
+				return { action: "success", orderId: orderId };
+			} else if (browserResult.url.includes("payment-cancel")) {
+				return {
+					action: "cancelled",
+					reason: "User cancelled on payment page",
+				};
+			}
 		}
 
-		return { success: false, reason: "cancelled_by_user" };
+		// If they just hit the "Done/X" button manually without paying
+		return { action: "dismissed" };
 	} catch (error) {
 		console.error("Adapter Error:", error);
-		return { success: false, error: error.message };
+		return { action: "error", error: error.message };
 	}
 };
 

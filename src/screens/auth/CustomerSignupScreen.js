@@ -1,5 +1,5 @@
 // screens/auth/CustomerSignupScreen.js
-import React, { useState, useContext, useRef } from "react";
+import React, { useState, useContext } from "react";
 import {
 	View,
 	Text,
@@ -29,73 +29,70 @@ const CustomerSignupScreen = ({ navigation }) => {
 	const [formValues, setFormValues] = useState(null);
 	const [codeError, setCodeError] = useState("");
 
+	// NEW: State for country code toggle (Defaults to Panama)
+	const [countryCode, setCountryCode] = useState("+507");
+
+	// NEW: Dynamic Validation Schema based on country code
+	const validationSchema = Yup.object().shape({
+		phoneNumber: Yup.string()
+			.test("phone-length", t("invalid_phone_number_length"), function (value) {
+				if (!value) return false;
+				if (countryCode === "+507") return value.length === 8;
+				if (countryCode === "+1") return value.length === 10;
+				return false;
+			})
+			.required(t("phone_number_is_required")),
+	});
+
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
-		console.log(
-			"[DEBUG] 1. handleSendVerificationCode called with values:",
-			values
-		);
 		try {
-			const phoneNumber = `+1${values.phoneNumber}`;
-			console.log(`[DEBUG] 2. Attempting to send SMS to: ${phoneNumber}`);
+			// NEW: Use the dynamic country code
+			const fullPhoneNumber = `${countryCode}${values.phoneNumber}`;
+			console.log(`[DEBUG] Attempting to send SMS to: ${fullPhoneNumber}`);
 
-			// This is the core Firebase call
-			const confirmationResult = await auth.signInWithPhoneNumber(phoneNumber);
-
-			console.log(
-				"[DEBUG] 3. Successfully received confirmation object from Firebase:",
-				confirmationResult
-			);
+			const confirmationResult =
+				await auth.signInWithPhoneNumber(fullPhoneNumber);
 
 			setFormValues(values);
 			setConfirmation(confirmationResult);
 		} catch (error) {
-			// This will now print the full, detailed error object from Firebase.
-			console.error(
-				"[DEBUG] 3. CRITICAL ERROR sending verification code:",
-				error
-			);
+			console.error("[DEBUG] CRITICAL ERROR sending verification code:", error);
 			Alert.alert(
 				t("error"),
-				t("could_not_send_verification_code_please_check_the_console_for_details_code", { code: error.code })
+				t(
+					"could_not_send_verification_code_please_check_the_console_for_details_code",
+					{ code: error.code },
+				),
 			);
 		} finally {
 			setIsSubmitting(false);
-			console.log("[DEBUG] 4. handleSendVerificationCode finished.");
 		}
 	};
 
 	const handleConfirmCode = async () => {
 		if (isLoading || !confirmation) return;
 
-		// **NEW VALIDATION**: Check code length before attempting
 		if (!verificationCode || verificationCode.trim().length !== 6) {
 			setCodeError(t("please_enter_a_valid_6_digit_code"));
 			return;
 		}
 
-		setCodeError(""); // Clear previous errors
+		setCodeError("");
 		setIsSubmitting(true);
 
 		try {
 			await signInWithPhoneCredential(
 				confirmation,
 				verificationCode,
-				formValues
+				formValues,
 			);
-			// If successful, navigation happens in AuthContext's listener
 		} catch (error) {
-			// Error is already set in context, but we can show it here too
 			console.error("Verification failed:", error);
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
-	const validationSchema = Yup.object().shape({
-		phoneNumber: Yup.string()
-			.matches(/^[0-9]{10}$/, t("must_be_a_valid_10_digit_phone_number"))
-			.required(t("phone_number_is_required")),
-	});
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
@@ -106,16 +103,19 @@ const CustomerSignupScreen = ({ navigation }) => {
 				<ScrollView contentContainerStyle={styles.scrollContentContainer}>
 					<View style={styles.header}>
 						<Text style={styles.title}>
-							{!confirmation ? t("create_your_account") : t("verify_your_phone")}
+							{!confirmation
+								? t("create_your_account")
+								: t("verify_your_phone")}
 						</Text>
 						<Text style={styles.subtitle}>
 							{!confirmation
-								? t("enter_your_10_digit_phone_number_to_begin")
-								: t("enter_the_6_digit_code_sent_to_1", {phoneNumber: formValues?.phoneNumber})}
+								? t("enter_your_phone_number_to_begin")
+								: t("enter_the_6_digit_code_sent_to_1", {
+										phoneNumber: formValues?.phoneNumber,
+									})}
 						</Text>
 					</View>
 
-					{/* STEP 1: Name & Phone Number Form */}
 					{!confirmation ? (
 						<Formik
 							initialValues={{ firstName: "", lastName: "", phoneNumber: "" }}
@@ -124,45 +124,34 @@ const CustomerSignupScreen = ({ navigation }) => {
 						>
 							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
-									{/* First Name Input */}
-									{/* <TextInput
-										style={styles.input}
-										placeholder="First Name"
-										placeholderTextColor={colors.textMedium}
-										value={values.firstName}
-										onChangeText={handleChange("firstName")}
-									/> */}
-									{/* {touched.firstName && errors.firstName && (
-										<Text style={styles.errorText}>{errors.firstName}</Text>
-									)} */}
+									{/* NEW: Phone Input Container with Country Code Toggle */}
+									<View style={styles.phoneInputContainer}>
+										<TouchableOpacity
+											style={styles.countryCodeSelector}
+											onPress={() =>
+												setCountryCode(countryCode === "+507" ? "+1" : "+507")
+											}
+										>
+											<Text style={styles.countryCodeText}>{countryCode}</Text>
+										</TouchableOpacity>
 
-									{/* Last Name Input */}
-									{/* <TextInput
-										style={styles.input}
-										placeholder="Last Name"
-										placeholderTextColor={colors.textMedium}
-										value={values.lastName}
-										onChangeText={handleChange("lastName")}
-									/>
-									{touched.lastName && errors.lastName && (
-										<Text style={styles.errorText}>{errors.lastName}</Text>
-									)} */}
+										<TextInput
+											style={[styles.input, styles.phoneInputFlex]}
+											placeholder={
+												countryCode === "+507" ? "12345678" : "1234567890"
+											}
+											placeholderTextColor={colors.textMedium}
+											value={values.phoneNumber}
+											onChangeText={handleChange("phoneNumber")}
+											keyboardType="phone-pad"
+											maxLength={countryCode === "+507" ? 8 : 10}
+										/>
+									</View>
 
-									{/* Phone Number Input */}
-									<TextInput
-										style={styles.input}
-										placeholder={t("10_digit_phone_number")}
-										placeholderTextColor={colors.textMedium}
-										value={values.phoneNumber}
-										onChangeText={handleChange("phoneNumber")}
-										keyboardType="phone-pad"
-										maxLength={10}
-									/>
 									{touched.phoneNumber && errors.phoneNumber && (
 										<Text style={styles.errorText}>{errors.phoneNumber}</Text>
 									)}
 
-									{/* Send Code Button */}
 									<Button
 										mode="contained"
 										onPress={handleSubmit}
@@ -176,7 +165,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 							)}
 						</Formik>
 					) : (
-						/* STEP 2: Verification Code Input */
 						<View style={styles.form}>
 							<TextInput
 								style={[styles.input, codeError && styles.inputError]}
@@ -184,7 +172,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 								value={verificationCode}
 								onChangeText={(text) => {
 									setVerificationCode(text);
-									if (codeError) setCodeError(""); // Clear error on typing
+									if (codeError) setCodeError("");
 								}}
 								keyboardType="number-pad"
 								maxLength={6}
@@ -214,11 +202,12 @@ const CustomerSignupScreen = ({ navigation }) => {
 						</View>
 					)}
 
-					{/* Footer (Always Visible) */}
 					<View style={styles.footer}>
-						<Text style={styles.footerText}>{t("already_have_an_account")}</Text>
+						<Text style={styles.footerText}>
+							{t("already_have_an_account")}
+						</Text>
 						<TouchableOpacity onPress={() => navigation.navigate("Login")}>
-							<Text style={styles.linkTextFooter}>{t("log_in")}</Text>
+							<Text style={styles.linkTextFooter}> {t("log_in")}</Text>
 						</TouchableOpacity>
 					</View>
 				</ScrollView>
@@ -250,6 +239,35 @@ const styles = StyleSheet.create({
 		marginBottom: 20,
 	},
 	form: { width: "100%" },
+
+	// NEW STYLES FOR PHONE ROW
+	phoneInputContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 15,
+	},
+	countryCodeSelector: {
+		height: 55,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		justifyContent: "center",
+		alignItems: "center",
+		paddingHorizontal: 15,
+		marginRight: 10,
+	},
+	countryCodeText: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: colors.textDark,
+	},
+	phoneInputFlex: {
+		flex: 1,
+		marginBottom: 0, // Override the default marginBottom since the container handles it
+	},
+	// END NEW STYLES
+
 	input: {
 		height: 55,
 		borderWidth: 1,
@@ -262,7 +280,6 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 	},
 	inputError: {
-		// NEW: Error styling for code input
 		borderColor: colors.statusDanger,
 	},
 	button: {

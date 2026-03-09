@@ -60,39 +60,39 @@ export const PartyProvider = ({ children }) => {
 	const leavePartyFunction = httpsCallable(functions, "leaveParty");
 	const activatePartyCheckInFunction = httpsCallable(
 		functions,
-		"activatePartyCheckIn"
+		"activatePartyCheckIn",
 	);
 	const cancelPartyCheckInFunction = httpsCallable(
 		functions,
-		"cancelPartyCheckIn"
+		"cancelPartyCheckIn",
 	);
 	const cancelPartyFunction = httpsCallable(functions, "cancelParty");
 	const inviteToPartyFunction = httpsCallable(functions, "inviteToParty");
 	const addLocalPIPToPartyFunction = httpsCallable(
 		functions,
-		"addLocalPIPToParty"
+		"addLocalPIPToParty",
 	);
 	const addItemToSharedBasketFunction = httpsCallable(
 		functions,
-		"addItemToSharedBasket"
+		"addItemToSharedBasket",
 	);
 	const updatePartyBasketItemQuantityFunction = httpsCallable(
 		functions,
-		"updateSharedBasketItemQuantity"
+		"updateSharedBasketItemQuantity",
 	);
 	const removePartyBasketItemFunction = httpsCallable(
 		functions,
-		"removeSharedBasketItem"
+		"removeSharedBasketItem",
 	);
 
 	const sendItemsToChefsQFunction = httpsCallable(
 		functions,
-		"sendItemsToChefsQ"
+		"sendItemsToChefsQ",
 	);
 
 	const sendOrderToKitchenFunction = httpsCallable(
 		functions,
-		"sendOrderToKitchen"
+		"sendOrderToKitchen",
 	);
 
 	// --- Clear State ---
@@ -109,18 +109,18 @@ export const PartyProvider = ({ children }) => {
 	useEffect(() => {
 		console.log(
 			"PartyContext: User changed or initial load. UID:",
-			currentUserData?.uid
+			currentUserData?.uid,
 		);
 		if (currentUserData?.uid) {
 			if (Object.keys(currentPartyIds).length === 0) {
 				console.log(
-					"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true."
+					"PartyContext: User present, no active party in context. Setting isCheckingExistingParty to true.",
 				);
 				setIsCheckingExistingParty(true);
 			}
 		} else {
 			console.log(
-				"PartyContext: No user. Clearing party state and resetting check flags."
+				"PartyContext: No user. Clearing party state and resetting check flags.",
 			);
 			clearPartyState();
 			setIsCheckingExistingParty(false);
@@ -132,7 +132,7 @@ export const PartyProvider = ({ children }) => {
 	// --- EFFECT 1: Find the user's active party and listen for changes (like deletion) ---
 	useEffect(() => {
 		console.log(
-			`PartyContext: Main party listener effect running. User ID: ${currentUserData?.uid}`
+			`PartyContext: Main party listener effect running. User ID: ${currentUserData?.uid}`,
 		);
 
 		// If there's no user, clear everything and stop.
@@ -167,11 +167,11 @@ export const PartyProvider = ({ children }) => {
 			(error) => {
 				console.error(
 					"PartyContext: Error listening for user's active party:",
-					error
+					error,
 				);
 				setPartyError("Could not check for an active party.");
 				setIsLoading(false); // Stop loading on error too.
-			}
+			},
 		);
 
 		// Cleanup this main listener when the component unmounts
@@ -188,7 +188,7 @@ export const PartyProvider = ({ children }) => {
 
 		Object.values(currentPartyIds).forEach((partyId) => {
 			console.log(
-				`PartyContext: Attaching listener to party document: ${partyId}`
+				`PartyContext: Attaching listener to party document: ${partyId}`,
 			);
 			const partyRef = db.collection("parties").doc(partyId);
 			const unsubscribe = partyRef.onSnapshot((docSnap) => {
@@ -221,7 +221,7 @@ export const PartyProvider = ({ children }) => {
 		// Loop through all the parties the user is in
 		Object.values(currentPartyIds).forEach((partyId) => {
 			console.log(
-				`PartyContext: Attaching listener to shared basket: ${partyId}`
+				`PartyContext: Attaching listener to shared basket: ${partyId}`,
 			);
 			const basketRef = db.collection("shared_baskets").doc(partyId);
 			const unsubscribe = basketRef.onSnapshot((docSnap) => {
@@ -243,11 +243,11 @@ export const PartyProvider = ({ children }) => {
 	const createParty = async (restaurantId, restaurantName) => {
 		// Log 1: Function entry and initial state check
 		console.log(
-			`[PartyContext.createParty] Attempting for restaurantId: ${restaurantId}. CurrentUser UID: ${currentUserData?.uid}. isLoadingPartyAction: ${isLoadingPartyAction}`
+			`[PartyContext.createParty] Attempting for restaurantId: ${restaurantId}. CurrentUser UID: ${currentUserData?.uid}. isLoadingPartyAction: ${isLoadingPartyAction}`,
 		);
 		if (!currentUserData?.uid || isLoadingPartyAction) {
 			console.warn(
-				`[PartyContext.createParty] Aborted: Missing UID or action already in progress.`
+				`[PartyContext.createParty] Aborted: Missing UID or action already in progress.`,
 			);
 			return null;
 		}
@@ -258,7 +258,7 @@ export const PartyProvider = ({ children }) => {
 		try {
 			// Log 3: Before calling the Cloud Function
 			console.log(
-				`[PartyContext.createParty] Calling Firebase Cloud Function 'createPartyFunction' with restaurantId: ${restaurantId}`
+				`[PartyContext.createParty] Calling Firebase Cloud Function 'createPartyFunction' with restaurantId: ${restaurantId}`,
 			);
 			const result = await createPartyFunction({
 				restaurantId,
@@ -266,7 +266,7 @@ export const PartyProvider = ({ children }) => {
 			// Log 4: After Cloud Function call, inspect the raw result
 			console.log(
 				`[PartyContext.createParty] Cloud Function 'createPartyFunction' result:`,
-				JSON.stringify(result, null, 2) // Stringify to see the whole structure
+				JSON.stringify(result, null, 2), // Stringify to see the whole structure
 			);
 			if (result.data.success && result.data.partyId) {
 				const newPartyId = result.data.partyId;
@@ -275,7 +275,7 @@ export const PartyProvider = ({ children }) => {
 				setPartyStatus("pending"); // Set initial status
 				// Log 8: Returning newPartyId (navigation will happen outside this function)
 				console.log(
-					`[PartyContext.createParty] Successfully processed. Returning newPartyId: ${newPartyId}`
+					`[PartyContext.createParty] Successfully processed. Returning newPartyId: ${newPartyId}`,
 				);
 				// Navigate to Lobby (pass necessary info)
 				return newPartyId;
@@ -289,7 +289,7 @@ export const PartyProvider = ({ children }) => {
 		} finally {
 			// Log 11: Finally block, resetting action loading state
 			console.log(
-				`[PartyContext.createParty] FINALLY BLOCK: Setting isLoadingPartyAction: false`
+				`[PartyContext.createParty] FINALLY BLOCK: Setting isLoadingPartyAction: false`,
 			);
 			setIsLoadingPartyAction(false);
 		}
@@ -308,7 +308,7 @@ export const PartyProvider = ({ children }) => {
 
 			if (result.data.success) {
 				console.log(
-					"PartyContext: Left party successfully. Listener will clean up state."
+					"PartyContext: Left party successfully. Listener will clean up state.",
 				);
 				// DO NOT call clearPartyState() — let Firestore listener remove party from currentPartyIds
 			} else {
@@ -334,10 +334,10 @@ export const PartyProvider = ({ children }) => {
 
 			// Debug logs
 			console.log(
-				`PartyContext: activatePartyCheckIn INVOKED. Received checkInDocId: "${checkInDocId}"`
+				`PartyContext: activatePartyCheckIn INVOKED. Received checkInDocId: "${checkInDocId}"`,
 			);
 			console.log(
-				`PartyContext: Current partyId: "${partyId}", isHost: ${isHost}`
+				`PartyContext: Current partyId: "${partyId}", isHost: ${isHost}`,
 			);
 			console.log("PartyContext: Host check", {
 				partyId,
@@ -350,7 +350,7 @@ export const PartyProvider = ({ children }) => {
 				Alert.alert("Error", "No active party selected to activate.");
 				console.error(
 					"PartyContext.activatePartyCheckIn: No valid partyId found.",
-					currentPartyIds
+					currentPartyIds,
 				);
 				return false;
 			}
@@ -363,7 +363,7 @@ export const PartyProvider = ({ children }) => {
 				Alert.alert("Error", "Check-In ID is missing for party activation.");
 				console.error(
 					"PartyContext.activatePartyCheckIn: checkInDocId is invalid or missing.",
-					checkInDocId
+					checkInDocId,
 				);
 				return false;
 			}
@@ -372,10 +372,10 @@ export const PartyProvider = ({ children }) => {
 			if (!isHost) {
 				Alert.alert(
 					"Permission Denied",
-					"Only the party host can activate the check-in."
+					"Only the party host can activate the check-in.",
 				);
 				console.warn(
-					"PartyContext.activatePartyCheckIn: Non-host attempting to activate."
+					"PartyContext.activatePartyCheckIn: Non-host attempting to activate.",
 				);
 				return false;
 			}
@@ -390,17 +390,17 @@ export const PartyProvider = ({ children }) => {
 
 			console.log(
 				"PartyContext: Payload for activatePartyCheckInFunction CF:",
-				JSON.stringify(payloadToCloudFunction, null, 2)
+				JSON.stringify(payloadToCloudFunction, null, 2),
 			);
 
 			try {
 				const result = await activatePartyCheckInFunction(
-					payloadToCloudFunction
+					payloadToCloudFunction,
 				);
 
 				if (result.data.success) {
 					console.log(
-						"PartyContext: activatePartyCheckIn CF successful. Party status should update via listener."
+						"PartyContext: activatePartyCheckIn CF successful. Party status should update via listener.",
 					);
 					// The partyDetails listener will pick up the status change to "AWAITING_TABLE"
 					// and the activeCheckInId.
@@ -408,21 +408,21 @@ export const PartyProvider = ({ children }) => {
 				} else {
 					console.error(
 						"PartyContext: Cloud function reported failure for party activation:",
-						result.data.error
+						result.data.error,
 					);
 					Alert.alert(
 						"Activation Failed",
-						result.data.error || "Could not activate party check-in."
+						result.data.error || "Could not activate party check-in.",
 					);
 					setPartyError(
-						result.data.error || "Could not activate party check-in."
+						result.data.error || "Could not activate party check-in.",
 					);
 					return false;
 				}
 			} catch (error) {
 				console.error(
 					"PartyContext: Error calling activatePartyCheckInFunction:",
-					error
+					error,
 				);
 				const message = error.message || "Could not activate party check-in.";
 				setPartyError(message);
@@ -439,7 +439,7 @@ export const PartyProvider = ({ children }) => {
 			activatePartyCheckInFunction,
 			setIsLoadingPartyAction,
 			setPartyError,
-		]
+		],
 	);
 
 	// --- NEW cancelPartyCheckIn function ---
@@ -453,7 +453,7 @@ export const PartyProvider = ({ children }) => {
 		const currentStatus = partyData.status;
 
 		console.log(
-			`PartyContext: Attempting to cancel check-in. PartyID: ${partyId}, CheckInID: ${checkInId}, IsHost: ${isHost}, Status: ${currentStatus}`
+			`PartyContext: Attempting to cancel check-in. PartyID: ${partyId}, CheckInID: ${checkInId}, IsHost: ${isHost}, Status: ${currentStatus}`,
 		);
 
 		if (
@@ -464,7 +464,7 @@ export const PartyProvider = ({ children }) => {
 		) {
 			Alert.alert(
 				"Cannot Cancel",
-				"This check-in request cannot be cancelled at this time."
+				"This check-in request cannot be cancelled at this time.",
 			);
 			console.error(
 				"PartyContext.cancelPartyCheckIn: Pre-conditions not met.",
@@ -473,7 +473,7 @@ export const PartyProvider = ({ children }) => {
 					checkInId,
 					isHost,
 					currentStatus,
-				}
+				},
 			);
 			return false;
 		}
@@ -485,18 +485,18 @@ export const PartyProvider = ({ children }) => {
 			const result = await cancelPartyCheckInFunction({ partyId, checkInId });
 			if (result.data.success) {
 				console.log(
-					"PartyContext: Check-in cancellation successful. Listener will update UI."
+					"PartyContext: Check-in cancellation successful. Listener will update UI.",
 				);
 				return true;
 			} else {
 				throw new Error(
-					result.data.error || "Cloud function failed to cancel check-in."
+					result.data.error || "Cloud function failed to cancel check-in.",
 				);
 			}
 		} catch (error) {
 			console.error(
 				"PartyContext: Error calling cancelPartyCheckIn CF:",
-				error
+				error,
 			);
 			const message = error.message || "Could not cancel the check-in request.";
 			setPartyError(message);
@@ -528,7 +528,7 @@ export const PartyProvider = ({ children }) => {
 		if (!isHost) {
 			Alert.alert(
 				"Permission Denied",
-				"Only the party host can cancel the party."
+				"Only the party host can cancel the party.",
 			);
 			console.warn("PartyContext.cancelParty: Non-host attempted to cancel.");
 			return;
@@ -564,7 +564,7 @@ export const PartyProvider = ({ children }) => {
 			// pipsToAdd is an array of {id, name}
 			if (!partyId || !pipsToAdd || pipsToAdd.length === 0) {
 				console.warn(
-					"PartyContext.addLocalPIPsToParty: Prerequisites not met (missing partyId or pipsToAdd)."
+					"PartyContext.addLocalPIPsToParty: Prerequisites not met (missing partyId or pipsToAdd).",
 				);
 				return false;
 			}
@@ -573,7 +573,7 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 			try {
 				console.log(
-					`PartyContext: Calling addLocalPIPsToParty CF for party ${partyId}`
+					`PartyContext: Calling addLocalPIPsToParty CF for party ${partyId}`,
 				);
 				const result = await addLocalPIPToPartyFunction({
 					partyId,
@@ -581,18 +581,18 @@ export const PartyProvider = ({ children }) => {
 				});
 				if (result.data.success) {
 					console.log(
-						"PartyContext: Members added successfully. Listener will update UI."
+						"PartyContext: Members added successfully. Listener will update UI.",
 					);
 					return true;
 				} else {
 					throw new Error(
-						result.data.error || "Cloud function failed to add members."
+						result.data.error || "Cloud function failed to add members.",
 					);
 				}
 			} catch (error) {
 				console.error(
 					"PartyContext: Error calling addLocalPIPsToParty CF:",
-					error
+					error,
 				);
 				const message = error.message || "Could not add members to the party.";
 				setPartyError(message);
@@ -602,7 +602,7 @@ export const PartyProvider = ({ children }) => {
 				setIsLoading(false);
 			}
 		},
-		[addLocalPIPToPartyFunction, setIsLoading, setPartyError]
+		[addLocalPIPToPartyFunction, setIsLoading, setPartyError],
 	);
 
 	// --- Action: Invite to Party ---
@@ -628,7 +628,7 @@ export const PartyProvider = ({ children }) => {
 				"Permission Denied",
 				"Only the party host can generate an invite code.",
 				[{ text: "OK", style: "cancel" }],
-				{ cancelable: true }
+				{ cancelable: true },
 			);
 			return null;
 		}
@@ -637,19 +637,19 @@ export const PartyProvider = ({ children }) => {
 		setPartyError(null);
 		try {
 			console.log(
-				`PartyContext: Calling inviteToParty CF for party ${partyId}`
+				`PartyContext: Calling inviteToParty CF for party ${partyId}`,
 			);
 			const result = await inviteToPartyFunction({ partyId });
 
 			if (result.data.success && result.data.inviteCode) {
 				console.log(
-					`PartyContext: Invite code generated: ${result.data.inviteCode}`
+					`PartyContext: Invite code generated: ${result.data.inviteCode}`,
 				);
 				return result.data.inviteCode;
 			} else {
 				throw new Error(
 					result.data.error ||
-						"Cloud function failed to generate an invite code."
+						"Cloud function failed to generate an invite code.",
 				);
 			}
 		} catch (error) {
@@ -682,13 +682,13 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 			try {
 				console.log(
-					`PartyContext: Calling joinParty CF with code: ${inviteCode}`
+					`PartyContext: Calling joinParty CF with code: ${inviteCode}`,
 				);
 				const result = await joinPartyFunction({ inviteCode });
 
 				if (result.data.success && result.data.partyId) {
 					console.log(
-						`PartyContext: Successfully joined party ${result.data.partyId}.`
+						`PartyContext: Successfully joined party ${result.data.partyId}.`,
 					);
 					// The main context listener will automatically pick up the party details
 					// once the user is added to guestUserIds. We can also manually set it
@@ -699,7 +699,7 @@ export const PartyProvider = ({ children }) => {
 					return true; // Indicate success
 				} else {
 					throw new Error(
-						result.data.error || "Cloud function failed to join party."
+						result.data.error || "Cloud function failed to join party.",
 					);
 				}
 			} catch (error) {
@@ -714,7 +714,7 @@ export const PartyProvider = ({ children }) => {
 				setIsLoadingAction(false);
 			}
 		},
-		[setIsLoadingAction, setPartyError, joinPartyFunction, setCurrentPartyIds]
+		[setIsLoadingAction, setPartyError, joinPartyFunction, setCurrentPartyIds],
 	);
 
 	/**
@@ -736,7 +736,7 @@ export const PartyProvider = ({ children }) => {
 		if (!partyId || !orderingForUserId || !menuItemDetails) {
 			Alert.alert(
 				"Error",
-				"Missing required information to add item to party basket."
+				"Missing required information to add item to party basket.",
 			);
 			console.error("addItmToPartyBasket: Missing data", {
 				partyContextData,
@@ -754,7 +754,7 @@ export const PartyProvider = ({ children }) => {
 		try {
 			console.log(
 				`PartyContext: Calling addItemToSharedBasket CF for party ${partyId}`,
-				{ orderingForUserId, orderingForPipName, menuItemDetails }
+				{ orderingForUserId, orderingForPipName, menuItemDetails },
 			);
 			const result = await addItemToSharedBasketFunction({
 				partyId,
@@ -776,7 +776,7 @@ export const PartyProvider = ({ children }) => {
 
 			if (result.data.success && result.data.basketItemId) {
 				console.log(
-					`PartyContext: Item ${result.data.basketItemId} added successfully to shared basket for party ${partyId}.`
+					`PartyContext: Item ${result.data.basketItemId} added successfully to shared basket for party ${partyId}.`,
 				);
 				// The onSnapshot listener for sharedBaskets will automatically update the UI.
 				// No need to manually update sharedBaskets state here.
@@ -784,13 +784,13 @@ export const PartyProvider = ({ children }) => {
 			} else {
 				throw new Error(
 					result.data.error ||
-						"Cloud function failed to add item to shared basket."
+						"Cloud function failed to add item to shared basket.",
 				);
 			}
 		} catch (error) {
 			console.error(
 				"PartyContext: Error calling addItemToSharedBasket CF:",
-				error
+				error,
 			);
 			const message = error.message || "Could not add item to party basket.";
 			setPartyError(message); // Set context error
@@ -805,11 +805,11 @@ export const PartyProvider = ({ children }) => {
 		partyId,
 		itemId,
 		newQuantity,
-		userId
+		userId,
 	) => {
 		// This log should now be the first thing you see when the function is successfully called.
 		console.log(
-			`PartyContext: handlePartyItemQuantityChange INVOKED with qty: ${newQuantity}`
+			`PartyContext: handlePartyItemQuantityChange INVOKED with qty: ${newQuantity}`,
 		);
 
 		let numericQuantity = Math.max(0, Number(newQuantity));
@@ -826,7 +826,7 @@ export const PartyProvider = ({ children }) => {
 		} catch (error) {
 			Alert.alert(
 				"Update Failed",
-				error.message || "Could not update item quantity."
+				error.message || "Could not update item quantity.",
 			);
 			return false;
 		}
@@ -851,25 +851,25 @@ export const PartyProvider = ({ children }) => {
 
 			console.log(
 				"PartyContext: Calling removeSharedBasketItem CF with payload:",
-				payload
+				payload,
 			);
 
 			try {
 				const result = await removePartyBasketItemFunction(payload);
 				if (result.data.success) {
 					console.log(
-						`PartyContext: Item ${itemId} reported as removed by CF.`
+						`PartyContext: Item ${itemId} reported as removed by CF.`,
 					);
 					return true;
 				} else {
 					throw new Error(
-						result.data.error || "Cloud function failed to remove item."
+						result.data.error || "Cloud function failed to remove item.",
 					);
 				}
 			} catch (error) {
 				console.error(
 					"PartyContext: Error calling removeSharedBasketItem CF:",
-					error
+					error,
 				);
 				const message = error.message || "Could not remove the item.";
 				setPartyError(message);
@@ -884,77 +884,73 @@ export const PartyProvider = ({ children }) => {
 			removePartyBasketItemFunction,
 			setIsLoadingPartyAction,
 			setPartyError,
-		]
+		],
 	);
 
 	const sendMyItemsToKitchen = useCallback(async () => {
-		const partyId = Object.values(currentPartyIds)[0] || null; // Use currentPartyId
-		const { id, status, table, server, restaurantId } =
-			partyDetails[partyId] || {};
+		const partyId = Object.values(currentPartyIds)[0] || null;
+		const party = partyDetails[partyId] || {};
+
+		const { id, status, table, restaurantId } = party;
+		const server = party.server || { id: "unassigned", name: "Self-Seated" };
+
 		const { uid: userId } = currentUserData || {};
 
-		console.log("Status", status);
-
-		// --- Validation on the client side ---
 		if (status !== "active") {
-			Alert.alert(
-				"Cannot Send Order",
-				"The party must be active and seated to send items to the kitchen."
-			);
+			Alert.alert("Cannot Send Order", "The party must be active and seated.");
 			return false;
 		}
-		if (!partyId || !table.id || !server?.id || !userId || !restaurantId) {
-			Alert.alert(
-				"Error",
-				"Missing critical party information (like table or server) to send the order."
-			);
-			console.error("sendMyItemsToKitchen: Missing data", {
-				partyId,
-				table,
-				server,
-				userId,
-				restaurantId,
-			});
+
+		if (!partyId || !table?.id || !server?.id || !userId || !restaurantId) {
+			Alert.alert("Error", "Missing critical party information.");
 			return false;
 		}
 
 		setIsLoadingAction(true);
 		setPartyError(null);
+
 		try {
+			// 🚨 THE FIX: Get a list of ALL your PIPs from Firestore before sending the request
+			const pipsRef = db.collection(`customers/${userId}/pips`);
+			const pipsSnapshot = await pipsRef.get();
+			const myPipIds = pipsSnapshot.docs.map((doc) => doc.id);
+
+			// Add the user's actual ID to the list of acceptable IDs
+			const allAllowedUserIds = [userId, ...myPipIds];
+
 			console.log(
-				`PartyContext: Calling sendOrderToKitchen CF for party ${partyId}`
+				`Calling sendOrderToKitchen CF for party ${partyId}. Allowed IDs:`,
+				allAllowedUserIds,
 			);
 
-			// --- Call the new Cloud Function with the correct payload ---
+			// --- Call the new Cloud Function with the PIPs included ---
 			const result = await sendOrderToKitchenFunction({
-				type: "party", // Specify the type of order
-				sourceId: partyId, // The partyId is the source of the items
-				table: { id: table.id, name: table.name }, // Pass table object
-				server: { id: server.id, name: server.name }, // Pass server object
-				// The Cloud Function will filter for this user's 'new' items on the backend
+				type: "party",
+				sourceId: partyId,
+				table: { id: table.id, name: table.name },
+				server: { id: server.id, name: server.name },
+
+				// 🚨 Pass the full array of IDs to the backend!
+				allowedUserIds: allAllowedUserIds,
 			});
 
 			if (result.data.success) {
 				const itemsSent = result.data.itemsSent;
-				console.log(
-					`PartyContext: Successfully sent ${itemsSent} item(s) to the kitchen.`
-				);
+				console.log(`Successfully sent ${itemsSent} item(s) to the kitchen.`);
 				if (itemsSent === 0) {
 					Alert.alert(
 						"No New Items",
-						"All of your current items have already been sent to the kitchen."
+						"All of your current items have already been sent.",
 					);
 				}
 				return true;
 			} else {
-				throw new Error(
-					result.data.error || "Cloud function failed to send order."
-				);
+				throw new Error(result.data.error || "Cloud function failed.");
 			}
 		} catch (error) {
 			console.error(
 				"PartyContext: Error calling sendOrderToKitchen CF:",
-				error
+				error,
 			);
 			const message = error.message || "Could not send items to the kitchen.";
 			setPartyError(message);
@@ -964,10 +960,9 @@ export const PartyProvider = ({ children }) => {
 			setIsLoadingAction(false);
 		}
 	}, [
+		currentPartyIds,
 		partyDetails,
 		currentUserData,
-		setIsLoadingAction,
-		setPartyError,
 		sendOrderToKitchenFunction,
 	]);
 

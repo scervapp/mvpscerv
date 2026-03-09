@@ -5,6 +5,7 @@ import React, {
 	useContext,
 	useMemo,
 	useCallback,
+	useRef,
 } from "react";
 import {
 	View,
@@ -16,6 +17,8 @@ import {
 	Alert,
 	ActivityIndicator,
 	Platform,
+	Modal,
+	Animated,
 } from "react-native";
 import {
 	useRoute,
@@ -34,9 +37,13 @@ import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
+import firestore from "@react-native-firebase/firestore"; // Ensure this is imported for the pending order
+
+// NEW: Import our WebView Bridge Component
+import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
 
 const PartyCheckoutScreen = () => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const { partyDetails, sharedBaskets } = useParty();
 	const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -50,69 +57,42 @@ const PartyCheckoutScreen = () => {
 
 	const { checkInObj } = useCheckInStatus(
 		party?.restaurantId,
-		currentUserData?.uid
+		currentUserData?.uid,
 	);
 
 	// --- State Management ---
-	const [isPreparing, setIsPreparing] = useState(false); // Preparing payment sheet
+	const [isPreparing, setIsPreparing] = useState(false);
 	const [isPaying, setIsPaying] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
 	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
-	const [fees, setFees] = useState(0.05); // Default platform fee, fetched from DB
-	const [gratuityPercentage, setGratuityPercentage] = useState("18"); // Default tip
+	const [fees, setFees] = useState(0.05);
+	const [gratuityPercentage, setGratuityPercentage] = useState("18");
 	const [isLoadingParty, setIsLoadingParty] = useState(false);
 
-	const [calculatedTax, setCalculatedTax] = useState(0);
 	const [finalTotal, setFinalTotal] = useState(0);
 	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
-	useEffect(() => {
-		if (!party?.restaurantId) return;
+	// --- SMART FIELDS STATE VARIABLES ---
+	const [dlocalPublicKey, setDlocalPublicKey] = useState(null);
+	const [dlocalCheckoutToken, setDlocalCheckoutToken] = useState(null);
 
-		const fetchKey = async () => {
-			const feesSnap = await db.collection("appConfig").doc("general").get();
-			if (feesSnap.exists()) {
-				setFees(feesSnap.data().fees); // Make sure this is number like 0.05
-			} else if (isMounted) {
-				console.warn("Fee configuration not found, using default.");
-				setFees(0.03); // Set default if not found
-			}
-			try {
-				console.log(
-					`PartyCheckoutScreen: Fetching Stripe publishable key for restaurant ${party.restaurantId}`
-				);
-				const getStripePublishableKeyFunction = httpsCallable(
-					functions,
-					"getStripePublishableKey"
-				);
+	const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
 
-				const { data } = await getStripePublishableKeyFunction({
-					restaurantId: party.restaurantId,
-				});
-				if (data.stripePublishableKey) {
-					setStripePublishableKey(data.stripePublishableKey);
-					console.log(
-						"PartyCheckoutScreen: Stripe publishable key fetched successfully."
-					);
-				} else {
-					throw new Error(t("publishable_key_not_returned_from_server"));
-				}
-			} catch (error) {
-				console.error("Error fetching Stripe publishable key:", error);
-				setPaymentError(
-					t("could_not_load_payment_configuration_for_this_restaurant")
-				);
-			}
-		};
-		fetchKey();
-	}, [party?.restaurantId]);
+	// Determine region
+	const country = party?.restaurantCountryCode || "PA"; // Defaulting to PA for testing, ensure this exists on your restaurant doc
+	const isPanama =
+		country === "PA" || country === "Panama" || country === "panama";
+	const isUSA = country === "US" || country === "USA" || country === "usa";
+
+	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
 	// --- Data Filtering & Calculations (useMemo for performance) ---
 	const {
 		myItemsInBasket,
 		mySubtotal,
+		myOriginalSubtotal,
 		myGratuity,
 		myPlatformFee,
 		myFinalTotal,
@@ -122,6 +102,7 @@ const PartyCheckoutScreen = () => {
 			return {
 				myItemsInBasket: [],
 				mySubtotal: 0,
+				myOriginalSubtotal: 0,
 				myGratuity: 0,
 				myPlatformFee: 0,
 				myFinalTotal: 0,
@@ -130,13 +111,14 @@ const PartyCheckoutScreen = () => {
 		}
 
 		const items = sharedBasketItems.filter(
-			(item) => item.orderedByUserId === currentUserData.uid
+			(item) => item.orderedByUserId === currentUserData.uid,
 		);
 
 		if (items.length === 0) {
 			return {
 				myItemsInBasket: [],
 				mySubtotal: 0,
+				myOriginalSubtotal: 0,
 				myGratuity: 0,
 				myPlatformFee: 0,
 				myFinalTotal: 0,
@@ -161,7 +143,7 @@ const PartyCheckoutScreen = () => {
 		});
 
 		const gratuityInCents = Math.round(
-			discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100)
+			discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100),
 		);
 		const platformFeeInCents = Math.round(discountedSubtotalInCents * fees);
 		const finalTotalInCents =
@@ -169,17 +151,18 @@ const PartyCheckoutScreen = () => {
 		const totalDiscountInCents =
 			originalSubtotalInCents - discountedSubtotalInCents;
 
-		// FINAL: Include menuItemId + restaurantId for rating
 		return {
 			myItemsInBasket: items.map((item) => ({
-				id: item.id, // basketItemId
-				name: item.dishName,
-				menuItemId: item.menuItemId, // ← REQUIRED for rating
-				restaurantId: item.restaurantId, // ← REQUIRED for rating
-				price: item.price,
-				quantity: item.quantity,
-				discountedPrice: item.discountedPrice,
+				id: item.id || "",
+				name: item.dishName || "Item",
+				menuItemId: item.menuItemId || "",
+				restaurantId: item.restaurantId || "",
+				price: item.price || 0,
+				quantity: item.quantity || 1,
+				// 🚨 THE LEAK IS PLUGGED HERE: Force undefined to null
+				discountedPrice: item.discountedPrice ?? null,
 			})),
+			myOriginalSubtotal: originalSubtotalInCents,
 			mySubtotal: discountedSubtotalInCents,
 			myGratuity: gratuityInCents,
 			myPlatformFee: platformFeeInCents,
@@ -188,46 +171,243 @@ const PartyCheckoutScreen = () => {
 		};
 	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
 
+	const slideAnim = useRef(new Animated.Value(800)).current; // Start 800px off-screen
+
 	useEffect(() => {
+		if (isPaymentModalVisible) {
+			// Slide up
+			Animated.timing(slideAnim, {
+				toValue: 0,
+				duration: 300,
+				useNativeDriver: true,
+			}).start();
+		} else {
+			// Slide down
+			Animated.timing(slideAnim, {
+				toValue: 800,
+				duration: 250,
+				useNativeDriver: true,
+			}).start();
+		}
+	}, [isPaymentModalVisible, slideAnim]);
+
+	useEffect(() => {
+		setFinalTotal(myFinalTotal);
 		const canPay =
 			myFinalTotal > 0 && party?.id && currentUserData?.uid && party?.checkInId;
-
 		setIsReadyToPay(canPay);
 	}, [myFinalTotal, party, currentUserData]);
-	// --- Handle Payment Action ---
-	const handlePayment = async () => {
-		// Prevent multiple presses or paying when not ready.
-		if (!isReadyToPay || isPreparing) {
-			return;
+
+	// --- Fetch Configs & INITIALIZE DLOCAL ---
+	useEffect(() => {
+		let isMounted = true;
+
+		const fetchInitialData = async () => {
+			if (!party?.restaurantId) return;
+
+			// Fetch Fees
+			const feesSnap = await db.collection("appConfig").doc("general").get();
+			if (feesSnap.exists() && isMounted) {
+				setFees(feesSnap.data().fees);
+			} else if (isMounted) {
+				setFees(0.03);
+			}
+
+			// Initialize Stripe (USA)
+			if (!isPanama) {
+				try {
+					const getStripePublishableKeyFunction = httpsCallable(
+						functions,
+						"getStripePublishableKey",
+					);
+					const { data } = await getStripePublishableKeyFunction({
+						restaurantId: party.restaurantId,
+					});
+					if (isMounted && data.stripePublishableKey) {
+						setStripePublishableKey(data.stripePublishableKey);
+					}
+				} catch (error) {
+					if (isMounted)
+						setPaymentError(
+							t("could_not_load_payment_configuration_for_this_restaurant"),
+						);
+				}
+			}
+
+			// === INITIALIZE DLOCAL SMART FIELDS FOR PANAMA ===
+			if (isPanama && finalTotal > 0 && isMounted) {
+				try {
+					// 1. Fetch Public Key
+					const getPublicKey = httpsCallable(functions, "getDlocalPublicKey");
+					const keyResponse = await getPublicKey();
+					if (isMounted && keyResponse.data.publicKey) {
+						setDlocalPublicKey(keyResponse.data.publicKey);
+					}
+
+					// 2. Fetch Merchant Checkout Token
+					const createPayment = httpsCallable(functions, "createDlocalPayment");
+					const paymentResponse = await createPayment({
+						amount: finalTotal,
+						currency: "USD",
+						country: "PA",
+					});
+
+					if (isMounted && paymentResponse.data.merchant_checkout_token) {
+						setDlocalCheckoutToken(
+							paymentResponse.data.merchant_checkout_token,
+						);
+					}
+				} catch (error) {
+					console.error("Smart Fields Initialization Error:", error);
+					if (isMounted)
+						setPaymentError(
+							"Failed to initialize secure checkout. Please try again later.",
+						);
+				}
+			}
+		};
+
+		fetchInitialData();
+		return () => {
+			isMounted = false;
+		};
+	}, [party?.restaurantId, finalTotal, isPanama]);
+
+	// =========================================================
+	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
+	// =========================================================
+	// =========================================================
+	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
+	// =========================================================
+	const handleSmartFieldToken = async (cardData) => {
+		if (!isReadyToPay || myFinalTotal <= 0) return;
+
+		setIsPreparing(true);
+		setPaymentError(null);
+
+		const { token: cardToken, name: cardholderName, document } = cardData;
+
+		try {
+			const uid = currentUserData?.uid;
+
+			// 🚨 CLEAN THE DOCUMENT: Strip any accidental spaces that ruin dLocal's Regex
+			const cleanDocument = document
+				? document.replace(/\s+/g, "")
+				: "8-888-8888";
+
+			const pendingOrderData = {
+				restaurantId:
+					myItemsInBasket[0]?.restaurantId || party?.restaurantId || "",
+				customerId: uid || "anonymous",
+				subtotal: mySubtotal || 0,
+				gratuity: myGratuity || 0,
+				platformFee: myPlatformFee || 0,
+				totalPrice: myFinalTotal || 0,
+				items: myItemsInBasket,
+				table: party?.table || null,
+				checkInId: party?.checkInId || null,
+				server: party?.server || null,
+				status: "pending",
+				type: "party",
+				partyId: party.id || "",
+				createdAt: firestore.FieldValue.serverTimestamp(),
+			};
+
+			const pendingOrderRef = await firestore()
+				.collection("pending_orders")
+				.add(pendingOrderData);
+
+			const pendingOrderId = pendingOrderRef.id;
+
+			console.log("🚀 Firing Payment to CF with CIP:", cleanDocument);
+
+			const result = await confirmDlocalPayment({
+				pendingOrderId: pendingOrderId,
+				checkoutToken: dlocalCheckoutToken,
+				cardToken: cardToken,
+				clientFirstName: cardholderName.split(" ")[0] || "Guest",
+				clientLastName: cardholderName.split(" ").slice(1).join(" ") || "User",
+				clientDocument: cleanDocument,
+				clientDocumentType: "CIP", // Hardcoded to satisfy dLocal for now
+				clientEmail: currentUserData?.email || "customer@scerv.com",
+				country: "PA",
+			});
+
+			// 🚨 X-RAY LOGGING: See EXACTLY what the CF returned
+			console.log(
+				"🔍 RAW BACKEND RESPONSE:",
+				JSON.stringify(result.data, null, 2),
+			);
+
+			// 🚨 ROBUST SUCCESS CHECK: Catch 'success' wherever it might be hiding
+			const isSuccessful =
+				result.data?.success === true ||
+				result.data?.data?.success === true ||
+				result.data?.status === "SUCCESS";
+
+			if (isSuccessful) {
+				console.log("✅ Party Charge Verified! Navigating...");
+
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 0,
+						routes: [
+							{
+								name: "OrderConfirmation",
+								params: {
+									initialStatus: "processing",
+									itemsToRate: myItemsInBasket,
+									isIndividual: false,
+									origin: "party",
+									appOrderId: pendingOrderId,
+								},
+							},
+						],
+					}),
+				);
+			} else {
+				// Look for the error message in multiple possible fields
+				const backendError =
+					result.data?.error ||
+					result.data?.message ||
+					result.data?.data?.message ||
+					"Payment rejected by the gateway.";
+				throw new Error(backendError);
+			}
+		} catch (error) {
+			console.error("❌ Smart Field Bypass Error:", error);
+			setPaymentError(error.message);
+			Alert.alert("Payment Error", error.message);
+		} finally {
+			setIsPreparing(false);
 		}
+	};
+	// --- Stripe Payment Action (USA) ---
+	const handlePayment = async () => {
+		if (!isReadyToPay || isPreparing) return;
 		setIsPreparing(true);
 		setPaymentError(null);
 
 		try {
-			// --- Step 1: Call the single 'preparePayment' Cloud Function ---
 			console.log("Party Checkout: Calling 'preparePayment' function...");
 			const preparePayment = httpsCallable(functions, "preparePayment");
 
-			// --- Step 2: Build the secure payload for the backend ---
-			// We send item IDs and let the server calculate the authoritative total.
 			const { data: prepData } = await preparePayment({
 				paymentType: "party",
 				restaurantId: party.restaurantId,
 				partyId: party.id,
-				items: myItemsInBasket.map((item) => ({ id: item.id })), // Send only basket item IDs
-				gratuity: myGratuity, // Send this user's portion of the gratuity
+				items: myItemsInBasket.map((item) => ({ id: item.id })),
+				gratuity: myGratuity,
 				checkInId: party.checkInId,
 				table: party.table || null,
 				server: party.server || null,
 				checkInTimestamp: null,
-				// No stripeCustomerId is sent; the server securely handles it.
 			});
 
 			if (!prepData?.paymentIntentClientSecret) {
 				throw new Error(t("failed_to_get_payment_details_from_server"));
 			}
 
-			// --- Step 3: Initialize the Stripe Payment Sheet ---
 			const { error: initError } = await initPaymentSheet({
 				merchantDisplayName: `Scerv Inc. - ${party.restaurantName}`,
 				paymentIntentClientSecret: prepData.paymentIntentClientSecret,
@@ -237,17 +417,14 @@ const PartyCheckoutScreen = () => {
 				returnURL: "scerv://stripe-redirect",
 			});
 
-			if (initError) {
+			if (initError)
 				throw new Error(
-					`${t("failed_to_initialize_payment_sheet")}: ${initError.message}`
+					`${t("failed_to_initialize_payment_sheet")}: ${initError.message}`,
 				);
-			}
 
-			// --- Step 4: Present the Payment Sheet to the User ---
 			const { error: presentError } = await presentPaymentSheet();
 
 			if (presentError) {
-				// Handle cases where the user cancels the payment sheet
 				if (presentError.code !== "Canceled") {
 					throw new Error(`${t("payment_failed")}: ${presentError.message}`);
 				}
@@ -260,14 +437,14 @@ const PartyCheckoutScreen = () => {
 								name: "OrderConfirmation",
 								params: {
 									initialStatus: "processing",
-									itemsToRate: myItemsInBasket, // ← PASS IT
+									itemsToRate: myItemsInBasket,
 									basketId: party.id,
 									origin: "party",
 									isIndividual: false,
 								},
 							},
 						],
-					})
+					}),
 				);
 			}
 		} catch (error) {
@@ -275,14 +452,13 @@ const PartyCheckoutScreen = () => {
 			setPaymentError(error.message);
 			Alert.alert(t("payment_error"), error.message);
 		} finally {
-			// Reset the loading state if there was an error and we didn't navigate away
 			setIsPreparing(false);
 		}
 	};
 
 	// --- Render Logic ---
 	return (
-		<StripeProvider publishableKey={stripePublishableKey}>
+		<StripeProvider publishableKey={stripePublishableKey || ""}>
 			<SafeAreaView style={styles.safeArea}>
 				<ScrollView
 					style={styles.container}
@@ -297,22 +473,19 @@ const PartyCheckoutScreen = () => {
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
 						{myItemsInBasket.length > 0 ? (
-							myItemsInBasket.map((item) => {
-								console.log("Item From Party Checkout", item);
-								return (
-									<View key={item.id} style={styles.itemRow}>
-										<Text style={styles.itemName}>
-											{item.quantity}x {item.name}{" "}
-											{item.orderedByPipName
-												? `(${t("for")} ${item.orderedByPipName})`
-												: ""}
-										</Text>
-										<Text style={styles.itemPrice}>
-											{formatCurrency((item.price || 0) * item.quantity * 100)}
-										</Text>
-									</View>
-								);
-							}) // ✅ missing this parenthesis in your version
+							myItemsInBasket.map((item) => (
+								<View key={item.id} style={styles.itemRow}>
+									<Text style={styles.itemName}>
+										{item.quantity}x {item.name}{" "}
+										{item.orderedByPipName
+											? `(${t("for")} ${item.orderedByPipName})`
+											: ""}
+									</Text>
+									<Text style={styles.itemPrice}>
+										{formatCurrency((item.price || 0) * item.quantity * 100)}
+									</Text>
+								</View>
+							))
 						) : (
 							<Text style={styles.noItemsText}>
 								{t("you_have_no_items_in_this_order")}
@@ -332,10 +505,7 @@ const PartyCheckoutScreen = () => {
 								<Picker.Item label={t("5_percent")} value="5" />
 								<Picker.Item label={t("10_percent")} value="10" />
 								<Picker.Item label={t("15_percent")} value="15" />
-								<Picker.Item
-									label={t("18_percent_recommended")}
-									value="18"
-								/>
+								<Picker.Item label={t("18_percent_recommended")} value="18" />
 								<Picker.Item label={t("20_percent")} value="20" />
 								<Picker.Item label={t("25_percent")} value="25" />
 								<Picker.Item label={t("no_tip")} value="0" />
@@ -346,13 +516,12 @@ const PartyCheckoutScreen = () => {
 					{/* Order Summary */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
-						{/* Conditionally show original price and discount if a discount exists */}
 						{myTotalDiscount > 0 && (
 							<>
 								<View style={styles.summaryRow}>
 									<Text style={styles.label}>{t("original_subtotal")}:</Text>
 									<Text style={styles.originalPriceText}>
-										{formatCurrency(mySubtotal)}
+										{formatCurrency(myOriginalSubtotal)}
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
@@ -378,7 +547,6 @@ const PartyCheckoutScreen = () => {
 							<Text style={styles.amount}>{formatCurrency(myPlatformFee)}</Text>
 						</View>
 
-						<View style={styles.summaryRow}></View>
 						<Divider style={styles.divider} />
 						<View style={styles.summaryRow}>
 							<Text style={styles.totalLabel}>{t("your_total")}:</Text>
@@ -386,7 +554,7 @@ const PartyCheckoutScreen = () => {
 								<ActivityIndicator size="small" color={colors.primary} />
 							) : (
 								<Text style={styles.totalAmount}>
-									{formatCurrency(myFinalTotal)}
+									{formatCurrency(finalTotal)}
 								</Text>
 							)}
 						</View>
@@ -395,11 +563,17 @@ const PartyCheckoutScreen = () => {
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 				</ScrollView>
 
-				{/* Pay Button Footer */}
+				{/* THE DYNAMIC FOOTER */}
 				<View style={styles.footer}>
 					<Button
 						mode="contained"
-						onPress={handlePayment}
+						onPress={() => {
+							if (isPanama) {
+								setIsPaymentModalVisible(true); // Slide up the dLocal sheet
+							} else {
+								handlePayment(); // Launch Stripe's native sheet
+							}
+						}}
 						disabled={!isReadyToPay || isPreparing}
 						loading={isPreparing || isPaying}
 						style={styles.payButton}
@@ -408,20 +582,83 @@ const PartyCheckoutScreen = () => {
 						{isPreparing
 							? t("preparing")
 							: isPaying
-							? t("processing")
-							: `${t("pay")} ${formatCurrency(myFinalTotal)}`}
+								? t("processing")
+								: `${t("pay")} ${formatCurrency(finalTotal)}`}
 					</Button>
 				</View>
 			</SafeAreaView>
+
+			{/* 🚨 THE NEW SLIDE-UP PAYMENT SHEET FOR PANAMA 🚨 */}
+			{isPaymentModalVisible && (
+				<View style={[StyleSheet.absoluteFill, styles.modalBackground]}>
+					{/* Dark background overlay (tap to close) */}
+					<TouchableOpacity
+						style={StyleSheet.absoluteFill}
+						activeOpacity={1}
+						onPress={() => setIsPaymentModalVisible(false)}
+					/>
+
+					{/* The Animated sliding sheet */}
+					<Animated.View
+						style={[
+							styles.bottomSheet,
+							{ transform: [{ translateY: slideAnim }] },
+						]}
+					>
+						<View style={styles.sheetHeader}>
+							<Text style={styles.sheetTitle}>
+								{t("enter_payment_details", "Payment Details")}
+							</Text>
+							<TouchableOpacity onPress={() => setIsPaymentModalVisible(false)}>
+								<Ionicons
+									name="close-circle"
+									size={30}
+									color={colors.textMedium}
+								/>
+							</TouchableOpacity>
+						</View>
+
+						{isReadyToPay &&
+						finalTotal > 0 &&
+						dlocalPublicKey &&
+						dlocalCheckoutToken ? (
+							<View style={styles.webViewContainer}>
+								<DlocalNativeCheckout
+									publicKey={dlocalPublicKey}
+									checkoutToken={dlocalCheckoutToken}
+									amountFormatted={formatCurrency(finalTotal)}
+									locale={i18n.language || "es"}
+									onProcessing={() => setIsPreparing(true)}
+									onError={(msg) => {
+										setIsPreparing(false);
+										setPaymentError(msg);
+										setIsPaymentModalVisible(false);
+									}}
+									onTokenSuccess={(cardData) => {
+										setIsPaymentModalVisible(false);
+										handleSmartFieldToken(cardData);
+									}}
+								/>
+							</View>
+						) : (
+							<View style={styles.loadingSheet}>
+								<ActivityIndicator size="large" color={colors.primary} />
+								<Text style={styles.loadingSheetText}>
+									Securely loading checkout...
+								</Text>
+							</View>
+						)}
+					</Animated.View>
+				</View>
+			)}
 		</StripeProvider>
 	);
 };
 
-// --- Styles ---
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	container: { flex: 1 },
-	scrollContentContainer: { paddingBottom: 100 }, // Space for footer
+	scrollContentContainer: { paddingBottom: 120 }, // Increased space for larger webview footer
 	header: { padding: 20, paddingBottom: 10, alignItems: "center" },
 	title: { fontSize: 24, fontWeight: "bold", color: colors.textDark },
 	restaurantName: { fontSize: 16, color: colors.textMedium, marginTop: 4 },
@@ -479,12 +716,6 @@ const styles = StyleSheet.create({
 	amount: { fontSize: 16, fontWeight: "500", color: colors.textDark },
 	totalAmount: { fontSize: 18, fontWeight: "bold", color: colors.primary },
 	divider: { marginVertical: 8 },
-	disclaimerText: {
-		fontSize: 12,
-		color: colors.textLight,
-		textAlign: "center",
-		marginTop: 10,
-	},
 	errorText: {
 		color: colors.statusDanger,
 		textAlign: "center",
@@ -501,9 +732,14 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
+		minHeight: 100, // Ensure space for the Dlocal bridge component
 	},
-	payButton: { paddingVertical: 8, borderRadius: 8 },
-	payButtonText: { fontSize: 16, fontWeight: "bold" },
+	payButton: {
+		paddingVertical: 8,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+	},
+	payButtonText: { fontSize: 16, fontWeight: "bold", color: "#fff" },
 	originalPriceText: {
 		fontSize: 16,
 		color: colors.textLight,
@@ -512,7 +748,56 @@ const styles = StyleSheet.create({
 	discountText: {
 		fontSize: 16,
 		fontWeight: "500",
-		color: colors.statusSuccess, // Or a nice green color
+		color: colors.statusSuccess,
+	},
+	modalBackground: {
+		backgroundColor: "rgba(0, 0, 0, 0.6)",
+		justifyContent: "flex-end",
+		zIndex: 9999, // 🚨 Ensure it hovers above everything
+		elevation: 9999,
+	},
+	bottomSheet: {
+		backgroundColor: colors.surfaceWhite,
+		borderTopLeftRadius: 24,
+		borderTopRightRadius: 24,
+		paddingHorizontal: 20,
+		paddingTop: 20,
+		paddingBottom: Platform.OS === "ios" ? 40 : 20, // Safe area for iPhones
+		minHeight: 450, // Ensures enough room for the WebView
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: -4 },
+		shadowOpacity: 0.1,
+		shadowRadius: 10,
+		elevation: 10,
+	},
+	sheetHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 10,
+		paddingBottom: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	sheetTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textDark,
+	},
+	webViewContainer: {
+		flex: 1,
+		minHeight: 350,
+	},
+	loadingSheet: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		minHeight: 200,
+	},
+	loadingSheetText: {
+		marginTop: 15,
+		fontSize: 16,
+		color: colors.textMedium,
 	},
 });
 
