@@ -35,6 +35,8 @@ exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
 exports.selfSeatingCheckIn = checkInFunctions.selfSeatingCheckIn;
+exports.handleQRScan = checkInFunctions.handleQRScan;
+exports.convertIndividualToParty = checkInFunctions.convertIndividualToParty;
 
 exports.declineCheckIn = checkInFunctions.declineCheckIn;
 exports.customerCancelSeatedCheckIn =
@@ -98,6 +100,8 @@ exports.updateSharedBasketItemQuantity =
 	partyFunctions.updateSharedBasketItemQuantity;
 exports.removeSharedBasketItem = partyFunctions.removeSharedBasketItem;
 
+exports.createPartySession = partyFunctions.createPartySession;
+
 // User Search Functions
 exports.searchPIPs = userSearchFunctions.searchPIPs;
 
@@ -127,5 +131,8 @@ exports.chargeVaultedCard = paypalHandlers.chargeVaultedCard;
 exports.createDlocalCheckout = dLocalFunctions.createDlocalCheckout;
 exports.dlocalWebhook = dLocalFunctions.dlocalWebhook;
 exports.processDlocalNativePayment = dLocalFunctions.processDlocalNativePayment;
-
+exports.processDlocalTokenCharge = dLocalFunctions.processDlocalTokenCharge;
+exports.getDlocalPublicKey = dLocalFunctions.getDlocalPublicKey;
+exports.createDlocalPayment = dLocalFunctions.createDlocalPayment;
+exports.confirmDlocalPayment = dLocalFunctions.confirmDlocalPayment;
 //

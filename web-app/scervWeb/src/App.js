@@ -23,6 +23,7 @@ import PrivacyPolicy from "./components/PrivacyPolicy";
 import ContactUs from "./components/ContactUs";
 import Pricing from "./components/Pricing";
 import { PaymentCancel, PaymentSuccess } from "./components/PayRedirects";
+import ScanRedirect from "./components/ScanRedirect";
 
 const WebsiteLayout = () => {
 	return (
@@ -82,6 +83,9 @@ const App = () => {
 								{/* ========================================= */}
 								<Route path="/payment-success" element={<PaymentSuccess />} />
 								<Route path="/payment-cancel" element={<PaymentCancel />} />
+
+								{/* 🚨 YOUR NEW QR REDIRECT ROUTE */}
+								<Route path="/scan" element={<ScanRedirect />} />
 							</Routes>
 						</div>
 					</main>

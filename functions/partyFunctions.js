@@ -6,14 +6,27 @@ const db = admin.firestore();
 
 /**
  * Creates a new 'pending' party document initiated by a host for a specific restaurant.
+ *
+ *
  */
+
+const generateCode = () => {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No I,1,O,0
+	let code = "";
+	for (let i = 0; i < 6; i++) {
+		code += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return code;
+};
+
+const inviteCode = generateCode();
 
 exports.createParty = functions.https.onCall(async (data, context) => {
 	// 1. Authentication Check
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated to create a party."
+			"User must be authenticated to create a party.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -27,11 +40,11 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 	) {
 		console.error(
 			"CreateParty: Invalid input - restaurantId missing or not a valid string.",
-			data
+			data,
 		);
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID is required and must be a non-empty string."
+			"Restaurant ID is required and must be a non-empty string.",
 		);
 	}
 
@@ -41,7 +54,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		const restaurantDocRef = db.collection("restaurants").doc(restaurantId);
 
 		console.log(
-			`CreateParty: Fetching details for host ${hostUserId} and restaurant ${restaurantId}`
+			`CreateParty: Fetching details for host ${hostUserId} and restaurant ${restaurantId}`,
 		);
 
 		const [hostUserSnap, restaurantSnap] = await Promise.all([
@@ -52,17 +65,17 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			// Should not happen for authenticated user, but good check
 			throw new functions.https.HttpsError(
 				"not-found",
-				"Host user data not found."
+				"Host user data not found.",
 			);
 		}
 
 		if (!restaurantSnap.exists) {
 			console.error(
-				`CreateParty: Restaurant data not found for ID: ${restaurantId}`
+				`CreateParty: Restaurant data not found for ID: ${restaurantId}`,
 			);
 			throw new functions.https.HttpsError(
 				"not-found",
-				`Restaurant data not found.`
+				`Restaurant data not found.`,
 			);
 		}
 		// Adjust field names if your customer doc structure is different
@@ -79,36 +92,36 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		if (!restaurantStripeAccountId) {
 			// This is an important check to ensure the restaurant is properly configured for payments
 			console.error(
-				`Restaurant ${restaurantId} is missing its Stripe Account ID.`
+				`Restaurant ${restaurantId} is missing its Stripe Account ID.`,
 			);
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"This restaurant is not configured to accept payments."
+				"This restaurant is not configured to accept payments.",
 			);
 		}
 
 		// Validate fetched restaurant data
 		if (typeof restaurantName !== "string" || restaurantName.trim() === "") {
 			console.error(
-				`CreateParty: Restaurant name missing or invalid for restaurant ${restaurantId}.`
+				`CreateParty: Restaurant name missing or invalid for restaurant ${restaurantId}.`,
 			);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Restaurant configuration error (name)."
+				"Restaurant configuration error (name).",
 			);
 		}
 		if (typeof restaurantTaxRate !== "number" || isNaN(restaurantTaxRate)) {
 			console.error(
 				`CreateParty: Restaurant tax rate missing or invalid for restaurant ${restaurantId}. Expected number, got:`,
-				restaurantTaxRate
+				restaurantTaxRate,
 			);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Restaurant configuration error (tax rate)."
+				"Restaurant configuration error (tax rate).",
 			);
 		}
 		console.log(
-			`CreateParty: Host: ${hostName}, Restaurant: ${restaurantName}, Tax Rate: ${restaurantTaxRate}`
+			`CreateParty: Host: ${hostName}, Restaurant: ${restaurantName}, Tax Rate: ${restaurantTaxRate}`,
 		);
 
 		// 4. Create the Party Document
@@ -153,7 +166,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		};
 
 		console.log(
-			`CreateParty: Preparing batch write for party ${partyId} and its shared basket.`
+			`CreateParty: Preparing batch write for party ${partyId} and its shared basket.`,
 		);
 		const batch = db.batch();
 		batch.set(partyRef, partyDataToSet);
@@ -166,7 +179,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		await batch.commit();
 
 		console.log(
-			`Party ${partyId} and shared basket created successfully for restaurant ${restaurantId} by host ${hostUserId}`
+			`Party ${partyId} and shared basket created successfully for restaurant ${restaurantId} by host ${hostUserId}`,
 		);
 		return { success: true, partyId: partyId };
 	} catch (error) {
@@ -177,7 +190,7 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Failed to create party.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -198,7 +211,7 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -207,7 +220,7 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 	if (!partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID is required."
+			"Party ID is required.",
 		);
 	}
 
@@ -223,7 +236,7 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 		if (partyData.hostUserId !== hostUserId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"Only the party host can generate an invite code."
+				"Only the party host can generate an invite code.",
 			);
 		}
 
@@ -235,25 +248,15 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 			partyData.inviteCodeExpiry.toDate() > new Date()
 		) {
 			console.log(
-				`inviteToParty: Returning existing valid code ${partyData.inviteCode} for party ${partyId}.`
+				`inviteToParty: Returning existing valid code ${partyData.inviteCode} for party ${partyId}.`,
 			);
 			return { success: true, inviteCode: partyData.inviteCode };
 		}
 
 		// If no valid code exists, generate a new one.
 		console.log(
-			`inviteToParty: No valid code found for party ${partyId}. Generating a new one.`
+			`inviteToParty: No valid code found for party ${partyId}. Generating a new one.`,
 		);
-		const generateCode = () => {
-			const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No I,1,O,0
-			let code = "";
-			for (let i = 0; i < 6; i++) {
-				code += chars[Math.floor(Math.random() * chars.length)];
-			}
-			return code;
-		};
-
-		const inviteCode = generateCode();
 
 		// Set an expiry time for the code (e.g., 1 hour from now).
 		const expiryDate = new Date();
@@ -267,7 +270,7 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 		});
 
 		console.log(
-			`inviteToParty: Generated new code ${inviteCode} for party ${partyId}.`
+			`inviteToParty: Generated new code ${inviteCode} for party ${partyId}.`,
 		);
 		return { success: true, inviteCode: inviteCode };
 	} catch (error) {
@@ -276,17 +279,18 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not generate invite code.",
-			error.message
+			error.message,
 		);
 	}
 });
 // functions/partyFunctions.js (Add to the same file)
 
 /**
- * Allows a user to join an existing party using an invite code.
+ * Allows a user to join an existing party using a partyId or invite code.
  *
  * @param {object} data - The data object.
- * @param {string} data.inviteCode - The party invite code.
+ * @param {string} [data.inviteCode] - The party invite code.
+ * @param {string} [data.partyId] - The direct party ID (from a QR scan).
  * @param {object} context - The Firebase Functions context object.
  * @returns {Promise<{success: boolean, partyId?: string, error?: string}>}
  */
@@ -294,52 +298,78 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated to join a party."
+			"User must be authenticated to join a party.",
 		);
 	}
 	const joinerUserId = context.auth.uid;
-	const { inviteCode } = data;
+	const { inviteCode, partyId } = data;
 
-	if (!inviteCode || typeof inviteCode !== "string") {
+	// Must have at least one of these to proceed
+	if (!inviteCode && !partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"A valid invite code is required."
+			"A valid invite code or party ID is required.",
 		);
 	}
 
 	const partiesRef = db.collection("parties");
 	const now = admin.firestore.Timestamp.now();
-
-	// Query for a party with the matching, non-expired invite code.
-	const partyQuery = partiesRef
-		.where("inviteCode", "==", inviteCode.toUpperCase())
-		.where("inviteCodeExpiry", ">", now)
-		.limit(1);
+	let partyDoc;
 
 	try {
-		const snapshot = await partyQuery.get();
+		// ==============================================================
+		// 1. DIRECT LOOKUP (QR SCAN BYPASS)
+		// ==============================================================
+		if (partyId) {
+			partyDoc = await partiesRef.doc(partyId).get();
+			if (!partyDoc.exists) {
+				console.warn(`joinParty: No party found for partyId: ${partyId}`);
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Invalid party. Please try scanning again.",
+				);
+			}
+		}
+		// ==============================================================
+		// 2. INVITE CODE LOOKUP (MANUAL ENTRY)
+		// ==============================================================
+		else if (inviteCode) {
+			const partyQuery = await partiesRef
+				.where("inviteCode", "==", inviteCode.toUpperCase())
+				//.where("inviteCodeExpiry", ">", now)
+				.limit(1)
+				.get();
 
-		if (snapshot.empty) {
-			console.warn(
-				`joinParty: No active party found for invite code: ${inviteCode}`
-			);
-			throw new functions.https.HttpsError(
-				"not-found",
-				"Invalid or expired invite code. Please check the code and try again."
-			);
+			if (partyQuery.empty) {
+				console.warn(
+					`joinParty: No active party found for invite code: ${inviteCode}`,
+				);
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Invalid or expired invite code. Please check the code and try again.",
+				);
+			}
+			partyDoc = partyQuery.docs[0];
 		}
 
-		const partyDoc = snapshot.docs[0];
-		const partyId = partyDoc.id;
+		const resolvedPartyId = partyDoc.id;
 		const partyData = partyDoc.data();
 
 		// Additional validations
-		if (partyData.guestUserIds.includes(joinerUserId)) {
+		if (
+			partyData.guestUserIds &&
+			partyData.guestUserIds.includes(joinerUserId)
+		) {
 			console.log(
-				`joinParty: User ${joinerUserId} is already in party ${partyId}.`
+				`joinParty: User ${joinerUserId} is already in party ${resolvedPartyId}.`,
 			);
-			return { success: true, partyId: partyId, message: "Already in party." };
+			return {
+				success: true,
+				partyId: resolvedPartyId,
+				message: "Already in party.",
+			};
 		}
+
 		if (
 			partyData.status !== "pending" &&
 			partyData.status !== "AWAITING_TABLE" &&
@@ -347,7 +377,7 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		) {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"This party is no longer active or accepting new members."
+				"This party is no longer active or accepting new members.",
 			);
 		}
 
@@ -357,7 +387,7 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		if (!userDoc.exists) {
 			throw new functions.https.HttpsError(
 				"internal",
-				"Could not find your user profile."
+				"Could not find your user profile.",
 			);
 		}
 
@@ -381,29 +411,30 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 			lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 		});
 
-		// 2. Update the user's document to add the party ID
+		// Update the user's document to add the party ID
 		batch.update(userDocRef, {
-			partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+			partyIds: admin.firestore.FieldValue.arrayUnion(resolvedPartyId),
 		});
 
 		await batch.commit();
 
 		console.log(
-			`joinParty: User ${joinerUserId} successfully joined party ${partyId}.`
+			`joinParty: User ${joinerUserId} successfully joined party ${resolvedPartyId}.`,
 		);
+
 		// Return restaurantId so the client can update its state map correctly
 		return {
 			success: true,
-			partyId: partyId,
-			restaurantId: partyDoc.data().restaurantId,
+			partyId: resolvedPartyId,
+			restaurantId: partyData.restaurantId,
 		};
 	} catch (error) {
-		console.error(`Error joining party with code ${inviteCode}:`, error);
+		console.error(`Error joining party:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not join the party.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -422,7 +453,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const leavingUserId = context.auth.uid;
@@ -431,7 +462,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	if (!partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID is required."
+			"Party ID is required.",
 		);
 	}
 
@@ -463,14 +494,14 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 				const basketItems = basketDoc.data().items || [];
 				const userHasSentItems = basketItems.some(
 					(item) =>
-						item.orderedByUserId === leavingUserId && item.status === "sent"
+						item.orderedByUserId === leavingUserId && item.status === "sent",
 				);
 
 				if (userHasSentItems) {
 					// If they have sent items, block them from leaving.
 					throw new functions.https.HttpsError(
 						"failed-precondition",
-						"You cannot leave the party after sending an order to the kitchen. Please proceed to checkout to settle your bill."
+						"You cannot leave the party after sending an order to the kitchen. Please proceed to checkout to settle your bill.",
 					);
 				}
 			}
@@ -479,7 +510,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 			// If the check passes, proceed with removing the user and their "new" items.
 			if (basketDoc.exists) {
 				const updatedItems = (basketDoc.data().items || []).filter(
-					(item) => item.orderedByUserId !== leavingUserId
+					(item) => item.orderedByUserId !== leavingUserId,
 				);
 				transaction.update(sharedBasketRef, {
 					items: updatedItems,
@@ -488,7 +519,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 			}
 
 			const guestPips = (partyData.guestPips || []).filter(
-				(pip) => pip.userId !== leavingUserId
+				(pip) => pip.userId !== leavingUserId,
 			);
 			const isHost = partyData.hostUserId === leavingUserId;
 
@@ -523,7 +554,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not leave the party."
+			"Could not leave the party.",
 		);
 	}
 });
@@ -535,7 +566,7 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -543,7 +574,7 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 	if (!partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID is required."
+			"Party ID is required.",
 		);
 	}
 
@@ -560,13 +591,13 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 		if (partyData.hostUserId !== hostUserId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"Only the host can cancel."
+				"Only the host can cancel.",
 			);
 		}
 		if (partyData.status !== "pending") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"Only pending parties can be cancelled."
+				"Only pending parties can be cancelled.",
 			);
 		}
 
@@ -577,7 +608,7 @@ exports.cancelParty = functions.https.onCall(async (data, context) => {
 			if (items.some((item) => item.status === "sent")) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Cannot cancel after order sent to kitchen."
+					"Cannot cancel after order sent to kitchen.",
 				);
 			}
 		}
@@ -618,7 +649,7 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -627,7 +658,7 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 	if (!partyId || !checkInId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID and Check-In ID are required."
+			"Party ID and Check-In ID are required.",
 		);
 	}
 
@@ -645,7 +676,7 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 			if (!checkInDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Check-in record not found."
+					"Check-in record not found.",
 				);
 			}
 
@@ -655,14 +686,14 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 			if (partyData.hostUserId !== hostUserId) {
 				throw new functions.https.HttpsError(
 					"permission-denied",
-					"Only the party host can activate the check-in link."
+					"Only the party host can activate the check-in link.",
 				);
 			}
 			if (partyData.status !== "pending") {
 				// Or if it's already "AWAITING_TABLE" and checkInId matches, perhaps it's a no-op.
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Party is not in a pending state for check-in activation."
+					"Party is not in a pending state for check-in activation.",
 				);
 			}
 			if (
@@ -671,14 +702,14 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 			) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Check-in record is not correctly associated with this party or host."
+					"Check-in record is not correctly associated with this party or host.",
 				);
 			}
 			if (checkInData.status !== "REQUESTED") {
 				// Ensure the check-in itself is in the right state
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Linked check-in is not in a 'REQUESTED' state."
+					"Linked check-in is not in a 'REQUESTED' state.",
 				);
 			}
 
@@ -702,13 +733,13 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 			"Error activating party check-in:",
 			partyId,
 			checkInId,
-			error
+			error,
 		);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not activate party check-in.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -728,7 +759,7 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -737,7 +768,7 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 	if (!partyId || !checkInId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID and Check-In ID are required."
+			"Party ID and Check-In ID are required.",
 		);
 	}
 
@@ -752,7 +783,7 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 			if (!partyDoc.exists || !checkInDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Party or Check-in record not found."
+					"Party or Check-in record not found.",
 				);
 			}
 
@@ -763,24 +794,24 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 			if (partyData.hostUserId !== hostUserId) {
 				throw new functions.https.HttpsError(
 					"permission-denied",
-					"Only the party host can cancel the check-in request."
+					"Only the party host can cancel the check-in request.",
 				);
 			}
 			// 2. Check if the party is in the correct state to be cancelled.
 			if (partyData.hostUserId !== hostUserId)
 				throw new functions.https.HttpsError(
 					"permission-denied",
-					"Only host can cancel."
+					"Only host can cancel.",
 				);
 			if (partyData.status !== "AWAITING_TABLE")
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Party is not awaiting table confirmation."
+					"Party is not awaiting table confirmation.",
 				);
 			if (partyData.activeCheckInId !== checkInId)
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Check-in ID mismatch."
+					"Check-in ID mismatch.",
 				);
 
 			// --- Perform Updates ---
@@ -795,20 +826,20 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 			transaction.delete(checkInRef);
 
 			console.log(
-				`cancelPartyCheckIn: Successfully reverted party ${partyId} and deleted check-in ${checkInId}.`
+				`cancelPartyCheckIn: Successfully reverted party ${partyId} and deleted check-in ${checkInId}.`,
 			);
 			return { success: true };
 		});
 	} catch (error) {
 		console.error(
 			`Error cancelling party check-in for party ${partyId}:`,
-			error
+			error,
 		);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not cancel party check-in.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -820,7 +851,7 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const hostUserId = context.auth.uid;
@@ -829,7 +860,7 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 	if (!partyId || !Array.isArray(pipsToAdd) || pipsToAdd.length === 0) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID and a non-empty array of PIPs to add are required."
+			"Party ID and a non-empty array of PIPs to add are required.",
 		);
 	}
 
@@ -845,7 +876,7 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 		if (partyData.hostUserId !== hostUserId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"Only the party host can add members."
+				"Only the party host can add members.",
 			);
 		}
 
@@ -868,7 +899,7 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 		});
 
 		console.log(
-			`addLocalPIPsToParty: Successfully added ${pipsToAdd.length} members to party ${partyId}.`
+			`addLocalPIPsToParty: Successfully added ${pipsToAdd.length} members to party ${partyId}.`,
 		);
 		return { success: true };
 	} catch (error) {
@@ -877,7 +908,7 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not add members to the party.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -904,7 +935,7 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 			console.error("updateSharedBasketItemQuantity: Authentication failed.");
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const requestingUserId = context.auth.uid;
@@ -922,18 +953,18 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 			console.error("updateSharedBasketItemQuantity: Invalid input.", data);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Party ID, Item ID, a positive New Quantity, and User ID (for permission check) are required."
+				"Party ID, Item ID, a positive New Quantity, and User ID (for permission check) are required.",
 			);
 		}
 		if (newQuantity > 10) {
 			// Example: Max quantity limit
 			console.warn(
-				`updateSharedBasketItemQuantity: Requested quantity ${newQuantity} exceeds limit for item ${itemId}. Clamping to 10.`
+				`updateSharedBasketItemQuantity: Requested quantity ${newQuantity} exceeds limit for item ${itemId}. Clamping to 10.`,
 			);
 			// newQuantity = 10; // Or throw an error if you prefer strict limits
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Quantity cannot exceed 10."
+				"Quantity cannot exceed 10.",
 			);
 		}
 
@@ -946,7 +977,7 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 				const partyDoc = await transaction.get(partyRef);
 				if (!partyDoc.exists) {
 					console.error(
-						`updateSharedBasketItemQuantity: Party ${partyId} not found.`
+						`updateSharedBasketItemQuantity: Party ${partyId} not found.`,
 					);
 					throw new functions.https.HttpsError("not-found", "Party not found.");
 				}
@@ -957,11 +988,11 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 				const basketDoc = await transaction.get(sharedBasketRef);
 				if (!basketDoc.exists) {
 					console.error(
-						`updateSharedBasketItemQuantity: Shared basket for partyId ${partyId} not found.`
+						`updateSharedBasketItemQuantity: Shared basket for partyId ${partyId} not found.`,
 					);
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Party basket not found."
+						"Party basket not found.",
 					);
 				}
 
@@ -980,30 +1011,30 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 							if (!isHost) {
 								// Only host can modify already sent/processed items (if that's your rule)
 								console.error(
-									`updateSharedBasketItemQuantity: Item ${itemId} status is '${item.status}', cannot be updated by non-host ${requestingUserId}.`
+									`updateSharedBasketItemQuantity: Item ${itemId} status is '${item.status}', cannot be updated by non-host ${requestingUserId}.`,
 								);
 								throw new functions.https.HttpsError(
 									"permission-denied",
-									"Cannot update quantity of an item already processed, unless you are the host."
+									"Cannot update quantity of an item already processed, unless you are the host.",
 								);
 							}
 							console.log(
-								`updateSharedBasketItemQuantity: Host ${requestingUserId} is updating item ${itemId} with status ${item.status}.`
+								`updateSharedBasketItemQuantity: Host ${requestingUserId} is updating item ${itemId} with status ${item.status}.`,
 							);
 						}
 
 						if (!isHost && item.orderedByUserId !== requestingUserId) {
 							console.error(
-								`updateSharedBasketItemQuantity: User ${requestingUserId} is not the host and did not order item ${itemId} (owner: ${item.orderedByUserId}).`
+								`updateSharedBasketItemQuantity: User ${requestingUserId} is not the host and did not order item ${itemId} (owner: ${item.orderedByUserId}).`,
 							);
 							throw new functions.https.HttpsError(
 								"permission-denied",
-								"You can only update the quantity of your own items."
+								"You can only update the quantity of your own items.",
 							);
 						}
 
 						console.log(
-							`updateSharedBasketItemQuantity: Updating quantity for item ${itemId} from ${item.quantity} to ${newQuantity}.`
+							`updateSharedBasketItemQuantity: Updating quantity for item ${itemId} from ${item.quantity} to ${newQuantity}.`,
 						);
 						return {
 							...item,
@@ -1016,11 +1047,11 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 
 				if (!itemFoundAndUpdated) {
 					console.warn(
-						`updateSharedBasketItemQuantity: Item ${itemId} not found in basket for party ${partyId}. No update performed.`
+						`updateSharedBasketItemQuantity: Item ${itemId} not found in basket for party ${partyId}. No update performed.`,
 					);
 					throw new functions.https.HttpsError(
 						"not-found",
-						`Item ${itemId} not found in the party basket.`
+						`Item ${itemId} not found in the party basket.`,
 					);
 				}
 
@@ -1031,14 +1062,14 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 				});
 
 				console.log(
-					`updateSharedBasketItemQuantity: Quantity for item ${itemId} successfully updated to ${newQuantity} in shared basket for party ${partyId}.`
+					`updateSharedBasketItemQuantity: Quantity for item ${itemId} successfully updated to ${newQuantity} in shared basket for party ${partyId}.`,
 				);
 				return { success: true };
 			});
 		} catch (error) {
 			console.error(
 				`updateSharedBasketItemQuantity: Transaction error for party ${partyId}, item ${itemId}:`,
-				error
+				error,
 			);
 			if (error instanceof functions.https.HttpsError) {
 				throw error; // Re-throw HttpsErrors
@@ -1048,10 +1079,10 @@ exports.updateSharedBasketItemQuantity = functions.https.onCall(
 			throw new functions.https.HttpsError(
 				"internal",
 				errorMessage,
-				error.details
+				error.details,
 			);
 		}
-	}
+	},
 );
 
 /**
@@ -1070,7 +1101,7 @@ exports.removeSharedBasketItem = functions.https.onCall(
 			console.error("removeSharedBasketItem: Authentication failed.");
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const requestingUserId = context.auth.uid;
@@ -1080,11 +1111,11 @@ exports.removeSharedBasketItem = functions.https.onCall(
 		if (!partyId || !itemId || !userId) {
 			console.error(
 				"removeSharedBasketItem: Invalid input - partyId, itemId, or userId (for check) missing.",
-				data
+				data,
 			);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Party ID, Item ID, and User ID for check are required."
+				"Party ID, Item ID, and User ID for check are required.",
 			);
 		}
 
@@ -1105,11 +1136,11 @@ exports.removeSharedBasketItem = functions.https.onCall(
 				const basketDoc = await transaction.get(sharedBasketRef);
 				if (!basketDoc.exists) {
 					console.error(
-						`removeSharedBasketItem: Shared basket for partyId ${partyId} not found.`
+						`removeSharedBasketItem: Shared basket for partyId ${partyId} not found.`,
 					);
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Party basket not found."
+						"Party basket not found.",
 					);
 				}
 
@@ -1129,7 +1160,7 @@ exports.removeSharedBasketItem = functions.https.onCall(
 
 				if (!itemRemovedFromArray || !itemToRemove) {
 					console.warn(
-						`removeSharedBasketItem: Item ${itemId} not found in basket for party ${partyId}. No action taken.`
+						`removeSharedBasketItem: Item ${itemId} not found in basket for party ${partyId}. No action taken.`,
 					);
 					// It's often better to return success if the item is already gone,
 					// as the desired state (item removed) is achieved.
@@ -1144,20 +1175,20 @@ exports.removeSharedBasketItem = functions.https.onCall(
 				// 2. The requesting user must be the host OR the one who ordered the item.
 				if (itemToRemove.status !== "new" && !isHost) {
 					console.error(
-						`removeSharedBasketItem: Item ${itemId} status is '${itemToRemove.status}', cannot be removed by non-host ${requestingUserId}.`
+						`removeSharedBasketItem: Item ${itemId} status is '${itemToRemove.status}', cannot be removed by non-host ${requestingUserId}.`,
 					);
 					throw new functions.https.HttpsError(
 						"permission-denied",
-						"Cannot remove items already processed, unless you are the host."
+						"Cannot remove items already processed, unless you are the host.",
 					);
 				}
 				if (!isHost && itemToRemove.orderedByUserId !== requestingUserId) {
 					console.error(
-						`removeSharedBasketItem: Permission denied. User ${requestingUserId} is not the host nor the owner (${itemToRemove.orderedByUserId}) of item ${itemId}.`
+						`removeSharedBasketItem: Permission denied. User ${requestingUserId} is not the host nor the owner (${itemToRemove.orderedByUserId}) of item ${itemId}.`,
 					);
 					throw new functions.https.HttpsError(
 						"permission-denied",
-						"You can only remove your own items."
+						"You can only remove your own items.",
 					);
 				}
 
@@ -1166,14 +1197,14 @@ exports.removeSharedBasketItem = functions.https.onCall(
 					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 				});
 				console.log(
-					`removeSharedBasketItem: Item ${itemId} removed from shared basket for party ${partyId} by ${requestingUserId}.`
+					`removeSharedBasketItem: Item ${itemId} removed from shared basket for party ${partyId} by ${requestingUserId}.`,
 				);
 				return { success: true };
 			});
 		} catch (error) {
 			console.error(
 				`removeSharedBasketItem: Transaction error for party ${partyId}, item ${itemId}:`,
-				error
+				error,
 			);
 			if (error instanceof functions.https.HttpsError) throw error;
 			const errorMessage =
@@ -1181,9 +1212,184 @@ exports.removeSharedBasketItem = functions.https.onCall(
 			throw new functions.https.HttpsError(
 				"internal",
 				errorMessage,
-				error.details
+				error.details,
 			);
 		}
-	}
+	},
 );
+
+exports.createPartySession = functions.https.onCall(async (data, context) => {
+	// 1. Auth Check
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated to start a session.",
+		);
+	}
+
+	const hostId = context.auth.uid;
+	const { restaurantId, tableId, existingPartyId } = data;
+
+	// 2. Input Validation
+	if (!restaurantId || !tableId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required QR code data (restaurantId or tableId).",
+		);
+	}
+
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const tableRef = restaurantRef.collection("tables").doc(tableId);
+	const customerRef = db.collection("customers").doc(hostId);
+
+	// Determine if we use the existing document or a new one
+	const partyRef = existingPartyId
+		? db.collection("parties").doc(existingPartyId)
+		: db.collection("parties").doc();
+
+	const checkInRef = db.collection("checkIns").doc();
+	const sharedBasketRef = db.collection("shared_baskets").doc(partyRef.id);
+	const newInviteCode = generateCode(); // Ensure this helper function exists in your scope
+
+	try {
+		return await db.runTransaction(async (transaction) => {
+			// A. Fetch all required data
+			const [tableDoc, restaurantDoc, customerDoc] = await Promise.all([
+				transaction.get(tableRef),
+				transaction.get(restaurantRef),
+				transaction.get(customerRef),
+			]);
+
+			if (!tableDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Table not found.");
+			}
+
+			// B. Extract data BEFORE checking status (The Fix)
+			const tableData = tableDoc.data();
+			const restaurantData = restaurantDoc.exists ? restaurantDoc.data() : {};
+			const customerData = customerDoc.exists ? customerDoc.data() : {};
+
+			// C. Race condition check
+			if (tableData.status !== "available") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This table was just claimed. Please scan again to join their party.",
+				);
+			}
+
+			const realRestaurantName =
+				restaurantData.name || restaurantData.restaurantName || "Restaurant";
+			const tableName = tableData.name || `Table ${tableId}`;
+			const hostName =
+				`${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
+				`User ${hostId.slice(-4)}`;
+			const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+			// Check if we are actually linking a pre-built party
+			let isPreBuiltCart = false;
+			if (existingPartyId) {
+				const existingPartyDoc = await transaction.get(partyRef);
+				if (existingPartyDoc.exists) {
+					isPreBuiltCart = true;
+				}
+			}
+
+			// D. Create the CheckIn document (Historical record)
+			const checkInData = {
+				id: checkInRef.id,
+				restaurantId: restaurantId,
+				customerId: hostId,
+				customerName: hostName,
+				numberOfPeople: 1,
+				status: "ACCEPTED",
+				type: "party",
+				partyId: partyRef.id,
+				table: { id: tableId, name: tableName },
+				server: { id: "unassigned", name: "Self-Seated" },
+				createdAt: timestamp,
+				acceptedAt: timestamp,
+			};
+			transaction.set(checkInRef, checkInData);
+
+			// E. Handle the Party/Basket Logic
+			if (isPreBuiltCart) {
+				// Scenario: User had a cart in the Uber. Just update it.
+				transaction.update(partyRef, {
+					status: "active",
+					table: { id: tableId, name: tableName },
+					partyName: tableName, // Update party name to current table
+					checkInId: checkInRef.id,
+					lastUpdated: timestamp,
+				});
+				// We do NOT set the shared basket because it already exists with food!
+			} else {
+				// Scenario: Brand new walk-in. Create new everything.
+				transaction.set(sharedBasketRef, {
+					items: [],
+					lastUpdated: timestamp,
+				});
+
+				transaction.set(partyRef, {
+					id: partyRef.id,
+					restaurantId: restaurantId,
+					restaurantName: realRestaurantName,
+					partyName: tableName,
+					table: { id: tableId, name: tableName },
+					checkInId: checkInRef.id,
+					sharedBasketId: partyRef.id,
+					hostId: hostId,
+					hostName: hostName,
+					status: "active",
+					inviteCode: newInviteCode,
+					createdAt: timestamp,
+					lastUpdated: timestamp,
+					guestUserIds: [hostId],
+					guestPips: [
+						{
+							userId: hostId,
+							name: hostName,
+							joinedAt: new Date(),
+							paymentStatus: "pending",
+						},
+					],
+				});
+			}
+
+			// F. Lock the Table
+			transaction.update(tableRef, {
+				status: "party",
+				currentPartyId: partyRef.id,
+				currentCheckInId: checkInRef.id,
+				seatedAt: timestamp,
+			});
+
+			// G. Update Host Profile
+			transaction.update(customerRef, {
+				activeCheckIn: {
+					checkInId: checkInRef.id,
+					partyId: partyRef.id,
+					restaurantId: restaurantId,
+					status: "ACCEPTED",
+					table: { id: tableId, name: tableName },
+				},
+				partyIds: admin.firestore.FieldValue.arrayUnion(partyRef.id),
+			});
+
+			return {
+				success: true,
+				partyId: partyRef.id,
+				checkInId: checkInRef.id,
+				inviteCode: newInviteCode,
+				message: "Successfully started table session!",
+			};
+		});
+	} catch (error) {
+		console.error("Create Party Session Error:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not start the table session.",
+		);
+	}
+});
 

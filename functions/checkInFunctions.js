@@ -2,6 +2,17 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 
+const generateCode = () => {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No I,1,O,0
+	let code = "";
+	for (let i = 0; i < 6; i++) {
+		code += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return code;
+};
+
+const newInviteCode = generateCode();
+
 exports.handleCheckIn = functions.firestore
 	.document("checkIns/{checkInId}")
 	.onCreate(async (snapshot, context) => {
@@ -593,6 +604,108 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 	}
 });
 
+exports.handleQRScan = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError("unauthenticated", "Please log in.");
+	}
+
+	const { restaurantId, tableId } = data;
+	if (!restaurantId || !tableId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing QR data.",
+		);
+	}
+
+	try {
+		const tableDoc = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(tableId)
+			.get();
+
+		if (!tableDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Table not found.");
+		}
+
+		const tableData = tableDoc.data();
+
+		// =================================================================
+		// SCENARIO 1: Table is empty -> Start a new party of 1
+		// =================================================================
+		if (tableData.status === "available") {
+			return { action: "create_party", message: "Table is available." };
+		}
+
+		// =================================================================
+		// SCENARIO 2: Table is occupied -> Find the active party
+		// =================================================================
+		const partyQuery = await db
+			.collection("parties")
+			.where("restaurantId", "==", restaurantId)
+			.where("table.id", "==", tableId)
+			.where("status", "in", ["active", "AWAITING_TABLE", "pending"])
+			.limit(1)
+			.get();
+
+		// EDGE CASE FIX: If the table isn't "available" but no party exists,
+		// it's a corrupted state. Don't fallback to individual, just throw an error.
+		if (partyQuery.empty) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Table is locked but no active session was found. Please contact staff to reset.",
+			);
+		}
+
+		const partyDoc = partyQuery.docs[0];
+		const partyData = partyDoc.data();
+
+		// =================================================================
+		// SCENARIO 3: User is already in this party
+		// =================================================================
+		if (
+			partyData.guestUserIds &&
+			partyData.guestUserIds.includes(context.auth.uid)
+		) {
+			return { action: "already_joined", partyId: partyDoc.id };
+		}
+
+		// --- SAFEGUARD: AUTO-GENERATE MISSING INVITE CODE ---
+		let currentInviteCode = partyData.inviteCode;
+
+		if (!currentInviteCode) {
+			currentInviteCode = Math.random()
+				.toString(36)
+				.substring(2, 8)
+				.toUpperCase();
+
+			await partyDoc.ref.update({ inviteCode: currentInviteCode });
+
+			console.log(
+				`[handleQRScan] Auto-generated missing invite code ${currentInviteCode} for party ${partyDoc.id}`,
+			);
+		}
+		// --------------------------------------------------
+
+		// =================================================================
+		// SCENARIO 4: User is new -> Hand them the keys to join
+		// =================================================================
+		return {
+			action: "join_party",
+			partyId: partyDoc.id,
+			hostName: partyData.hostName || "The Host",
+			inviteCode: currentInviteCode, // Guaranteed to exist
+		};
+	} catch (error) {
+		console.error("handleQRScan Error:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			error.message || "Error processing QR scan.",
+		);
+	}
+});
+
 exports.clearTable = functions.firestore
 	.document("restaurants/{restaurantId}/tables/{tableId}")
 	.onUpdate(async (change, context) => {
@@ -644,3 +757,162 @@ exports.clearTable = functions.firestore
 
 		return null;
 	});
+
+// =====================================================================
+// CONVERT INDIVIDUAL CHECK-IN TO PARTY (FIXED)
+// =====================================================================
+exports.convertIndividualToParty = functions.https.onCall(
+	async (data, context) => {
+		// 1. Auth Check
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be logged in.",
+			);
+		}
+
+		const { restaurantId, tableId, checkInId, originalUserId } = data;
+		const newUserId = context.auth.uid;
+
+		if (!restaurantId || !tableId || !checkInId || !originalUserId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Missing table data.",
+			);
+		}
+
+		try {
+			const batch = db.batch();
+			const partyId = db.collection("parties").doc().id;
+			const newInviteCode = generateCode();
+
+			// 5. Fetch Table, Restaurant, Basket, AND BOTH USERS in Parallel
+			const restaurantRef = db.collection("restaurants").doc(restaurantId);
+			const tableRef = restaurantRef.collection("tables").doc(tableId);
+			const userARef = db.collection("customers").doc(originalUserId);
+			const userBRef = db.collection("customers").doc(newUserId);
+			const activeBasketQuery = db
+				.collection("baskets")
+				.where("userId", "==", originalUserId)
+				.where("restaurantId", "==", restaurantId);
+
+			const [restaurantSnap, tableSnap, basketSnap, userASnap, userBSnap] =
+				await Promise.all([
+					restaurantRef.get(),
+					tableRef.get(),
+					activeBasketQuery.get(),
+					userARef.get(),
+					userBRef.get(),
+				]);
+
+			// Extract Data
+			const restaurantData = restaurantSnap.exists
+				? restaurantSnap.data()
+				: null;
+			const tableData = tableSnap.exists ? tableSnap.data() : null;
+			const realRestaurantName =
+				restaurantData.name ||
+				restaurantData.restaurantName ||
+				"Unknown Restaurant";
+			const tableName = tableData.name || "Table";
+
+			// 🚨 FIX 1: Extract User Names for the GuestPips
+			const userAData = userASnap.exists ? userASnap.data() : {};
+			const userBData = userBSnap.exists ? userBSnap.data() : {};
+
+			const userAName =
+				`${userAData.firstName || ""} ${userAData.lastName || ""}`.trim() ||
+				`User ${originalUserId.slice(-4)}`;
+			const userBName =
+				`${userBData.firstName || ""} ${userBData.lastName || ""}`.trim() ||
+				`User ${newUserId.slice(-4)}`;
+
+			const sharedItems = [];
+			basketSnap.docs.forEach((doc) => {
+				const item = doc.data();
+				sharedItems.push({
+					id: doc.id,
+					menuItemId: item.menuItemId || "",
+					dishName: item.dish.name || "Unknown Item",
+					price: item.dish.price || 0,
+					quantity: item.quantity || 1,
+					specialInstructions: item.specialInstructions || "",
+					orderedByUserId: originalUserId,
+					addedByUserId: originalUserId,
+					addedAt: item.createdAt || new Date(),
+					status: item.sentToChefQ ? "sent" : "new",
+					category: item.dish.category || null,
+					imageUri: item.dish.imageUri || null,
+					restaurantId: restaurantId,
+				});
+				batch.delete(doc.ref);
+			});
+
+			// 7. Create Shared Basket
+			const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+			batch.set(sharedBasketRef, {
+				items: sharedItems,
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			// 8. Create Party Document (Now with names included!)
+			const partyRef = db.collection("parties").doc(partyId);
+			batch.set(partyRef, {
+				id: partyId,
+				restaurantId: restaurantId,
+				restaurantName: realRestaurantName,
+				partyName: `${tableName}`,
+				table: { id: tableId, name: tableName },
+				checkInId: checkInId,
+				sharedBasketId: partyId,
+				hostId: originalUserId,
+				status: "active",
+				inviteCode: newInviteCode,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				guestUserIds: [originalUserId, newUserId], // Good practice to have an array of just IDs for querying
+				guestPips: [
+					{
+						userId: originalUserId,
+						name: userAName, // <-- Fixed
+						joinedAt: new Date(),
+						paymentStatus: "pending",
+					},
+					{
+						userId: newUserId,
+						name: userBName, // <-- Fixed
+						joinedAt: new Date(),
+						paymentStatus: "pending",
+					},
+				],
+			});
+
+			// 9. Update Table & Check-In
+			batch.update(tableRef, {
+				status: "party",
+				currentPartyId: partyId,
+			});
+
+			batch.update(db.collection("checkIns").doc(checkInId), {
+				type: "party",
+				partyId: partyId,
+			});
+
+			// 🚨 FIX 2: Update Both Users' Profiles so their UI automatically redirects
+			batch.update(userARef, {
+				partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+			});
+			batch.update(userBRef, {
+				partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+			});
+
+			await batch.commit();
+			return { success: true, partyId: partyId };
+		} catch (error) {
+			console.error("Conversion error details:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				error.message || "Could not convert to party.",
+			);
+		}
+	},
+);

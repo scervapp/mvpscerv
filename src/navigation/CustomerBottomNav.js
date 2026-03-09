@@ -36,6 +36,7 @@ import ManageAccountScreen from "../screens/customer/ManageAccountScreen";
 import PartyHubScreen from "../screens/customer/PartyHubScreen";
 import PayPalScreen from "../screens/customer/PayPalScreen";
 import QRScannerScreen from "../screens/customer/QRScannerScreen";
+import TableSetupPrompt from "../screens/customer/TableSetupPrompt";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -103,6 +104,15 @@ const CustomerDashboardStack = () => {
 					presentation: "modal",
 				})}
 			/>
+			<Stack.Screen
+				name="TableSetupPrompt"
+				component={TableSetupPrompt}
+				options={{
+					presentation: "transparentModal", // This creates the bottom-sheet overlay effect
+					animation: "slide_from_bottom",
+					headerShown: false, // We built our own drag handle, so no header needed
+				}}
+			/>
 			{/* <Stack.Screen
 			name="PartyLobbyScreen"
 			component={PartyLobbyScreen}
@@ -168,6 +178,15 @@ const PartyStackScreen = () => {
 				component={PartyMenuScreen}
 				// Options can be dynamic, e.g., set by PartyMenuScreen itself using navigation.setOptions
 				// options={({ route }) => ({ title: `Menu: ${route.params?.restaurantName || 'Menu'}` })}
+			/>
+			{/* 🚨 THE FIX: Add the QR Scanner natively to the Party flow! */}
+			<Stack.Screen
+				name="QRScannerScreen"
+				component={QRScannerScreen}
+				options={() => ({
+					headerTitle: t("scan_table_qr", "Scan Table QR"),
+					presentation: "modal",
+				})}
 			/>
 			<Stack.Screen
 				name="RestaurantDetailForPartyCreation" // If you navigate here from SelectRestaurantForParty

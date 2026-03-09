@@ -9,34 +9,25 @@ import React, {
 import {
 	View,
 	Text,
-	Image,
 	StyleSheet,
 	TouchableOpacity,
 	ActivityIndicator,
-	Modal,
-	TextInput,
 	Alert,
-	SafeAreaView, // Added SafeAreaView
-	// Removed Button from react-native
+	SafeAreaView,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { AuthContext } from "../../context/authContext";
-import { PartyContext, useParty } from "../../context/customer/PartyContext"; // Ensure useParty is exported if preferred
-import { useBasket } from "../../context/customer/BasketContext";
+import { useParty } from "../../context/customer/PartyContext";
 import colors from "../../utils/styles/appStyles";
 import {
-	checkIn, // Your utility to create a check-in
-	fetchMenu,
-	handleCancelCheckIn, // Your utility to cancel a check-in
+	handleCancelCheckIn,
 	useCheckInStatus,
 } from "../../utils/customerUtils";
-import MenuItemsList from "./MenuItemsList"; // Assuming this is your menu component
+import MenuItemsList from "./MenuItemsList";
 import { db, functions } from "../../config/firebase";
-import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
-import * as Yup from "yup";
-import { Formik } from "formik";
-import { Button as PaperButton } from "react-native-paper"; // Using Paper Button for consistent styling
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Button as PaperButton } from "react-native-paper";
 import { httpsCallable } from "@react-native-firebase/functions";
 import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
@@ -51,45 +42,41 @@ const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { restaurant, initialView } = route.params; // Expects { id, name, taxRate, imageUri, address, city, state, zipcode, cuisineType }
+	const { restaurant, initialView } = route.params;
 
 	const { currentUserData, logout } = useContext(AuthContext);
-	const { baskets, addItemToBasket: addItemToIndividualBasketFromContext } =
-		useBasket(); // For individual basket count
 
+	// 🚨 UNIFIED ARCHITECTURE: Pulling everything from PartyContext
 	const {
 		createParty,
-		isLoadingParty, // Loading state from PartyContext for party creation
+		isLoadingParty,
 		currentPartyIds,
-		partyDetails, // Details of the current party from context // Function from context
-		activatePartyCheckIn, // Function from context
-	} = useParty(); // Using the custom hook
+		partyDetails,
+		activatePartyCheckIn,
+		sharedBaskets,
+		addItemToPartyBasket, // 👈 Correct function name
+	} = useParty();
 
-	// Local loading states for this screen's specific actions
-	const [isModalVisible, setIsModalVisible] = useState(false);
+	// Local loading states
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
-	const [isProcessingAction, setIsProcessingAction] = useState(false);
 	const [isProcessingCheckInAction, setIsProcessingCheckInAction] =
 		useState(false);
-	const [isStartingPartyProcess, setIsStartingPartyProcess] = useState(false);
 	const [userPips, setUserPips] = useState([]);
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
-	const [isPartyModalVisible, setIsPartyModalVisible] = useState(false);
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
 		"customerCancelSeatedCheckIn",
 	);
 
-	// --- Call useCheckInStatus unconditionally at the top ---
+	// --- Check-In Status ---
 	const {
-		checkInStatus, // "REQUESTED", "ACCEPTED", "NONE", "ERROR"
-		tableNumber, // Table name if ACCEPTED
-		isLoading: isLoadingCheckInStatus, // Loading state for check-in status hook
-		checkInObj, // Full checkIn document from Firestore
+		checkInStatus,
+		isLoading: isLoadingCheckInStatus,
+		checkInObj,
 	} = useCheckInStatus(
 		currentUserData?.role === "customer" && restaurant?.id
 			? restaurant.id
@@ -99,12 +86,19 @@ const RestaurantDetailScreen = () => {
 			: null,
 	);
 
-	const restaurantBasket = useMemo(() => {
-		return baskets && restaurant?.id ? baskets[restaurant.id] : { items: [] };
-	}, [baskets, restaurant?.id]);
-	const basketCount = restaurantBasket?.items?.length || 0;
+	// 🚨 THE NEW BASKET COUNT: Look only at the party's shared basket
+	const currentPartyId =
+		restaurant?.id && currentPartyIds ? currentPartyIds[restaurant.id] : null;
+	const currentPartyItems =
+		currentPartyId && sharedBaskets ? sharedBaskets[currentPartyId] : [];
 
-	// Fetch user's PIPs (needed by MenuItemsList for SelectedItemModal)
+	// Count only the items the current user added
+	const basketCount =
+		currentPartyItems?.filter(
+			(item) => item.orderedByUserId === currentUserData?.uid,
+		).length || 0;
+
+	// Fetch user's PIPs
 	useEffect(() => {
 		if (currentUserData?.uid && currentUserData.role !== "guest") {
 			const pipsRef = db.collection(`customers/${currentUserData.uid}/pips`);
@@ -125,6 +119,7 @@ const RestaurantDetailScreen = () => {
 		}
 	}, [currentUserData?.uid]);
 
+	// Fetch Live Restaurant Data
 	useEffect(() => {
 		if (!restaurant?.id) {
 			setIsLoadingRestaurant(false);
@@ -134,10 +129,7 @@ const RestaurantDetailScreen = () => {
 		const unsubscribe = restaurantRef.onSnapshot(
 			(docSnap) => {
 				if (docSnap.exists()) {
-					// Update our state with the latest data, including the isOpen flag.
 					setLiveRestaurantData({ id: docSnap.id, ...docSnap.data() });
-				} else {
-					console.error("Restaurant document not found.");
 				}
 				setIsLoadingRestaurant(false);
 			},
@@ -146,22 +138,19 @@ const RestaurantDetailScreen = () => {
 				setIsLoadingRestaurant(false);
 			},
 		);
-
 		return () => unsubscribe();
 	}, [restaurant?.id]);
 
+	// Fetch Menu
 	useEffect(() => {
 		if (!restaurant?.id) {
-			setMenuError("Restaurant details are missing.");
 			setIsLoadingMenu(false);
 			return;
 		}
-
 		const menuQuery = query(
 			collection(db, "menuItems"),
 			where("restaurantId", "==", restaurant.id),
 		);
-
 		const unsubscribe = onSnapshot(
 			menuQuery,
 			(querySnapshot) => {
@@ -174,104 +163,75 @@ const RestaurantDetailScreen = () => {
 			},
 			(err) => {
 				console.error("Error fetching menu: ", err);
-				setMenuError("Failed to load the menu.");
 				setIsLoadingMenu(false);
 			},
 		);
-
 		return () => unsubscribe();
 	}, [restaurant.id]);
 
-	// --- Effect to potentially activate party after host's individual check-in ---
+	// Activate Party on Check-In
 	useEffect(() => {
-		// Only attempt to activate if all conditions are met
 		if (
-			checkInStatus === "ACCEPTED" && // 1. Host's INDIVIDUAL check-in is now accepted
-			checkInObj?.id && // 2. We have the check-in document ID
-			currentPartyIds && // 3. User is currently associated with a party in context
-			partyDetails?.id === currentPartyIds && // 4. The details for that party are loaded
-			partyDetails?.status === "pending" && // 5. That party is still pending activation
-			partyDetails?.restaurantId === restaurant?.id && // 6. The party is for the current restaurant
-			partyDetails?.hostUserId === currentUserData?.uid // 7. The current user IS the host of that party
+			checkInStatus === "ACCEPTED" &&
+			checkInObj?.id &&
+			currentPartyId &&
+			partyDetails?.id === currentPartyId &&
+			partyDetails?.status === "pending" &&
+			partyDetails?.restaurantId === restaurant?.id &&
+			partyDetails?.hostUserId === currentUserData?.uid
 		) {
-			console.log(
-				`RestaurantDetail: Host check-in ACCEPTED, attempting to activate party ${currentPartyIds} with checkIn ${checkInObj.id}`,
-			);
-			activatePartyCheckIn(checkInObj.id); // Call context function
+			activatePartyCheckIn(checkInObj.id);
 		}
 	}, [
 		checkInStatus,
 		checkInObj?.id,
-		currentPartyIds,
-		partyDetails, // Listen to the whole partyDetails object for changes
+		currentPartyId,
+		partyDetails,
 		restaurant?.id,
 		currentUserData?.uid,
 		activatePartyCheckIn,
 	]);
 
-	const openModal = () => {
-		console.log(
-			"RestaurantDetailScreen: openModal() called! Setting isModalVisible to true.",
+	// --- Actions ---
+	const handleViewParty = () => {
+		if (currentPartyId) {
+			navigation.navigate("PartyTab", {
+				screen: "PartySession",
+				params: {
+					partyId: currentPartyId,
+				},
+			});
+		}
+	};
+
+	const handleLeaveTable = () => {
+		if (!checkInObj?.id || isProcessingCheckInAction) return;
+
+		Alert.alert(
+			t("leave_table_title", "Leave Table"),
+			t("leave_table_message", "Are you sure you want to leave this table?"),
+			[
+				{ text: t("stay_button", "Stay"), style: "cancel" },
+				{
+					text: t("leave_button", "Leave"),
+					style: "destructive",
+					onPress: async () => {
+						setIsProcessingCheckInAction(true);
+						try {
+							await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
+						} catch (error) {
+							Alert.alert(
+								t("error_title", "Error"),
+								error.message ||
+									t("could_not_leave_table_message", "Could not leave table."),
+							);
+						} finally {
+							setIsProcessingCheckInAction(false);
+						}
+					},
+				},
+			],
 		);
-		setIsModalVisible(true);
-	};
-	const openPartyModal = () => {
-		setIsPartyModalVisible(true);
-	};
-	const closeModal = () => setIsModalVisible(false);
-
-	const closePartyModal = () => setIsPartyModalVisible(false);
-
-	// Function to handle individual check-in request
-	const handlePersonalCheckinSubmit = async (values) => {
-		if (currentUserData?.role === "guest") {
-			setIsAuthModalVisible(true); // If so, show the auth prompt and stop.
-			return;
-		}
-		if (
-			isLoadingCheckInStatus ||
-			isProcessingCheckInAction ||
-			checkInStatus === "REQUESTED" ||
-			checkInStatus === "ACCEPTED"
-		) {
-			return;
-		}
-		if (
-			currentPartyIds &&
-			partyDetails?.restaurantId === restaurant.id &&
-			(partyDetails?.status === "active" || partyDetails?.status === "pending")
-		) {
-			Alert.alert(t("in_a_party_title"), t("in_a_party_message"));
-			closeModal();
-			return;
-		}
-
-		setIsProcessingCheckInAction(true);
-		const customerName = `${currentUserData.firstName || ""} ${
-			currentUserData.lastName || ""
-		}`.trim();
-		try {
-			const { success, checkInId } = await checkIn(
-				restaurant.id,
-				currentUserData.uid,
-				values.partySize,
-				customerName,
-			);
-			if (success && checkInId) {
-				console.log("Personal check-in requested successfully:", checkInId);
-			} else {
-				Alert.alert(t("check_in_failed_title"), t("check_in_failed_message"));
-			}
-		} catch (error) {
-			console.error("Error during personal check-in:", error);
-			Alert.alert(
-				t("error_title"),
-				t("an_error_occurred_message", { message: error.message }),
-			);
-		} finally {
-			setIsProcessingCheckInAction(false);
-			closeModal();
-		}
 	};
 
 	const handleCancelIndividualCheckIn = async () => {
@@ -284,254 +244,126 @@ const RestaurantDetailScreen = () => {
 				checkInObj.id,
 			);
 			if (success) {
-				Alert.alert(t("success_title"), t("check_in_cancelled_message"));
+				Alert.alert(
+					t("success_title", "Success"),
+					t("check_in_cancelled_message", "Check-in cancelled successfully."),
+				);
 			} else {
-				Alert.alert(t("error_title"), t("could_not_cancel_check_in_message"));
+				Alert.alert(
+					t("error_title", "Error"),
+					t("could_not_cancel_check_in_message", "Could not cancel check-in."),
+				);
 			}
 		} catch (error) {
-			console.error("Error canceling check-in:", error);
 			Alert.alert(
-				t("error_title"),
-				t("an_error_occurred_while_cancelling_check_in_message"),
+				t("error_title", "Error"),
+				t(
+					"an_error_occurred_while_cancelling_check_in_message",
+					"An error occurred while cancelling.",
+				),
 			);
 		} finally {
 			setIsProcessingCheckInAction(false);
 		}
 	};
 
-	// --- Function to handle starting a party ---
-	const handleStartParty = async (values) => {
-		if (currentUserData?.role === "guest") {
-			setIsAuthModalVisible(true);
-			return;
-		}
-		if (!currentUserData) {
-			Alert.alert(
-				t("login_required_title"),
-				t("login_required_to_start_party_message"),
-			);
-			return;
-		}
-		if (!restaurant?.id) {
-			Alert.alert(t("error_title"), t("restaurant_details_missing_message"));
-			return;
-		}
-		if (
-			isLoadingParty ||
-			isLoadingCheckInStatus ||
-			checkInStatus === "REQUESTED" ||
-			checkInStatus === "ACCEPTED" ||
-			currentPartyIds[restaurant.id] // Change to check for restaurant-specific party
-		) {
-			if (currentPartyIds[restaurant.id]) {
-				Alert.alert(
-					t("already_in_a_party_title"),
-					t("already_in_a_party_manage_message"),
-				);
-			} else if (
-				checkInStatus === "REQUESTED" ||
-				checkInStatus === "ACCEPTED"
-			) {
-				Alert.alert(
-					t("already_checked_in_title"),
-					t("already_checked_in_message"),
-				);
-			}
-			return;
-		}
-		setIsStartingPartyProcess(true);
-		try {
-			const newPartyId = await createParty(
-				restaurant.id,
-				restaurant.restaurantName,
-			);
-			if (newPartyId) {
-				console.log(
-					`RestaurantDetail: Party created ${newPartyId}. Navigating to Party Hub.`,
-				);
-				navigation.navigate("PartyTab", {
-					screen: "PartySession",
-					params: {
-						partyId: newPartyId,
-						restaurantId: restaurant.id,
-						restaurantName: restaurant.restaurantName,
-					},
-				});
-			} else {
-				console.log(
-					"RestaurantDetail: createParty did not return a newPartyId.",
-				);
-			}
-		} catch (error) {
-			console.error(
-				"RestaurantDetail: Unexpected error in handleStartParty:",
-				error,
-			);
-			Alert.alert(
-				t("error_title"),
-				t("unexpected_error_starting_party_message"),
-			);
-		} finally {
-			setIsStartingPartyProcess(false);
-			closePartyModal();
-		}
-	};
-
-	// --- View Existing Party Handler ---
-	const handleViewParty = () => {
-		if (currentPartyIds[restaurant.id]) {
-			navigation.navigate("PartyTab", {
-				screen: "PartySession",
-				params: {
-					partyId: currentPartyIds[restaurant.id],
-				},
-			});
-		}
-	};
-
-	// --- Callback for MenuItemsList to add item to INDIVIDUAL BASKET ---
-	const handleAddItemToIndividualBasket = useCallback(
+	// 🚨 THE NEW "ADD TO BASKET" WITH AUTO-PARTY CREATION
+	const handleAddItemToPartyBasket = useCallback(
 		async (itemDataFromModal) => {
-			// itemDataFromModal from SelectedItemModal contains:
-			// { menuItemDetails (includes original menu item data),
-			//   quantity, specialInstructions (general if no PIPs/Myself selected with notes),
-			//   individualPips? (array of {id, name, specialInstructions} if individual mode and PIPs selected)
-			// }
-
 			if (!currentUserData?.uid) {
-				Alert.alert(
-					t("login_required_title"),
-					t("login_required_to_add_items_message"),
-				);
+				setIsAuthModalVisible(true);
 				return;
 			}
-			if (!addItemToIndividualBasketFromContext) {
-				Alert.alert(
-					t("error_title"),
-					t("basket_functionality_unavailable_message"),
-				);
-				return;
-			}
-			if (!restaurant?.id) {
-				Alert.alert(
-					t("error_title"),
-					t("restaurant_information_missing_message"),
-				);
-				return;
-			}
-
-			const {
-				menuItemDetails,
-				quantity,
-				individualPips,
-				specialInstructions: generalSpecialInstructions,
-			} = itemDataFromModal;
-
-			const dishForContext = {
-				id: menuItemDetails.id,
-				name: menuItemDetails.name,
-				price: menuItemDetails.price,
-				category: menuItemDetails.category,
-				imageUri: menuItemDetails.imageUri,
-				restaurantId: menuItemDetails.restaurantId,
-			};
 
 			try {
-				console.log(
-					"RestaurantDetailScreen: Calling BasketContext.addItemToIndividualBasketFromContext with:",
-					{
-						restaurantId: restaurant.id,
-						dish: dishForContext,
-						selectedPIPs: individualPips || [],
-						generalSpecialInstructions,
-						quantity,
-					},
-				);
+				let targetPartyId = currentPartyId;
 
-				// Ensure your BasketContext.addItemToBasket and its Cloud Function
-				// can handle the 'quantity' and the 'selectedPIPs' array (each PIP object having its own specialInstructions).
-				await addItemToIndividualBasketFromContext(
-					restaurant.id,
-					dishForContext,
-					individualPips || [], // Array of {id, name, specialInstructions}
-					{}, // server placeholder
-					generalSpecialInstructions,
-					{}, // table placeholder
-					quantity, // Pass quantity
-				);
-				// Snackbar is shown by MenuItemsList
-				console.log(
-					"RestaurantDetailScreen: Item added to individual basket successfully.",
-				);
+				// THE PRE-BUILD FEATURE: If no party exists, create one silently!
+				if (!targetPartyId) {
+					console.log("Pre-building cart: Creating a table-less party...");
+
+					targetPartyId = await createParty(
+						restaurant.id,
+						restaurant.restaurantName || t("restaurant", "Restaurant"),
+					);
+
+					if (!targetPartyId)
+						throw new Error(
+							t("error_initializing_order", "Could not initialize order."),
+						);
+				}
+
+				const {
+					menuItemDetails,
+					quantity,
+					individualPips,
+					specialInstructions,
+				} = itemDataFromModal;
+
+				// Format the PIP name if one is selected, otherwise default to "Myself"
+				const firstPip =
+					individualPips && individualPips.length > 0
+						? individualPips[0]
+						: null;
+				const orderingForId = firstPip ? firstPip.id : currentUserData.uid;
+				const orderingForName = firstPip
+					? firstPip.name
+					: t("myself", "Myself");
+
+				// Bundle the context data exactly how your PartyContext expects it
+				const partyContextData = {
+					partyId: targetPartyId,
+					orderingForUserId: orderingForId,
+					orderingForPipName: orderingForName,
+				};
+
+				// Bundle the menu item data exactly how your PartyContext expects it
+				const formattedMenuItemDetails = {
+					id: menuItemDetails.id,
+					name: menuItemDetails.name,
+					price: menuItemDetails.price,
+					category: menuItemDetails.category,
+					imageUri: menuItemDetails.imageUri,
+					restaurantId: restaurant.id,
+					quantity: quantity || 1,
+					specialInstructions: specialInstructions || "",
+				};
+
+				await addItemToPartyBasket(partyContextData, formattedMenuItemDetails);
+
+				console.log("Item added to shared basket successfully!");
 			} catch (error) {
-				console.error(
-					"RestaurantDetailScreen: Error in Individual addItemToBasket call:",
-					error,
-				);
+				console.error("Add to basket error:", error);
 				Alert.alert(
-					t("error_title"),
-					t("could_not_add_item_to_basket_message", { message: error.message }),
+					t("error_title", "Error"),
+					error.message ||
+						t("error_adding_item", "Could not add item to order."),
 				);
 			}
 		},
 		[
-			currentUserData?.uid,
-			addItemToIndividualBasketFromContext,
-			restaurant?.id,
+			currentUserData,
+			currentPartyId,
+			restaurant,
+			createParty,
+			addItemToPartyBasket,
+			t,
 		],
 	);
-
-	const handleLeaveTable = () => {
-		if (!checkInObj?.id || isProcessingCheckInAction) return;
-
-		Alert.alert(t("leave_table_title"), t("leave_table_message"), [
-			{ text: t("stay_button"), style: "cancel" },
-			{
-				text: t("leave_button"),
-				style: "destructive",
-				onPress: async () => {
-					setIsProcessingCheckInAction(true);
-					try {
-						await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
-						// The real-time listeners will handle the UI update automatically.
-					} catch (error) {
-						console.error("Error leaving table:", error);
-						Alert.alert(
-							t("error_title"),
-							error.message || t("could_not_leave_table_message"),
-						);
-					} finally {
-						setIsProcessingCheckInAction(false);
-					}
-				},
-			},
-		]);
-	};
 
 	const optionsForIndividualOrder = useMemo(() => {
 		if (!currentUserData) return [];
 		const myselfOption = {
 			id: currentUserData.uid,
-			name: currentUserData.firstName || t("myself"),
+			name: currentUserData.firstName || t("myself", "Myself"),
 		};
-		// Prevent adding "Myself" if it's somehow already in the pips list
 		const otherPips = (userPips || []).filter(
 			(p) => p.id !== currentUserData.uid,
 		);
 		return [myselfOption, ...otherPips];
-	}, [userPips, currentUserData]);
+	}, [userPips, currentUserData, t]);
 
-	const validationSchema = Yup.object().shape({
-		partySize: Yup.number()
-			.min(1, t("min_party_size", { min: 1 }))
-			.max(20, t("max_party_size", { max: 20 }))
-			.required(t("required_field"))
-			.typeError(t("must_be_a_number")),
-	});
-
-	// // --- ADD OR VERIFY THIS LOGGING BLOCK ---
-
-	// --- RENDER CHECK-IN / PARTY ICON BUTTONS ---
+	// --- DYNAMIC UI BUTTONS (QR FIRST FLOW) ---
 	const renderActionButtons = () => {
 		if (isLoadingCheckInStatus || isLoadingParty) {
 			return (
@@ -541,295 +373,187 @@ const RestaurantDetailScreen = () => {
 			);
 		}
 
-		// **CHANGE**: Always show "Start Party" or "View Party" regardless of isRestaurantOpen
-		if (currentPartyIds[restaurant.id]) {
-			const buttonText = t("view_your_party"); // Since it's for this restaurant
+		// Check if the current party actually has a table assigned to it yet
+		const activeParty = currentPartyId ? partyDetails?.[currentPartyId] : null;
+		const hasTable =
+			checkInStatus === "ACCEPTED" || (activeParty && activeParty.table?.id);
+
+		// 1. FULLY SEATED SESSION (Has Party/Check-in AND a Table)
+		if (hasTable) {
 			return (
 				<View style={styles.actionsRow}>
 					<TouchableOpacity
-						style={styles.actionButton}
+						style={styles.actionButtonCheckedIn}
 						onPress={handleViewParty}
 					>
 						<MaterialCommunityIcons
-							name="account-group"
+							name="silverware-fork-knife"
 							size={28}
-							color={colors.primary}
+							color={colors.statusSuccess}
 						/>
-						<Text style={[styles.actionButtonText, { textAlign: "center" }]}>
-							{buttonText}
+						<Text style={styles.actionButtonTextCheckedIn}>
+							{t("view_your_order", "View Order")}
 						</Text>
+						{checkInObj?.table?.name ? (
+							<Text style={styles.tableText}>{checkInObj.table.name}</Text>
+						) : activeParty?.table?.name ? (
+							<Text style={styles.tableText}>{activeParty.table.name}</Text>
+						) : null}
 					</TouchableOpacity>
-				</View>
-			);
-		}
 
-		switch (checkInStatus) {
-			case "REQUESTED":
-				return (
-					<View style={styles.actionsRow}>
-						<View style={styles.actionButtonDisabled}>
-							<MaterialCommunityIcons
-								name="timer-sand"
-								size={28}
-								color={colors.textLight}
-							/>
-							<Text style={styles.actionButtonTextDisabled}>
-								{t("waiting_to_be_seated")}
-							</Text>
-						</View>
-						<TouchableOpacity
-							style={styles.cancelButton}
-							onPress={handleCancelIndividualCheckIn}
-							disabled={isProcessingCheckInAction}
-						>
-							{isProcessingCheckInAction ? (
-								<ActivityIndicator size="small" color={colors.danger} />
-							) : (
-								<MaterialCommunityIcons
-									name="cancel"
-									size={28}
-									color={colors.danger}
-								/>
-							)}
-							<Text style={[styles.cancelButtonText, { color: colors.danger }]}>
-								{t("cancel_button")}
-							</Text>
-						</TouchableOpacity>
-					</View>
-				);
-			case "ACCEPTED":
-				return (
-					<View style={styles.actionsRow}>
-						<View style={styles.actionButtonCheckedIn}>
-							<MaterialCommunityIcons
-								name="check-circle"
-								size={28}
-								color={colors.statusSuccess}
-							/>
-							<Text style={styles.actionButtonTextCheckedIn}>
-								{t("checked_in")}
-							</Text>
-							{checkInObj?.table?.name && (
-								<Text style={styles.tableText}>{checkInObj.table.name}</Text>
-							)}
-						</View>
+					{/* Only show Leave Table if they are physically checked in */}
+					{checkInStatus === "ACCEPTED" && (
 						<TouchableOpacity
 							style={styles.cancelButton}
 							onPress={handleLeaveTable}
 							disabled={isProcessingCheckInAction}
 						>
 							{isProcessingCheckInAction ? (
-								<ActivityIndicator size="small" color={colors.danger} />
+								<ActivityIndicator size="small" color="#fff" />
 							) : (
 								<MaterialCommunityIcons
 									name="exit-run"
-									size={28}
-									color={colors.danger}
+									size={24}
+									color="#fff"
 								/>
 							)}
 							<Text style={styles.cancelButtonText}>
-								{t("leave_table_button")}
+								{t("leave_table_button", "Leave Table")}
 							</Text>
 						</TouchableOpacity>
-					</View>
-				);
-			case "NONE":
-			case "ERROR":
-			default:
-				return (
-					<View style={styles.actionsRow}>
-						<TouchableOpacity
-							style={styles.actionButton}
-							onPress={openModal}
-							disabled={isProcessingCheckInAction}
-						>
-							{isProcessingCheckInAction ? (
-								<ActivityIndicator size="small" color={colors.primary} />
-							) : (
-								<MaterialCommunityIcons
-									name="calendar-check-outline"
-									size={28}
-									color={colors.primary}
-								/>
-							)}
-							<Text style={styles.actionButtonText}>
-								{t("check_in_solo_button")}
-							</Text>
-						</TouchableOpacity>
-						<TouchableOpacity
-							style={[
-								styles.actionButton,
-								(isStartingPartyProcess || isLoadingParty) &&
-									styles.actionButtonDisabled,
-							]}
-							onPress={handleStartParty}
-							disabled={isStartingPartyProcess || isLoadingParty}
-						>
-							{isStartingPartyProcess ? (
-								<ActivityIndicator size="small" color={colors.primary} />
-							) : (
-								<MaterialCommunityIcons
-									name="account-multiple-plus-outline"
-									size={28}
-									color={colors.primary}
-								/>
-							)}
-							<Text style={styles.actionButtonText}>
-								{t("start_party_button")}
-							</Text>
-						</TouchableOpacity>
-						{/* NEW: Scan QR Code Button */}
-						<TouchableOpacity
-							style={styles.actionButton}
-							onPress={() =>
-								navigation.navigate("QRScannerScreen", {
-									restaurantId: restaurant.id,
-								})
-							}
-							disabled={isProcessingCheckInAction}
-						>
-							<MaterialCommunityIcons
-								name="qrcode-scan"
-								size={28}
-								color={colors.primary}
-							/>
-							<Text style={styles.actionButtonText}>{t("scan_table_qr")}</Text>
-						</TouchableOpacity>
-					</View>
-				);
+					)}
+				</View>
+			);
 		}
+
+		// 2. WAITING STATE
+		if (checkInStatus === "REQUESTED") {
+			return (
+				<View style={styles.actionsRow}>
+					<View style={styles.actionButtonDisabled}>
+						<MaterialCommunityIcons
+							name="timer-sand"
+							size={28}
+							color={colors.textLight}
+						/>
+						<Text style={styles.actionButtonTextDisabled}>
+							{t("waiting_to_be_seated", "Waiting...")}
+						</Text>
+					</View>
+					<TouchableOpacity
+						style={styles.cancelButton}
+						onPress={handleCancelIndividualCheckIn}
+					>
+						<MaterialCommunityIcons name="cancel" size={24} color="#fff" />
+						<Text style={styles.cancelButtonText}>
+							{t("cancel_button", "Cancel")}
+						</Text>
+					</TouchableOpacity>
+				</View>
+			);
+		}
+
+		// 3. 🚨 THE PRE-BUILD STATE: Has a cart, but NO table yet
+		if (currentPartyId && !hasTable) {
+			return (
+				<View style={styles.actionsRow}>
+					<TouchableOpacity
+						style={[styles.actionButtonCheckedIn, { marginRight: 10 }]}
+						onPress={handleViewParty}
+					>
+						<MaterialCommunityIcons
+							name="basket"
+							size={24}
+							color={colors.statusSuccess}
+						/>
+						<Text style={styles.actionButtonTextCheckedIn}>
+							{t("view_cart", "View Basket")}
+						</Text>
+					</TouchableOpacity>
+
+					<TouchableOpacity
+						style={styles.primaryScanButton}
+						onPress={() =>
+							navigation.navigate("QRScannerScreen", {
+								restaurantId: restaurant.id,
+							})
+						}
+					>
+						<MaterialCommunityIcons name="qrcode-scan" size={24} color="#fff" />
+						<Text style={styles.primaryScanText}>
+							{t("scan_to_dine", "Scan to Order")}
+						</Text>
+					</TouchableOpacity>
+				</View>
+			);
+		}
+
+		// 4. DEFAULT STATE: Empty cart, no check-in
+		return (
+			<View style={styles.actionsRow}>
+				<TouchableOpacity
+					style={styles.primaryScanButton}
+					onPress={() => {
+						if (currentUserData?.role === "guest") {
+							setIsAuthModalVisible(true);
+						} else {
+							navigation.navigate("QRScannerScreen", {
+								restaurantId: restaurant.id,
+							});
+						}
+					}}
+				>
+					<MaterialCommunityIcons name="qrcode-scan" size={24} color="#fff" />
+					<Text style={styles.primaryScanText}>
+						{t("scan_table_qr_order", "Scan Table QR to Order")}
+					</Text>
+				</TouchableOpacity>
+			</View>
+		);
 	};
 
 	if (!restaurant) {
 		return (
 			<SafeAreaView style={styles.centered}>
-				<Text style={styles.errorText}>{t("restaurant_data_not_found")}</Text>
+				<Text style={{ color: colors.statusDanger }}>
+					{t("restaurant_data_not_found", "Restaurant not found")}
+				</Text>
 				<PaperButton onPress={() => navigation.goBack()}>
-					{t("go_back_button")}
+					{t("go_back_button", "Go Back")}
 				</PaperButton>
 			</SafeAreaView>
 		);
 	}
 
-	const renderHeader = () => (
-		<RestaurantHeader
-			restaurant={restaurant}
-			initialView={initialView}
-			renderActionButtons={renderActionButtons}
-		/>
-	);
+	return (
+		<SafeAreaView style={styles.safeArea}>
+			<MenuItemsList
+				menuItems={menuItems}
+				isLoading={isLoadingMenu}
+				ListHeaderComponent={
+					<RestaurantHeader
+						restaurant={restaurant}
+						initialView={initialView}
+						renderActionButtons={renderActionButtons}
+					/>
+				}
+				pips={optionsForIndividualOrder}
+				onConfirmAddItemToContext={handleAddItemToPartyBasket}
+				orderingMode="individual" // 🚨 Kept as individual so UI modal works perfectly
+			/>
 
-	const renderMenu = () => (
-		<MenuItemsList
-			menuItems={menuItems}
-			isLoading={isLoadingMenu}
-			ListHeaderComponent={renderHeader()} // Pass the render function's result
-			pips={optionsForIndividualOrder}
-			onConfirmAddItemToContext={handleAddItemToIndividualBasket}
-			orderingMode="individual"
-		/>
-	);
-
-	const renderOverlays = () => (
-		<>
-			{/* Floating Basket Button */}
+			{/* 🚨 UPDATED FLOATING BASKET BUTTON: Navigates to the Party Session */}
 			{currentUserData?.role === "customer" && basketCount > 0 && (
-				<TouchableOpacity
-					style={styles.fabContainer}
-					onPress={() =>
-						navigation.navigate("BasketScreen", {
-							restaurant,
-							mode: "individual",
-						})
-					}
-				>
+				<TouchableOpacity style={styles.fabContainer} onPress={handleViewParty}>
 					<View style={styles.fabContent}>
 						<MaterialCommunityIcons name="basket" size={32} color="white" />
-						{basketCount > 0 && (
-							<View style={styles.badge}>
-								<Text style={styles.badgeText}>{basketCount}</Text>
-							</View>
-						)}
+						<View style={styles.badge}>
+							<Text style={styles.badgeText}>{basketCount}</Text>
+						</View>
 					</View>
 				</TouchableOpacity>
 			)}
 
-			{/* Check-In Modal */}
-			{isModalVisible && (
-				<Modal
-					transparent={true}
-					onRequestClose={closeModal}
-					visible={isModalVisible}
-					animationType="fade"
-				>
-					<View style={styles.modalOverlay}>
-						<View style={styles.modalContent}>
-							<Formik
-								initialValues={{ partySize: "1" }} // Default to 1 for personal check-in
-								validationSchema={validationSchema}
-								onSubmit={handlePersonalCheckinSubmit}
-							>
-								{({
-									handleChange,
-									handleBlur,
-									handleSubmit,
-									values,
-									errors,
-									touched,
-								}) => (
-									<>
-										<Text style={styles.modalTitle}>
-											{t("how_many_in_your_party")}
-										</Text>
-										<TextInput
-											style={styles.input}
-											onChangeText={handleChange("partySize")}
-											onBlur={handleBlur("partySize")}
-											value={values.partySize}
-											keyboardType="numeric"
-											placeholder={t("party_size_placeholder")}
-											textAlign="center"
-										/>
-										{errors.partySize && touched.partySize && (
-											<Text style={styles.errorTextModal}>
-												{errors.partySize}
-											</Text>
-										)}
-										<View style={styles.modalButtonRow}>
-											<TouchableOpacity
-												onPress={closeModal}
-												style={[styles.modalButton, styles.cancelModalButton]}
-											>
-												<Text style={styles.modalButtonText}>
-													{t("cancel_button")}
-												</Text>
-											</TouchableOpacity>
-											<TouchableOpacity
-												onPress={handleSubmit}
-												style={[
-													styles.modalButton,
-													isProcessingAction && styles.disabledButton,
-												]}
-												disabled={isProcessingAction}
-											>
-												{isProcessingAction ? (
-													<ActivityIndicator size="small" color="white" />
-												) : (
-													<Text style={styles.modalButtonText}>
-														{t("request_check_in_button")}
-													</Text>
-												)}
-											</TouchableOpacity>
-										</View>
-									</>
-								)}
-							</Formik>
-						</View>
-					</View>
-				</Modal>
-			)}
-
-			{/* Auth Prompt Modal */}
 			<AuthPromptModal
 				isVisible={isAuthModalVisible}
 				onClose={() => setIsAuthModalVisible(false)}
@@ -842,274 +566,104 @@ const RestaurantDetailScreen = () => {
 					logout("CustomerSignup");
 				}}
 			/>
-		</>
-	);
-
-	return (
-		<SafeAreaView style={styles.safeArea}>
-			{renderMenu()}
-			{renderOverlays()}
 		</SafeAreaView>
 	);
 };
 
 // --- Styles ---
 const styles = StyleSheet.create({
-	safeArea: {
-		flex: 1,
-		backgroundColor: colors.backgroundLight, // Use new color
-	},
-	container: {
-		flex: 1,
-	},
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	centered: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 		padding: 20,
-		backgroundColor: colors.backgroundLight,
-	},
-	image: {
-		width: "100%",
-		height: 250,
-		resizeMode: "cover",
-	},
-	infoContainer: {
-		padding: 20,
-		backgroundColor: colors.surfaceWhite, // Use new color
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight, // Use new color
-	},
-	name: {
-		fontSize: 26,
-		fontWeight: "bold",
-		marginBottom: 8,
-		color: colors.textDark, // Use new color
-	},
-	address: {
-		fontSize: 16,
-		color: colors.textMedium, // Use new color
-		marginBottom: 4,
-	},
-	cuisine: {
-		fontSize: 16,
-		color: colors.textMedium, // Use new color
-		fontStyle: "italic",
-		marginBottom: 10,
 	},
 	actionsRow: {
 		flexDirection: "row",
 		justifyContent: "space-around",
-		alignItems: "flex-start", // Align items to start to allow varying text lengths
+		alignItems: "center",
 		paddingVertical: 15,
-		paddingHorizontal: 10,
-		backgroundColor: colors.surfaceWhite, // Card-like background for actions
+		paddingHorizontal: 15,
+		backgroundColor: colors.surfaceWhite,
 		borderTopWidth: 1,
 		borderBottomWidth: 1,
 		borderColor: colors.borderLight,
-		marginBottom: 10, // Space before menu
-		color: colors.textMedium,
+		marginBottom: 10,
 	},
-
-	cancelButton: {
+	primaryScanButton: {
 		flex: 1,
-		flexDirection: "column",
-		alignItems: "center",
+		flexDirection: "row",
+		backgroundColor: colors.primary,
+		paddingVertical: 14,
+		borderRadius: 8,
 		justifyContent: "center",
-		padding: 10,
-		backgroundColor: colors.danger || "#dc3545", // Added a background color
-		borderRadius: 8,
-		marginHorizontal: 5,
-	},
-	cancelButtonText: {
-		marginTop: 4,
-		fontSize: 12,
-		color: "#ffffff", // White text for visibility on a dark/red button
-		fontWeight: "600",
-	},
-	closedMessageContainer: {
-		flex: 1,
-		paddingVertical: 10,
 		alignItems: "center",
+		shadowColor: colors.primary,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.3,
+		shadowRadius: 4,
+		elevation: 4,
 	},
-	closedMessageText: {
+	primaryScanText: {
+		color: "#fff",
 		fontSize: 16,
-		fontWeight: "500",
-		color: colors.textMedium,
-	},
-	actionButton: {
-		alignItems: "center",
-		padding: 10,
-		borderRadius: 8,
-		minWidth: 120, // Give buttons some space
-		flex: 1, // Allow buttons to share space
-		marginHorizontal: 5, // Space between buttons
-		// backgroundColor: colors.primary + '1A', // Lighter primary for touch feedback (optional)
-	},
-	actionButtonText: {
-		marginTop: 6,
-		fontSize: 13,
-		color: colors.primary, // Use new color
-		fontWeight: "600",
-		textAlign: "center",
-	},
-	actionButtonDisabled: {
-		alignItems: "center",
-		padding: 10,
-		borderRadius: 8,
-		minWidth: 120,
-		flex: 1,
-		marginHorizontal: 5,
-		opacity: 0.6,
-	},
-	actionButtonTextDisabled: {
-		marginTop: 6,
-		fontSize: 13,
-		color: colors.textLight, // Use new color
-		fontWeight: "500",
-		textAlign: "center",
+		fontWeight: "bold",
+		marginLeft: 10,
 	},
 	actionButtonCheckedIn: {
-		alignItems: "center",
-		padding: 10,
-		borderRadius: 8,
-		minWidth: 120,
 		flex: 1,
-		marginHorizontal: 5,
-		backgroundColor: colors.statusSuccess + "1A", // Light success background
+		alignItems: "center",
+		paddingVertical: 12,
+		borderRadius: 8,
+		marginRight: 10,
+		backgroundColor: colors.statusSuccess + "1A",
+		borderWidth: 1,
+		borderColor: colors.statusSuccess + "33",
 	},
 	actionButtonTextCheckedIn: {
-		marginTop: 6,
-		fontSize: 13,
-		color: colors.statusSuccess, // Use new color
-		fontWeight: "600",
+		marginTop: 4,
+		fontSize: 14,
+		color: colors.statusSuccess,
+		fontWeight: "bold",
 	},
 	tableText: {
 		fontSize: 12,
 		color: colors.statusSuccess,
-		fontWeight: "bold",
+		fontWeight: "600",
 		marginTop: 2,
+	},
+	cancelButton: {
+		flex: 0.4,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		backgroundColor: colors.danger || "#dc3545",
+		borderRadius: 8,
 	},
 	cancelButtonText: {
 		marginTop: 4,
 		fontSize: 12,
-		color: colors.danger,
-		fontWeight: "600",
+		color: "#ffffff",
+		fontWeight: "bold",
 	},
-	guestMessageContainer: {
-		padding: 20,
-		alignItems: "center",
-	},
-	guestLoginButton: {
-		backgroundColor: colors.primary, // Use new color
-		paddingHorizontal: 15,
-	},
-	guestLoginButtonText: {
-		color: colors.textOnPrimaryBrand, // Use new color
-		fontSize: 16,
-	},
-	modalOverlay: {
+	actionButtonDisabled: {
 		flex: 1,
-		backgroundColor: "rgba(0, 0, 0, 0.6)",
-		justifyContent: "center",
 		alignItems: "center",
+		padding: 10,
+		opacity: 0.6,
 	},
-	modalContent: {
-		backgroundColor: colors.surfaceWhite, // Use new color
-		padding: 25,
-		borderRadius: 12,
-		width: "85%",
-		alignItems: "center",
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
-	},
-	modalTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 20,
-		color: colors.textDark, // Use new color
-		textAlign: "center",
-	},
-	input: {
-		// For Formik TextInput
-		borderWidth: 1,
-		borderColor: colors.borderLight, // Use new color
-		backgroundColor: colors.surfaceWhite,
-		paddingHorizontal: 15,
-		paddingVertical: 12,
-		borderRadius: 8,
-		fontSize: 18,
-		color: colors.textDark,
-		marginBottom: 10,
-		width: "80%", // Or specific width
-		textAlign: "center",
-	},
-	errorText: {
-		// General error text on screen
-		color: colors.statusDanger, // Use new color
-		textAlign: "center",
-		marginBottom: 10,
-	},
-	errorTextModal: {
-		// Error text inside modal
-		color: colors.statusDanger,
+	actionButtonTextDisabled: {
+		marginTop: 4,
 		fontSize: 13,
-		marginBottom: 10,
-		textAlign: "center",
-	},
-	modalButtonRow: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		width: "100%",
-		marginTop: 20,
-	},
-	modalButton: {
-		backgroundColor: colors.primary, // Use new color
-		paddingVertical: 12,
-		paddingHorizontal: 10,
-		borderRadius: 8,
-		alignItems: "center",
-		flex: 1, // Distribute space
-		marginHorizontal: 5,
-	},
-	cancelModalButton: {
-		backgroundColor: colors.textMedium, // Use new color for cancel
-	},
-	modalButtonText: {
-		color: colors.textOnPrimaryBrand, // Use new color
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	disabledButton: {
-		opacity: 0.5,
-	},
-	menuSection: {
-		paddingVertical: 20,
-		paddingHorizontal: 15, // Consistent padding
-	},
-	menuHeader: {
-		fontSize: 22,
-		fontWeight: "bold",
-		marginBottom: 15,
-		color: colors.textDark,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
-		paddingBottom: 8,
-	},
-	noMenuText: {
-		textAlign: "center",
-		color: colors.textMedium,
-		marginTop: 20,
-		fontStyle: "italic",
+		color: colors.textLight,
+		fontWeight: "500",
 	},
 	fabContainer: {
 		position: "absolute",
 		right: 20,
 		bottom: 20,
-		backgroundColor: colors.brandOrange, // Use new accent color
+		backgroundColor: colors.brandOrange,
 		width: 64,
 		height: 64,
 		borderRadius: 32,
@@ -1121,28 +675,21 @@ const styles = StyleSheet.create({
 		shadowOpacity: 0.3,
 		shadowRadius: 4,
 	},
-	fabContent: {
-		justifyContent: "center",
-		alignItems: "center",
-	},
+	fabContent: { justifyContent: "center", alignItems: "center" },
 	badge: {
 		position: "absolute",
 		right: -5,
 		top: -5,
-		backgroundColor: colors.statusDanger, // Use new color
+		backgroundColor: colors.statusDanger,
 		borderRadius: 12,
 		width: 24,
 		height: 24,
 		justifyContent: "center",
 		alignItems: "center",
-		borderWidth: 1,
+		borderWidth: 2,
 		borderColor: colors.surfaceWhite,
 	},
-	badgeText: {
-		color: colors.surfaceWhite,
-		fontSize: 12,
-		fontWeight: "bold",
-	},
+	badgeText: { color: "#fff", fontSize: 11, fontWeight: "bold" },
 });
 
 export default RestaurantDetailScreen;

@@ -28,18 +28,18 @@ async function addItemToBasket(data, context) {
 		console.error("addItemToBasket: Authentication failed.");
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	// Ensure the userId in data matches the authenticated user, or allow admin override if needed
 	if (context.auth.uid !== data.userId) {
 		// Potentially check for admin role if you want admins to add to other users' baskets
 		console.error(
-			"addItemToBasket: Authenticated user does not match userId in data."
+			"addItemToBasket: Authenticated user does not match userId in data.",
 		);
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"User can only add items to their own basket."
+			"User can only add items to their own basket.",
 		);
 	}
 
@@ -72,7 +72,7 @@ async function addItemToBasket(data, context) {
 		});
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing or invalid required fields (userId, restaurantId, dish details, quantity)."
+			"Missing or invalid required fields (userId, restaurantId, dish details, quantity).",
 		);
 	}
 
@@ -86,14 +86,14 @@ async function addItemToBasket(data, context) {
 		if (selectedPIPs && selectedPIPs.length > 0) {
 			// Scenario 1: Items are for specific PIPs (or "Myself" if included in selectedPIPs)
 			console.log(
-				`addItemToBasket: Adding items for ${selectedPIPs.length} selected targets (PIPs/Myself). Quantity per target: ${quantity}`
+				`addItemToBasket: Adding items for ${selectedPIPs.length} selected targets (PIPs/Myself). Quantity per target: ${quantity}`,
 			);
 
 			for (const pipTarget of selectedPIPs) {
 				if (!pipTarget || !pipTarget.id || !pipTarget.name) {
 					console.warn(
 						"addItemToBasket: Skipping invalid pipTarget in selectedPIPs array:",
-						pipTarget
+						pipTarget,
 					);
 					continue; // Skip malformed PIP objects
 				}
@@ -127,13 +127,13 @@ async function addItemToBasket(data, context) {
 				};
 				batch.set(basketItemRef, basketItemData);
 				console.log(
-					`addItemToBasket: Queued item for PIP: ${pipTarget.name} (ID: ${pipTarget.id}) with quantity ${quantity}`
+					`addItemToBasket: Queued item for PIP: ${pipTarget.name} (ID: ${pipTarget.id}) with quantity ${quantity}`,
 				);
 			}
 		} else {
 			// Scenario 2: Item is for the current user, no specific PIPs selected (or "Myself" was the only implicit target)
 			console.log(
-				`addItemToBasket: Adding single item for user ${userId}. Quantity: ${quantity}`
+				`addItemToBasket: Adding single item for user ${userId}. Quantity: ${quantity}`,
 			);
 			const basketItemRef = basketCollectionRef.doc();
 			createdBasketItemIds.push(basketItemRef.id);
@@ -166,13 +166,13 @@ async function addItemToBasket(data, context) {
 		await batch.commit();
 		console.log(
 			`addItemToBasket: Successfully committed ${createdBasketItemIds.length} item(s) to basket for user ${userId}. IDs:`,
-			createdBasketItemIds
+			createdBasketItemIds,
 		);
 		return { success: true, basketItemIds: createdBasketItemIds };
 	} catch (error) {
 		console.error(
 			`addItemToBasket: Error processing request for user ${userId}:`,
-			error
+			error,
 		);
 		if (error instanceof functions.https.HttpsError) {
 			throw error; // Re-throw HttpsErrors
@@ -180,7 +180,7 @@ async function addItemToBasket(data, context) {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Failed to add item(s) to basket.",
-			error.message
+			error.message,
 		);
 	}
 }
@@ -194,14 +194,14 @@ async function removeItemFromBasket(data, context) {
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User not authenticated"
+				"User not authenticated",
 			);
 		}
 
 		if (!restaurantId || !basketItemId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid data provided"
+				"Invalid data provided",
 			);
 		}
 
@@ -214,7 +214,7 @@ async function removeItemFromBasket(data, context) {
 		if (!basketItemSnapshot.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
-				"Basket item not found"
+				"Basket item not found",
 			);
 		}
 
@@ -244,7 +244,7 @@ async function updateBasketItemQuantity(data, context) {
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User not authenticated"
+				"User not authenticated",
 			);
 		}
 
@@ -252,7 +252,7 @@ async function updateBasketItemQuantity(data, context) {
 			// Basic validation for newQuantity
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid data provided"
+				"Invalid data provided",
 			);
 		}
 
@@ -265,7 +265,7 @@ async function updateBasketItemQuantity(data, context) {
 		if (!basketItemSnapshot.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
-				"Basket item not found"
+				"Basket item not found",
 			);
 		}
 
@@ -293,14 +293,14 @@ async function clearBasket(data, context) {
 		if (!context.auth || !context.auth.uid || context.auth.uid !== userId) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User not authenticated"
+				"User not authenticated",
 			);
 		}
 
 		if (!restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid data provided"
+				"Invalid data provided",
 			);
 		}
 
@@ -340,7 +340,7 @@ async function sendToChefsQ(data, context) {
 		) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid data provided"
+				"Invalid data provided",
 			);
 		}
 
@@ -383,7 +383,7 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const requestingUserId = context.auth.uid;
@@ -392,7 +392,7 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 	if (!partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Party ID is required."
+			"Party ID is required.",
 		);
 	}
 
@@ -405,7 +405,7 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 			if (!partyDoc.exists || partyDoc.data().status !== "active") {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Party must be active to send items to the kitchen."
+					"Party must be active to send items to the kitchen.",
 				);
 			}
 
@@ -413,7 +413,7 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 			if (!basketDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Party basket not found."
+					"Party basket not found.",
 				);
 			}
 
@@ -441,7 +441,7 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 				// This can happen if the user's client is out of sync.
 				// It's not an error, just an informational result.
 				console.log(
-					`sendItemsToChefsQ: User ${requestingUserId} had no new items to send for party ${partyId}.`
+					`sendItemsToChefsQ: User ${requestingUserId} had no new items to send for party ${partyId}.`,
 				);
 				return {
 					success: true,
@@ -457,20 +457,20 @@ exports.sendItemsToChefsQ = functions.https.onCall(async (data, context) => {
 			});
 
 			console.log(
-				`sendItemsToChefsQ: Successfully sent ${itemsSentCount} item(s) to kitchen for user ${requestingUserId} in party ${partyId}.`
+				`sendItemsToChefsQ: Successfully sent ${itemsSentCount} item(s) to kitchen for user ${requestingUserId} in party ${partyId}.`,
 			);
 			return { success: true, itemsSent: itemsSentCount };
 		});
 	} catch (error) {
 		console.error(
 			`Error sending items to kitchen for party ${partyId}:`,
-			error
+			error,
 		);
 		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not send items to kitchen.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -507,123 +507,110 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
-	const { type, sourceId, table, server } = data;
+
+	// 🚨 Removed 'type' entirely since everything is a party now!
+	// sourceId is now strictly your partyId
+	const { sourceId, table, server, allowedUserIds } = data;
 	const userId = context.auth.uid;
 
-	if (!type || !sourceId || !table || !server) {
+	if (!sourceId || !table || !server) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing required data."
+			"Missing required data.",
 		);
 	}
 
-	try {
-		let itemsFromSource = [];
-		let restaurantIdForOrder;
-		const batch = db.batch();
+	// Fallback: If no array is passed, just use the main user's ID
+	const idsToProcess =
+		Array.isArray(allowedUserIds) && allowedUserIds.length > 0
+			? allowedUserIds
+			: [userId];
 
+	try {
+		const batch = db.batch();
 		const menuItemDetailsMap = new Map();
 
-		if (type === "party") {
-			const basketRef = db.collection("shared_baskets").doc(sourceId);
-			const basketDoc = await basketRef.get();
-			if (!basketDoc.exists) throw new Error("Shared basket not found.");
+		// 1. Strictly pull from the shared_baskets collection
+		const basketRef = db.collection("shared_baskets").doc(sourceId);
+		const basketDoc = await basketRef.get();
 
-			const allItems = basketDoc.data().items || [];
-			itemsFromSource = allItems.filter(
-				(item) => item.orderedByUserId === userId && item.status === "new"
-			);
-
-			if (itemsFromSource.length > 0) {
-				restaurantIdForOrder = itemsFromSource[0].restaurantId;
-
-				// Get all unique menu item IDs from the items being ordered.
-				const menuItemIds = [
-					...new Set(itemsFromSource.map((item) => item.menuItemId)),
-				];
-
-				// Fetch all the corresponding documents from the menuItems collection.
-				if (menuItemIds.length > 0) {
-					const menuItemsQuery = db
-						.collection("menuItems")
-						.where(admin.firestore.FieldPath.documentId(), "in", menuItemIds);
-					const menuItemsSnapshot = await menuItemsQuery.get();
-
-					// Populate our map for easy lookup.
-					menuItemsSnapshot.forEach((doc) => {
-						menuItemDetailsMap.set(doc.id, doc.data());
-					});
-				}
-
-				// Update the shared_basket items' status
-				const updatedSourceItems = allItems.map((item) =>
-					item.orderedByUserId === userId && item.status === "new"
-						? { ...item, status: "sent", sentAt: new Date() }
-						: item
-				);
-				batch.update(basketRef, {
-					items: updatedSourceItems,
-					lastUpdated: new Date(),
-				});
-			}
-		} else if (type === "individual") {
-			const basketQuery = db
-				.collection("baskets")
-				.where("checkInId", "==", sourceId)
-				.where("sentToChefQ", "==", false);
-			const basketSnapshot = await basketQuery.get();
-			itemsFromSource = basketSnapshot.docs.map((doc) => ({
-				id: doc.id,
-				...doc.data(),
-			}));
-			if (itemsFromSource.length > 0) {
-				restaurantIdForOrder = itemsFromSource[0].restaurantId;
-				basketSnapshot.docs.forEach((doc) =>
-					batch.update(doc.ref, { sentToChefQ: true })
-				);
-			}
+		if (!basketDoc.exists) {
+			throw new Error(`Shared basket for party ${sourceId} not found.`);
 		}
+
+		const allItems = basketDoc.data().items || [];
+
+		// 2. Filter items using the array of PIP IDs
+		const itemsFromSource = allItems.filter(
+			(item) =>
+				idsToProcess.includes(item.orderedByUserId) && item.status === "new",
+		);
 
 		if (itemsFromSource.length === 0) {
 			return { success: true, message: "No new items to send.", itemsSent: 0 };
 		}
 
-		// --- THIS IS THE FIX ---
-		// The normalization logic is now smarter and handles the different data structures correctly.
-		const kitchenItems = itemsFromSource.map((item) => {
-			let category;
-			let dishName;
+		const restaurantIdForOrder = itemsFromSource[0].restaurantId;
 
-			if (type === "party") {
-				// For party items, get the details from the map we created.
-				const details = menuItemDetailsMap.get(item.menuItemId);
-				category = details.category || "Other"; // Safely access category
-				dishName = details.name || "Unknown Item"; // Safely access name
-			} else {
-				// For individual items, the structure already has the nested dish object.
-				// This line will no longer crash for party orders.
-				category = item.dish.category || "Other";
-				dishName = item.dish.name || "Unknown Item";
+		// 3. Fetch menu details (Safely chunked to prevent Firestore 10-item limit crashes!)
+		const menuItemIds = [
+			...new Set(itemsFromSource.map((item) => item.menuItemId)),
+		];
+		if (menuItemIds.length > 0) {
+			for (let i = 0; i < menuItemIds.length; i += 10) {
+				const chunk = menuItemIds.slice(i, i + 10);
+				const menuItemsQuery = db
+					.collection("menuItems")
+					.where(admin.firestore.FieldPath.documentId(), "in", chunk);
+				const menuItemsSnapshot = await menuItemsQuery.get();
+
+				menuItemsSnapshot.forEach((doc) => {
+					menuItemDetailsMap.set(doc.id, doc.data());
+				});
 			}
+		}
+
+		// 4. Update the status of both your items and your PIPs' items to "sent"
+		const updatedSourceItems = allItems.map((item) =>
+			idsToProcess.includes(item.orderedByUserId) && item.status === "new"
+				? { ...item, status: "sent", sentAt: new Date() }
+				: item,
+		);
+
+		batch.update(basketRef, {
+			items: updatedSourceItems,
+			lastUpdated: new Date(),
+		});
+
+		// 5. Format the items for the Kitchen Order document
+		const kitchenItems = itemsFromSource.map((item) => {
+			const details = menuItemDetailsMap.get(item.menuItemId);
+
+			// Safely fallback to item properties if the menu lookup fails
+			const category = details.category || item.category || "Other";
+			const dishName =
+				details.name || item.dishName || item.dish.name || "Unknown Item";
 
 			return {
 				id: item.id,
 				dishName: dishName,
 				quantity: item.quantity,
 				specialInstructions: item.specialInstructions || "",
-				orderedFor: item.orderedByPipName || item.pipName || item.customerName,
-				// The destination is now reliably set for both party and individual orders.
+				orderedFor:
+					item.orderedByPipName || item.pipName || item.customerName || "Guest",
 				destination: DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen",
 			};
 		});
 
+		// 6. Create the official kitchen order
 		const kitchenOrderRef = db.collection("kitchen_orders").doc();
 		const kitchenOrderData = {
 			restaurantId: restaurantIdForOrder,
 			orderId: kitchenOrderRef.id,
+			partyId: sourceId, // Link the order back to the party
 			table: table,
 			server: server,
 			items: kitchenItems,
@@ -641,12 +628,12 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		};
 	} catch (error) {
 		console.error(
-			`Error sending order to kitchen for source ${sourceId}:`,
-			error
+			`Error sending order to kitchen for party ${sourceId}:`,
+			error,
 		);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not send order to kitchen."
+			"Could not send order to kitchen.",
 		);
 	}
 });
@@ -665,7 +652,7 @@ exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
-			"User must be authenticated."
+			"User must be authenticated.",
 		);
 	}
 	const userId = context.auth.uid;
@@ -674,7 +661,7 @@ exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
 	if (!restaurantId || !checkInId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID and Check-In ID are required."
+			"Restaurant ID and Check-In ID are required.",
 		);
 	}
 
@@ -689,7 +676,7 @@ exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
 
 		if (snapshot.empty) {
 			console.log(
-				`linkBasketToCheckIn: No basket items found for user ${userId} at restaurant ${restaurantId} to link.`
+				`linkBasketToCheckIn: No basket items found for user ${userId} at restaurant ${restaurantId} to link.`,
 			);
 			return { success: true, linkedItems: 0 };
 		}
@@ -702,7 +689,7 @@ exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
 		await batch.commit();
 
 		console.log(
-			`linkBasketToCheckIn: Successfully linked ${snapshot.size} items to checkInId ${checkInId}.`
+			`linkBasketToCheckIn: Successfully linked ${snapshot.size} items to checkInId ${checkInId}.`,
 		);
 		return { success: true, linkedItems: snapshot.size };
 	} catch (error) {
@@ -710,7 +697,7 @@ exports.linkBasketToCheckIn = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not link items to check-in.",
-			error.message
+			error.message,
 		);
 	}
 });
@@ -741,7 +728,7 @@ exports.addItemToSharedBasket = functions.https.onCall(
 			console.error("addItemToSharedBasket: Authentication failed.");
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const currentUserId = context.auth.uid;
@@ -765,7 +752,7 @@ exports.addItemToSharedBasket = functions.https.onCall(
 			console.error("addItemToSharedBasket: Invalid input.", data);
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Missing or invalid required fields."
+				"Missing or invalid required fields.",
 			);
 		}
 		// Validate that the restaurantId for the item is present if you intend to store it per item
@@ -774,7 +761,7 @@ exports.addItemToSharedBasket = functions.https.onCall(
 			!menuItemData.restaurantId
 		) {
 			console.warn(
-				`addItemToSharedBasket: menuItemData.restaurantId is missing or invalid for item ${menuItemData.name}. Storing as null or consider fetching party's restaurantId.`
+				`addItemToSharedBasket: menuItemData.restaurantId is missing or invalid for item ${menuItemData.name}. Storing as null or consider fetching party's restaurantId.`,
 			);
 			// If all items in a party basket must belong to the party's restaurant,
 			// you might fetch the party document here to get its restaurantId and use that.
@@ -795,11 +782,11 @@ exports.addItemToSharedBasket = functions.https.onCall(
 				const basketDoc = await transaction.get(sharedBasketRef);
 				if (!basketDoc.exists) {
 					console.error(
-						`addItemToSharedBasket: Shared basket for partyId ${partyId} not found.`
+						`addItemToSharedBasket: Shared basket for partyId ${partyId} not found.`,
 					);
 					throw new functions.https.HttpsError(
 						"not-found",
-						"Party basket not found."
+						"Party basket not found.",
 					);
 				}
 
@@ -832,7 +819,7 @@ exports.addItemToSharedBasket = functions.https.onCall(
 							return value.toISOString();
 						}
 						return value;
-					})
+					}),
 				);
 
 				const updatedItemsArray = [...itemsArray, newItem];
@@ -843,14 +830,14 @@ exports.addItemToSharedBasket = functions.https.onCall(
 				});
 
 				console.log(
-					`addItemToSharedBasket: Item ${basketItemId} transactionally added to shared basket for party ${partyId}.`
+					`addItemToSharedBasket: Item ${basketItemId} transactionally added to shared basket for party ${partyId}.`,
 				);
 				return { success: true, basketItemId: basketItemId };
 			});
 		} catch (error) {
 			console.error(
 				`addItemToSharedBasket: Transaction error for party ${partyId}:`,
-				error
+				error,
 			);
 			if (error instanceof functions.https.HttpsError) {
 				throw error;
@@ -861,16 +848,16 @@ exports.addItemToSharedBasket = functions.https.onCall(
 			throw new functions.https.HttpsError(
 				"internal",
 				errorMessage,
-				error.details
+				error.details,
 			);
 		}
-	}
+	},
 );
 
 exports.addItemToBasket = functions.https.onCall(addItemToBasket);
 exports.removeItemFromBasket = functions.https.onCall(removeItemFromBasket);
 exports.updateBasketItemQuantity = functions.https.onCall(
-	updateBasketItemQuantity
+	updateBasketItemQuantity,
 );
 exports.clearBasket = functions.https.onCall(clearBasket);
 exports.sendToChefsQ = functions.https.onCall(sendToChefsQ);

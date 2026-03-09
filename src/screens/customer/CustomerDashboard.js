@@ -10,9 +10,10 @@ import {
 	TouchableOpacity,
 	ActivityIndicator,
 	Alert,
-	Modal, // Added for Region Selection
+	Modal,
 } from "react-native";
 
+import AsyncStorage from "@react-native-async-storage/async-storage"; // NEW: Persistence
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 
@@ -32,7 +33,7 @@ import {
 import CompleteProfileScreen from "../auth/CompleteProfile";
 import { useTranslation } from "react-i18next";
 import * as Localization from "expo-localization";
-import { Ionicons } from "@expo/vector-icons"; // For checkmarks and globe icon
+import { Ionicons } from "@expo/vector-icons";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -49,6 +50,7 @@ const SectionHeader = ({ title }) => (
 
 const CategoryChip = ({ label, isActive, onPress }) => (
 	<TouchableOpacity
+		activeOpacity={0.7}
 		style={[styles.categoryChip, isActive && styles.categoryChipActive]}
 		onPress={onPress}
 	>
@@ -64,7 +66,11 @@ const CategoryChip = ({ label, isActive, onPress }) => (
 );
 
 const FeaturedCard = ({ item, onPress }) => (
-	<TouchableOpacity style={styles.featuredCard} onPress={onPress}>
+	<TouchableOpacity
+		activeOpacity={0.8}
+		style={styles.featuredCard}
+		onPress={onPress}
+	>
 		<Image source={{ uri: item.imageUri }} style={styles.featuredImage} />
 		<View style={styles.featuredInfo}>
 			<Text style={styles.featuredName} numberOfLines={1}>
@@ -86,35 +92,57 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	const [activeCategory, setActiveCategory] = useState("all");
 	const [allRestaurants, setAllRestaurants] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
-	const [topCategories, setTopCategories] = useState([]);
-	const [forceGlobalView, setForceGlobalView] = useState(false); // Admin Override
+	const [isRegionLoading, setIsRegionLoading] = useState(true); // NEW: Prevents UI flash
+	const [forceGlobalView, setForceGlobalView] = useState(false);
 	const [showRegionModal, setShowRegionModal] = useState(false);
-
-	// 1. Determine Initial Region based on Device Settings
-	const [selectedRegion, setSelectedRegion] = useState(() => {
-		const deviceRegion = Localization.getLocales()[0]?.regionCode;
-		const isSupported = SUPPORTED_REGIONS.find((r) => r.code === deviceRegion);
-		// If supported, use it. If not, return null (triggers modal).
-		return isSupported ? deviceRegion : null;
-	});
+	const [selectedRegion, setSelectedRegion] = useState(null); // Initialized dynamically now
 
 	const debouncedSearchText = useDebounce(searchText, 300);
 	const isActivelySearching = searchText.length > 0;
 
 	// --- EFFECTS ---
 
-	// 2. Check Region on Mount
+	// 1. Check Region on Mount (from AsyncStorage or Device)
 	useEffect(() => {
-		// If we couldn't auto-detect a supported region, ask the user immediately.
-		if (!selectedRegion) {
-			setShowRegionModal(true);
-		}
-	}, [selectedRegion]);
+		const loadInitialRegion = async () => {
+			try {
+				// Check local storage first
+				const savedRegion = await AsyncStorage.getItem("@scerv_region");
 
-	// 3. Fetch Restaurants (Filtered by Region)
+				if (
+					savedRegion &&
+					SUPPORTED_REGIONS.find((r) => r.code === savedRegion)
+				) {
+					setSelectedRegion(savedRegion);
+				} else {
+					// Fallback to device region
+					const deviceRegion = Localization.getLocales()[0]?.regionCode;
+					const isSupported = SUPPORTED_REGIONS.find(
+						(r) => r.code === deviceRegion,
+					);
+
+					if (isSupported) {
+						setSelectedRegion(deviceRegion);
+						// Save the auto-detected region so we don't calculate again
+						await AsyncStorage.setItem("@scerv_region", deviceRegion);
+					} else {
+						setShowRegionModal(true);
+					}
+				}
+			} catch (error) {
+				console.error("Error loading region from storage:", error);
+				setShowRegionModal(true);
+			} finally {
+				setIsRegionLoading(false);
+			}
+		};
+
+		loadInitialRegion();
+	}, []);
+
+	// 2. Fetch Restaurants (Filtered by Region)
 	useEffect(() => {
-		// Wait until we have a region (or admin global mode is on)
-		if (!selectedRegion && !forceGlobalView) return;
+		if (isRegionLoading || (!selectedRegion && !forceGlobalView)) return;
 
 		setIsLoading(true);
 		console.log(
@@ -123,7 +151,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 
 		let q = db.collection("restaurants").where("isLive", "==", true);
 
-		// Apply Region Filter (unless Admin Global Mode is ON)
 		if (!forceGlobalView && selectedRegion) {
 			q = q.where("countryCode", "==", selectedRegion);
 		}
@@ -143,28 +170,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 			},
 		);
 		return () => unsubscribe();
-	}, [selectedRegion, forceGlobalView]);
-
-	// 4. Fetch Top Categories (Can remain global or filter if needed)
-	useEffect(() => {
-		const fetchTopCategories = async () => {
-			try {
-				const snap = await getDocs(
-					query(
-						collection(db, "menuItems"),
-						where("averageRating", ">=", 4.0),
-						orderBy("averageRating", "desc"),
-						limit(100),
-					),
-				);
-				// ... (Category processing logic remains the same)
-				// For brevity, skipping the detailed map/reduce logic here as it doesn't change
-			} catch (error) {
-				console.error("Failed to load top categories:", error);
-			}
-		};
-		fetchTopCategories();
-	}, []);
+	}, [selectedRegion, forceGlobalView, isRegionLoading]);
 
 	// --- HANDLERS ---
 	const handleRestaurantPress = (restaurant) => {
@@ -172,6 +178,18 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	};
 	const handleSearch = (text) => setSearchText(text);
 	const handleCategoryPress = (category) => setActiveCategory(category.value);
+
+	// NEW: Save selected region securely
+	const handleRegionSelect = async (regionCode) => {
+		setSelectedRegion(regionCode);
+		setForceGlobalView(false);
+		setShowRegionModal(false);
+		try {
+			await AsyncStorage.setItem("@scerv_region", regionCode);
+		} catch (error) {
+			console.error("Failed to save region:", error);
+		}
+	};
 
 	// --- MEMOS ---
 	const featuredRestaurants = useMemo(
@@ -225,13 +243,11 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 						</Text>
 					</View>
 
-					{/* REGION TOGGLE ICON (Top Right) */}
 					<TouchableOpacity
 						onPress={() => setShowRegionModal(true)}
 						style={styles.regionIconContainer}
 					>
 						<Text style={{ fontSize: 22 }}>
-							{/* Show Flag of selected region or Globe if null */}
 							{SUPPORTED_REGIONS.find(
 								(r) => r.code === selectedRegion,
 							)?.label.split(" ")[0] || "🌍"}
@@ -247,7 +263,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 					/>
 				</View>
 
-				{/* Featured Section */}
 				{!isActivelySearching && featuredRestaurants.length > 0 && (
 					<View style={styles.featuredSection}>
 						<SectionHeader title={t("featured_restaurants")} />
@@ -267,7 +282,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 					</View>
 				)}
 
-				{/* Categories Section */}
 				{!isActivelySearching && (
 					<View style={styles.categoriesContainer}>
 						<SectionHeader title={t("cuisine")} />
@@ -288,7 +302,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 					</View>
 				)}
 
-				{/* Search Results Header */}
 				{isActivelySearching && (
 					<View style={styles.sectionHeaderContainer}>
 						<SectionHeader
@@ -319,23 +332,25 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 			categories,
 			t,
 			currentUserData,
-			selectedRegion, // Update header when region changes
+			selectedRegion,
 		],
 	);
 
-	// --- LOADING STATE ---
-	if (isLoading) {
+	// --- APP FLOW ---
+	if (isRegionLoading) {
 		return (
-			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+			<SafeAreaView
+				style={[
+					styles.container,
+					{ justifyContent: "center", alignItems: "center" },
+				]}
+			>
 				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
+			</SafeAreaView>
 		);
 	}
 
-	if (
-		currentUserData &&
-		(!currentUserData || !currentUserData.profileCompleted)
-	) {
+	if (currentUserData && !currentUserData.profileCompleted) {
 		return <CompleteProfileScreen />;
 	}
 
@@ -349,7 +364,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 				transparent={true}
 				animationType="fade"
 				onRequestClose={() => {
-					// Prevent closing if no region is selected yet
 					if (selectedRegion) setShowRegionModal(false);
 				}}
 			>
@@ -360,9 +374,8 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 							{t("select_region_title") || "Select Your Region"}
 						</Text>
 						<Text style={styles.modalMessage}>
-							{/* Show different message if they are switching vs forcing */}
 							{selectedRegion
-								? t("select_region_title") // "Change Region"
+								? t("select_region_title")
 								: t("region_not_supported_message") ||
 									"Please select a market:"}
 						</Text>
@@ -374,11 +387,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 									styles.regionButton,
 									selectedRegion === region.code && styles.regionButtonActive,
 								]}
-								onPress={() => {
-									setSelectedRegion(region.code);
-									setForceGlobalView(false); // Disable global view if they pick a region
-									setShowRegionModal(false);
-								}}
+								onPress={() => handleRegionSelect(region.code)}
 							>
 								<Text style={styles.regionButtonText}>{region.label}</Text>
 								{selectedRegion === region.code && (
@@ -391,7 +400,6 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 							</TouchableOpacity>
 						))}
 
-						{/* Close button (only if region is already set) */}
 						{selectedRegion && (
 							<TouchableOpacity
 								onPress={() => setShowRegionModal(false)}
@@ -407,87 +415,66 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 			</Modal>
 
 			{/* --- MAIN CONTENT --- */}
-			{!isLoading &&
-			filteredRestaurants.length === 0 &&
-			!isActivelySearching &&
-			activeCategory === "all" ? (
-				// EMPTY STATE
-				<View
-					style={{
-						flex: 1,
-						alignItems: "center",
-						justifyContent: "center",
-						padding: 20,
-					}}
-				>
-					<Image
-						source={require("../../../assets/icon.png")}
-						style={{ width: 80, height: 80, opacity: 0.5, marginBottom: 20 }}
-					/>
-					<Text
+			{isLoading ? (
+				<View style={{ flex: 1 }}>
+					{ListHeader}
+					<View style={{ flex: 1, justifyContent: "center" }}>
+						<ActivityIndicator size="large" color={colors.primary} />
+					</View>
+				</View>
+			) : filteredRestaurants.length === 0 &&
+			  !isActivelySearching &&
+			  activeCategory === "all" ? (
+				<View style={{ flex: 1 }}>
+					{ListHeader}
+					<View
 						style={{
-							fontSize: 18,
-							color: colors.textMedium,
-							textAlign: "center",
-							marginBottom: 10,
+							flex: 1,
+							alignItems: "center",
+							justifyContent: "center",
+							padding: 20,
 						}}
 					>
-						{t("no_restaurants_found")}
-					</Text>
-					<Text
-						style={{
-							fontSize: 14,
-							color: colors.textLight,
-							textAlign: "center",
-							marginBottom: 30,
-						}}
-					>
-						Region: {selectedRegion}
-					</Text>
-
-					<TouchableOpacity
-						onPress={() => setShowRegionModal(true)}
-						style={{
-							padding: 12,
-							backgroundColor: colors.primary,
-							borderRadius: 8,
-						}}
-					>
-						<Text style={{ color: "white", fontWeight: "bold" }}>
-							Change Region
-						</Text>
-					</TouchableOpacity>
-
-					{/* ADMIN TOGGLE (Only if flag exists in Firestore) */}
-					{currentUserData?.canViewHiddenRestaurants === true && (
-						<TouchableOpacity
-							onPress={() => {
-								Alert.alert(
-									"Admin Mode",
-									forceGlobalView
-										? "Restoring Region Filter"
-										: "Showing ALL Restaurants",
-								);
-								setForceGlobalView(!forceGlobalView);
-							}}
+						<Image
+							source={require("../../../assets/icon.png")}
+							style={{ width: 80, height: 80, opacity: 0.5, marginBottom: 20 }}
+						/>
+						<Text
 							style={{
-								marginTop: 30,
-								paddingHorizontal: 20,
-								paddingVertical: 12,
-								backgroundColor: "#FFD700",
+								fontSize: 18,
+								color: colors.textMedium,
+								textAlign: "center",
+								marginBottom: 10,
+							}}
+						>
+							{t("no_restaurants_found")}
+						</Text>
+						<Text
+							style={{
+								fontSize: 14,
+								color: colors.textLight,
+								textAlign: "center",
+								marginBottom: 30,
+							}}
+						>
+							Region: {selectedRegion}
+						</Text>
+
+						<TouchableOpacity
+							onPress={() => setShowRegionModal(true)}
+							style={{
+								padding: 12,
+								backgroundColor: colors.primary,
 								borderRadius: 8,
 							}}
 						>
-							<Text style={{ fontWeight: "bold", color: "black" }}>
-								{forceGlobalView
-									? "Admin: Show Local Only"
-									: "Admin: Show All Countries"}
+							<Text style={{ color: "white", fontWeight: "bold" }}>
+								Change Region
 							</Text>
 						</TouchableOpacity>
-					)}
+					</View>
 				</View>
 			) : (
-				// LIST OF RESTAURANTS
 				<FlatList
 					data={filteredRestaurants}
 					renderItem={({ item }) => (
@@ -531,15 +518,12 @@ const styles = StyleSheet.create({
 	welcomeContainer: { flex: 1 },
 	welcomeText: { fontSize: 20, fontWeight: "bold", color: colors.textDark },
 	subtitle: { fontSize: 14, color: colors.textMedium },
-
-	// Header Region Icon
 	regionIconContainer: {
 		padding: 8,
 		backgroundColor: colors.backgroundLight,
 		borderRadius: 20,
 		marginLeft: 10,
 	},
-
 	searchContainer: {
 		paddingHorizontal: 15,
 		paddingVertical: 10,
@@ -597,8 +581,6 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 	},
 	categoryChipTextActive: { color: colors.surfaceWhite },
-
-	// Modal Styles
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0,0,0,0.5)",
@@ -647,11 +629,7 @@ const styles = StyleSheet.create({
 		borderColor: colors.primary,
 		backgroundColor: colors.backgroundLight,
 	},
-	regionButtonText: {
-		fontSize: 18,
-		fontWeight: "500",
-		color: colors.textDark,
-	},
+	regionButtonText: { fontSize: 18, fontWeight: "500", color: colors.textDark },
 });
 
 export default CustomerDashboard;
