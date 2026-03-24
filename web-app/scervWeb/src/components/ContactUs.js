@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
+import SEO from "./SEO";
 
 const ContactSection = styled.section`
 	padding: ${({ theme }) => theme.spacing.xl} 0;
 	background-color: ${({ theme }) => theme.colors.background};
+	min-height: calc(100vh - 200px);
 `;
 
 const Container = styled.div`
@@ -14,22 +16,23 @@ const Container = styled.div`
 	margin: 0 auto;
 	padding: 0 ${({ theme }) => theme.spacing.md};
 	display: grid;
-	grid-template-columns: 1fr; /* One column by default */
-	gap: ${({ theme }) => theme.spacing.lg};
+	grid-template-columns: 1fr;
+	gap: ${({ theme }) => theme.spacing.xl};
 
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		grid-template-columns: 1fr 1fr; /* Two columns on larger screens */
+		grid-template-columns: 1fr 1fr;
 	}
 `;
 
 const ContactInfo = styled.div`
 	display: flex;
 	flex-direction: column;
-	justify-content: center; /* Center content vertically */
+	justify-content: center;
 `;
 
 const H1 = styled.h1`
 	font-size: 2.5rem;
+	color: ${({ theme }) => theme.colors.primary};
 	margin-bottom: ${({ theme }) => theme.spacing.md};
 	text-align: center;
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
@@ -40,6 +43,7 @@ const H1 = styled.h1`
 const H2 = styled.h2`
 	font-size: 1.5rem;
 	margin-bottom: ${({ theme }) => theme.spacing.md};
+	color: ${({ theme }) => theme.colors.text};
 	text-align: center;
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
 		text-align: left;
@@ -47,30 +51,43 @@ const H2 = styled.h2`
 `;
 
 const P = styled.p`
-	font-size: 1rem;
+	font-size: 1.1rem;
 	line-height: 1.6;
-	margin-bottom: ${({ theme }) => theme.spacing.md};
+	color: ${({ theme }) => theme.colors.textLight};
+	margin-bottom: ${({ theme }) => theme.spacing.lg};
 `;
 
 const ContactItem = styled.div`
 	display: flex;
 	align-items: center;
-	margin-bottom: ${({ theme }) => theme.spacing.sm};
+	margin-bottom: ${({ theme }) => theme.spacing.md};
+	font-size: 1.1rem;
 
 	i {
-		/* Assuming you'll use font icons */
 		font-size: 1.5rem;
 		margin-right: ${({ theme }) => theme.spacing.sm};
-		color: ${({ theme }) => theme.colors.primary};
+		color: ${({ theme }) =>
+			theme.colors.secondary}; /* Accent color for icons */
+	}
+
+	a {
+		color: ${({ theme }) => theme.colors.text};
+		text-decoration: none;
+		transition: color 0.2s ease;
+
+		&:hover {
+			color: ${({ theme }) => theme.colors.primary};
+		}
 	}
 `;
+
 const Form = styled.form`
 	display: flex;
 	flex-direction: column;
 	background-color: ${({ theme }) => theme.colors.white};
-	padding: ${({ theme }) => theme.spacing.lg};
-	border-radius: ${({ theme }) => theme.radius.md};
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	padding: ${({ theme }) => theme.spacing.xl};
+	border-radius: ${({ theme }) => theme.radius.lg};
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 `;
 
 const FormGroup = styled.div`
@@ -79,84 +96,108 @@ const FormGroup = styled.div`
 
 const Label = styled.label`
 	display: block;
-	margin-bottom: ${({ theme }) => theme.spacing.xs};
+	margin-bottom: 6px;
 	font-weight: 600;
+	font-size: 0.95rem;
 	color: ${({ theme }) => theme.colors.text};
 `;
 
 const Input = styled.input`
 	width: 100%;
-	padding: ${({ theme }) => theme.spacing.sm};
+	padding: 12px;
 	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.sm};
 	font-size: 1rem;
 	color: ${({ theme }) => theme.colors.text};
-	transition: border-color 0.2s ease;
+	transition: all 0.2s ease;
+	box-sizing: border-box;
 
 	&:focus {
 		outline: none;
 		border-color: ${({ theme }) => theme.colors.primary};
+		box-shadow: 0 0 0 3px rgba(16, 107, 125, 0.1);
 	}
 
-	/* Style for invalid input */
 	&.invalid {
-		border-color: ${({ theme }) =>
-			theme.colors.error}; /*  add an error color to your theme */
+		border-color: ${({ theme }) => theme.colors.error};
 	}
 `;
+
 const TextArea = styled.textarea`
 	width: 100%;
-	padding: ${({ theme }) => theme.spacing.sm};
+	padding: 12px;
 	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.sm};
 	font-size: 1rem;
 	color: ${({ theme }) => theme.colors.text};
-	transition: border-color 0.2s ease;
-	font-family: inherit; /* Important for textareas */
+	transition: all 0.2s ease;
+	font-family: inherit;
+	box-sizing: border-box;
+	resize: vertical;
 
 	&:focus {
 		outline: none;
 		border-color: ${({ theme }) => theme.colors.primary};
+		box-shadow: 0 0 0 3px rgba(16, 107, 125, 0.1);
 	}
-	/* Style for invalid input */
+
 	&.invalid {
-		border-color: ${({ theme }) =>
-			theme.colors.error}; /*  add an error color to your theme */
+		border-color: ${({ theme }) => theme.colors.error};
 	}
 `;
 
 const ErrorMessage = styled.p`
 	color: ${({ theme }) => theme.colors.error};
-	font-size: 0.9rem;
-	margin-top: ${({ theme }) => theme.spacing.xs};
+	font-size: 0.85rem;
+	margin-top: 6px;
+	font-weight: 500;
 `;
 
 const SubmitButton = styled.button`
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
-	background-color: ${({ theme }) => theme.colors.primary};
+	padding: 14px 24px;
+	background-color: ${({ theme }) => theme.colors.secondary};
 	color: ${({ theme }) => theme.colors.white};
 	border: none;
 	border-radius: ${({ theme }) => theme.radius.md};
-	font-weight: 600;
+	font-weight: 700;
+	font-size: 1.1rem;
 	cursor: pointer;
-	transition: background-color 0.2s ease;
+	transition: all 0.2s ease;
+	margin-top: 10px;
 
 	&:hover {
-		background-color: ${({ theme }) => theme.colors.primaryDark};
+		background-color: ${({ theme }) => theme.colors.secondaryDark};
+		transform: translateY(-2px);
 	}
 
 	&:disabled {
 		background-color: ${({ theme }) => theme.colors.gray};
 		cursor: not-allowed;
+		transform: none;
 	}
 `;
-const SuccessMessage = styled.p`
+
+const SuccessMessage = styled.div`
+	background-color: rgba(40, 167, 69, 0.1);
+	border: 1px solid ${({ theme }) => theme.colors.success};
 	color: ${({ theme }) => theme.colors.success};
-	font-size: 1.1rem;
+	padding: 30px;
+	border-radius: ${({ theme }) => theme.radius.md};
 	text-align: center;
-	margin-top: ${({ theme }) => theme.spacing.md};
+
+	h3 {
+		font-size: 1.5rem;
+		margin-bottom: 10px;
+	}
+
+	p {
+		font-size: 1.1rem;
+	}
 `;
+
 const ContactUs = () => {
+	const { t } = useTranslation();
+
 	const [formData, setFormData] = useState({
 		name: "",
 		restaurantName: "",
@@ -179,24 +220,24 @@ const ContactUs = () => {
 	const validateForm = () => {
 		let newErrors = {};
 
-		if (!formData.name.trim()) {
-			newErrors.name = "Name is required";
-		}
-		if (!formData.restaurantName.trim()) {
-			newErrors.restaurantName = "Restaurant Name is required";
-		}
+		if (!formData.name.trim()) newErrors.name = t("contact.errors.name");
+		if (!formData.restaurantName.trim())
+			newErrors.restaurantName = t("contact.errors.restaurant");
+
 		if (!formData.email.trim()) {
-			newErrors.email = "Email is required";
+			newErrors.email = t("contact.errors.emailReq");
 		} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-			newErrors.email = "Invalid email format";
+			newErrors.email = t("contact.errors.emailInv");
 		}
+
 		if (!formData.phone.trim()) {
-			newErrors.phone = "Phone number is required";
-		} else if (!/^\d{10}$/.test(formData.phone)) {
-			newErrors.phone = "Invalid phone number. Must be 10 digits.";
+			newErrors.phone = t("contact.errors.phoneReq");
+		} else if (!/^[\d\s\-\+\(\)]{8,15}$/.test(formData.phone)) {
+			newErrors.phone = t("contact.errors.phoneInv");
 		}
+
 		if (!formData.message.trim()) {
-			newErrors.message = "Message is required";
+			newErrors.message = t("contact.errors.messageReq");
 		}
 
 		setErrors(newErrors);
@@ -205,20 +246,15 @@ const ContactUs = () => {
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
-
-		if (!validateForm()) {
-			return;
-		}
+		if (!validateForm()) return;
 
 		setLoading(true);
 
 		try {
-			const docRef = await addDoc(collection(db, "contacts"), {
-				//Change to contacts collection
+			await addDoc(collection(db, "contacts"), {
 				...formData,
 				timestamp: serverTimestamp(),
 			});
-			console.log("Document written with ID: ", docRef.id);
 			setFormData({
 				name: "",
 				restaurantName: "",
@@ -229,7 +265,7 @@ const ContactUs = () => {
 			setSuccess(true);
 		} catch (error) {
 			console.error("Error adding document: ", error);
-			setErrors({ submit: "Failed to submit request. Please try again." });
+			setErrors({ submit: t("contact.errors.submit") });
 		} finally {
 			setLoading(false);
 		}
@@ -237,36 +273,32 @@ const ContactUs = () => {
 
 	return (
 		<ContactSection>
+			<SEO titleKey="seo.contact.title" descKey="seo.contact.desc" />
 			<Container>
 				<ContactInfo>
-					<H1>Contact Us</H1>
-					<P>
-						We'd love to hear from you! Whether you have questions about Scerv,
-						need support, or want to request a demo, please get in touch.
-					</P>
-					<H2>Contact Information</H2>
+					<H1>{t("contact.info.title")}</H1>
+					<P>{t("contact.info.desc")}</P>
+					<H2>{t("contact.info.subtitle")}</H2>
 					<ContactItem>
-						<i className="fas fa-envelope"></i>{" "}
-						{/* Example icon - use your preferred icon library */}
-						<a href="mailto:info@scerv.com">support@scerv.com</a>{" "}
-						{/* Replace with your email */}
+						<i className="fas fa-envelope"></i>
+						<a href="mailto:support@scerv.com">support@scerv.com</a>
 					</ContactItem>
 					<ContactItem>
-						<i className="fas fa-phone"></i> {/* Example icon */}
-						<a href="tel:+15551234567">(646) 980-9827</a>{" "}
-						{/* Replace with your phone number */}
+						<i className="fas fa-phone"></i>
+						<a href="tel:+50767844726">(507) 6784-4726</a>
 					</ContactItem>
-					{/* Add other contact methods, e.g., social media links */}
 				</ContactInfo>
+
 				<div>
 					{success ? (
 						<SuccessMessage>
-							Thank you! Your message has been sent. We'll be in touch soon.
+							<h3>{t("contact.success.title")}</h3>
+							<p>{t("contact.success.desc")}</p>
 						</SuccessMessage>
 					) : (
 						<Form onSubmit={handleSubmit}>
 							<FormGroup>
-								<Label htmlFor="name">Your Name:</Label>
+								<Label htmlFor="name">{t("contact.form.name")}</Label>
 								<Input
 									type="text"
 									id="name"
@@ -279,7 +311,9 @@ const ContactUs = () => {
 							</FormGroup>
 
 							<FormGroup>
-								<Label htmlFor="restaurantName">Restaurant Name:</Label>
+								<Label htmlFor="restaurantName">
+									{t("contact.form.restaurantName")}
+								</Label>
 								<Input
 									type="text"
 									id="restaurantName"
@@ -294,7 +328,7 @@ const ContactUs = () => {
 							</FormGroup>
 
 							<FormGroup>
-								<Label htmlFor="email">Email:</Label>
+								<Label htmlFor="email">{t("contact.form.email")}</Label>
 								<Input
 									type="email"
 									id="email"
@@ -305,8 +339,9 @@ const ContactUs = () => {
 								/>
 								{errors.email && <ErrorMessage>{errors.email}</ErrorMessage>}
 							</FormGroup>
+
 							<FormGroup>
-								<Label htmlFor="phone">Phone:</Label>
+								<Label htmlFor="phone">{t("contact.form.phone")}</Label>
 								<Input
 									type="tel"
 									id="phone"
@@ -314,12 +349,13 @@ const ContactUs = () => {
 									value={formData.phone}
 									onChange={handleChange}
 									className={errors.phone ? "invalid" : ""}
+									placeholder="+507 1234 5678"
 								/>
 								{errors.phone && <ErrorMessage>{errors.phone}</ErrorMessage>}
 							</FormGroup>
 
 							<FormGroup>
-								<Label htmlFor="message">Message:</Label>
+								<Label htmlFor="message">{t("contact.form.message")}</Label>
 								<TextArea
 									id="message"
 									name="message"
@@ -336,7 +372,9 @@ const ContactUs = () => {
 							{errors.submit && <ErrorMessage>{errors.submit}</ErrorMessage>}
 
 							<SubmitButton type="submit" disabled={loading}>
-								{loading ? "Submitting..." : "Send Message"}
+								{loading
+									? t("contact.form.submitting")
+									: t("contact.form.submit")}
 							</SubmitButton>
 						</Form>
 					)}

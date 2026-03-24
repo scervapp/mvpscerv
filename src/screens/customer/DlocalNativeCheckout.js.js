@@ -8,6 +8,9 @@ const DlocalNativeCheckout = ({
 	checkoutToken,
 	amountFormatted,
 	locale = "en",
+	initialName = "",
+	initialDocument = "",
+	isLive = false, // 🚨 NEW: Pass this from your parent component!
 	onTokenSuccess,
 	onError,
 	onProcessing,
@@ -27,8 +30,12 @@ const DlocalNativeCheckout = ({
 		);
 	}
 
-	// 🚨 CACHE BUSTER: Forces the WebView to download a fresh copy of the HTML and Script every time
 	const cacheBuster = Date.now();
+
+	// 🚨 THE FIX: Dynamically set the domain based on the environment
+	const dlocalDomain = isLive
+		? "https://checkout.dlocalgo.com"
+		: "https://checkout-sbx.dlocalgo.com";
 
 	const htmlContent = `
     <!DOCTYPE html>
@@ -45,27 +52,53 @@ const DlocalNativeCheckout = ({
             }
         </script>
         
-        <script src="https://checkout-sbx.dlocalgo.com/js/dlocalgo-smartfields-bundled.js?v=${cacheBuster}" onload="logScriptSuccess()" onerror="logScriptError()"></script>
+        <script src="${dlocalDomain}/js/dlocalgo-smartfields-bundled.js?v=${cacheBuster}" onload="logScriptSuccess()" onerror="logScriptError()"></script>
         
         <style>
             body { font-family: -apple-system, sans-serif; padding: 0; margin: 0; background: transparent; }
             .form-row { margin-bottom: 20px; }
             label { display: block; margin-bottom: 8px; font-weight: bold; color: #333; font-size: 14px; }
-            input { width: 100%; padding: 15px; border: 1px solid #E0E0E0; border-radius: 8px; box-sizing: border-box; font-size: 16px; margin-bottom: 15px;}
+            input[type="text"] { width: 100%; padding: 15px; border: 1px solid #E0E0E0; border-radius: 8px; box-sizing: border-box; font-size: 16px; margin-bottom: 15px;}
             .field-container { background: #fff; border: 1px solid #E0E0E0; border-radius: 8px; padding: 2px; min-height: 50px; box-sizing: border-box; }
             #card-errors { color: #dc3545; margin-top: 8px; font-size: 14px; }
             button { background-color: #00D1B2; color: #fff; border: none; border-radius: 8px; padding: 15px; width: 100%; font-size: 16px; font-weight: bold; margin-top: 10px; }
             button:disabled { background-color: #a0aec0; }
+            
+            /* Styles for the Save Details Checkbox */
+            .checkbox-container {
+                display: flex;
+                align-items: center;
+                margin-bottom: 20px;
+                padding: 10px 0;
+                border-bottom: 1px solid #eee;
+            }
+            .checkbox-container input[type="checkbox"] {
+                width: 24px;
+                height: 24px;
+                margin: 0 12px 0 0;
+                accent-color: #00D1B2;
+            }
+            .checkbox-container label {
+                margin: 0;
+                font-size: 15px;
+                font-weight: 500;
+                color: #555;
+            }
         </style>
     </head>
     <body>
         <form id="payment-form">
             <div class="form-row">
                 <label for="card-holder">Cardholder Name</label>
-                <input type="text" id="card-holder" placeholder="John Doe" required />
+                <input type="text" id="card-holder" placeholder="John Doe" value="${initialName}" required />
 
                 <label for="card-document">Document ID (Cedula/Passport)</label>
-                <input type="text" id="card-document" placeholder="8-123-4567" required />
+                <input type="text" id="card-document" placeholder="8-123-4567" value="${initialDocument}" required />
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="save-details" />
+                    <label for="save-details">Save name and Document ID for next time</label>
+                </div>
                 
                 <label for="card-field">Credit or Debit Card</label>
                 <div id="card-field" class="field-container"></div>
@@ -110,6 +143,7 @@ const DlocalNativeCheckout = ({
         } catch (err) {
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'LOG', message: 'Init Error: ' + err.message }));
             document.getElementById('card-errors').textContent = "Failed to load payment form.";
+            document.getElementById('card-errors').textContent = "Init Error: " + (err.message || JSON.stringify(err));
         }
     }
 
@@ -126,6 +160,7 @@ const DlocalNativeCheckout = ({
         
         const nameValue = document.getElementById('card-holder').value.trim();
         const docValue = document.getElementById('card-document').value.trim();
+        const wantsToSaveDetails = document.getElementById('save-details').checked;
         const submitButton = document.getElementById('submit-button');
 
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PROCESSING' }));
@@ -141,7 +176,8 @@ const DlocalNativeCheckout = ({
                 type: 'SUCCESS', 
                 token: response.token,
                 cardholderName: nameValue,
-                document: docValue
+                document: docValue,
+                saveDetails: wantsToSaveDetails 
             }));
 
         } catch (error) {
@@ -167,6 +203,7 @@ const DlocalNativeCheckout = ({
 					token: data.token,
 					name: data.cardholderName,
 					document: data.document,
+					saveDetails: data.saveDetails,
 				});
 			} else if (data.type === "ERROR") {
 				onError(data.message);
@@ -183,15 +220,14 @@ const DlocalNativeCheckout = ({
 			<WebView
 				ref={webViewRef}
 				originWhitelist={["*"]}
-				// 🚨 THE FIX: Changed baseUrl to match the script's origin to completely bypass strict CORS blocking
 				source={{
 					html: htmlContent,
-					baseUrl: "https://checkout-sbx.dlocalgo.com",
+					// 🚨 THE FIX: Inject dynamic base URL here too!
+					baseUrl: dlocalDomain,
 				}}
 				onMessage={handleMessage}
 				javaScriptEnabled={true}
 				domStorageEnabled={true}
-				// Keyboard and Touch Bug Fixes
 				keyboardDisplayRequiresUserAction={false}
 				nestedScrollEnabled={true}
 				style={[styles.webview, { opacity: 0.99 }]}
@@ -210,7 +246,7 @@ const DlocalNativeCheckout = ({
 
 const styles = StyleSheet.create({
 	container: {
-		height: 480,
+		height: 520,
 		width: "100%",
 		backgroundColor: "transparent",
 		marginTop: 10,
@@ -226,7 +262,5 @@ const styles = StyleSheet.create({
 });
 
 export default React.memo(DlocalNativeCheckout, (prevProps, nextProps) => {
-	// Only re-render if the checkoutToken actually changes.
-	// This prevents the "clearing form" bug when you hit Pay.
 	return prevProps.checkoutToken === nextProps.checkoutToken;
 });

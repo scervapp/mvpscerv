@@ -1,4 +1,3 @@
-// src/styles/globalStyles.js
 import { createGlobalStyle } from "styled-components";
 
 const GlobalStyle = createGlobalStyle`
@@ -11,33 +10,32 @@ const GlobalStyle = createGlobalStyle`
   }
 
   body {
-    font-family: 'Poppins', sans-serif; /* Or your chosen font pairing */
+    /* Pulling directly from your theme.js */
+    font-family: ${({ theme }) => theme.fonts.body}; 
     line-height: 1.6;
-    color: #333;
-    background-color: #f8f8f8;
-    -webkit-font-smoothing: antialiased; /* Improve font rendering */
-    -moz-osx-font-smoothing: grayscale; /* Improve font rendering */
+    color: ${({ theme }) => theme.colors.text};
+    background-color: ${({ theme }) => theme.colors.background};
+    -webkit-font-smoothing: antialiased; 
+    -moz-osx-font-smoothing: grayscale; 
   }
 
   a {
     text-decoration: none;
-    color: inherit; /* Inherit color from parent by default */
+    color: inherit; 
+    transition: color 0.2s ease; /* Adds a smooth fade effect on hover */
   }
-   a:hover {
-        color: blue; /* Inherit color from parent by default */
-    }
+  
+  a:hover {
+    color: ${({ theme }) => theme.colors.primary}; /* Uses Scerv Teal instead of standard blue */
+  }
 
-  /* Global styles for headings (optional, but good practice) */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', sans-serif; /* Consistent heading font */
-    font-weight: 700; /* Or your desired weight */
+    font-family: ${({ theme }) => theme.fonts.heading}; 
+    color: ${({ theme }) => theme.colors.text};
+    font-weight: 700; 
     line-height: 1.2;
-    margin-bottom: 0.5em; /* Consistent spacing below headings */
+    margin-bottom: 0.5em; 
   }
-
-  /* You can add other global styles here, but be careful not to add anything
-     that would interfere with the layout of individual components.  */
-
 `;
 
 export default GlobalStyle;

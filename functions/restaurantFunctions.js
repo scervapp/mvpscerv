@@ -6,6 +6,14 @@ const { Translate } = require("@google-cloud/translate").v2;
 
 const translate = new Translate();
 
+const generateTableId = (name) => {
+	return name
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, "_") // Replace spaces with underscores
+		.replace(/[^a-z0-9_]/g, ""); // Remove special characters
+};
+
 /**
  * Starts a new work day for a restaurant.
  * - Cleans up tables and old kitchen orders from the previous day.
@@ -266,9 +274,6 @@ exports.autoCloseStaleWorkDays = functions.pubsub
 		return null;
 	});
 
-/**
- * Adds a new table to a restaurant's subcollection.
- */
 exports.addTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
@@ -285,21 +290,37 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		// Generate the custom ID using the helper function
+		const customTableId = generateTableId(name);
+
 		const newTableRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
 			.collection("tables")
-			.doc();
+			.doc(customTableId); // Use the predictable ID
+
+		// Check if a table with this exact formatted name already exists
+		const tableDoc = await newTableRef.get();
+		if (tableDoc.exists) {
+			throw new functions.https.HttpsError(
+				"already-exists",
+				`A table named '${name}' (ID: ${customTableId}) already exists.`,
+			);
+		}
+
 		await newTableRef.set({
-			name: name,
+			id: customTableId,
+			name: name, // Keep the pretty "Table 1" for the UI display
 			capacity: Number(capacity),
-			status: "available", // Always available when created
+			status: "available",
 			restaurantId: restaurantId,
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
-		return { success: true, tableId: newTableRef.id };
+
+		return { success: true, tableId: customTableId };
 	} catch (error) {
 		console.error("Error adding table:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not add new table.",
@@ -310,6 +331,7 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 
 /**
  * Updates an existing table's name and/or capacity.
+ * If the name changes, it moves the document to a new formatted ID.
  */
 exports.updateTable = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -327,18 +349,61 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
-		const tableRef = db
+		const tablesCollection = db
 			.collection("restaurants")
 			.doc(restaurantId)
-			.collection("tables")
-			.doc(tableId);
-		await tableRef.update({
-			name: name,
-			capacity: Number(capacity),
+			.collection("tables");
+
+		const oldTableRef = tablesCollection.doc(tableId);
+
+		// Generate the new ID based on the updated name
+		const newTableId = generateTableId(name);
+
+		// If the generated ID is the exact same, just update the capacity normally
+		if (tableId === newTableId) {
+			await oldTableRef.update({
+				name: name,
+				capacity: Number(capacity),
+			});
+			return { success: true, tableId: tableId };
+		}
+
+		// If the ID changed (they renamed the table), we have to migrate the document
+		return await db.runTransaction(async (transaction) => {
+			const oldTableDoc = await transaction.get(oldTableRef);
+			if (!oldTableDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Original table not found.",
+				);
+			}
+
+			const newTableRef = tablesCollection.doc(newTableId);
+			const newTableDoc = await transaction.get(newTableRef);
+
+			if (newTableDoc.exists) {
+				throw new functions.https.HttpsError(
+					"already-exists",
+					`A table named '${name}' already exists.`,
+				);
+			}
+
+			// Create the new document
+			transaction.set(newTableRef, {
+				...oldTableDoc.data(), // Copy all old data
+				id: newTableId, // Update the ID
+				name: name, // Update the Name
+				capacity: Number(capacity), // Update the capacity
+			});
+
+			// Delete the old document
+			transaction.delete(oldTableRef);
+
+			return { success: true, tableId: newTableId };
 		});
-		return { success: true };
 	} catch (error) {
 		console.error("Error updating table:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not update table.",
@@ -1062,3 +1127,211 @@ exports.autoTranslateMenuItem = functions.firestore
 
 		return null;
 	});
+
+exports.closePartyTable = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authorized.",
+		);
+	}
+
+	const { partyId, paymentMethod = "manual", receiptEmail } = data;
+
+	if (!partyId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID is required.",
+		);
+	}
+
+	try {
+		return await db.runTransaction(async (transaction) => {
+			// ==========================================
+			// 1. ALL READS MUST HAPPEN FIRST
+			// ==========================================
+			const partyRef = db.collection("parties").doc(partyId);
+			const partyDoc = await transaction.get(partyRef);
+
+			if (!partyDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Party document not found.",
+				);
+			}
+
+			const partyData = partyDoc.data();
+
+			if (partyData.status === "completed") {
+				return { success: true, message: "Table is already closed." };
+			}
+
+			// READ: Fetch the basket data ALWAYS (we need it for the Orders collection)
+			const basketRef = db.collection("shared_baskets").doc(partyId);
+			const basketDoc = await transaction.get(basketRef);
+
+			let basketData = { items: [] };
+			if (basketDoc.exists) {
+				basketData = basketDoc.data();
+			}
+
+			// ==========================================
+			// 2. DATA PREP & CALCULATIONS
+			// ==========================================
+			const restaurantId = partyData.restaurantId;
+			const tableId = partyData.table.id;
+			const restaurantName = partyData.restaurantName || "Scerv Partner";
+			const tableName = partyData.table.name || "Table";
+
+			// Calculate the exact total of the table
+			const allItems = basketData.items || [];
+			const officiallyOrderedItems = allItems.filter(
+				(item) => item.status && item.status !== "new",
+			);
+
+			let tableTotal = 0;
+			officiallyOrderedItems.forEach((item) => {
+				const itemPrice = parseFloat(item.price || 0);
+				const quantity = parseInt(item.quantity || 1, 10);
+				tableTotal += itemPrice * quantity;
+			});
+
+			// ==========================================
+			// 3. ALL WRITES CAN HAPPEN NOW
+			// ==========================================
+
+			// Write 1: Mark the Party as Completed
+			transaction.update(partyRef, {
+				status: "completed",
+				paymentStatus: "paid",
+				paymentMethod: paymentMethod,
+				closedAt: admin.firestore.FieldValue.serverTimestamp(),
+				closedByUserId: context.auth.uid,
+			});
+
+			// Write 2: Free up the physical Table
+			if (restaurantId && tableId) {
+				const tableRef = db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("tables")
+					.doc(tableId);
+
+				// fulfillOrder uses "checkedOut", we use "available" here to instantly reset the table for the server
+				transaction.update(tableRef, {
+					status: "available",
+					currentCheckInId: null,
+					currentCustomerId: null,
+					seatedAt: null,
+				});
+			}
+
+			// Write 3: Free the Customers (Safely ignoring placeholders)
+			const usersToFree = [];
+			if (partyData.hostUserId && partyData.hostUserId !== "walk_in_guest") {
+				usersToFree.push(partyData.hostUserId);
+			}
+			if (partyData.guestPips && Array.isArray(partyData.guestPips)) {
+				partyData.guestPips.forEach((pip) => {
+					if (
+						pip.userId &&
+						pip.userId !== "walk_in_guest" &&
+						!usersToFree.includes(pip.userId)
+					) {
+						usersToFree.push(pip.userId);
+					}
+				});
+			}
+
+			usersToFree.forEach((uid) => {
+				if (!uid) return;
+				const customerRef = db.collection("customers").doc(uid);
+				transaction.set(
+					customerRef,
+					{
+						activeCheckIn: null,
+						activePartyId: null,
+						activeRestaurantId: null,
+					},
+					{ merge: true },
+				);
+			});
+
+			// Write 4: 🚨 ALIGNMENT FIX - Close the CheckIn document
+			if (partyData.checkInId) {
+				const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
+				transaction.update(checkInRef, {
+					status: "COMPLETED",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+			}
+
+			// Write 5: 🚨 ALIGNMENT FIX - Create Permanent Sales Record
+			const orderRef = db.collection("orders").doc(partyId); // Using partyId as orderId for easy tracing
+			transaction.set(orderRef, {
+				id: partyId,
+				partyId: partyId,
+				restaurantId: restaurantId,
+				restaurantName: restaurantName,
+				table: partyData.table,
+				server: partyData.server || null,
+				items: officiallyOrderedItems,
+				paymentProcessor: "none",
+				paymentMethod: paymentMethod, // 'cash' or 'external_terminal'
+				paymentStatus: "paid",
+				orderStatus: "confirmed",
+				totalPrice: tableTotal,
+				fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			// Write 6: Generate & Send Digital Receipt (If Email Provided)
+			if (receiptEmail && officiallyOrderedItems.length > 0) {
+				const itemsHtml = officiallyOrderedItems
+					.map((item) => {
+						const lineTotal =
+							parseFloat(item.price || 0) * parseInt(item.quantity || 1, 10);
+						return `
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${item.quantity || 1}x ${item.dishName || item.name}</td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right;">$${lineTotal.toFixed(2)}</td>
+                        </tr>
+                    `;
+					})
+					.join("");
+
+				const mailRef = db.collection("mail").doc();
+				transaction.set(mailRef, {
+					to: receiptEmail,
+					message: {
+						subject: `Your Receipt from ${restaurantName}`,
+						html: `
+                            <div style="font-family: Helvetica, Arial, sans-serif; max-width: 450px; margin: auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 12px; background-color: #ffffff;">
+                                <h2 style="text-align: center; color: #1a1a1a; margin-bottom: 5px;">${restaurantName}</h2>
+                                <p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">Table: ${tableName}</p>
+                                
+                                <table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
+                                    ${itemsHtml}
+                                </table>
+                                
+                                <h3 style="text-align: right; margin-top: 20px; color: #1a1a1a;">Total: $${tableTotal.toFixed(2)}</h3>
+                                
+                                <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
+                                    <p style="font-size: 12px; color: #999; margin: 0;">Thanks for dining with us!</p>
+                                    <p style="font-size: 12px; color: #999; margin: 5px 0 0 0;">Powered by <strong>Scerv</strong></p>
+                                </div>
+                            </div>
+                        `,
+					},
+				});
+			}
+
+			return { success: true };
+		});
+	} catch (error) {
+		console.error(`Error closing party ${partyId}:`, error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"An error occurred while closing the table.",
+		);
+	}
+});

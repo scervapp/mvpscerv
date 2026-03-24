@@ -7,7 +7,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 	if (!restaurantId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Restaurant ID is required."
+			"Restaurant ID is required.",
 		);
 	}
 
@@ -37,7 +37,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 
 			// Convert the UTC timestamp to a date string in the specified timezone.
 			const orderDate = new Date(
-				orderData.timestamp.toDate().toLocaleString("en-US", { timeZone })
+				orderData.timestamp.toDate().toLocaleString("en-US", { timeZone }),
 			);
 			const dateKey = orderDate.toISOString().split("T")[0]; // YYYY-MM-DD format
 
@@ -80,7 +80,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 					const itemName =
 						(item.dish && item.dish.name) || item.dishName || "Unknown Item";
 					const existingItem = dailyReport.allItemsSold.find(
-						(i) => i.name === itemName
+						(i) => i.name === itemName,
 					);
 					const revenue =
 						(Number(item.discountedPrice) ||
@@ -104,7 +104,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 			if (orderData.server.name && orderGratuity > 0) {
 				const serverName = orderData.server.name;
 				const existingServer = dailyReport.serverTips.find(
-					(s) => s.serverName === serverName
+					(s) => s.serverName === serverName,
 				);
 				if (existingServer) {
 					existingServer.gratuityTotal += orderGratuity;
@@ -133,7 +133,7 @@ exports.getDailySalesReport = functions.https.onCall(async (data, context) => {
 		console.error("Error getting daily sales report:", error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Failed to generate sales report."
+			"Failed to generate sales report.",
 		);
 	}
 });
@@ -159,14 +159,14 @@ exports.getAggregatedSalesReport = functions
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const { restaurantId, period } = data;
 		if (!restaurantId || !period) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Restaurant ID and a period are required."
+				"Restaurant ID and a period are required.",
 			);
 		}
 
@@ -191,7 +191,7 @@ exports.getAggregatedSalesReport = functions
 			default:
 				throw new functions.https.HttpsError(
 					"invalid-argument",
-					"Invalid period specified."
+					"Invalid period specified.",
 				);
 		}
 
@@ -204,7 +204,7 @@ exports.getAggregatedSalesReport = functions
 				.where(
 					"timestamp",
 					">=",
-					admin.firestore.Timestamp.fromDate(startDate)
+					admin.firestore.Timestamp.fromDate(startDate),
 				);
 
 			const ordersSnapshot = await ordersQuery.get();
@@ -260,10 +260,10 @@ exports.getAggregatedSalesReport = functions
 				if (Array.isArray(order.items)) {
 					order.items.forEach((item) => {
 						const priceInCents = Math.round(
-							((item.dish && item.dish.price) || 0) * 100
+							((item.dish && item.dish.price) || 0) * 100,
 						);
 						const discountedPriceInCents = Math.round(
-							(Number(item.discountedPrice) || 0) * 100
+							(Number(item.discountedPrice) || 0) * 100,
 						);
 						const revenueInCents =
 							(discountedPriceInCents || priceInCents) * (item.quantity || 1);
@@ -320,7 +320,7 @@ exports.getAggregatedSalesReport = functions
 			console.error("Error generating aggregated sales report:", error);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Failed to generate sales report."
+				"Failed to generate sales report.",
 			);
 		}
 	});
@@ -331,14 +331,14 @@ exports.getDashboardReport = functions
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const { restaurantId, period } = data;
 		if (!restaurantId || !period) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Restaurant ID and a period are required."
+				"Restaurant ID and a period are required.",
 			);
 		}
 
@@ -362,7 +362,7 @@ exports.getDashboardReport = functions
 			default:
 				throw new functions.https.HttpsError(
 					"invalid-argument",
-					"Invalid period specified."
+					"Invalid period specified.",
 				);
 		}
 
@@ -374,7 +374,7 @@ exports.getDashboardReport = functions
 				.where(
 					"timestamp",
 					">=",
-					admin.firestore.Timestamp.fromDate(startDate)
+					admin.firestore.Timestamp.fromDate(startDate),
 				);
 
 			const ordersSnapshot = await ordersQuery.get();
@@ -432,7 +432,7 @@ exports.getDashboardReport = functions
 						const category =
 							item.category || (item.dish && item.dish.category) || "Other";
 						const priceInCents = Math.round(
-							(item.price || (item.dish && item.dish.price) || 0) * 100
+							(item.price || (item.dish && item.dish.price) || 0) * 100,
 						);
 						const revenueInCents =
 							(Math.round((Number(item.discountedPrice) || 0) * 100) ||
@@ -480,7 +480,7 @@ exports.getDashboardReport = functions
 				avgCheckSize,
 				avgTurnoverRate: Math.round(avgTurnoverRate),
 				allItemsSold: Object.values(topSellingItems).sort(
-					(a, b) => b.totalRevenue - a.totalRevenue
+					(a, b) => b.totalRevenue - a.totalRevenue,
 				),
 				serverTips: Object.entries(serverTips)
 					.map(([name, total]) => ({ serverName: name, gratuityTotal: total }))
@@ -497,7 +497,7 @@ exports.getDashboardReport = functions
 			console.error("Error generating dashboard report:", error);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Failed to generate report."
+				"Failed to generate report.",
 			);
 		}
 	});
@@ -525,6 +525,15 @@ const getStartDateForPeriod = (period, timeZone) => {
 	return startDate;
 };
 
+const parseDate = (ts) => {
+	if (!ts) return null;
+	if (typeof ts.toDate === "function") return ts.toDate();
+	if (ts._seconds !== undefined) return new Date(ts._seconds * 1000);
+	if (ts.seconds !== undefined) return new Date(ts.seconds * 1000);
+	if (typeof ts === "string" || typeof ts === "number") return new Date(ts);
+	return null;
+};
+
 /**
  * @function getSalesReport
  * @description A consolidated and robust function to generate all sales reports.
@@ -537,18 +546,18 @@ exports.getSalesReport = functions
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User must be authenticated."
+				"User must be authenticated.",
 			);
 		}
 		const { restaurantId, period } = data;
 		if (!restaurantId || !period) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Restaurant ID and a period are required."
+				"Restaurant ID and a period are required.",
 			);
 		}
 
-		const startDate = getStartDateForPeriod(period, "America/New_York"); // Set your restaurant's timezone
+		const startDate = getStartDateForPeriod(period, "America/New_York");
 
 		try {
 			// 2. ============== FIRESTORE QUERY ==============
@@ -559,12 +568,11 @@ exports.getSalesReport = functions
 				.where(
 					"fulfilledAt",
 					">=",
-					admin.firestore.Timestamp.fromDate(startDate)
+					admin.firestore.Timestamp.fromDate(startDate),
 				);
 
 			const ordersSnapshot = await ordersQuery.get();
 
-			// Return a default, empty report object if there are no orders.
 			if (ordersSnapshot.empty) {
 				return {
 					grossSales: 0,
@@ -572,6 +580,7 @@ exports.getSalesReport = functions
 					totalFees: 0,
 					netPayout: 0,
 					totalOrders: 0,
+					avgTurnoverRate: 0,
 					serverTips: [],
 					topSellingItems: [],
 					salesByCategory: { Food: 0, Bar: 0 },
@@ -584,40 +593,33 @@ exports.getSalesReport = functions
 			let totalStripeFees = 0;
 			let totalPlatformFees = 0;
 			let totalOrders = 0;
-			let totalTurnoverDuration = 0; // in minutes
-			let ordersWithTurnover = 0; // count of orders with valid timestamps
-			const serverTips = {}; // Use an object for easy aggregation by server ID
+			let totalTurnoverDuration = 0;
+			let ordersWithTurnover = 0;
+			const serverTips = {};
 			const topSellingItems = {};
 			const salesByCategory = { Food: 0, Bar: 0 };
 
 			ordersSnapshot.forEach((doc) => {
 				const order = doc.data();
 
-				console.log(`Value of order.subtotal:`, order.subtotal);
-				console.log(`Is order.items an array?:`, Array.isArray(order.items));
-				if (Array.isArray(order.items)) {
-					console.log(`Number of items in order:`, order.items.length);
-				} else {
-					console.log(`order.items is not an array.`);
-				}
-
-				// Use correct, safe values for calculation
 				const orderSubtotal = Number(order.subtotal) || 0;
 				const orderGratuity = Number(order.gratuity) || 0;
 				const orderStripeFee = Number(order.stripeFeeActual) || 0;
 				const orderPlatformFee = Number(order.platformFeeActual) || 0;
 
-				// Accumulate primary financial metrics
 				grossSales += orderSubtotal;
 				totalGratuity += orderGratuity;
 				totalStripeFees += orderStripeFee;
 				totalPlatformFees += orderPlatformFee;
 				totalOrders += 1;
 
-				// Safely aggregate server tips by ID, not name, to avoid conflicts.
-				// Optional chaining (?.) prevents crashes if an order has no server.
-				const serverId = order.server.id;
-				const serverName = order.server.name || "Unassigned";
+				let serverId = null;
+				let serverName = "Unassigned";
+
+				if (order.server && typeof order.server === "object") {
+					serverId = order.server.id || null;
+					serverName = order.server.name || "Unassigned";
+				}
 
 				if (serverId && orderGratuity > 0) {
 					if (!serverTips[serverId]) {
@@ -626,25 +628,27 @@ exports.getSalesReport = functions
 					serverTips[serverId].gratuityTotal += orderGratuity;
 				}
 
-				// Aggregate item and category sales
 				if (Array.isArray(order.items)) {
-					console.log(
-						`--- Found ${order.items.length} items for Order ${doc.id} ---`
-					);
 					order.items.forEach((item) => {
-						console.log(
-							"Inspecting item object:",
-							JSON.stringify(item, null, 2)
-						);
+						if (!item) return;
+
 						const price =
-							item.discountedPrice || item.price || item.dish.price || 0;
-						const revenueInCents = Math.round(price * (item.quantity || 1));
-						const category = item.category || item.dish.category || "Other";
+							item.discountedPrice ||
+							item.price ||
+							(item.dish && item.dish.price) ||
+							0;
+
+						// 🚨 FIX: Multiply by 100 to convert dollars to cents before rounding
+						const revenueInCents = Math.round(
+							price * 100 * (item.quantity || 1),
+						);
+
+						const category =
+							item.category || (item.dish && item.dish.category) || "Other";
 						const itemName =
 							item.dishName ||
 							item.name ||
-							item.dish.name ||
-							item.dishName ||
+							(item.dish && item.dish.name) ||
 							"Unknown Item";
 
 						if (BAR_CATEGORIES.includes(category)) {
@@ -665,57 +669,27 @@ exports.getSalesReport = functions
 					});
 				}
 
-				if (order.checkInTimestamp && order.fulfilledAt) {
-					console.log(`--- Turnover Debug for Order ${doc.id} ---`);
-					console.log(
-						"Raw checkInTimestamp:",
-						JSON.stringify(order.checkInTimestamp)
-					);
-					console.log("Raw fulfilledAt:", JSON.stringify(order.fulfilledAt));
+				// 🚨 FIX: Universal timestamp parsing
+				const checkInTime = parseDate(order.checkInTimestamp);
+				const fulfilledTime = parseDate(order.fulfilledAt);
 
-					// Check if the fields are in the expected format before trying to use them
-					if (
-						order.checkInTimestamp._seconds &&
-						typeof order.fulfilledAt.toDate === "function"
-					) {
-						const checkInTime = new admin.firestore.Timestamp(
-							order.checkInTimestamp._seconds,
-							order.checkInTimestamp._nanoseconds || 0
-						).toDate();
+				if (checkInTime && fulfilledTime) {
+					const durationMinutes =
+						(fulfilledTime.getTime() - checkInTime.getTime()) / 60000;
 
-						const fulfilledTime = order.fulfilledAt.toDate();
-						const durationMinutes =
-							(fulfilledTime.getTime() - checkInTime.getTime()) / 60000;
-
-						console.log(`Calculated Duration (minutes):`, durationMinutes);
-
-						if (durationMinutes > 0) {
-							totalTurnoverDuration += durationMinutes;
-							ordersWithTurnover += 1;
-							console.log("-> Duration was positive and added to total.");
-						} else {
-							console.log("-> Duration was zero or negative, not added.");
-						}
-					} else {
-						console.log(
-							"-> Timestamps not in the expected format, skipping calculation."
-						);
+					if (durationMinutes > 0) {
+						totalTurnoverDuration += durationMinutes;
+						ordersWithTurnover += 1;
 					}
-				} else {
-					console.log(
-						`-> Skipping turnover for Order ${doc.id}: one or both timestamps are missing.`
-					);
 				}
 			});
 
 			// 4. ============== FINAL CALCULATIONS & FORMATTING ==============
 			const totalFees = totalStripeFees + totalPlatformFees;
-			// Net Payout is the final amount transferred to the restaurant for sales and tips.
 			const netPayout = grossSales - totalPlatformFees + totalGratuity;
 
-			// Format server tips and top items for client display
 			const formattedServerTips = Object.values(serverTips).sort(
-				(a, b) => b.gratuityTotal - a.gratuityTotal
+				(a, b) => b.gratuityTotal - a.gratuityTotal,
 			);
 			const formattedTopItems = Object.values(topSellingItems)
 				.sort((a, b) => b.totalRevenue - a.totalRevenue)
@@ -726,7 +700,6 @@ exports.getSalesReport = functions
 					? Math.round(totalTurnoverDuration / ordersWithTurnover)
 					: 0;
 
-			// Return the complete, corrected report object.
 			return {
 				grossSales,
 				totalGratuity,
@@ -744,7 +717,7 @@ exports.getSalesReport = functions
 			console.error("Error generating sales report:", error);
 			throw new functions.https.HttpsError(
 				"internal",
-				"Failed to generate sales report."
+				"Failed to generate sales report.",
 			);
 		}
 	});

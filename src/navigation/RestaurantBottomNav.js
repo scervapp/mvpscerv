@@ -29,6 +29,10 @@ import colors from "../utils/styles/appStyles";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import HistoricalReportsScreen from "../screens/restaurant/HistoricalReportScreen";
 import { useRestaurantData } from "../context/restaurant/RestaurantDataContext";
+import ManagePartyScreen from "../screens/restaurant/ManagePartyScreen.js";
+import ManualSeatScreen from "../screens/restaurant/ManualSeatingScreen.js";
+import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
+import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -108,11 +112,35 @@ const BackOfficeStackNavigator = () => {
 		</Stack.Navigator>
 	);
 };
+const ActiveTablesStack = () => (
+	<Stack.Navigator screenOptions={{ headerShown: false }}>
+		{/* The main dashboard we just built */}
+		<Stack.Screen name="RestaurantActiveTables" component={RestaurantCheckin} />
+
+		<Stack.Screen
+			name="ManualSeatScreen"
+			component={ManualSeatScreen}
+			options={{ presentation: "modal" }} // "modal" makes it slide up from the bottom!
+		/>
+		{/* The detail screen for managing a specific table */}
+		<Stack.Screen
+			name="ManagePartyScreen"
+			component={ManagePartyScreen}
+			options={{ presentation: "card" }} // Optional: gives it a nice slide-in effect
+		/>
+		<Stack.Screen
+			name="ServerMenuScreen"
+			component={ServerMenuScreen}
+			options={{ presentation: "modal" }} // Slides up nicely
+		/>
+	</Stack.Navigator>
+);
 
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
 	const { t } = useTranslation();
-	const { newCheckInCount, newKitchenOrderCount } = useRestaurantData();
+	const { newCheckInCount, newKitchenOrderCount, serviceRequestCount } =
+		useRestaurantData();
 	const insets = useSafeAreaInsets();
 
 	return (
@@ -139,15 +167,22 @@ const RestaurantBottomNavigation = () => {
 							iconName = focused ? "view-dashboard" : "view-dashboard-outline";
 							break;
 						case "Checkins":
-							iconName = focused ? "account-clock" : "account-clock-outline";
-							badgeCount = newCheckInCount; // Assign the badge count for this tab
+							// 🚨 CHANGED: From account-clock to a server's order pad / ticket board
+							iconName = focused ? "clipboard-text" : "clipboard-text-outline";
+							badgeCount = newCheckInCount;
 							break;
 						case "ChefsQ":
 							iconName = focused
 								? "silverware-fork-knife"
 								: "silverware-fork-knife";
-							badgeCount = newKitchenOrderCount; // Assign the badge count for this tab
+							badgeCount = newKitchenOrderCount;
 							break;
+
+						case "Service":
+							iconName = focused ? "bell-ring" : "bell-outline";
+							badgeCount = serviceRequestCount;
+							break;
+
 						case "Tables":
 							iconName = focused ? "table-chair" : "table-chair";
 							break;
@@ -174,7 +209,11 @@ const RestaurantBottomNavigation = () => {
 							label = t("dashboard_tab");
 							break;
 						case "Checkins":
-							label = t("checkins_tab");
+							// 🚨 CHANGED: You can hardcode "Tickets" here, or add "tickets_tab" to your translation file
+							label = t("tickets_tab");
+							break;
+						case "Service":
+							label = t("service_tab"); // Or t("service_tab") if you add it to translations
 							break;
 						case "ChefsQ":
 							label = t("chefs_q_tab");
@@ -193,10 +232,9 @@ const RestaurantBottomNavigation = () => {
 			{/* Tab 1: The New Dashboard (Home Base) */}
 			<Tab.Screen name="Dashboard" component={RestaurantDashboardStack} />
 			{/* Tab 2: Customers Waiting */}
-			<Tab.Screen
-				name="Checkins" // Renamed for clarity if needed
-				component={RestaurantCheckin}
-			/>
+			<Tab.Screen name="Checkins" component={ActiveTablesStack} />
+
+			<Tab.Screen name="Service" component={ServiceRequestsScreen} />
 			{/* Tab 3: Chef's Queue */}
 			<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
 			{/* Tab 4: Table Management */}

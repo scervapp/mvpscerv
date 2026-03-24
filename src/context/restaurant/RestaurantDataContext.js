@@ -1,11 +1,9 @@
-// src/context/restaurant/RestaurantDataContext.js
 import React, {
 	createContext,
 	useState,
 	useContext,
 	useEffect,
 	useRef,
-	useCallback,
 } from "react";
 
 import { AuthContext } from "../authContext";
@@ -15,163 +13,161 @@ import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
 	newKitchenOrderCount: 0,
+	serviceRequestCount: 0, // 🚨 NEW: Added to Context
 });
 
 export const RestaurantDataProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+
 	const isCheckInInitialLoad = useRef(true);
 	const isKitchenInitialLoad = useRef(true);
+	const isServiceInitialLoad = useRef(true); // 🚨 NEW: Initial load tracker
 
 	/* ──────────────────────────────
      1.  State & refs
-  ────────────────────────────── */
+    ────────────────────────────── */
 	const [newCheckInCount, setNewCheckInCount] = useState(0);
 	const [newKitchenOrderCount, setNewKitchenOrderCount] = useState(0);
+	const [serviceRequestCount, setServiceRequestCount] = useState(0); // 🚨 NEW: Badge state
 
 	const checkInPlayer = useRef(null);
 	const kitchenPlayer = useRef(null);
-
-	const prevCheckIn = useRef(0);
-	const prevKitchen = useRef(0);
+	const servicePlayer = useRef(null); // 🚨 NEW: Audio player ref
 
 	const restaurantId = currentUserData?.uid;
 
 	/* ──────────────────────────────
      2.  Configure audio + preload
-  ────────────────────────────── */
+    ────────────────────────────── */
 	useEffect(() => {
-		// Allow playback in silent‑mode (iOS) and duck other audio (Android)
 		setAudioModeAsync({
 			playsInSilentMode: true,
 			interruptionModeAndroid: "duckOthers",
 			interruptionMode: "duckOthers",
 		});
 
-		console.log("--- Check-in Sound Effect Fired ---");
-		console.log(`isLoaded: ${checkInPlayer.current?.isLoaded}`);
-		console.log(`New Count: ${newCheckInCount}`);
-		console.log(`Previous Count: ${prevCheckIn.current}`);
-		console.log(
-			`Condition Met (new > prev): ${newCheckInCount > prevCheckIn.current}`
-		);
-
 		checkInPlayer.current = createAudioPlayer(
-			require("../../../assets/checkIn.mp3")
+			require("../../../assets/checkIn.mp3"),
 		);
 		kitchenPlayer.current = createAudioPlayer(
-			require("../../../assets/order.mp3")
+			require("../../../assets/order.mp3"),
+		);
+
+		// 🚨 NEW: Preload the service bell sound! (Make sure you have this file)
+		servicePlayer.current = createAudioPlayer(
+			require("../../../assets/serviceBell.mp3"),
 		);
 
 		return () => {
-			// free native resources
 			checkInPlayer.current?.remove();
 			kitchenPlayer.current?.remove();
+			servicePlayer.current?.remove();
 		};
 	}, []);
 
 	/* ──────────────────────────────
-     3.  Play sounds on counter ↑
-  ────────────────────────────── */
-	useEffect(() => {
-		if (
-			checkInPlayer.current?.isLoaded &&
-			newCheckInCount > prevCheckIn.current
-		) {
-			checkInPlayer.current.seekTo(0);
-			checkInPlayer.current.play();
-		}
-		prevCheckIn.current = newCheckInCount;
-	}, [newCheckInCount]);
+     3.  Firestore listeners 
+    ────────────────────────────── */
 
-	useEffect(() => {
-		if (
-			kitchenPlayer.current?.isLoaded &&
-			newKitchenOrderCount > prevKitchen.current
-		) {
-			kitchenPlayer.current.seekTo(0);
-			kitchenPlayer.current.play();
-		}
-		prevKitchen.current = newKitchenOrderCount;
-	}, [newKitchenOrderCount]);
-
-	/* ──────────────────────────────
-     4.  Firestore listeners
-  ────────────────────────────── */
+	// --- CHECK-IN LISTENER ---
 	useEffect(() => {
 		if (!restaurantId) {
 			setNewCheckInCount(0);
 			return;
 		}
-
 		const unsub = db
 			.collection("checkIns")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "REQUESTED")
+			.where("status", "==", "AWAITING_TABLE")
 			.onSnapshot((snap) => {
 				if (!isCheckInInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
-						// If a new check-in was added, play the sound
 						if (change.type === "added") {
-							console.log("New check-in document added. Playing sound.");
 							checkInPlayer.current?.seekTo(0);
 							checkInPlayer.current?.play();
 						}
 					});
 				}
-
-				// The initial load is now complete
 				isCheckInInitialLoad.current = false;
-
-				// Always update the count for your UI
 				setNewCheckInCount(snap.size);
 			});
-
 		return () => {
-			isCheckInInitialLoad.current = true; // Reset on cleanup
+			isCheckInInitialLoad.current = true;
 			unsub();
 		};
 	}, [restaurantId]);
 
+	// --- KITCHEN LISTENER ---
 	useEffect(() => {
 		if (!restaurantId) {
 			setNewKitchenOrderCount(0);
 			return;
 		}
-
 		const unsub = db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
 			.where("status", "==", "new")
 			.onSnapshot((snap) => {
-				// Check for changes, but only play sounds after the initial load
 				if (!isKitchenInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
-						// If a new kitchen order was added, play the sound
 						if (change.type === "added") {
-							console.log("New kitchen order document added. Playing sound.");
 							kitchenPlayer.current?.seekTo(0);
 							kitchenPlayer.current?.play();
 						}
 					});
 				}
-
-				// The initial load for this listener is now complete
 				isKitchenInitialLoad.current = false;
-
-				// Always update the count for your UI
 				setNewKitchenOrderCount(snap.size);
+			});
+		return () => {
+			isKitchenInitialLoad.current = true;
+			unsub();
+		};
+	}, [restaurantId]);
+
+	// --- 🚨 NEW: SERVICE REQUEST LISTENER ---
+	useEffect(() => {
+		if (!restaurantId) {
+			setServiceRequestCount(0);
+			return;
+		}
+
+		const unsub = db
+			.collection("parties")
+			.where("restaurantId", "==", restaurantId)
+			.where("serviceRequested", "==", true) // Only grab tables asking for help
+			.onSnapshot((snap) => {
+				if (!isServiceInitialLoad.current) {
+					snap.docChanges().forEach((change) => {
+						// When the flag flips to true, it enters this query as an "added" document
+						if (change.type === "added") {
+							console.log("Service requested at a table! Playing bell.");
+							servicePlayer.current?.seekTo(0);
+							servicePlayer.current?.play();
+						}
+					});
+				}
+
+				isServiceInitialLoad.current = false;
+
+				// This updates a badge showing exactly how many tables currently need help
+				setServiceRequestCount(snap.size);
 			});
 
 		return () => {
-			isKitchenInitialLoad.current = true; // Reset on cleanup
+			isServiceInitialLoad.current = true;
 			unsub();
 		};
 	}, [restaurantId]);
 
 	/* ──────────────────────────────
-     5.  Context value
-  ────────────────────────────── */
-	const value = { newCheckInCount, newKitchenOrderCount };
+     4.  Context value
+    ────────────────────────────── */
+	const value = {
+		newCheckInCount,
+		newKitchenOrderCount,
+		serviceRequestCount, // 🚨 NEW: Exported so NavBar can show the red badge
+	};
 
 	return (
 		<RestaurantDataContext.Provider value={value}>

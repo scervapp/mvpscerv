@@ -7,7 +7,7 @@ import {
 	TouchableOpacity,
 	StyleSheet,
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 
@@ -16,8 +16,6 @@ const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
 	// It's better to reset state when the modal becomes visible
 	const [amount, setAmount] = useState("");
 	const [reason, setReason] = useState("");
-
-
 
 	if (!isVisible) return null;
 
@@ -40,24 +38,26 @@ const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
 				onPressOut={onClose}
 			>
 				<TouchableOpacity style={styles.discountModalContent} activeOpacity={1}>
-					<Text style={styles.modalTitle}>{t('discount_item_title')}</Text>
-					<Text style={styles.discountItemName}>{item.dishName}</Text>
+					<Text style={styles.modalTitle}>{t("discount_item_title")}</Text>
+					<Text style={styles.discountItemName}>
+						{item?.dishName || item?.name || "Order"}
+					</Text>
 					<TextInput
 						style={styles.input}
-						placeholder={t('discount_amount_placeholder')}
+						placeholder={t("discount_amount_placeholder")}
 						value={amount}
 						onChangeText={setAmount}
 						keyboardType="decimal-pad" // More appropriate for currency
 					/>
 					<TextInput
 						style={styles.input}
-						placeholder={t('reason_placeholder')}
+						placeholder={t("reason_placeholder")}
 						value={reason}
 						onChangeText={setReason}
 					/>
 					<View style={styles.modalActions}>
 						<Button onPress={onClose} mode="outlined">
-							{t('cancel_button')}
+							{t("cancel_button")}
 						</Button>
 						<Button
 							onPress={handleApply}
@@ -65,7 +65,7 @@ const DiscountModal = ({ isVisible, onClose, onSubmit, item, isLoading }) => {
 							loading={isLoading}
 							disabled={isLoading}
 						>
-							{t('apply_button')}
+							{t("apply_button")}
 						</Button>
 					</View>
 				</TouchableOpacity>

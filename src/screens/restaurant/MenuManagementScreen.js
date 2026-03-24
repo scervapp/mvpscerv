@@ -1,3 +1,4 @@
+// screens/restaurant/MenuManagementScreen.js
 import React, { useState, useEffect, useContext, useMemo } from "react";
 import {
 	Text,
@@ -8,7 +9,6 @@ import {
 	ActivityIndicator,
 	TextInput,
 	Keyboard,
-	TouchableWithoutFeedback,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
@@ -22,13 +22,13 @@ import {
 	useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+
 const MenuSectionHeader = ({ title }) => (
 	<View style={styles.sectionHeaderContainer}>
 		<Text style={styles.sectionHeaderText}>{title}</Text>
 	</View>
 );
 
-// A better empty state component
 const EmptyMenu = ({ onAddItem }) => {
 	const { t } = useTranslation();
 	return (
@@ -40,9 +40,7 @@ const EmptyMenu = ({ onAddItem }) => {
 			/>
 			<Text style={styles.emptyTitle}>{t("your_menu_is_empty")}</Text>
 			<Text style={styles.emptySubtitle}>
-				{t(
-					"tap_the_button_below_to_add_your_first_appetizer_entree_or_drink"
-				)}
+				{t("tap_the_button_below_to_add_your_first_appetizer_entree_or_drink")}
 			</Text>
 			<TouchableOpacity style={styles.emptyButton} onPress={onAddItem}>
 				<Text style={styles.emptyButtonText}>{t("add_first_item")}</Text>
@@ -57,7 +55,7 @@ const MenuManagementScreen = () => {
 	const insets = useSafeAreaInsets();
 
 	const [showModal, setShowModal] = useState(false);
-	const [selectedItem, setSelectedItem] = useState(null); // For editing
+	const [selectedItem, setSelectedItem] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState(null);
 	const [menuItems, setMenuItems] = useState([]);
@@ -88,10 +86,10 @@ const MenuManagementScreen = () => {
 					console.error("MenuManagementScreen snapshot error:", err);
 					setError(t("failed_to_load_menu_please_check_your_connection"));
 					setIsLoading(false);
-				}
+				},
 			);
 
-		return () => unsubscribe(); // Cleanup on unmount
+		return () => unsubscribe();
 	}, [currentUserData?.uid]);
 
 	const handleEditItem = (item) => {
@@ -100,21 +98,19 @@ const MenuManagementScreen = () => {
 	};
 
 	const handleAddItem = () => {
-		setSelectedItem(null); // Ensure we are in "add" mode, not "edit"
+		setSelectedItem(null);
 		setShowModal(true);
 	};
 
 	const processedMenu = useMemo(() => {
-		// Filter based on search term first
 		const filteredItems = searchTerm
 			? menuItems.filter((item) =>
-					item.name.toLowerCase().includes(searchTerm.toLowerCase())
-			  )
+					item.name.toLowerCase().includes(searchTerm.toLowerCase()),
+				)
 			: menuItems;
 
 		if (filteredItems.length === 0) return [];
 
-		// Group items by category
 		const grouped = filteredItems.reduce((acc, item) => {
 			const category = item.category || t("uncategorized");
 			if (!acc[category]) {
@@ -124,7 +120,6 @@ const MenuManagementScreen = () => {
 			return acc;
 		}, {});
 
-		// Define a preferred order for categories
 		const categoryOrder = [
 			t("daily_special"),
 			t("appetizers"),
@@ -138,30 +133,29 @@ const MenuManagementScreen = () => {
 			t("non_alcoholic_drinks"),
 		];
 
-		// Create the final structure for the SectionList
 		return Object.keys(grouped)
 			.sort((a, b) => {
 				const indexA = categoryOrder.indexOf(a);
 				const indexB = categoryOrder.indexOf(b);
-				if (indexA > -1 && indexB > -1) return indexA - indexB; // Both are in the preferred list
-				if (indexA > -1) return -1; // A is preferred, B is not
-				if (indexB > -1) return 1; // B is preferred, A is not
-				return a.localeCompare(b); // Neither is preferred, sort alphabetically
+				if (indexA > -1 && indexB > -1) return indexA - indexB;
+				if (indexA > -1) return -1;
+				if (indexB > -1) return 1;
+				return a.localeCompare(b);
 			})
 			.map((category) => ({
 				title: category,
 				data: grouped[category],
 			}));
-	}, [menuItems, searchTerm]);
+	}, [menuItems, searchTerm, t]);
 
 	const renderMenuItem = ({ item }) => (
-		// Pass the handleEditItem function to the MenuItem component
 		<MenuItem
 			item={item}
 			restaurantId={currentUserData.uid}
 			onEdit={() => handleEditItem(item)}
 		/>
 	);
+
 	if (isLoading) {
 		return (
 			<View style={styles.centered}>
@@ -180,73 +174,71 @@ const MenuManagementScreen = () => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-				<View style={styles.container}>
-					{/* --- Header --- */}
-					<View style={styles.header}>
-						<Text style={styles.headerTitle}>{t("manage_menu")}</Text>
-						<TouchableOpacity
-							style={styles.headerButton}
-							onPress={handleAddItem}
-						>
-							<Ionicons name="add" size={24} color={colors.primary} />
-							<Text style={styles.headerButtonText}>{t("add_item")}</Text>
-						</TouchableOpacity>
-					</View>
+			<View style={styles.container}>
+				{/* --- Header --- */}
+				<View style={styles.header}>
+					<Text style={styles.headerTitle}>{t("manage_menu")}</Text>
+					<TouchableOpacity style={styles.headerButton} onPress={handleAddItem}>
+						<Ionicons name="add" size={24} color={colors.primary} />
+						<Text style={styles.headerButtonText}>{t("add_item")}</Text>
+					</TouchableOpacity>
+				</View>
 
-					{/* --- Search Bar --- */}
-					<View style={styles.searchContainer}>
-						<Ionicons
-							name="search"
-							size={20}
-							color={colors.textLight}
-							style={styles.searchIcon}
-						/>
-						<TextInput
-							style={styles.searchInput}
-							placeholder={t("search_for_a_dish")}
-							placeholderTextColor={colors.textLight}
-							value={searchTerm}
-							onChangeText={setSearchTerm}
-						/>
-					</View>
-
-					{/* --- THIS IS THE FIX --- */}
-					{/* This container View now has `flex: 1`, which allows its children (the list or empty states) to expand and scroll correctly. */}
-					<View style={{ flex: 1 }}>
-						{menuItems.length === 0 ? (
-							<EmptyMenu onAddItem={handleAddItem} />
-						) : processedMenu.length === 0 ? (
-							<View style={styles.emptyContainer}>
-								<Text style={styles.emptyTitle}>{t("no_results_found")}</Text>
-								<Text style={styles.emptySubtitle}>
-									{t("no_menu_items_match_your_search_for", {
-										searchTerm: searchTerm,
-									})}
-								</Text>
-							</View>
-						) : (
-							<SectionList
-								sections={processedMenu}
-								renderItem={renderMenuItem}
-								keyExtractor={(item, index) => item.id + index}
-								renderSectionHeader={({ section: { title } }) => (
-									<MenuSectionHeader title={title} />
-								)}
-								contentContainerStyle={styles.menuList}
-								keyboardShouldPersistTaps="handled"
-							/>
-						)}
-					</View>
-
-					{/* --- Add/Edit Item Modal --- */}
-					<AddItemModal
-						isVisible={showModal}
-						onClose={() => setShowModal(false)}
-						itemToEdit={selectedItem}
+				{/* --- Search Bar --- */}
+				<View style={styles.searchContainer}>
+					<Ionicons
+						name="search"
+						size={20}
+						color={colors.textLight}
+						style={styles.searchIcon}
+					/>
+					<TextInput
+						style={styles.searchInput}
+						placeholder={t("search_for_a_dish")}
+						placeholderTextColor={colors.textLight}
+						value={searchTerm}
+						onChangeText={setSearchTerm}
 					/>
 				</View>
-			</TouchableWithoutFeedback>
+
+				<View style={{ flex: 1 }}>
+					{menuItems.length === 0 ? (
+						<EmptyMenu onAddItem={handleAddItem} />
+					) : processedMenu.length === 0 ? (
+						<View style={styles.emptyContainer}>
+							<Text style={styles.emptyTitle}>{t("no_results_found")}</Text>
+							<Text style={styles.emptySubtitle}>
+								{t("no_menu_items_match_your_search_for", {
+									searchTerm: searchTerm,
+								})}
+							</Text>
+						</View>
+					) : (
+						<SectionList
+							sections={processedMenu}
+							renderItem={renderMenuItem}
+							keyExtractor={(item, index) => item.id + index}
+							renderSectionHeader={({ section: { title } }) => (
+								<MenuSectionHeader title={title} />
+							)}
+							contentContainerStyle={styles.menuList}
+							// 🚨 FIX 1: Handles dismissing keyboard organically
+							keyboardDismissMode="on-drag"
+							keyboardShouldPersistTaps="handled"
+							// 🚨 FIX 2: Added to ensure smooth momentum scrolling
+							showsVerticalScrollIndicator={false}
+							removeClippedSubviews={true}
+						/>
+					)}
+				</View>
+
+				{/* --- Add/Edit Item Modal --- */}
+				<AddItemModal
+					isVisible={showModal}
+					onClose={() => setShowModal(false)}
+					itemToEdit={selectedItem}
+				/>
+			</View>
 		</SafeAreaView>
 	);
 };
@@ -348,4 +340,3 @@ const styles = StyleSheet.create({
 });
 
 export default MenuManagementScreen;
-

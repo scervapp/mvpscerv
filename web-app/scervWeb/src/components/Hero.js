@@ -1,14 +1,16 @@
 import React from "react";
 import styled from "styled-components";
-import heroImage from "../images/hero-image.jpeg"; // Replace with your actual hero image
+import { useTranslation } from "react-i18next"; // <-- 1. Import the hook
+import heroImage from "../images/hero-image.jpeg";
+import SEO from "./SEO";
 
 const HeroSection = styled.section`
-	position: relative; /* Ensures child elements (image & text) are positioned within it */
+	position: relative;
 	text-align: center;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	min-height: 100vh; /* Make it take full screen height */
+	min-height: 100vh;
 
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
 		text-align: left;
@@ -17,17 +19,18 @@ const HeroSection = styled.section`
 
 const HeroContent = styled.div`
 	padding: ${({ theme }) => theme.spacing.xl} ${({ theme }) => theme.spacing.md};
-	position: relative; //  Correct: Keeps element in flow, enables z-index
+	position: relative;
 	z-index: 2;
 	color: ${({ theme }) => theme.colors.white};
+
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		max-width: 60%; /* Limit the width of the text on larger screens */
+		max-width: 60%;
 	}
 `;
 
 const Headline = styled.h1`
 	font-size: 2.8rem;
-	margin-bottom: ${({ theme }) => theme.spacing.sm}; /* Reduced margin */
+	margin-bottom: ${({ theme }) => theme.spacing.sm};
 	color: ${({ theme }) => theme.colors.white};
 	font-weight: 700;
 	line-height: 1.2;
@@ -42,7 +45,7 @@ const Headline = styled.h1`
 
 const Subheadline = styled.p`
 	font-size: 1.1rem;
-	margin-bottom: ${({ theme }) => theme.spacing.md}; /* Reduced margin */
+	margin-bottom: ${({ theme }) => theme.spacing.md};
 	color: ${({ theme }) => theme.colors.white};
 	line-height: 1.5;
 
@@ -51,7 +54,6 @@ const Subheadline = styled.p`
 	}
 `;
 
-// Optional Paragraph
 const IntroParagraph = styled.p`
 	font-size: 1rem;
 	margin-bottom: ${({ theme }) => theme.spacing.lg};
@@ -82,8 +84,10 @@ const Button = styled.a`
 	text-decoration: none;
 	color: ${({ theme }) => theme.colors.white};
 	border-radius: ${({ theme }) => theme.radius.md};
-	transition: background-color 0.3s ease, transform 0.2s ease,
-		box-shadow 0.2s ease; /* Added box-shadow to transition */
+	transition:
+		background-color 0.3s ease,
+		transform 0.2s ease,
+		box-shadow 0.2s ease;
 	font-weight: 600;
 	white-space: nowrap;
 
@@ -101,23 +105,13 @@ const PrimaryButton = styled(Button)`
 	}
 `;
 
-const SecondaryButton = styled(Button)`
-	background-color: transparent; /* Transparent background */
-	border: 2px solid ${({ theme }) => theme.colors.white}; /* White border */
-
-	&:hover {
-		background-color: ${({ theme }) => theme.colors.white};
-		color: ${({ theme }) => theme.colors.primary};
-		box-shadow: 0 4px 8px rgba(255, 255, 255, 0.3);
-	}
-`;
 const HeroImageWrapper = styled.div`
-	position: absolute; /* Stretches the image to cover the full section */
+	position: absolute;
 	top: 0;
 	left: 0;
 	width: 100%;
-	height: 100%; /* Ensure it covers the full height */
-	z-index: 0; /* Keep it behind the content */
+	height: 100%;
+	z-index: 0;
 
 	&::before {
 		content: "";
@@ -126,40 +120,40 @@ const HeroImageWrapper = styled.div`
 		left: 0;
 		width: 100%;
 		height: 100%;
-		background-color: rgba(0, 0, 0, 0.4); /* Dark overlay */
-		z-index: 1; /* Ensures overlay is above the image */
+		background-color: rgba(0, 0, 0, 0.4);
+		z-index: 1;
 	}
 `;
 
 const HeroImage = styled.img`
 	width: 100%;
 	height: 100%;
-	object-fit: cover; /* Ensures the image fills the container */
+	object-fit: cover;
 	display: block;
 `;
 
 const Hero = () => {
+	// 2. Initialize the translation function
+	const { t } = useTranslation();
+
 	return (
 		<HeroSection>
+			<SEO titleKey="seo.home.title" descKey="seo.home.desc" />
 			<HeroImageWrapper>
 				<HeroImage src={heroImage} alt="Restaurant scene using Scerv" />
 			</HeroImageWrapper>
 			<HeroContent>
-				<Headline>Modernize Your Restaurant, Maximize Your Efficiency</Headline>
-				<Subheadline>
-					Streamline your entire operation – from front-of-house to
-					back-of-house – increase table turnover, and reduce costly errors.
-					Scerv is the all-in-one platform built for restaurant success.
-				</Subheadline>
-				{/* Optional Intro Paragraph */}
-				<IntroParagraph>
-					Scerv empowers you to take control of your restaurant, optimize your
-					workflow, and deliver exceptional customer experiences, all while
-					boosting your bottom line.
-				</IntroParagraph>
+				{/* 3. Replace text with dynamic translation keys */}
+				<Headline>{t("hero.headline")}</Headline>
+
+				<Subheadline>{t("hero.subheadline")}</Subheadline>
+
+				<IntroParagraph>{t("hero.intro")}</IntroParagraph>
+
 				<CtaButtons>
-					<PrimaryButton href="/request-demo">Request a Demo</PrimaryButton>
-					{/* <SecondaryButton href="#">Watch Video</SecondaryButton> */}
+					<PrimaryButton href="/request-demo">
+						{t("hero.requestDemoBtn")}
+					</PrimaryButton>
 				</CtaButtons>
 			</HeroContent>
 		</HeroSection>

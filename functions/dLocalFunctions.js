@@ -3,11 +3,31 @@ const admin = require("firebase-admin");
 const { fulfillOrder } = require("./paymentFunctions");
 const db = admin.firestore();
 
-async function getDlocalConfig() {
-	// We default to sandbox to protect you from accidental real charges
-	const mode = process.env.DLOCAL_MODE || "sandbox";
-	const isLive = mode === "live";
+/**
+ * Helper function to get dLocal config based on the specific restaurant's status.
+ * Note: You must now pass 'restaurantId' into this function whenever you call it!
+ */
+async function getDlocalConfig(restaurantId) {
+	if (!restaurantId) {
+		throw new Error(
+			"getDlocalConfig requires a restaurantId to determine the environment.",
+		);
+	}
 
+	// 1. Look up the restaurant in Firestore
+	const restaurantDoc = await db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.get();
+
+	if (!restaurantDoc.exists) {
+		throw new Error(`Restaurant ${restaurantId} not found.`);
+	}
+
+	// 2. Check their specific 'isLive' flag (Default to false/sandbox for safety)
+	const isLive = restaurantDoc.data().isLive === true;
+
+	// 3. Return the correct keys
 	return {
 		apiKey: isLive
 			? process.env.DLOCAL_LIVE_API_KEY
@@ -18,11 +38,11 @@ async function getDlocalConfig() {
 		baseUrl: isLive
 			? "https://api.dlocalgo.com"
 			: "https://api-sbx.dlocalgo.com",
+		isLive: isLive, // Handy flag to pass back just in case you need to know
 	};
 }
 
 exports.getDlocalPublicKey = functions
-	// CRITICAL: Unlock the specific Smart Fields keys!
 	.runWith({
 		secrets: [
 			"DLOCAL_SMART_FIELDS_LIVE_KEY",
@@ -30,17 +50,40 @@ exports.getDlocalPublicKey = functions
 		],
 	})
 	.https.onCall(async (data, context) => {
-		// We default to sandbox to protect you from accidental real charges
-		const mode = process.env.DLOCAL_MODE || "sandbox";
-		const isLive = mode === "live";
+		const { restaurantId } = data;
 
-		// Select the correct Smart Fields Key based on the environment
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required to fetch the correct Smart Fields key.",
+			);
+		}
+
+		// 1. Look up the restaurant in Firestore
+		const restaurantDoc = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.get();
+
+		if (!restaurantDoc.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Restaurant not found.",
+			);
+		}
+
+		// 2. Check their specific 'isLive' flag
+		const isLive = restaurantDoc.data().isLive === true;
+
+		// 3. Select the correct Smart Fields Key based on the restaurant's environment
 		const smartFieldsKey = isLive
 			? process.env.DLOCAL_SMART_FIELDS_LIVE_KEY
 			: process.env.DLOCAL_SMART_FIELDS_SANDBOX_KEY;
 
 		if (!smartFieldsKey) {
-			console.error(`Missing Smart Fields Key for mode: ${mode}`);
+			console.error(
+				`Missing Smart Fields Key for mode: ${isLive ? "live" : "sandbox"}`,
+			);
 			throw new functions.https.HttpsError(
 				"internal",
 				"Payment configuration error.",
@@ -49,6 +92,7 @@ exports.getDlocalPublicKey = functions
 
 		return {
 			publicKey: smartFieldsKey,
+			isLive: isLive, // Optional: lets the frontend know which environment loaded
 		};
 	});
 
@@ -129,7 +173,6 @@ exports.createDlocalCheckout = functions
 	});
 
 exports.dlocalWebhook = functions
-	// 1. Unlock the secrets needed to securely ping dLocal Go's servers
 	.runWith({
 		secrets: [
 			"DLOCAL_LIVE_API_KEY",
@@ -142,19 +185,36 @@ exports.dlocalWebhook = functions
 		const payload = req.body;
 		console.log("dLocal Go Webhook Received:", payload);
 
-		// 2. Grab the thin ID they sent us
 		const paymentId = payload.payment_id || payload.id;
 
 		if (!paymentId) {
-			console.error("No payment ID in webhook.");
 			return res.status(400).send("Bad Request");
 		}
 
 		try {
-			// 3. Get our secure keys and dynamic URL
-			const { apiKey, secretKey, baseUrl } = await getDlocalConfig();
+			// 🚨 THE FIX: Look up the order FIRST so we can find the restaurantId
+			const pendingOrdersRef = db.collection("pending_orders");
+			const snapshot = await pendingOrdersRef
+				.where("paymentIntentId", "==", paymentId)
+				.limit(1)
+				.get();
 
-			// 4. Make a secure GET request to dLocal to fetch the full payment details
+			if (snapshot.empty) {
+				console.log(
+					`[Webhook] Order with payment ID ${paymentId} not found in pending_orders.`,
+				);
+				return res.status(200).send("Ignored - Not a Scerv order");
+			}
+
+			const pendingData = snapshot.docs[0].data();
+			const realOrderId = snapshot.docs[0].id;
+			const restaurantId = pendingData.restaurantId;
+
+			// 🚨 THE FIX: Now we can dynamically fetch the correct keys!
+			const { apiKey, secretKey, baseUrl } =
+				await getDlocalConfig(restaurantId);
+
+			// Make a secure GET request to dLocal to fetch the full payment details
 			const verifyResponse = await fetch(
 				`${baseUrl}/v1/payments/${paymentId}`,
 				{
@@ -167,51 +227,20 @@ exports.dlocalWebhook = functions
 			);
 
 			const paymentData = await verifyResponse.json();
-			console.log("Verified Payment Data from dLocal:", paymentData);
-
-			// 5. Extract the REAL data securely
 			const status = paymentData.status;
 			const amountPaid = paymentData.amount;
 
-			// 🚨 THE FIX: Extract the real Firebase ID from the success_url
-			// Splits 'https://scerv.com/payment-success?orderId=bu8Oy8GrpPjLcFC6MBXt'
-			let realOrderId;
-			try {
-				realOrderId = paymentData.success_url.split("orderId=")[1];
-			} catch (e) {
-				console.error("Failed to parse success_url for orderId.");
-			}
-
-			if (!realOrderId) {
-				console.error("Could not extract real Order ID from dLocal payload.");
-				return res.status(400).send("Missing Order ID");
-			}
-
-			// 6. Run the fulfillment logic using the REAL ID
+			// Run the fulfillment logic
 			if (status === "PAID" || status === "APPROVED") {
-				const pendingOrderRef = db
-					.collection("pending_orders")
-					.doc(realOrderId);
-				const pendingOrderSnap = await pendingOrderRef.get();
-
-				if (!pendingOrderSnap.exists) {
-					console.log(
-						`[Webhook] Order ${realOrderId} already processed or doesn't exist. Ignored.`,
-					);
-					return res.status(200).send("Already Processed");
-				}
-
-				const pendingData = pendingOrderSnap.data();
-
-				// Trigger your robust fulfillOrder function!
 				await fulfillOrder({
-					orderId: realOrderId, // Passing the true Firebase ID
-					paymentType: pendingData.paymentType || "individual",
+					orderId: realOrderId,
+					paymentType:
+						pendingData.paymentType || pendingData.type || "individual",
 					userId: pendingData.customerId || pendingData.userId,
-					restaurantId: pendingData.restaurantId,
+					restaurantId: restaurantId,
 					processor: "dlocal",
 					processorTransactionId: paymentId,
-					totalPrice: Math.round(amountPaid * 100), // Converting back to cents for your DB
+					totalPrice: Math.round(amountPaid * 100),
 					processorFeeActual: 0,
 					platformFeeActual: pendingData.platformFee || 0,
 				});
@@ -221,7 +250,6 @@ exports.dlocalWebhook = functions
 				);
 			}
 
-			// Always respond 200 so dLocal knows we successfully handled it
 			res.status(200).send("Webhook Received and Verified");
 		} catch (error) {
 			console.error("[Webhook] Verification or Fulfillment Error:", error);
@@ -483,8 +511,18 @@ exports.createDlocalPayment = functions
 			);
 		}
 
-		const { apiKey, secretKey, baseUrl } = await getDlocalConfig();
-		const { amount, currency, country } = data;
+		// 🚨 THE FIX: Extract restaurantId from the frontend data
+		const { amount, currency, country, restaurantId } = data;
+
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"restaurantId is required.",
+			);
+		}
+
+		// 🚨 THE FIX: Pass it into the config!
+		const { apiKey, secretKey, baseUrl } = await getDlocalConfig(restaurantId);
 
 		try {
 			const response = await fetch(`${baseUrl}/v1/payments`, {
@@ -494,11 +532,11 @@ exports.createDlocalPayment = functions
 					Authorization: `Bearer ${apiKey}:${secretKey}`,
 				},
 				body: JSON.stringify({
-					amount: amount / 100, // Converting cents to decimal
+					amount: amount / 100,
 					currency: currency || "USD",
 					country: country || "PA",
 					description: "Scerv Smart Fields Order",
-					allow_transparent: true, // 🚨 CRITICAL: Unlocks Smart Fields token!
+					allow_transparent: true,
 					success_url: "https://scerv.com/success",
 					back_url: "https://scerv.com/cancel",
 					notification_url: `https://${process.env.GCLOUD_PROJECT}.cloudfunctions.net/dlocalWebhook`,
@@ -533,6 +571,7 @@ exports.createDlocalPayment = functions
 
 exports.confirmDlocalPayment = functions
 	.runWith({
+		timeoutSeconds: 120, // Extra buffer for API and DB writes
 		secrets: [
 			"DLOCAL_LIVE_API_KEY",
 			"DLOCAL_LIVE_SECRET_KEY",
@@ -559,10 +598,12 @@ exports.confirmDlocalPayment = functions
 			clientDocumentType,
 			clientEmail,
 			country,
+			saveCard, // 🚨 The true/false value from your custom checkbox
+			restaurantId,
 		} = data;
 
 		// Assumes getDlocalConfig() is defined elsewhere in your file
-		const { apiKey, secretKey, baseUrl } = await getDlocalConfig();
+		const { apiKey, secretKey, baseUrl } = await getDlocalConfig(restaurantId);
 
 		try {
 			console.log(
@@ -578,6 +619,9 @@ exports.confirmDlocalPayment = functions
 				clientDocument: clientDocument,
 				clientEmail: clientEmail,
 				country: country || "PA",
+
+				// 🚨 CRITICAL: This flag tells dLocal to permanently vault the card
+				save_card: saveCard === true,
 			};
 
 			// 3. Hit dLocal API
@@ -594,8 +638,6 @@ exports.confirmDlocalPayment = functions
 			);
 
 			const confirmData = await confirmResponse.json();
-
-			// 🚨 DEBUG LOG: X-Ray into dLocal's brain
 			console.log("DEBUG: dLocal Raw Response:", JSON.stringify(confirmData));
 
 			// 4. Handle HTTP Rejections
@@ -608,7 +650,7 @@ exports.confirmDlocalPayment = functions
 				);
 			}
 
-			// 5. 🚨 THE FIX: Bulletproof Success Check
+			// 5. Bulletproof Success Check
 			if (
 				confirmData.status === "PAID" ||
 				confirmData.status === "PROCESSING" ||
@@ -625,7 +667,62 @@ exports.confirmDlocalPayment = functions
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				});
 
-				// B. 🚨 NEW: Trigger fulfillOrder directly!
+				// B. 🚨 RESTORED: Vault the card in Firestore with Debug Logging
+				if (saveCard === true) {
+					try {
+						const uid = context.auth.uid;
+						let brandToSave = "Card";
+						let last4ToSave = "****";
+
+						// Fetch full receipt to get the real Last 4
+						try {
+							const detailsResponse = await fetch(
+								`${baseUrl}/v1/payments/${finalPaymentId}`,
+								{
+									method: "GET",
+									headers: {
+										Authorization: `Bearer ${apiKey}:${secretKey}`,
+										"Content-Type": "application/json",
+									},
+								},
+							);
+
+							if (detailsResponse.ok) {
+								const detailsData = await detailsResponse.json();
+
+								// Safely drill down to the card object
+								const pmDetails = detailsData.payment_method || {};
+								const cardObj = pmDetails.card || detailsData.card || {};
+
+								// Map the exact fields dLocal uses
+								brandToSave = cardObj.issuer || cardObj.brand || "Card";
+								last4ToSave = cardObj.last_four || cardObj.last4 || "****";
+							}
+						} catch (fetchErr) {
+							console.error("Could not fetch full payment details:", fetchErr);
+						}
+
+						// Save the permanent token to Firestore (Debug data removed for production)
+						await db
+							.collection("customers")
+							.doc(uid)
+							.collection("saved_cards")
+							.add({
+								token: cardToken,
+								brand: brandToSave,
+								last4: last4ToSave,
+								savedAt: admin.firestore.FieldValue.serverTimestamp(),
+							});
+
+						console.log(
+							`[Confirm] ✅ Successfully vaulted card for user ${uid}`,
+						);
+					} catch (saveErr) {
+						console.error("[Confirm] 🚨 Failed to vault card:", saveErr);
+					}
+				}
+
+				// C. Trigger fulfillOrder directly!
 				try {
 					console.log(
 						`[Confirm] Triggering fulfillOrder for ${pendingOrderId}`,
@@ -659,15 +756,13 @@ exports.confirmDlocalPayment = functions
 						);
 					}
 				} catch (fulfillErr) {
-					// We log this, but we DO NOT crash the function. The payment succeeded,
-					// so we still want the user's app to navigate to the Success screen.
 					console.error(
 						"[Confirm] 🚨 fulfillOrder failed during confirmation:",
 						fulfillErr,
 					);
 				}
 
-				// C. Return explicit success to React Native
+				// D. Return explicit success to React Native
 				return {
 					success: true,
 					status: "PAID",
@@ -698,6 +793,129 @@ exports.confirmDlocalPayment = functions
 				success: false,
 				status: "ERROR",
 				error: error.message || "Payment processing failed.",
+			};
+		}
+	});
+
+exports.chargeSavedDlocalCard = functions
+	.runWith({
+		timeoutSeconds: 120,
+		secrets: [
+			"DLOCAL_LIVE_API_KEY",
+			"DLOCAL_LIVE_SECRET_KEY",
+			"DLOCAL_SANDBOX_API_KEY",
+			"DLOCAL_SANDBOX_SECRET_KEY",
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be logged in.",
+			);
+		}
+
+		const { pendingOrderId, cardToken } = data;
+		const { apiKey, secretKey, baseUrl } = await getDlocalConfig();
+
+		try {
+			console.log(`⚡ Charging Saved Card for Order: ${pendingOrderId}`);
+
+			const pendingOrderSnap = await db
+				.collection("pending_orders")
+				.doc(pendingOrderId)
+				.get();
+			if (!pendingOrderSnap.exists) {
+				throw new Error("Order not found.");
+			}
+			const pendingData = pendingOrderSnap.data();
+
+			// 🚨 THE FIX: Convert Stripe-style cents (2172) to dLocal floats (21.72)
+			let rawAmount = Number(pendingData.totalPrice);
+			if (rawAmount >= 100 && Number.isInteger(rawAmount)) {
+				rawAmount = rawAmount / 100; // Converts 2172 to 21.72
+			}
+			const amountToCharge = parseFloat(rawAmount.toFixed(2));
+
+			// Build the Direct Charge Payload
+			const paymentPayload = {
+				amount: amountToCharge, // 🚨 Now sends 21.72
+				currency: "USD",
+				country: "PA",
+				payment_method_id: "CARD",
+				payer: {
+					name: "Scerv Customer",
+					email: `${context.auth.uid}@users.scerv.com`,
+					document: "8-888-8888", // Panama Cedula fallback
+				},
+				card: {
+					token: cardToken,
+				},
+			};
+
+			console.log(
+				"DEBUG: Sending Payload to dLocal:",
+				JSON.stringify(paymentPayload),
+			);
+
+			// Hit the DIRECT payments endpoint
+			const chargeResponse = await fetch(`${baseUrl}/v1/payments`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}:${secretKey}`,
+				},
+				body: JSON.stringify(paymentPayload),
+			});
+
+			const chargeData = await chargeResponse.json();
+			console.log("DEBUG: Direct Charge Response:", JSON.stringify(chargeData));
+
+			if (!chargeResponse.ok) {
+				throw new Error(
+					chargeData.message || chargeData.code || "Card declined.",
+				);
+			}
+
+			// Success Logic & Fulfillment
+			if (chargeData.status === "PAID" || chargeData.status === "APPROVED") {
+				const finalPaymentId = chargeData.id || "captured";
+
+				await db.collection("pending_orders").doc(pendingOrderId).update({
+					status: "processing",
+					paymentIntentId: finalPaymentId,
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				});
+
+				await fulfillOrder({
+					orderId: pendingOrderId,
+					paymentType: pendingData.type || "party",
+					userId: context.auth.uid,
+					restaurantId: pendingData.restaurantId,
+					processor: "dlocal",
+					processorTransactionId: finalPaymentId,
+					totalPrice: pendingData.totalPrice,
+					processorFeeActual: 0,
+					platformFeeActual: pendingData.platformFee || 0,
+				});
+
+				console.log(
+					`✅ fulfillOrder completed for direct charge ${pendingOrderId}`,
+				);
+				return { success: true, status: "PAID", paymentId: finalPaymentId };
+			} else {
+				return {
+					success: false,
+					status: chargeData.status,
+					error: chargeData.message || "Unknown error",
+				};
+			}
+		} catch (error) {
+			console.error("Cloud Function Direct Charge Error:", error);
+			return {
+				success: false,
+				status: "ERROR",
+				error: error.message || "Payment failed.",
 			};
 		}
 	});

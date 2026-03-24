@@ -81,5 +81,8 @@
         }
       ]
     }
-  ]
+  ],
+  "extensions": {
+    "firestore-send-email-myyv": "firebase/firestore-send-email@0.2.6"
+  }
 }

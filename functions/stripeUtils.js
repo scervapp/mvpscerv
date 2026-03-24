@@ -3,42 +3,40 @@ const functions = require("firebase-functions");
 const { defineSecret } = require("firebase-functions/params");
 const db = admin.firestore();
 
+// These are now your GLOBAL Scerv Keys
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
 const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
 const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 
 /**
- * A shared helper function to determine which Stripe keys to use
- * based on the restaurant's `isTestAccount` flag.
- * @param {string} restaurantId The UID of the restaurant.
- * @returns {Promise<{publishableKey: string, stripeSecretKey: string}>}
+ * @function getStripeKeys
+ * @description Determines whether to use Scerv's Live or Test keys based on the
+ * restaurant's staging environment.
  */
 const getStripeKeys = async (restaurantId) => {
 	try {
-		if (!restaurantId) {
-			throw new Error("Restaurant ID is required to get Stripe keys.");
-		}
+		if (!restaurantId) throw new Error("Restaurant ID is required.");
+
 		const restaurantDoc = await db
 			.collection("restaurants")
 			.doc(restaurantId)
 			.get();
-		if (!restaurantDoc.exists) {
+		if (!restaurantDoc.exists)
 			throw new Error(`Restaurant not found for ID: ${restaurantId}`);
-		}
 
-		const isTestAccount = restaurantDoc.data().isTestAccount !== false; // Default to true if undefined
+		// If true, the app uses Scerv's Test Keys for this specific restaurant's checkout
+		const isTestAccount = restaurantDoc.data().isTestAccount !== false;
 
-		const keys = {
+		return {
 			publishableKey: isTestAccount
 				? STRIPE_PUBLISHABLE_KEY_TEST.value()
 				: STRIPE_PUBLISHABLE_KEY_LIVE.value(),
 			stripeSecretKey: isTestAccount
 				? STRIPE_SECRET_KEY_TEST.value()
 				: STRIPE_SECRET_KEY_LIVE.value(),
+			isTestMode: isTestAccount, // Pass this back to simplify downstream logic
 		};
-
-		return keys;
 	} catch (error) {
 		console.error("Error fetching Stripe keys: ", error);
 		throw new Error("Failed to fetch Stripe keys");
@@ -47,63 +45,47 @@ const getStripeKeys = async (restaurantId) => {
 
 /**
  * @function createStripeCustomerHelper
- * @description Reusable helper to create a Stripe Customer using phone and name
- * from Firestore and save the new ID to the correct live/test field.
- *
- * @param {string} userId - The Firebase UID of the user.
- * @param {string} restaurantId - The ID of the restaurant to determine live/test mode.
- * @param {object} stripeInstance - The initialized Stripe instance (live or test).
- * @returns {Promise<string>} The new Stripe Customer ID.
+ * @description Creates a permanent Stripe Customer profile on Scerv's global account for vaulting cards.
  */
 const createStripeCustomerHelper = async (
 	userId,
 	restaurantId,
-	stripeInstance
+	stripeInstance,
 ) => {
 	const userDocRef = db.collection("customers").doc(userId);
 	const userDoc = await userDocRef.get();
+
 	if (!userDoc.exists) {
 		throw new functions.https.HttpsError(
 			"not-found",
-			"Customer profile not found."
+			"Customer profile not found.",
 		);
 	}
 
 	const userData = userDoc.data();
-	const phoneNumber = userData.phoneNumber;
-	const name = `${userData.firstName || ""} ${userData.lastName || ""}`.trim();
+	// Added fallbacks to prevent the Cloud Function from crashing if a user skips onboarding
+	const phoneNumber = userData.phoneNumber || "0000000000";
+	const name =
+		`${userData.firstName || "Scerv"} ${userData.lastName || "Guest"}`.trim();
 
-	if (!phoneNumber) {
-		throw new functions.https.HttpsError(
-			"failed-precondition",
-			"User profile is missing a phone number."
-		);
-	}
-
-	// Create the Stripe Customer using the data from Firestore
+	// Create the Stripe Customer on your Global Account
 	const customer = await stripeInstance.customers.create({
-		phone: `+1${phoneNumber}`, // Assumes US numbers, adjust if needed
+		phone: `+1${phoneNumber}`,
 		name: name,
 		metadata: { firebaseUID: userId },
 	});
 
-	console.log(`Successfully created new Stripe customer: ${customer.id}`);
+	console.log(`✅ Successfully created Scerv Stripe customer: ${customer.id}`);
 
-	// Determine if we are in live or test mode to save to the correct field
-	const keys = await getStripeKeys(restaurantId);
+	// Determine which field to save it to (keeps test & live databases perfectly clean)
+	const { isTestMode } = await getStripeKeys(restaurantId);
+	const customerIdField = isTestMode
+		? "stripeCustomerId_test"
+		: "stripeCustomerId_live";
 
-	// A reliable way to check the mode is to see if the key contains "_test_"
-	const isLiveMode = !keys.publishableKey.includes("_test_");
-
-	const customerIdField = isLiveMode
-		? "stripeCustomerId_live"
-		: "stripeCustomerId_test";
-
-	// Save the new ID back to the user's document in Firestore
 	await userDocRef.update({ [customerIdField]: customer.id });
 
-	return customer.id; // Return the new ID
+	return customer.id;
 };
 
-// Export the function so other files can use it
 module.exports = { getStripeKeys, createStripeCustomerHelper };

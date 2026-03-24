@@ -89,8 +89,12 @@ const RestaurantDetailScreen = () => {
 	// 🚨 THE NEW BASKET COUNT: Look only at the party's shared basket
 	const currentPartyId =
 		restaurant?.id && currentPartyIds ? currentPartyIds[restaurant.id] : null;
+
+	// 🚨 THE FIX: Extract the .items array, and fallback to an empty array
 	const currentPartyItems =
-		currentPartyId && sharedBaskets ? sharedBaskets[currentPartyId] : [];
+		currentPartyId && sharedBaskets
+			? sharedBaskets[currentPartyId]?.items || []
+			: [];
 
 	// Count only the items the current user added
 	const basketCount =

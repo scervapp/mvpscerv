@@ -215,6 +215,12 @@ const handleStripeEvent = async (event, stripeInstance) => {
  * @param {object} context The Firebase Functions context object containing auth information.
  * @returns {Promise<object>} An object containing the necessary secrets for the Stripe Payment Sheet.
  */
+/**
+ * @function preparePayment
+ * @description A consolidated and secure HTTPS Callable function to prepare a Stripe Payment Intent.
+ * It uses the /baskets collection as the source of truth for item pricing to correctly handle discounts.
+ * Now configured for Merchant of Record (Global Scerv Account) and Card Vaulting.
+ */
 exports.preparePayment = functions
 	.runWith({
 		secrets: [
@@ -237,7 +243,6 @@ exports.preparePayment = functions
 		const {
 			paymentType,
 			restaurantId,
-
 			items,
 			gratuity,
 			checkInId,
@@ -261,8 +266,9 @@ exports.preparePayment = functions
 		}
 
 		try {
+			// 2. ============== STRIPE INITIALIZATION & CUSTOMER FETCH ==============
 			const keys = await getStripeKeys(restaurantId);
-			const stripeInstance = stripe(keys.stripeSecretKey, {
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
 
@@ -281,11 +287,20 @@ exports.preparePayment = functions
 			const userData = userDoc.data();
 			let stripeCustomerId = userData && userData[customerIdField];
 
+			// If no customer exists on Scerv's global account, create one now.
+			if (!stripeCustomerId) {
+				stripeCustomerId = await createStripeCustomerHelper(
+					userId,
+					restaurantId,
+					stripeInstance,
+				);
+			}
+
 			// 3. ============== FETCH BASKET ITEMS DYNAMICALLY ==============
 			let itemsToProcess = [];
+			let isUserVerifiedForParty = false;
 
 			if (paymentType === "party") {
-				// For a party, fetch the single shared basket and filter the items array within it.
 				if (!partyId) {
 					throw new functions.https.HttpsError(
 						"invalid-argument",
@@ -306,7 +321,6 @@ exports.preparePayment = functions
 				if (memberIds.includes(userId)) {
 					isUserVerifiedForParty = true;
 				} else {
-					// If the user isn't in the party, stop immediately.
 					throw new functions.https.HttpsError(
 						"permission-denied",
 						"User is not a member of this party.",
@@ -339,7 +353,6 @@ exports.preparePayment = functions
 				);
 			} else {
 				// 'individual' checkout
-				// For an individual, fetch each item as a separate document from the /baskets collection.
 				const basketPromises = items.map((item) =>
 					db.collection("baskets").doc(item.id).get(),
 				);
@@ -347,8 +360,6 @@ exports.preparePayment = functions
 				itemsToProcess = fetchedBasketDocs
 					.map((doc) => {
 						if (!doc.exists) return null;
-						// --- THIS IS THE FIX ---
-						// We now merge the document's ID with its data.
 						return { id: doc.id, ...doc.data() };
 					})
 					.filter(Boolean);
@@ -374,18 +385,12 @@ exports.preparePayment = functions
 			let calculatedSubtotal = 0;
 			const fullItemDetails = [];
 
-			// Loop over the unified 'itemsToProcess' array
 			itemsToProcess.forEach((basketData) => {
 				let isSecure = false;
 
-				// --- THIS IS THE FINAL FIX ---
-				// Apply the correct security rule based on the payment type.
 				if (paymentType === "party" && isUserVerifiedForParty) {
-					// For a verified party member, we only need to check that the item belongs to the right restaurant.
 					isSecure = basketData.restaurantId === restaurantId;
 				} else {
-					// 'individual'
-					// For an individual, the check remains strict: the item must belong to the paying user.
 					isSecure =
 						basketData.restaurantId === restaurantId &&
 						basketData.userId === userId;
@@ -393,7 +398,7 @@ exports.preparePayment = functions
 
 				if (!isSecure) {
 					console.warn(`Security check failed for an item. Skipping.`);
-					return; // This is like 'continue' in a forEach loop
+					return;
 				}
 				const price =
 					basketData.discountedPrice ||
@@ -420,17 +425,14 @@ exports.preparePayment = functions
 			);
 			const finalAmount = calculatedSubtotal + gratuity + calculatedPlatformFee;
 
-			// 5. ============== CREATE PENDING ORDER & STRIPE OPERATIONS ==============
-			const restaurantDoc = await db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.get();
+			// 5. ============== CREATE PENDING ORDER ==============
 			const pendingOrderRef = db.collection("pending_orders").doc();
 			const newOrderId = pendingOrderRef.id;
 
 			await pendingOrderRef.set({
 				restaurantId,
 				customerId: userId,
+				stripeCustomerId: stripeCustomerId, // Store this for reference
 				checkInId,
 				paymentType,
 				items: fullItemDetails,
@@ -440,28 +442,21 @@ exports.preparePayment = functions
 				total: finalAmount,
 				status: "pending_payment",
 				createdAt: admin.firestore.FieldValue.serverTimestamp(),
-				connectedAccountId: restaurantDoc.data().stripeAccountId,
 				table: table || null,
 				server: server || null,
 				checkInTimestamp: checkInTimestamp || null,
 				...(paymentType === "party" && { partyId }),
 			});
 
+			// 6. ============== STRIPE INTENTS & KEYS ==============
 			let ephemeralKey;
-			if (!stripeCustomerId) {
-				stripeCustomerId = await createStripeCustomerHelper(
-					userId,
-					restaurantId,
-					stripeInstance,
-				);
-			}
-
 			try {
 				ephemeralKey = await stripeInstance.ephemeralKeys.create(
 					{ customer: stripeCustomerId },
 					{ apiVersion: "2024-04-10" },
 				);
 			} catch (err) {
+				// If the customer was deleted in Stripe but still exists in Firestore, recreate them.
 				if (err.code === "resource_missing") {
 					stripeCustomerId = await createStripeCustomerHelper(
 						userId,
@@ -472,6 +467,8 @@ exports.preparePayment = functions
 						{ customer: stripeCustomerId },
 						{ apiVersion: "2024-04-10" },
 					);
+					// Update pending order with the newly generated ID
+					await pendingOrderRef.update({ stripeCustomerId });
 				} else {
 					throw err;
 				}
@@ -481,6 +478,8 @@ exports.preparePayment = functions
 				amount: finalAmount,
 				currency: "usd",
 				customer: stripeCustomerId,
+				// --- THIS IS THE CRITICAL LINE FOR CARD VAULTING ---
+				setup_future_usage: "off_session",
 				automatic_payment_methods: { enabled: true },
 				metadata: {
 					orderId: newOrderId,
@@ -490,7 +489,7 @@ exports.preparePayment = functions
 				},
 			});
 
-			// 6. ============== RETURN SECRETS ==============
+			// 7. ============== RETURN SECRETS TO REACT NATIVE ==============
 			return {
 				paymentIntentClientSecret: paymentIntent.client_secret,
 				ephemeralKeySecret: ephemeralKey.secret,
@@ -501,9 +500,8 @@ exports.preparePayment = functions
 		} catch (error) {
 			console.error("Error in preparePayment:", error);
 			if (error instanceof functions.https.HttpsError) {
-				throw error; // Re-throw known errors to the client
+				throw error;
 			}
-			// For unexpected errors, throw a generic internal error.
 			throw new functions.https.HttpsError(
 				"internal",
 				"An unexpected error occurred while preparing the payment.",
@@ -544,7 +542,7 @@ const fulfillOrder = async ({
 	stripeInstance = null,
 	latestChargeId = null,
 }) => {
-	// 1. ============== PREPARATION (Outside the Transaction) ==============
+	// 1. ============== PREPARATION ==============
 	if (!orderId || !paymentType) {
 		console.error(
 			`[Fulfill] Critical: Missing orderId or paymentType for ${processorTransactionId}.`,
@@ -552,224 +550,77 @@ const fulfillOrder = async ({
 		return;
 	}
 
-	console.log(
-		`[Fulfill] Fulfilling ${paymentType} order ${orderId} via ${processor.toUpperCase()}.`,
-	);
-
 	const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 	const pendingOrderSnap = await pendingOrderRef.get();
 
 	if (!pendingOrderSnap.exists) {
 		console.log(
-			`[Fulfill] Idempotency check: Pending order ${orderId} has already been processed. Aborting.`,
+			`[Fulfill] Idempotency check: Pending order ${orderId} already processed.`,
 		);
 		return;
 	}
 
 	const pendingOrderData = pendingOrderSnap.data();
 
-	// Assuming you have these helper functions defined elsewhere in your file
-	const readableOrderId = await generateOrderId(restaurantId);
+	// FETCH THE RESTAURANT DATA TO DETERMINE THE ROUTING
+	const restaurantDoc = await db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.get();
+	const restaurantData = restaurantDoc.data();
 
-	// Calculate payouts
-	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
-	const restaurantTierInfo = await getRestaurantTier(restaurantId);
-	const payoutPercentage = restaurantTierInfo.payoutPercentage || 0.9;
-	const restaurantSubtotalPayout = Math.round(subtotal * payoutPercentage);
-	const amountToTransfer = restaurantSubtotalPayout + gratuity;
+	// This is your new master switch.
+	// "manual_wise" = Panama workaround. "stripe_connect" = Automated API transfers.
+	const payoutRouting = restaurantData.payoutMethod || "stripe_connect";
 
-	const finalOrderData = {
-		id: orderId,
-		readableOrderId: readableOrderId,
-		...pendingOrderData, // Spread all data from the pending order
-		paymentProcessor: processor, // 'stripe' or 'paypal'
-		paymentProcessorId: processorTransactionId, // PI or Capture ID
-		paymentStatus: "paid",
-		orderStatus: "confirmed",
-		platformFeeActual: platformFeeActual || pendingOrderData.platformFee || 0,
-		processorFeeActual: processorFeeActual || 0,
-		totalPrice: totalPrice,
-		fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
-	};
+	// ... (Keep ALL of your existing math, finalOrderData formulation, and the entire db.runTransaction block exactly as it is right now. Do not change the DB writes.) ...
 
-	// 2. ============== ATOMIC DATABASE TRANSACTION ==============
-	try {
-		await db.runTransaction(async (t) => {
-			// ======================================================
-			// ============== 1. ALL READS MUST GO FIRST ============
-			// ======================================================
-			console.log("[Transaction] Performing all reads...");
+	// 3. ============== EXTERNAL API CALL (Conditional Routing) ==============
 
-			// READ 1: The pending order document.
-			const transactionalPendingOrderSnap = await t.get(pendingOrderRef);
-			if (!transactionalPendingOrderSnap.exists) {
-				console.log("[Transaction] Pending order already processed. Aborting.");
-				return;
-			}
-
-			let partySnap;
-			if (paymentType === "party") {
-				const partyRef = db.collection("parties").doc(pendingOrderData.partyId);
-				// READ 2: The party document, only if needed.
-				partySnap = await t.get(partyRef);
-			}
-
-			// ======================================================
-			// =========== 2. ALL WRITES CAN HAPPEN NOW =============
-			// ======================================================
-			console.log("[Transaction] All reads complete. Performing writes...");
-
-			// WRITE 1: Create the permanent 'orders' document.
-			const finalOrderRef = db.collection("orders").doc(orderId);
-			t.set(finalOrderRef, finalOrderData);
-
-			// --- Conditional Cleanup Writes ---
-			if (paymentType === "individual") {
-				console.log("[Transaction] Performing individual cleanup writes...");
-				const { items, checkInId, table } = pendingOrderData;
-
-				// Delete user's basket items.
-				items.forEach((item) => {
-					const basketItemRef = db.collection("baskets").doc(item.id);
-					t.delete(basketItemRef);
-				});
-
-				// Update table status
-				if (table && table.id) {
-					const tableRef = db
-						.collection("restaurants")
-						.doc(restaurantId)
-						.collection("tables")
-						.doc(table.id);
-					t.update(tableRef, {
-						status: "checkedOut",
-						currentCheckInId: null,
-						currentCustomerId: null,
-					});
-				}
-
-				// Update check-in status
-				if (checkInId) {
-					t.update(db.collection("checkIns").doc(checkInId), {
-						status: "COMPLETED",
-					});
-				}
-
-				// Update customer status
-				t.update(db.collection("customers").doc(userId), {
-					activeCheckIn: null,
-				});
-			} else if (paymentType === "party") {
-				console.log("[Transaction] Performing party cleanup writes...");
-				if (partySnap && partySnap.exists) {
-					const partyData = partySnap.data();
-
-					// ONLY mark the paying user as paid
-					const payerUserId = pendingOrderData.customerId || userId;
-					const updatedGuestPips = partyData.guestPips.map((pip) =>
-						pip.userId === payerUserId
-							? { ...pip, paymentStatus: "paid" }
-							: pip,
-					);
-
-					t.update(partySnap.ref, { guestPips: updatedGuestPips });
-
-					// Only delete THIS user's items
-					const sharedBasketItemsPath = `shared_baskets/${partyData.sharedBasketId}/items`;
-					pendingOrderData.items.forEach((item) => {
-						const itemRef = db.collection(sharedBasketItemsPath).doc(item.id);
-						t.delete(itemRef);
-					});
-
-					// Only close party if EVERYONE paid
-					const allPaid = updatedGuestPips.every(
-						(pip) => pip.paymentStatus === "paid",
-					);
-
-					if (allPaid) {
-						console.log("All party members paid. Closing party...");
-						t.delete(partySnap.ref);
-
-						if (partyData.table && partyData.table.id) {
-							const tableRef = db
-								.collection("restaurants")
-								.doc(partyData.restaurantId)
-								.collection("tables")
-								.doc(partyData.table.id);
-							t.update(tableRef, {
-								status: "checkedOut",
-								currentCheckInId: null,
-								currentCustomerId: null,
-							});
-						}
-
-						if (partyData.checkInId) {
-							t.update(db.collection("checkIns").doc(partyData.checkInId), {
-								status: "COMPLETED",
-								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-							});
-						}
-
-						updatedGuestPips.forEach((member) => {
-							if (member.userId) {
-								t.update(db.collection("customers").doc(member.userId), {
-									activeCheckIn: null,
-								});
-							}
-						});
-					}
-				}
-			}
-
-			// FINAL WRITE: Delete the pending order document.
-			t.delete(pendingOrderRef);
-		});
-
-		console.log(
-			`[Fulfill] ✅ Successfully committed DB transaction for order ${orderId}.`,
-		);
-	} catch (error) {
-		console.error(
-			`[Fulfill] ❌ DB transaction for order ${orderId} failed:`,
-			error,
-		);
-		throw error; // Rethrow so the calling function knows the DB write failed!
-	}
-
-	// 3. ============== EXTERNAL API CALL (After Successful Transaction) ==============
-
-	// STRIPE PAYOUTS
-	if (
-		processor === "stripe" &&
-		stripeInstance &&
-		latestChargeId &&
-		connectedAccountId
-	) {
-		try {
-			const transfer = await stripeInstance.transfers.create({
-				amount: amountToTransfer,
-				currency: "usd",
-				destination: connectedAccountId,
-				source_transaction: latestChargeId,
-				metadata: { orderId: orderId },
-			});
+	if (processor === "stripe" && stripeInstance) {
+		// ROUTE A: The "Panama" Workaround (Merchant of Record)
+		if (payoutRouting === "manual_wise") {
 			console.log(
-				`[Fulfill] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`,
+				`[Fulfill] 🇵🇦 Panama routing detected for ${orderId}. Funds secured in Scerv Account. Skipping automated transfer.`,
 			);
+			// You are done. The money is in Brex, and you'll pay them via Wise later.
+		}
 
-			await db
-				.collection("orders")
-				.doc(orderId)
-				.update({ stripeTransferId: transfer.id });
-		} catch (apiError) {
-			console.error(
-				`[Fulfill] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
-				apiError,
+		// ROUTE B: The Global Standard (Stripe Connect)
+		else if (
+			payoutRouting === "stripe_connect" &&
+			latestChargeId &&
+			pendingOrderData.connectedAccountId
+		) {
+			console.log(
+				`[Fulfill] 🌎 Global routing detected. Initiating Stripe Connect Transfer...`,
 			);
-			// Add this failed transfer to a retry queue or alert an admin.
+			try {
+				// YOUR ORIGINAL CODE STAYS ALIVE HERE
+				const transfer = await stripeInstance.transfers.create({
+					amount: amountToTransfer,
+					currency: "usd",
+					destination: pendingOrderData.connectedAccountId,
+					source_transaction: latestChargeId,
+					metadata: { orderId: orderId },
+				});
+
+				console.log(
+					`[Fulfill] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`,
+				);
+
+				await db
+					.collection("orders")
+					.doc(orderId)
+					.update({ stripeTransferId: transfer.id });
+			} catch (apiError) {
+				console.error(
+					`[Fulfill] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
+					apiError,
+				);
+			}
 		}
 	}
-
 	// PAYPAL PAYOUTS
 	else if (processor === "paypal") {
 		// Since PayPal handles marketplace payouts during the transaction payload itself,

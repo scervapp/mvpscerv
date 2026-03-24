@@ -1,11 +1,13 @@
 import React from "react";
 import styled from "styled-components";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
+import SEO from "./SEO";
 
 const PricingSection = styled.section`
 	padding: ${({ theme }) => theme.spacing.xl} 0;
 	background-color: ${({ theme }) => theme.colors.background};
-	text-align: center; /* Center everything initially */
+	min-height: calc(100vh - 200px);
 `;
 
 const Container = styled.div`
@@ -14,81 +16,124 @@ const Container = styled.div`
 	padding: 0 ${({ theme }) => theme.spacing.md};
 `;
 
+const HeaderWrapper = styled.div`
+	text-align: center;
+	max-width: 800px;
+	margin: 0 auto ${({ theme }) => theme.spacing.xl};
+`;
+
 const H1 = styled.h1`
 	font-size: 2.5rem;
-	margin-bottom: ${({ theme }) => theme.spacing.sm};
+	color: ${({ theme }) => theme.colors.primary};
+	margin-bottom: ${({ theme }) => theme.spacing.md};
+	font-weight: 700;
+
+	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
+		font-size: 3rem;
+	}
 `;
 
 const Subheadline = styled.p`
 	font-size: 1.2rem;
 	color: ${({ theme }) => theme.colors.textLight};
-	margin-bottom: ${({ theme }) => theme.spacing.lg};
+	line-height: 1.6;
 `;
 
 const PricingCard = styled.div`
 	background-color: ${({ theme }) => theme.colors.white};
-	padding: ${({ theme }) => theme.spacing.lg};
-	border-radius: ${({ theme }) => theme.radius.md};
-	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-	transition: transform 0.2s ease, box-shadow 0.2s ease;
-	max-width: 400px; /* Limit the width of the card */
-	margin: 0 auto; /* Center the card horizontally */
+	padding: ${({ theme }) => theme.spacing.xl};
+	border-radius: ${({ theme }) => theme.radius.lg};
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+	max-width: 500px;
+	margin: 0 auto;
+	border-top: 6px solid ${({ theme }) => theme.colors.primary}; /* Enterprise accent border */
+	position: relative;
+	transition:
+		transform 0.3s ease,
+		box-shadow 0.3s ease;
 
 	&:hover {
 		transform: translateY(-5px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12);
 	}
 `;
 
-const PlanName = styled.h2`
-	font-size: 2rem;
-	margin-bottom: ${({ theme }) => theme.spacing.sm};
-	color: ${({ theme }) => theme.colors.primary};
+const Badge = styled.div`
+	position: absolute;
+	top: -15px;
+	left: 50%;
+	transform: translateX(-50%);
+	background-color: ${({ theme }) => theme.colors.secondary};
+	color: ${({ theme }) => theme.colors.white};
+	padding: 6px 16px;
+	border-radius: 20px;
+	font-size: 0.85rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 1px;
+	white-space: nowrap;
 `;
 
-const Price = styled.p`
-	font-size: 2.5rem; /*  large font size for "Free" */
-	font-weight: bold;
-	margin-bottom: ${({ theme }) => theme.spacing.md};
+const PriceWrapper = styled.div`
+	text-align: center;
+	margin-bottom: ${({ theme }) => theme.spacing.lg};
+	padding-bottom: ${({ theme }) => theme.spacing.lg};
+	border-bottom: 1px solid ${({ theme }) => theme.colors.gray}33; /* Light transparent gray line */
+`;
+
+const Price = styled.div`
+	font-size: 4rem;
+	font-weight: 800;
 	color: ${({ theme }) => theme.colors.text};
+	line-height: 1;
+	margin-bottom: 10px;
 `;
 
 const Offer = styled.p`
-	font-size: 1.2rem;
+	font-size: 1.1rem;
 	font-weight: 600;
-	color: ${({ theme }) =>
-		theme.colors.success}; /* Use a green color for emphasis */
-	margin-bottom: ${({ theme }) => theme.spacing.lg};
+	color: ${({ theme }) => theme.colors.success};
 `;
 
 const FeaturesList = styled.ul`
 	list-style: none;
 	padding: 0;
-	margin-bottom: ${({ theme }) => theme.spacing.lg};
-	text-align: left; /* Align feature list to the left */
+	margin-bottom: ${({ theme }) => theme.spacing.xl};
 
 	li {
-		margin-bottom: ${({ theme }) => theme.spacing.sm};
+		margin-bottom: 16px;
+		font-size: 1.05rem;
+		color: ${({ theme }) => theme.colors.text};
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+
 		&::before {
-			content: "✓ "; /* Add a checkmark before each feature */
+			content: "✓";
 			color: ${({ theme }) => theme.colors.primary};
 			font-weight: bold;
+			font-size: 1.2rem;
+			line-height: 1;
 		}
 	}
 `;
 
 const Button = styled(Link)`
-	display: inline-block;
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
+	display: block;
+	text-align: center;
+	padding: 16px;
 	background-color: ${({ theme }) => theme.colors.primary};
 	color: ${({ theme }) => theme.colors.white};
 	border-radius: ${({ theme }) => theme.radius.md};
 	text-decoration: none;
-	font-weight: 600;
-	transition: background-color 0.2s ease;
+	font-weight: 700;
+	font-size: 1.1rem;
+	transition: all 0.2s ease;
 
 	&:hover {
 		background-color: ${({ theme }) => theme.colors.primaryDark};
+		box-shadow: 0 6px 15px rgba(16, 107, 125, 0.3);
+		transform: translateY(-2px);
 	}
 `;
 
@@ -96,51 +141,71 @@ const LimitedTime = styled.p`
 	font-size: 0.9rem;
 	color: ${({ theme }) => theme.colors.textLight};
 	margin-top: ${({ theme }) => theme.spacing.md};
-`;
-const Bold = styled.b`
-	font-weight: bold;
+	text-align: center;
+	font-style: italic;
 `;
 
 const Pricing = () => {
+	// 2. Initialize the translation function
+	const { t } = useTranslation();
+
 	return (
 		<PricingSection>
+			<SEO titleKey="seo.pricing.title" descKey="seo.pricing.desc" />
 			<Container>
-				<H1>Transform Your Restaurant Operations – Absolutely Free!</H1>{" "}
-				{/* Changed headline */}
-				<Subheadline>
-					For a limited time, experience the complete Scerv platform with no
-					subscription fees and zero transaction costs. This is your chance to
-					revolutionize your restaurant without any financial commitment.
-				</Subheadline>
+				<HeaderWrapper>
+					<H1>{t("pricing.header.title")}</H1>
+					<Subheadline>{t("pricing.header.subtitle")}</Subheadline>
+				</HeaderWrapper>
+
 				<PricingCard>
-					<PlanName>Join Us!</PlanName> {/* Changed plan name */}
-					<Price>Free</Price>
-					<Offer>+ No Transaction Fees!</Offer> {/* Changed offer text */}
+					<Badge>{t("pricing.card.badge")}</Badge>
+
+					<PriceWrapper>
+						<Price>{t("pricing.card.price")}</Price>
+						<Offer>{t("pricing.card.offer")}</Offer>
+					</PriceWrapper>
+
 					<FeaturesList>
 						<li>
-							<Bold>Unified Ordering and Payment:</Bold> Streamlined customer
-							ordering and automatic payments.
+							<span
+								dangerouslySetInnerHTML={{
+									__html: t("pricing.card.features.f1"),
+								}}
+							/>
 						</li>
 						<li>
-							<Bold>Chef's Q&trade;:</Bold> Efficient kitchen order management.
+							<span
+								dangerouslySetInnerHTML={{
+									__html: t("pricing.card.features.f2"),
+								}}
+							/>
 						</li>
 						<li>
-							<Bold>Real-Time Analytics & Reporting:</Bold> Data-driven insights
-							for your restaurant.
+							<span
+								dangerouslySetInnerHTML={{
+									__html: t("pricing.card.features.f3"),
+								}}
+							/>
 						</li>
 						<li>
-							<Bold>Dynamic Menu Management:</Bold> Easy real-time menu updates.
+							<span
+								dangerouslySetInnerHTML={{
+									__html: t("pricing.card.features.f4"),
+								}}
+							/>
 						</li>
 						<li>
-							<Bold>Customer Relationship Management (CRM):</Bold> Build
-							customer loyalty.
-						</li>
-						<li>
-							<Bold>Admin Web Portal:</Bold> Manage everything in one place.
+							<span
+								dangerouslySetInnerHTML={{
+									__html: t("pricing.card.features.f5"),
+								}}
+							/>
 						</li>
 					</FeaturesList>
-					<Button to="/request-demo">Get Started Now</Button>
-					<LimitedTime>Limited-time offer. Sign up today!</LimitedTime>
+
+					<Button to="/request-demo">{t("pricing.card.cta")}</Button>
+					<LimitedTime>{t("pricing.card.note")}</LimitedTime>
 				</PricingCard>
 			</Container>
 		</PricingSection>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scerv",
     "slug": "scerv",
-    "version": "0.0.27",
+    "version": "0.0.28",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,10 +20,10 @@
         "NSCameraUsageDescription": "This app uses the camera to allow you to upload profile pictures or add photos of menu items.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "16"
+      "buildNumber": "17"
     },
     "android": {
-      "versionCode": 16,
+      "versionCode": 17,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -68,8 +68,8 @@
         {
           "cameraPermission": "Allow Scerv to access your camera to scan table QR codes."
         }
-      ]
-    
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {

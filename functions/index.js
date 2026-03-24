@@ -81,6 +81,9 @@ exports.generateCustomToken = generateCustomToken.generateCustomToken;
 exports.sendInvite = sendInvite.sendInvite;
 exports.setAdminClaim = setAdminClaim.setAdminClaim;
 
+// Restaurant Party Control
+exports.closePartyTable = restaurantFunctions.closePartyTable;
+
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;
 exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;
@@ -135,4 +138,6 @@ exports.processDlocalTokenCharge = dLocalFunctions.processDlocalTokenCharge;
 exports.getDlocalPublicKey = dLocalFunctions.getDlocalPublicKey;
 exports.createDlocalPayment = dLocalFunctions.createDlocalPayment;
 exports.confirmDlocalPayment = dLocalFunctions.confirmDlocalPayment;
+exports.chargeSavedDlocalCard = dLocalFunctions.chargeSavedDlocalCard;
 //
+exports.translateInstruction = partyFunctions.translateInstruction;
