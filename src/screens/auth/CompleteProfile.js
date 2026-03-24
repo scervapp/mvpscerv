@@ -66,7 +66,7 @@ export default function CompleteProfileScreen() {
 					uid: currentUser.uid,
 					firstName: firstName.trim(),
 					lastName: lastName.trim(),
-					gender: gender, // Now guaranteed to be Male, Female, or Other
+					gender: gender,
 					dateOfBirth: formattedDob,
 					phoneNumber: currentUser.phoneNumber,
 					role: "customer",
@@ -101,6 +101,8 @@ export default function CompleteProfileScreen() {
 				value={firstName}
 				onChangeText={setFirstName}
 				placeholderTextColor={colors.textMedium}
+				selectionColor={colors.primary} // Sets caret/highlight color on iOS & Android
+				cursorColor={colors.primary} // Explicitly sets caret color on Android 10+
 			/>
 			<TextInput
 				style={styles.input}
@@ -108,6 +110,8 @@ export default function CompleteProfileScreen() {
 				value={lastName}
 				onChangeText={setLastName}
 				placeholderTextColor={colors.textMedium}
+				selectionColor={colors.primary}
+				cursorColor={colors.primary}
 			/>
 
 			{/* Native Gender Picker */}
@@ -204,6 +208,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		justifyContent: "center",
 		minHeight: 54,
+		color: colors.textDark, // Added to fix the white text issue
 	},
 	pickerContainer: {
 		borderWidth: 1,
@@ -211,7 +216,6 @@ const styles = StyleSheet.create({
 		marginBottom: 15,
 		borderRadius: 8,
 		justifyContent: "center",
-		// Platform specific tweaks to ensure the picker fits well inside the border
 		paddingVertical: Platform.OS === "ios" ? 0 : 2,
 		overflow: "hidden",
 	},

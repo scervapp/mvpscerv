@@ -512,22 +512,6 @@ exports.preparePayment = functions
 /**
  * @function fulfillOrder
  * @description A consolidated, robust, and GATEWAY-AGNOSTIC function to process a successful payment.
- * It creates a permanent order, performs all necessary database cleanup in a
- * single atomic transaction, and handles Stripe Transfers if applicable.
- *
- * @param {object} params The consolidated order parameters.
- * @param {string} params.orderId The ID of the pending_orders document.
- * @param {string} params.paymentType 'individual' or 'party'.
- * @param {string} params.userId The ID of the paying customer.
- * @param {string} params.restaurantId The ID of the restaurant.
- * @param {string} params.processor 'stripe' or 'paypal'.
- * @param {string} params.processorTransactionId The Stripe PaymentIntent ID or PayPal Capture ID.
- * @param {number} params.totalPrice The total amount paid in cents.
- * @param {number} params.processorFeeActual The calculated processing fee for accurate accounting.
- * @param {number} params.platformFeeActual (Optional) The application fee taken by the platform.
- * @param {object} params.stripeInstance (Optional) The initialized Stripe instance (required for Stripe).
- * @param {string} params.latestChargeId (Optional) The Stripe charge ID (required for Stripe Transfers).
- * @returns {Promise<void>}
  */
 const fulfillOrder = async ({
 	orderId,
@@ -550,6 +534,10 @@ const fulfillOrder = async ({
 		return;
 	}
 
+	console.log(
+		`[Fulfill] Fulfilling ${paymentType} order ${orderId} via ${processor.toUpperCase()}.`,
+	);
+
 	const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 	const pendingOrderSnap = await pendingOrderRef.get();
 
@@ -568,63 +556,167 @@ const fulfillOrder = async ({
 		.doc(restaurantId)
 		.get();
 	const restaurantData = restaurantDoc.data();
-
-	// This is your new master switch.
-	// "manual_wise" = Panama workaround. "stripe_connect" = Automated API transfers.
 	const payoutRouting = restaurantData.payoutMethod || "stripe_connect";
 
-	// ... (Keep ALL of your existing math, finalOrderData formulation, and the entire db.runTransaction block exactly as it is right now. Do not change the DB writes.) ...
+	// Assuming you have these helper functions defined elsewhere in your file
+	const readableOrderId = await generateOrderId(restaurantId);
+
+	// Calculate payouts
+	const { subtotal, gratuity, connectedAccountId } = pendingOrderData;
+	const restaurantTierInfo = await getRestaurantTier(restaurantId);
+	const payoutPercentage = restaurantTierInfo.payoutPercentage || 0.9;
+	const restaurantSubtotalPayout = Math.round(subtotal * payoutPercentage);
+	const amountToTransfer = restaurantSubtotalPayout + gratuity;
+
+	const finalOrderData = {
+		id: orderId,
+		readableOrderId: readableOrderId,
+		...pendingOrderData,
+		paymentProcessor: processor,
+		paymentProcessorId: processorTransactionId,
+		paymentStatus: "paid",
+		orderStatus: "confirmed",
+		platformFeeActual: platformFeeActual || pendingOrderData.platformFee || 0,
+		processorFeeActual: processorFeeActual || 0,
+		totalPrice: totalPrice,
+		fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+	};
+
+	// 2. ============== ATOMIC DATABASE TRANSACTION ==============
+	try {
+		await db.runTransaction(async (t) => {
+			// === 1. READS ===
+			const transactionalPendingOrderSnap = await t.get(pendingOrderRef);
+			if (!transactionalPendingOrderSnap.exists) {
+				return;
+			}
+
+			let partySnap;
+			if (paymentType === "party") {
+				const partyRef = db.collection("parties").doc(pendingOrderData.partyId);
+				partySnap = await t.get(partyRef);
+			}
+
+			// === 2. WRITES ===
+			const finalOrderRef = db.collection("orders").doc(orderId);
+			t.set(finalOrderRef, finalOrderData);
+
+			// --- Individual Mode Cleanup ---
+			if (paymentType === "individual") {
+				const { items, table } = pendingOrderData;
+
+				// Delete only this user's specific basket items.
+				items.forEach((item) => {
+					const basketItemRef = db.collection("baskets").doc(item.id);
+					t.delete(basketItemRef);
+				});
+
+				// Update table status to checkedOut so staff knows they are done eating
+				if (table && table.id) {
+					const tableRef = db
+						.collection("restaurants")
+						.doc(restaurantId)
+						.collection("tables")
+						.doc(table.id);
+					t.update(tableRef, {
+						status: "checkedOut", // Do NOT set to available here.
+					});
+				}
+			}
+
+			// --- Party Mode Cleanup ---
+			else if (paymentType === "party") {
+				if (partySnap && partySnap.exists) {
+					const partyData = partySnap.data();
+
+					// 1. Mark the paying user as paid
+					const payerUserId = pendingOrderData.customerId || userId;
+					const updatedGuestPips = partyData.guestPips.map((pip) =>
+						pip.userId === payerUserId
+							? { ...pip, paymentStatus: "paid" }
+							: pip,
+					);
+					t.update(partySnap.ref, { guestPips: updatedGuestPips });
+
+					// 2. Delete ONLY the items this specific user just paid for
+					const sharedBasketItemsPath = `shared_baskets/${partyData.sharedBasketId}/items`;
+					pendingOrderData.items.forEach((item) => {
+						const itemRef = db.collection(sharedBasketItemsPath).doc(item.id);
+						t.delete(itemRef);
+					});
+
+					// 3. Check if the entire table has paid
+					const allPaid = updatedGuestPips.every(
+						(pip) => pip.paymentStatus === "paid",
+					);
+
+					if (allPaid && partyData.table && partyData.table.id) {
+						// If everyone paid, flag the table for the staff to clear
+						const tableRef = db
+							.collection("restaurants")
+							.doc(partyData.restaurantId)
+							.collection("tables")
+							.doc(partyData.table.id);
+
+						t.update(tableRef, {
+							status: "checkedOut", // Do NOT set to available here.
+						});
+					}
+				}
+			}
+
+			// FINAL WRITE: Delete the pending order document.
+			t.delete(pendingOrderRef);
+		});
+
+		console.log(
+			`[Fulfill] ✅ Successfully committed DB transaction for order ${orderId}.`,
+		);
+	} catch (error) {
+		console.error(
+			`[Fulfill] ❌ DB transaction for order ${orderId} failed:`,
+			error,
+		);
+		throw error;
+	}
 
 	// 3. ============== EXTERNAL API CALL (Conditional Routing) ==============
-
 	if (processor === "stripe" && stripeInstance) {
-		// ROUTE A: The "Panama" Workaround (Merchant of Record)
 		if (payoutRouting === "manual_wise") {
 			console.log(
-				`[Fulfill] 🇵🇦 Panama routing detected for ${orderId}. Funds secured in Scerv Account. Skipping automated transfer.`,
+				`[Fulfill] 🇵🇦 Panama routing detected for ${orderId}. Skipping automated Stripe transfer.`,
 			);
-			// You are done. The money is in Brex, and you'll pay them via Wise later.
-		}
-
-		// ROUTE B: The Global Standard (Stripe Connect)
-		else if (
+		} else if (
 			payoutRouting === "stripe_connect" &&
 			latestChargeId &&
-			pendingOrderData.connectedAccountId
+			connectedAccountId
 		) {
 			console.log(
 				`[Fulfill] 🌎 Global routing detected. Initiating Stripe Connect Transfer...`,
 			);
 			try {
-				// YOUR ORIGINAL CODE STAYS ALIVE HERE
 				const transfer = await stripeInstance.transfers.create({
 					amount: amountToTransfer,
 					currency: "usd",
-					destination: pendingOrderData.connectedAccountId,
+					destination: connectedAccountId,
 					source_transaction: latestChargeId,
 					metadata: { orderId: orderId },
 				});
-
 				console.log(
-					`[Fulfill] ✅ Successfully created Stripe Transfer ${transfer.id} for order ${orderId}.`,
+					`[Fulfill] ✅ Successfully created Stripe Transfer ${transfer.id}.`,
 				);
-
 				await db
 					.collection("orders")
 					.doc(orderId)
 					.update({ stripeTransferId: transfer.id });
 			} catch (apiError) {
 				console.error(
-					`[Fulfill] 🚨 CRITICAL: DB updated for ${orderId}, but Stripe Transfer FAILED:`,
+					`[Fulfill] 🚨 CRITICAL: DB updated, but Stripe Transfer FAILED:`,
 					apiError,
 				);
 			}
 		}
-	}
-	// PAYPAL PAYOUTS
-	else if (processor === "paypal") {
-		// Since PayPal handles marketplace payouts during the transaction payload itself,
-		// or settles to a primary account depending on your setup, no extra API call is needed here.
+	} else if (processor === "paypal") {
 		console.log(
 			`[Fulfill] ✅ PayPal order ${orderId} finalized. No secondary transfer required.`,
 		);

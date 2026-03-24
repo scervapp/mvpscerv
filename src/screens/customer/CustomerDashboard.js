@@ -149,19 +149,35 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 			`Fetching restaurants. Region: ${selectedRegion}, GlobalMode: ${forceGlobalView}`,
 		);
 
-		let q = db.collection("restaurants").where("isLive", "==", true);
+		let q = db.collection("restaurants");
 
+		// 1. Apply Region Filter
 		if (!forceGlobalView && selectedRegion) {
 			q = q.where("countryCode", "==", selectedRegion);
 		}
 
+		// 2. Apply Permission Filter at DB level for normal users
+		if (!currentUserData?.canViewHiddenRestaurants) {
+			q = q.where("isLive", "==", true);
+		}
+
 		const unsubscribe = q.onSnapshot(
 			(snapshot) => {
-				const liveRestaurants = snapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setAllRestaurants(liveRestaurants);
+				const validRestaurants = snapshot.docs
+					.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}))
+					.filter((res) => {
+						// 3. Client-side filter for testers to ensure they see Live OR Test
+						// (and filters out completely inactive setups)
+						if (currentUserData?.canViewHiddenRestaurants) {
+							return res.isLive === true || res.isTestAccount === true;
+						}
+						return true; // Normal users are already filtered by the DB query above
+					});
+
+				setAllRestaurants(validRestaurants);
 				setIsLoading(false);
 			},
 			(err) => {
@@ -169,8 +185,14 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 				setIsLoading(false);
 			},
 		);
+
 		return () => unsubscribe();
-	}, [selectedRegion, forceGlobalView, isRegionLoading]);
+	}, [
+		selectedRegion,
+		forceGlobalView,
+		isRegionLoading,
+		currentUserData?.canViewHiddenRestaurants,
+	]);
 
 	// --- HANDLERS ---
 	const handleRestaurantPress = (restaurant) => {

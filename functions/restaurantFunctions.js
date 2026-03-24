@@ -149,6 +149,7 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			"User must be authorized.",
 		);
 	}
+
 	const { restaurantId, workDayId } = data;
 	if (!restaurantId || !workDayId) {
 		throw new functions.https.HttpsError(
@@ -160,24 +161,19 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 	const restaurantRef = db.collection("restaurants").doc(restaurantId);
 	const workDayRef = restaurantRef.collection("work_days").doc(workDayId);
 	const tablesRef = restaurantRef.collection("tables");
+	const kitchenOrdersRef = db.collection("kitchen_orders"); // Reference to the Chef's Queue
 
 	try {
 		// --- Pre-close Validation Step ---
-		// Check for any tables that are NOT available. This includes 'OCCUPIED' and 'checkedOut'.
 		const unresolvedTablesQuery = tablesRef
 			.where("status", "!=", "available")
 			.limit(1);
 		const unresolvedSnapshot = await unresolvedTablesQuery.get();
 
 		if (!unresolvedSnapshot.empty) {
-			const unresolvedCount = unresolvedSnapshot.size;
-			const sampleTable = unresolvedSnapshot.docs[0].data();
-			console.warn(
-				`endWorkDay attempt failed: ${unresolvedCount} tables are not available (e.g., status: ${sampleTable.status}).`,
-			);
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				`Cannot end the day while ${unresolvedCount} table(s) are still occupied or need cleaning. Please clear all tables first.`,
+				"Cannot end the day while tables are still occupied. Please clear all tables first.",
 			);
 		}
 
@@ -189,10 +185,15 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			);
 		}
 
+		// --- Fetch Kitchen Orders to Clear ---
+		const activeKitchenOrders = await kitchenOrdersRef
+			.where("restaurantId", "==", restaurantId)
+			.get();
+
 		// --- Proceed with Closing ---
 		const batch = db.batch();
 
-		// Close the work day document
+		// 1. Close the work day document
 		batch.update(workDayRef, {
 			status: "CLOSED",
 			endTime: admin.firestore.FieldValue.serverTimestamp(),
@@ -202,15 +203,20 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			},
 		});
 
-		// Set the public-facing status on the main restaurant document
+		// 2. Set the public-facing status to CLOSED
 		batch.update(restaurantRef, { isOpen: false });
+
+		// 3. Clear the Chef's Queue (Kitchen Orders)
+		activeKitchenOrders.forEach((doc) => {
+			batch.delete(doc.ref);
+		});
 
 		await batch.commit();
 
 		console.log(
-			`Successfully ended work day ${workDayId} and set restaurant to CLOSED.`,
+			`Successfully ended work day ${workDayId} and cleared ${activeKitchenOrders.size} kitchen orders.`,
 		);
-		return { success: true };
+		return { success: true, ordersCleared: activeKitchenOrders.size };
 	} catch (error) {
 		console.error(`Error ending work day ${workDayId}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
@@ -1166,7 +1172,7 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
 				return { success: true, message: "Table is already closed." };
 			}
 
-			// READ: Fetch the basket data ALWAYS (we need it for the Orders collection)
+			// READ: Fetch the basket data for the permanent order record
 			const basketRef = db.collection("shared_baskets").doc(partyId);
 			const basketDoc = await transaction.get(basketRef);
 
@@ -1209,24 +1215,7 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
 				closedByUserId: context.auth.uid,
 			});
 
-			// Write 2: Free up the physical Table
-			if (restaurantId && tableId) {
-				const tableRef = db
-					.collection("restaurants")
-					.doc(restaurantId)
-					.collection("tables")
-					.doc(tableId);
-
-				// fulfillOrder uses "checkedOut", we use "available" here to instantly reset the table for the server
-				transaction.update(tableRef, {
-					status: "available",
-					currentCheckInId: null,
-					currentCustomerId: null,
-					seatedAt: null,
-				});
-			}
-
-			// Write 3: Free the Customers (Safely ignoring placeholders)
+			// Write 2: Free the Customers (So their app resets as they walk out)
 			const usersToFree = [];
 			if (partyData.hostUserId && partyData.hostUserId !== "walk_in_guest") {
 				usersToFree.push(partyData.hostUserId);
@@ -1257,7 +1246,7 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
 				);
 			});
 
-			// Write 4: 🚨 ALIGNMENT FIX - Close the CheckIn document
+			// Write 3: Close the CheckIn document
 			if (partyData.checkInId) {
 				const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
 				transaction.update(checkInRef, {
@@ -1266,8 +1255,8 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
 				});
 			}
 
-			// Write 5: 🚨 ALIGNMENT FIX - Create Permanent Sales Record
-			const orderRef = db.collection("orders").doc(partyId); // Using partyId as orderId for easy tracing
+			// Write 4: Create Permanent Sales Record
+			const orderRef = db.collection("orders").doc(partyId);
 			transaction.set(orderRef, {
 				id: partyId,
 				partyId: partyId,
@@ -1277,14 +1266,14 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
 				server: partyData.server || null,
 				items: officiallyOrderedItems,
 				paymentProcessor: "none",
-				paymentMethod: paymentMethod, // 'cash' or 'external_terminal'
+				paymentMethod: paymentMethod,
 				paymentStatus: "paid",
 				orderStatus: "confirmed",
 				totalPrice: tableTotal,
 				fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
 
-			// Write 6: Generate & Send Digital Receipt (If Email Provided)
+			// Write 5: Generate & Send Digital Receipt
 			if (receiptEmail && officiallyOrderedItems.length > 0) {
 				const itemsHtml = officiallyOrderedItems
 					.map((item) => {
@@ -1322,6 +1311,21 @@ exports.closePartyTable = functions.https.onCall(async (data, context) => {
                             </div>
                         `,
 					},
+				});
+			}
+
+			// Write 6: Flag Table for Bussing
+			if (restaurantId && tableId) {
+				const tableRef = db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("tables")
+					.doc(tableId);
+
+				// We ONLY change the status. We leave the IDs so your UI can still
+				// reference the party/checkIn when the staff hits "Clear Table"
+				transaction.update(tableRef, {
+					status: "checkedOut",
 				});
 			}
 
