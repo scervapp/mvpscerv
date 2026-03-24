@@ -1417,9 +1417,10 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 
 			// F. Lock the Table
 			transaction.update(tableRef, {
-				status: "party",
+				status: "OCCUPIED",
 				currentPartyId: partyRef.id,
 				currentCheckInId: checkInRef.id,
+				currentCustomerId: hostId,
 				seatedAt: timestamp,
 			});
 

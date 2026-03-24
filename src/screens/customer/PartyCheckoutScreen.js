@@ -73,6 +73,8 @@ const PartyCheckoutScreen = () => {
 	// 🚨 NEW: State to hold the pre-filled user details
 	const [savedName, setSavedName] = useState("");
 	const [savedDocument, setSavedDocument] = useState("");
+	const [restaurantData, setRestaurantData] = useState(null);
+	const canAcceptPayments = restaurantData?.canAcceptPayments !== false;
 
 	// Determine region
 	const country = party?.restaurantCountryCode || "PA";
@@ -164,6 +166,17 @@ const PartyCheckoutScreen = () => {
 	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
 
 	const slideAnim = useRef(new Animated.Value(800)).current;
+
+	useEffect(() => {
+		if (!party?.restaurantId) return;
+		const unsubscribe = db
+			.collection("restaurants")
+			.doc(party.restaurantId)
+			.onSnapshot((doc) => {
+				if (doc.exists) setRestaurantData(doc.data());
+			});
+		return () => unsubscribe();
+	}, [party?.restaurantId]);
 
 	useEffect(() => {
 		if (isPaymentModalVisible) {
@@ -403,6 +416,37 @@ const PartyCheckoutScreen = () => {
 		}
 	};
 
+	const handleManualCheckout = async () => {
+		setIsPreparing(true);
+		try {
+			await db.collection("parties").doc(partyId).update({
+				customerStatus: "ready_to_pay",
+				checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
+			});
+
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0,
+					routes: [
+						{
+							name: "OrderConfirmation",
+							params: {
+								initialStatus: "manual_checkout",
+								origin: "party",
+								isIndividual: false,
+								// Pass the dishes here
+								items: myItemsInBasket,
+							},
+						},
+					],
+				}),
+			);
+		} catch (error) {
+			Alert.alert("Error", "Could not request checkout.");
+		} finally {
+			setIsPreparing(false);
+		}
+	};
 	// --- Stripe Payment Action (USA) ---
 	const handlePayment = async () => {
 		if (!isReadyToPay || isPreparing) return;
@@ -477,11 +521,6 @@ const PartyCheckoutScreen = () => {
 		}
 	};
 
-	console.log("🚨 CHECKING CHECKOUT VARS:", {
-		key: dlocalPublicKey,
-		token: dlocalCheckoutToken,
-		isLive: isLiveMode,
-	});
 	// --- Render Logic ---
 	return (
 		<StripeProvider publishableKey={stripePublishableKey || ""}>
@@ -490,21 +529,20 @@ const PartyCheckoutScreen = () => {
 					style={styles.container}
 					contentContainerStyle={styles.scrollContentContainer}
 				>
+					{/* Header Section */}
 					<View style={styles.header}>
 						<Text style={styles.title}>{t("checkout_your_portion")}</Text>
 						<Text style={styles.restaurantName}>{party?.restaurantName}</Text>
 					</View>
 
+					{/* Items List Section */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
 						{myItemsInBasket.length > 0 ? (
 							myItemsInBasket.map((item) => (
 								<View key={item.id} style={styles.itemRow}>
 									<Text style={styles.itemName}>
-										{item.quantity}x {item.name}{" "}
-										{item.orderedByPipName
-											? `(${t("for")} ${item.orderedByPipName})`
-											: ""}
+										{item.quantity}x {item.name}
 									</Text>
 									<Text style={styles.itemPrice}>
 										{formatCurrency((item.price || 0) * item.quantity * 100)}
@@ -518,164 +556,134 @@ const PartyCheckoutScreen = () => {
 						)}
 					</View>
 
-					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
-						<View style={styles.gratuityContainer}>
-							<Picker
-								selectedValue={gratuityPercentage}
-								onValueChange={(itemValue) => setGratuityPercentage(itemValue)}
-								style={styles.gratuityPicker}
-							>
-								<Picker.Item label={t("5_percent")} value="5" />
-								<Picker.Item label={t("10_percent")} value="10" />
-								<Picker.Item label={t("15_percent")} value="15" />
-								<Picker.Item label={t("18_percent_recommended")} value="18" />
-								<Picker.Item label={t("20_percent")} value="20" />
-								<Picker.Item label={t("25_percent")} value="25" />
-								<Picker.Item label={t("no_tip")} value="0" />
-							</Picker>
+					{/* Conditional Gratuity: Only shown if restaurant accepts in-app payments */}
+					{canAcceptPayments && (
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
+							<View style={styles.gratuityContainer}>
+								<Picker
+									selectedValue={gratuityPercentage}
+									onValueChange={(itemValue) =>
+										setGratuityPercentage(itemValue)
+									}
+									style={styles.gratuityPicker}
+								>
+									<Picker.Item label={t("18_percent_recommended")} value="18" />
+									<Picker.Item label={t("20_percent")} value="20" />
+									<Picker.Item label={t("no_tip")} value="0" />
+								</Picker>
+							</View>
 						</View>
-					</View>
+					)}
 
+					{/* Bill Summary */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
-						{myTotalDiscount > 0 && (
-							<>
-								<View style={styles.summaryRow}>
-									<Text style={styles.label}>{t("original_subtotal")}:</Text>
-									<Text style={styles.originalPriceText}>
-										{formatCurrency(myOriginalSubtotal)}
-									</Text>
-								</View>
-								<View style={styles.summaryRow}>
-									<Text style={styles.label}>{t("discounts")}:</Text>
-									<Text style={styles.discountText}>
-										-{formatCurrency(myTotalDiscount)}
-									</Text>
-								</View>
-							</>
-						)}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>{t("subtotal")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
 						</View>
-						<View style={styles.summaryRow}>
-							<Text style={styles.label}>
-								{t("gratuity")} ({gratuityPercentage}%):
-							</Text>
-							<Text style={styles.amount}>{formatCurrency(myGratuity)}</Text>
-						</View>
-						<View style={styles.summaryRow}>
-							<Text style={styles.label}>{t("service_fee")}:</Text>
-							<Text style={styles.amount}>{formatCurrency(myPlatformFee)}</Text>
-						</View>
+
+						{canAcceptPayments && (
+							<>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>{t("gratuity")}:</Text>
+									<Text style={styles.amount}>
+										{formatCurrency(myGratuity)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>{t("service_fee")}:</Text>
+									<Text style={styles.amount}>
+										{formatCurrency(myPlatformFee)}
+									</Text>
+								</View>
+							</>
+						)}
 
 						<Divider style={styles.divider} />
+
 						<View style={styles.summaryRow}>
 							<Text style={styles.totalLabel}>{t("your_total")}:</Text>
-							{isPreparing ? (
-								<ActivityIndicator size="small" color={colors.primary} />
-							) : (
-								<Text style={styles.totalAmount}>
-									{formatCurrency(finalTotal)}
-								</Text>
-							)}
+							<Text style={styles.totalAmount}>
+								{formatCurrency(canAcceptPayments ? finalTotal : mySubtotal)}
+							</Text>
 						</View>
 					</View>
 
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 				</ScrollView>
 
-				{!isPaymentModalVisible && (
-					<View style={styles.footer}>
-						<Button
-							mode="contained"
-							onPress={() => {
-								if (isPanama) {
-									setIsPaymentModalVisible(true);
-								} else {
-									handlePayment();
-								}
-							}}
-							disabled={!isReadyToPay || isPreparing}
-							loading={isPreparing || isPaying}
-							style={styles.payButton}
-							labelStyle={styles.payButtonText}
-						>
-							{isPreparing
-								? t("preparing")
-								: isPaying
-									? t("processing")
-									: `${t("pay")} ${formatCurrency(finalTotal)}`}
-						</Button>
-					</View>
-				)}
-			</SafeAreaView>
+				{/* Footer Action Button */}
+				<View style={styles.footer}>
+					<Button
+						mode="contained"
+						onPress={() => {
+							if (!canAcceptPayments) {
+								handleManualCheckout();
+							} else if (isPanama) {
+								setIsPaymentModalVisible(true);
+							} else {
+								handlePayment();
+							}
+						}}
+						disabled={!isReadyToPay || isPreparing}
+						loading={isPreparing}
+						style={styles.payButton}
+						labelStyle={styles.payButtonText}
+					>
+						{isPreparing
+							? t("preparing")
+							: !canAcceptPayments
+								? t("request_check", "Request Check")
+								: `${t("pay")} ${formatCurrency(finalTotal)}`}
+					</Button>
+				</View>
 
-			<Modal
-				visible={isPaymentModalVisible}
-				transparent={true}
-				animationType="slide"
-				onRequestClose={() => setIsPaymentModalVisible(false)}
-			>
-				<View style={styles.modalBackground}>
-					<TouchableOpacity
-						style={StyleSheet.absoluteFill}
-						activeOpacity={1}
-						onPress={() => setIsPaymentModalVisible(false)}
-					/>
-
-					<View style={styles.bottomSheet}>
-						<View style={styles.sheetHeader}>
-							<Text style={styles.sheetTitle}>
-								{t("enter_payment_details", "Payment Details")}
-							</Text>
-							<TouchableOpacity onPress={() => setIsPaymentModalVisible(false)}>
-								<Ionicons
-									name="close-circle"
-									size={30}
-									color={colors.textMedium}
-								/>
-							</TouchableOpacity>
-						</View>
-
-						{isReadyToPay &&
-						finalTotal > 0 &&
-						dlocalPublicKey &&
-						dlocalCheckoutToken ? (
+				{/* DLocal Payment Sheet Modal */}
+				<Modal
+					visible={isPaymentModalVisible}
+					transparent={true}
+					animationType="slide"
+				>
+					<View style={styles.modalBackground}>
+						<TouchableOpacity
+							style={StyleSheet.absoluteFill}
+							activeOpacity={1}
+							onPress={() => setIsPaymentModalVisible(false)}
+						/>
+						<View style={styles.bottomSheet}>
+							<View style={styles.sheetHeader}>
+								<Text style={styles.sheetTitle}>{t("payment_details")}</Text>
+								<TouchableOpacity
+									onPress={() => setIsPaymentModalVisible(false)}
+								>
+									<Ionicons
+										name="close-circle"
+										size={30}
+										color={colors.textMedium}
+									/>
+								</TouchableOpacity>
+							</View>
 							<View style={styles.webViewContainer}>
 								<DlocalNativeCheckout
 									publicKey={dlocalPublicKey}
 									checkoutToken={dlocalCheckoutToken}
 									amountFormatted={formatCurrency(finalTotal)}
 									locale={i18n.language || "es"}
-									// 🚨 NEW: Passing the saved details as props
 									isLive={isLiveMode}
 									initialName={savedName}
 									initialDocument={savedDocument}
-									onProcessing={() => setIsPreparing(true)}
-									onError={(msg) => {
-										setIsPreparing(false);
-										setPaymentError(msg);
-										setIsPaymentModalVisible(false);
-									}}
 									onTokenSuccess={(cardData) => {
 										setIsPaymentModalVisible(false);
 										handleSmartFieldToken(cardData);
 									}}
 								/>
 							</View>
-						) : (
-							<View style={styles.loadingSheet}>
-								<ActivityIndicator size="large" color={colors.primary} />
-								<Text style={styles.loadingSheetText}>
-									Securely loading checkout...
-								</Text>
-							</View>
-						)}
+						</View>
 					</View>
-				</View>
-			</Modal>
+				</Modal>
+			</SafeAreaView>
 		</StripeProvider>
 	);
 };
