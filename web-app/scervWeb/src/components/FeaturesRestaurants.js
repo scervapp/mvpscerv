@@ -1,14 +1,14 @@
 import React from "react";
 import styled from "styled-components";
-import FeatureBlock from "./FeatureBlock";
-import posIcon from "../images/pos-icon.svg"; // Import your actual icon paths
+import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
+
+import posIcon from "../images/pos-icon.svg";
 import orderingIcon from "../images/ordering-icon.svg";
 import queueIcon from "../images/queue-icon.svg";
 import analyticsIcon from "../images/analytics-icon.svg";
 import crmIcon from "../images/crm-icon.svg";
 import webPortalIcon from "../images/web-portal-icon.svg";
 
-// Import placeholder images for now, replace with actual screenshots/mockups
 import unifiedOrderingScreenshot from "../images/ordering.jpeg";
 import orderingScreenshot from "../images/placeholder.png";
 import analyticsScreenshot from "../images/analytics.jpeg";
@@ -35,7 +35,7 @@ const H2 = styled.h2`
 
 const FeatureGrid = styled.div`
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); /*  Grid */
+	grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
 	gap: 40px;
 	margin-top: 40px;
 	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
@@ -52,7 +52,9 @@ const FeatureCard = styled.div`
 	background-color: ${({ theme }) => theme.colors.white};
 	border-radius: ${({ theme }) => theme.radius.md};
 	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-	transition: transform 0.2s ease, box-shadow 0.2s ease;
+	transition:
+		transform 0.2s ease,
+		box-shadow 0.2s ease;
 
 	&:hover {
 		transform: translateY(-5px);
@@ -86,6 +88,7 @@ const FeatureIcon = styled.img`
 	height: auto;
 	margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
+
 const CTASection = styled.div`
 	text-align: center;
 	margin-top: ${({ theme }) => theme.spacing.xl};
@@ -106,11 +109,16 @@ const CTAButton = styled.a`
 		box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
 	}
 `;
+
 const FeaturesRestaurants = () => {
+	// 2. Initialize the translation function
+	const { t } = useTranslation();
+
 	return (
 		<Section>
 			<Container>
-				<H2>Empower Your Restaurant with Scerv</H2>
+				{/* 3. Replace text with dynamic translation keys */}
+				<H2>{t("features.restaurants.title")}</H2>
 				<FeatureGrid>
 					{/* Feature 1: Unified Ordering and Payment */}
 					<FeatureCard>
@@ -118,17 +126,13 @@ const FeaturesRestaurants = () => {
 							src={unifiedOrderingScreenshot}
 							alt="Scerv Unified Ordering and Payment Screenshot"
 						/>
-						<FeatureTitle>Integrated Ordering and Payment</FeatureTitle>
+						<FeatureTitle>
+							{t("features.restaurants.ordering.title")}
+						</FeatureTitle>
 						<FeatureDescription>
-							Scerv revolutionizes the dining experience with a seamless,
-							integrated ordering and payment system. Customers order directly
-							through the app, eliminating the need for traditional POS
-							terminals and reducing wait times. Payments are processed
-							automatically upon checkout, streamlining operations and enhancing
-							customer satisfaction.
+							{t("features.restaurants.ordering.desc")}
 						</FeatureDescription>
-						<FeatureIcon src={orderingIcon} alt="Unified Ordering Icon" />{" "}
-						{/* Use the ordering icon */}
+						<FeatureIcon src={orderingIcon} alt="Unified Ordering Icon" />
 					</FeatureCard>
 
 					{/* Feature 3: Queue Management */}
@@ -137,64 +141,32 @@ const FeaturesRestaurants = () => {
 							src={queueScreenshot}
 							alt="Scerv Chef's Q Screenshot"
 						/>
-						<FeatureTitle>Chef's Q&trade;</FeatureTitle>
+						<FeatureTitle>{t("features.restaurants.queue.title")}</FeatureTitle>
 						<FeatureDescription>
-							Streamline your kitchen operations with Scerv's Chef's Q. Incoming
-							orders are automatically grouped by table and displayed clearly on
-							a dedicated kitchen display system (KDS). This eliminates the need
-							for paper tickets, reduces errors, and improves communication
-							between front-of-house and back-of-house staff. Special
-							instructions are clearly displayed, ensuring order accuracy and
-							customer satisfaction. Optimize order preparation and delivery for
-							maximum efficiency.
+							{t("features.restaurants.queue.desc")}
 						</FeatureDescription>
 						<FeatureIcon src={queueIcon} alt="Queue Icon" />
 					</FeatureCard>
 
-					{/* Feature 4: CRM */}
-					{/* <FeatureCard>
-						<FeatureImage src={crmScreenshot} alt="Scerv CRM Screenshot" />
-						<FeatureTitle>Customer Relationship Management (CRM)</FeatureTitle>
-						<FeatureDescription>
-							Build lasting customer relationships with Scerv's built-in CRM.
-							Track customer preferences, purchase history, and loyalty program
-							participation. Personalize offers, send targeted promotions, and
-							foster customer loyalty.
-						</FeatureDescription>
-						<FeatureIcon src={crmIcon} alt="CRM Icon" />
-					</FeatureCard> */}
-
-					{/* Feature 5: Admin */}
-					{/* <FeatureCard>
-						<FeatureImage
-							src={adminScreenshot}
-							alt="Scerv Analytics Dashboard Screenshot"
-						/>
-						<FeatureTitle>Admin Web Portal</FeatureTitle>
-						<FeatureDescription>
-							Effortlessly manage your restaurant's settings, menus, staff, and
-							customer data from anywhere with our intuitive web portal.
-						</FeatureDescription>
-						<FeatureIcon src={webPortalIcon} alt="Web Portal Icon" />
-					</FeatureCard> */}
 					{/* Feature 2: Analytics */}
 					<FeatureCard>
 						<FeatureImage
 							src={analyticsScreenshot}
 							alt="Scerv Analytics Dashboard Screenshot"
 						/>
-						<FeatureTitle>Real-Time Analytics & Reporting</FeatureTitle>
+						<FeatureTitle>
+							{t("features.restaurants.analytics.title")}
+						</FeatureTitle>
 						<FeatureDescription>
-							Gain valuable insights into your restaurant's performance with
-							Scerv's comprehensive reporting tools. Track sales, identify
-							popular items, monitor customer behavior, and make data-driven
-							decisions to optimize your menu, pricing, and staffing.
+							{t("features.restaurants.analytics.desc")}
 						</FeatureDescription>
 						<FeatureIcon src={analyticsIcon} alt="Analytics Icon" />
 					</FeatureCard>
 				</FeatureGrid>
 				<CTASection>
-					<CTAButton href="#">Request a Demo</CTAButton>
+					<CTAButton href="/request-demo">
+						{t("features.restaurants.cta")}
+					</CTAButton>
 				</CTASection>
 			</Container>
 		</Section>

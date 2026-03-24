@@ -511,8 +511,6 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	// 🚨 Removed 'type' entirely since everything is a party now!
-	// sourceId is now strictly your partyId
 	const { sourceId, table, server, allowedUserIds } = data;
 	const userId = context.auth.uid;
 
@@ -523,7 +521,6 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	// Fallback: If no array is passed, just use the main user's ID
 	const idsToProcess =
 		Array.isArray(allowedUserIds) && allowedUserIds.length > 0
 			? allowedUserIds
@@ -555,7 +552,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 		const restaurantIdForOrder = itemsFromSource[0].restaurantId;
 
-		// 3. Fetch menu details (Safely chunked to prevent Firestore 10-item limit crashes!)
+		// 3. Fetch menu details
 		const menuItemIds = [
 			...new Set(itemsFromSource.map((item) => item.menuItemId)),
 		];
@@ -573,26 +570,27 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			}
 		}
 
-		// 4. Update the status of both your items and your PIPs' items to "sent"
-		const updatedSourceItems = allItems.map((item) =>
-			idsToProcess.includes(item.orderedByUserId) && item.status === "new"
-				? { ...item, status: "sent", sentAt: new Date() }
-				: item,
-		);
+		// 🚨 ENTERPRISE UPDATE: Generate the Ticket ID early!
+		const kitchenOrderRef = db.collection("kitchen_orders").doc();
+		const orderId = kitchenOrderRef.id;
 
-		batch.update(basketRef, {
-			items: updatedSourceItems,
-			lastUpdated: new Date(),
-		});
+		// 🚨 ENTERPRISE UPDATE: Build the smart station routing map
+		let hasKitchen = false;
+		let hasBar = false;
 
-		// 5. Format the items for the Kitchen Order document
 		const kitchenItems = itemsFromSource.map((item) => {
-			const details = menuItemDetailsMap.get(item.menuItemId);
-
-			// Safely fallback to item properties if the menu lookup fails
+			const details = menuItemDetailsMap.get(item.menuItemId) || {};
 			const category = details.category || item.category || "Other";
 			const dishName =
 				details.name || item.dishName || item.dish.name || "Unknown Item";
+
+			// Note: Make sure DRINK_CATEGORIES is defined at the top of your Cloud Functions file!
+			const destination = DRINK_CATEGORIES.includes(category)
+				? "bar"
+				: "kitchen";
+
+			if (destination === "kitchen") hasKitchen = true;
+			if (destination === "bar") hasBar = true;
 
 			return {
 				id: item.id,
@@ -601,20 +599,39 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				specialInstructions: item.specialInstructions || "",
 				orderedFor:
 					item.orderedByPipName || item.pipName || item.customerName || "Guest",
-				destination: DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen",
+				destination: destination,
 			};
 		});
 
-		// 6. Create the official kitchen order
-		const kitchenOrderRef = db.collection("kitchen_orders").doc();
+		const initialStationStatuses = {};
+		if (hasKitchen) initialStationStatuses.kitchen = "new";
+		if (hasBar) initialStationStatuses.bar = "new";
+
+		// 4. Update the basket AND inject the real-time customer tracker
+		const updatedSourceItems = allItems.map((item) =>
+			idsToProcess.includes(item.orderedByUserId) && item.status === "new"
+				? // 🚨 ADD ticketId HERE so the app can link the item to the kitchen's status!
+					{ ...item, status: "sent", ticketId: orderId, sentAt: new Date() }
+				: item,
+		);
+
+		batch.update(basketRef, {
+			items: updatedSourceItems,
+			[`ticketStatuses.${orderId}`]: initialStationStatuses, // Customer UI listens to this!
+			lastUpdated: new Date(),
+		});
+
+		// 5. Create the official kitchen order with separate station statuses
 		const kitchenOrderData = {
 			restaurantId: restaurantIdForOrder,
-			orderId: kitchenOrderRef.id,
-			partyId: sourceId, // Link the order back to the party
+			orderId: orderId,
+			partyId: sourceId,
 			table: table,
 			server: server,
 			items: kitchenItems,
-			status: "new",
+			stationStatuses: initialStationStatuses, // Independent Bar/Kitchen tracking
+			overallStatus: "active", // The main switch
+			status: "new", // 🚨 THE FIX: Add this back for your audio listener!
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		};
 
@@ -623,7 +640,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 		return {
 			success: true,
-			orderId: kitchenOrderRef.id,
+			orderId: orderId,
 			itemsSent: kitchenItems.length,
 		};
 	} catch (error) {

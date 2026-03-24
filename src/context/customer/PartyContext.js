@@ -225,12 +225,13 @@ export const PartyProvider = ({ children }) => {
 			);
 			const basketRef = db.collection("shared_baskets").doc(partyId);
 			const unsubscribe = basketRef.onSnapshot((docSnap) => {
-				const items = docSnap.exists() ? docSnap.data().items || [] : [];
+				// 🚨 THE FIX: Save the ENTIRE document, not just the items array
+				const basketData = docSnap.exists() ? docSnap.data() : { items: [] };
 
-				// Store this party's basket items under its own partyId in the object.
+				// Store this party's full basket data under its own partyId
 				setSharedBaskets((prevBaskets) => ({
 					...prevBaskets,
-					[partyId]: items,
+					[partyId]: basketData,
 				}));
 			});
 			unsubscribeBaskets.push(unsubscribe);
@@ -744,30 +745,66 @@ export const PartyProvider = ({ children }) => {
 			});
 			return null;
 		}
-		// Optional: Use isLoadingPartyAction or a new specific loading state
-		// For simplicity, we can reuse isLoadingPartyAction if this action is modal
-		// or if multiple "add item" calls aren't expected rapidly.
-		// If rapid calls are expected without blocking UI, a separate, non-global loading state might be better.
-		setIsLoadingPartyAction(true); // Or a more specific e.g., setIsLoadingBasketAction(true)
+
+		setIsLoadingPartyAction(true);
 		setPartyError(null);
 
 		try {
+			// --- 🚨 NEW TRANSLATION LOGIC 🚨 ---
+			let processedInstructions = menuItemDetails.specialInstructions || "";
+
+			// Only call the translation API if they actually typed something
+			if (
+				typeof processedInstructions === "string" &&
+				processedInstructions.trim() !== ""
+			) {
+				try {
+					// Initialize the callable function
+					const translateInstruction = httpsCallable(
+						functions,
+						"translateInstruction",
+					);
+					const translationResponse = await translateInstruction({
+						text: processedInstructions,
+					});
+
+					// If successful, swap the raw string for the new translation object
+					if (translationResponse.data && translationResponse.data.en) {
+						processedInstructions = translationResponse.data;
+						console.log("Translation successful:", processedInstructions);
+					}
+				} catch (translationError) {
+					console.error(
+						"Translation API failed, falling back to original text:",
+						translationError,
+					);
+					// Fallback: If Google Translate fails, manually build the object so the kitchen
+					// UI doesn't crash expecting an object when it gets a string.
+					processedInstructions = {
+						original: processedInstructions,
+						en: processedInstructions,
+						es: processedInstructions,
+					};
+				}
+			}
+			// --- END TRANSLATION LOGIC ---
+
 			console.log(
 				`PartyContext: Calling addItemToSharedBasket CF for party ${partyId}`,
 				{ orderingForUserId, orderingForPipName, menuItemDetails },
 			);
+
 			const result = await addItemToSharedBasketFunction({
 				partyId,
 				orderingForUserId,
 				orderingForPipName,
 				menuItemData: {
-					// Ensure structure matches what CF expects
-					id: menuItemDetails.id, // menuItemIdd
+					id: menuItemDetails.id,
 					name: menuItemDetails.name,
 					price: menuItemDetails.price,
 					quantity: menuItemDetails.quantity,
-					specialInstructions: menuItemDetails.specialInstructions || "",
-					// Pass any other menuItem fields your CF expects or uses
+					// 👇 Pass the new translated object instead of the raw string
+					specialInstructions: processedInstructions,
 					category: menuItemDetails.category,
 					imageUri: menuItemDetails.imageUri,
 					restaurantId: menuItemDetails.restaurantId,
@@ -778,9 +815,7 @@ export const PartyProvider = ({ children }) => {
 				console.log(
 					`PartyContext: Item ${result.data.basketItemId} added successfully to shared basket for party ${partyId}.`,
 				);
-				// The onSnapshot listener for sharedBaskets will automatically update the UI.
-				// No need to manually update sharedBaskets state here.
-				return result.data.basketItemId; // Return the new basket item's ID
+				return result.data.basketItemId;
 			} else {
 				throw new Error(
 					result.data.error ||
@@ -793,11 +828,11 @@ export const PartyProvider = ({ children }) => {
 				error,
 			);
 			const message = error.message || "Could not add item to party basket.";
-			setPartyError(message); // Set context error
+			setPartyError(message);
 			Alert.alert("Add Item Failed", message);
-			return null; // Indicate failure
+			return null;
 		} finally {
-			setIsLoadingPartyAction(false); // Or setIsLoadingBasketAction(false)
+			setIsLoadingPartyAction(false);
 		}
 	};
 

@@ -168,8 +168,11 @@ const MenuItemsList = ({
 
 	const menuSections = useMemo(() => {
 		if (!menuItems || menuItems.length === 0) return [];
+		const availableItems = menuItems.filter(
+			(item) => item.isAvailable !== false,
+		);
 
-		const grouped = menuItems.reduce((acc, item) => {
+		const grouped = availableItems.reduce((acc, item) => {
 			// OPTIONAL: If you want categories to translate dynamically from DB:
 			// const categoryFromDB = getLocalizedValue(item, 'category');
 

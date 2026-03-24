@@ -1,0 +1,185 @@
+{
+  "header": {
+    "home": "Home",
+    "pricing": "Pricing",
+    "contact": "Contact",
+    "requestDemo": "Request a Demo"
+  },
+  "hero": {
+    "headline": "Modernize Your Restaurant, Maximize Your Efficiency",
+    "subheadline": "Streamline your entire operation – from front-of-house to back-of-house – increase table turnover, and reduce costly errors. Scerv is the all-in-one platform built for restaurant success.",
+    "intro": "Scerv empowers you to take control of your restaurant, optimize your workflow, and deliver exceptional customer experiences, all while boosting your bottom line.",
+    "requestDemoBtn": "Request a Demo"
+  },
+  "features": {
+    "restaurants": {
+      "title": "Empower Your Restaurant with Scerv",
+      "ordering": {
+        "title": "Integrated Digital Ordering",
+        "desc": "Scerv revolutionizes the dining experience with a seamless, integrated digital ordering system. Customers order directly through the mobile app, eliminating the need for traditional terminal wait times. Checkouts are managed automatically in the background, streamlining operations and enhancing customer satisfaction."
+      },
+      "queue": {
+        "title": "Chef's Q™",
+        "desc": "Streamline your kitchen operations with Scerv's Chef's Q. Incoming orders are automatically grouped by table and displayed clearly on a dedicated kitchen display system (KDS). This eliminates the need for paper tickets, reduces errors, and improves communication between front-of-house and back-of-house staff. Special instructions are clearly displayed, ensuring order accuracy and customer satisfaction. Optimize order preparation and delivery for maximum efficiency."
+      },
+      "analytics": {
+        "title": "Real-Time Analytics & Reporting",
+        "desc": "Gain valuable insights into your restaurant's performance with Scerv's comprehensive reporting tools. Track sales, identify popular items, monitor customer behavior, and make data-driven decisions to optimize your menu, pricing, and staffing."
+      },
+      "cta": "Request a Demo"
+    }
+  },
+  "solutions": {
+    "title": "Built for Every Part of Your Restaurant",
+    "subtitle": "Scerv scales with your operations, increasing revenue while removing friction from the dining experience.",
+    "tabs": {
+      "foh": "Front of House",
+      "boh": "Back of House",
+      "guests": "Guest Experience"
+    },
+    "content": {
+      "foh": {
+        "headline": "Turn Tables 20% Faster",
+        "desc": "Empower your servers to focus on hospitality, not managing checkouts. With Scerv's unified app experience, guests seat themselves, order instantly, and manage their individual tabs seamlessly without waiting on staff."
+      },
+      "boh": {
+        "headline": "Smart Routing & Chef's Q™",
+        "desc": "Eliminate lost paper tickets and kitchen bottlenecks. Scerv automatically routes drink orders to the bar and food orders to the kitchen display system (KDS). Everything is timed perfectly for maximum efficiency."
+      },
+      "guests": {
+        "headline": "Break the Language Barrier",
+        "desc": "Capture more tourist revenue with auto-translating menus. Guests browse and order in English on their phones, while your kitchen receives the exact same ticket translated instantly into Spanish. Zero confusion."
+      }
+    }
+  },
+  "footer": {
+    "tagline": "The all-in-one restaurant management platform built for efficiency and growth.",
+    "product": "Product",
+    "features": "Features",
+    "pricing": "Pricing",
+    "requestDemo": "Request Demo",
+    "company": "Company",
+    "about": "About Us",
+    "contact": "Contact Us",
+    "legal": "Legal",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "rights": "All rights reserved."
+  },
+  "cta": {
+    "headline": "Ready to Transform Your Restaurant?",
+    "subheadline": "Try Scerv risk-free. See how our platform boosts revenue, eliminates confusion, and turns tables faster.",
+    "primaryBtn": "Request a Demo",
+    "secondaryBtn": "Contact Sales"
+  },
+  "demo": {
+    "pitch": {
+      "title": "See Scerv in Action",
+      "subtitle": "Book a free, zero-obligation demo to see how Scerv can streamline your operations and boost your bottom line.",
+      "bullet1": "Zero upfront hardware costs.",
+      "bullet2": "Increase table turnover by 20%.",
+      "bullet3": "Eliminate order errors with auto-translation."
+    },
+    "form": {
+      "name": "Full Name",
+      "restaurantName": "Restaurant Name",
+      "email": "Email Address",
+      "phone": "Phone Number",
+      "message": "Message (Optional)",
+      "submit": "Request Demo",
+      "submitting": "Submitting..."
+    },
+    "errors": {
+      "name": "Name is required.",
+      "restaurant": "Restaurant name is required.",
+      "emailReq": "Email is required.",
+      "emailInv": "Please enter a valid email address.",
+      "phoneReq": "Phone number is required.",
+      "phoneInv": "Please enter a valid phone number.",
+      "submit": "Failed to submit request. Please try again."
+    },
+    "success": {
+      "title": "Request Received!",
+      "desc": "Thank you for your interest in Scerv. Our team will contact you shortly to schedule your personalized demo."
+    }
+  },
+  "contact": {
+    "info": {
+      "title": "Contact Us",
+      "desc": "We'd love to hear from you! Whether you have questions about Scerv, need technical support, or want to discuss a custom deployment, please get in touch.",
+      "subtitle": "Contact Information"
+    },
+    "form": {
+      "name": "Full Name",
+      "restaurantName": "Restaurant Name",
+      "email": "Email Address",
+      "phone": "Phone Number",
+      "message": "How can we help you?",
+      "submit": "Send Message",
+      "submitting": "Sending..."
+    },
+    "errors": {
+      "name": "Name is required.",
+      "restaurant": "Restaurant name is required.",
+      "emailReq": "Email is required.",
+      "emailInv": "Please enter a valid email address.",
+      "phoneReq": "Phone number is required.",
+      "phoneInv": "Please enter a valid phone number.",
+      "messageReq": "Message is required.",
+      "submit": "Failed to send message. Please try again."
+    },
+    "success": {
+      "title": "Message Sent!",
+      "desc": "Thank you! Your message has been sent successfully. A member of our team will be in touch shortly."
+    }
+  },
+  "pricing": {
+    "header": {
+      "title": "Transparent, Zero-Risk Pricing",
+      "subtitle": "We are currently looking for pilot partners in Panama City. Join our exclusive program and transform your restaurant operations without the financial commitment."
+    },
+    "card": {
+      "badge": "Pilot Program",
+      "price": "$0",
+      "offer": "No Upfront Costs. No Hidden Fees.",
+      "features": {
+        "f1": "<b>Express App Ordering:</b> Guests browse, order, and checkout directly through the Scerv app.",
+        "f2": "<b>Auto-Translating Menus:</b> Instantly flip between English and Spanish.",
+        "f3": "<b>Smart Routing:</b> Drinks go to the bar, food goes to the kitchen.",
+        "f4": "<b>Chef's Q™ KDS:</b> Complete digital kitchen order management.",
+        "f5": "<b>Group Checkout:</b> Save your staff hours of headaches with our streamlined party ordering experience."
+      },
+      "cta": "Apply for Pilot Program",
+      "note": "Limited spots available in Panama City. Apply today."
+    }
+  },
+  "seo": {
+    "home": {
+      "title": "Scerv | The Premium Digital Ordering Platform",
+      "desc": "Boost revenue and turn tables 20% faster with Scerv. The zero-upfront-cost digital ordering and kitchen display system built for modern restaurants."
+    },
+    "pricing": {
+      "title": "Pricing & Pilot Program | Scerv",
+      "desc": "Join the Scerv pilot program in Panama City. Transform your restaurant operations with zero upfront costs and no hidden fees."
+    },
+    "contact": {
+      "title": "Contact Us | Scerv Support & Sales",
+      "desc": "Get in touch with the Scerv team. We are here to answer your questions about our restaurant management platform and custom deployments."
+    },
+    "demo": {
+      "title": "Request a Demo | Scerv",
+      "desc": "Book a free, zero-obligation demo of Scerv. See how our bilingual digital menus and smart kitchen routing can increase your table turnover."
+    }
+  },
+  "about": {
+    "heroTitle": "Modernizing the Dining Experience",
+    "heroSubtitle": "We built Scerv to eliminate friction in the hospitality industry, empowering local restaurants with world-class \"Smart City\" infrastructure.",
+    "missionTitle": "The Mission",
+    "missionP1": "Whether you are a local resident or a tourist exploring a new city, the dining experience should be about the food and the company—not waiting 15 minutes to flag down a server to manage the check or struggling with a language barrier.",
+    "missionP2": "Scerv puts the power back in the hands of the customer and the restaurant owner. By introducing a seamless digital checkout experience, we help restaurants turn tables faster, operate leaner, and provide an unforgettable, frictionless VIP experience to every guest.",
+    "whyPanamaTitle": "Why Panama?",
+    "whyPanamaP": "As a rising global hub for digital nomads, expats, and culinary tourism, Panama City is the perfect launchpad. We are committed to helping local Panamanian businesses compete on a global stage by providing them with the exact same enterprise-level tools used in cities like New York and Dubai.",
+    "ctaTitle": "Ready to upgrade your restaurant?",
+    "ctaSubtitle": "Join our exclusive pilot program today."
+  }
+}

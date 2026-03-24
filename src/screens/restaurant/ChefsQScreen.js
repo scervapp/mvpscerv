@@ -1,12 +1,5 @@
 // screens/restaurant/ChefsQScreen.js
-import React, {
-	useEffect,
-	useState,
-	useContext,
-	useCallback,
-	useRef,
-	useMemo,
-} from "react";
+import React, { useEffect, useState, useContext, useRef, useMemo } from "react";
 import {
 	View,
 	Text,
@@ -15,7 +8,6 @@ import {
 	TouchableOpacity,
 	SafeAreaView,
 	ActivityIndicator,
-	RefreshControl,
 	Alert,
 } from "react-native";
 
@@ -25,7 +17,6 @@ import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc } from "@react-native-firebase/firestore";
 import { useTranslation } from "react-i18next";
 
 // --- Kitchen Ticket Component ---
@@ -34,23 +25,23 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 	const timeSince = moment(order.createdAt?.toDate()).fromNow();
 
 	// Filter items based on the current view mode ('kitchen' or 'bar')
-	const itemsToDisplay = order.items.filter(
-		(item) => item.destination === viewMode,
-	);
+	const itemsToDisplay =
+		order.items?.filter((item) => item.destination === viewMode) || [];
 
-	// If there are no items for the current view, don't render the ticket at all
-	// This is a double-check; the main filtering happens in ChefsQScreen
 	if (itemsToDisplay.length === 0) {
 		return null;
 	}
 
+	// Grab the specific status for THIS station (fallback to "new" if undefined)
+	const currentStatus = order.stationStatuses?.[viewMode] || "new";
+
 	const getStatusStyle = () => {
-		if (order.status === "preparing")
+		if (currentStatus === "preparing")
 			return {
 				backgroundColor: colors.statusWarning + "30",
 				borderColor: colors.statusWarning,
 			};
-		if (order.status === "ready")
+		if (currentStatus === "ready")
 			return {
 				backgroundColor: colors.statusSuccess + "30",
 				borderColor: colors.statusSuccess,
@@ -65,56 +56,55 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 		<View style={[styles.ticketContainer, getStatusStyle()]}>
 			<View style={styles.ticketHeader}>
 				<View>
-					<Text style={styles.ticketTable}>{order.table.name}</Text>
+					<Text style={styles.ticketTable}>{order.table?.name || "Table"}</Text>
 					<Text style={styles.ticketServer}>
-						{t("server")}: {order.server.name}
+						{t("server")}: {order.server?.name || "Staff"}
 					</Text>
 				</View>
 				<Text style={styles.ticketTime}>{timeSince}</Text>
 			</View>
 			<View style={styles.ticketItems}>
-				{/* Map over the FILTERED items */}
 				{itemsToDisplay.map((item, index) => (
 					<View key={`${item.id}-${index}`} style={styles.ticketItemRow}>
 						<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 						<View style={styles.itemDetails}>
 							<Text style={styles.itemName}>{item.dishName}</Text>
-							{item.orderedByPipName && (
+							{item.orderedFor && item.orderedFor !== "Myself" && (
 								<Text style={styles.itemFor}>
-									{t("for")}: {item.orderedByPipName}
+									{t("for")}: {item.orderedFor}
 								</Text>
 							)}
-							{item.specialInstructions && (
+							{item.specialInstructions ? (
 								<Text style={styles.itemInstructions}>
 									"{item.specialInstructions}"
 								</Text>
-							)}
+							) : null}
 						</View>
 					</View>
 				))}
 			</View>
 			<View style={styles.ticketActions}>
-				{order.status === "new" && (
+				{currentStatus === "new" && (
 					<TouchableOpacity
 						style={[styles.actionButton, styles.preparingButton]}
-						onPress={() => onUpdateStatus(order.id, "preparing")}
+						onPress={() => onUpdateStatus(order, "preparing", viewMode)}
 					>
 						<Text
 							style={[styles.actionButtonText, { color: colors.statusWarning }]}
 						>
-							{t("start_preparing")}
+							{t("start_preparing", "Start Preparing")}
 						</Text>
 					</TouchableOpacity>
 				)}
-				{order.status === "preparing" && (
+				{currentStatus === "preparing" && (
 					<TouchableOpacity
 						style={[styles.actionButton, styles.readyButton]}
-						onPress={() => onUpdateStatus(order.id, "ready")}
+						onPress={() => onUpdateStatus(order, "ready", viewMode)}
 					>
 						<Text
 							style={[styles.actionButtonText, { color: colors.statusSuccess }]}
 						>
-							{t("mark_as_ready")}
+							{t("mark_as_ready", "Mark as Ready")}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -123,7 +113,7 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 	);
 };
 
-// This component renders the 'Kitchen' and 'Bar' toggle buttons.
+// --- Toggle Buttons ---
 const ViewModeToggle = ({ viewMode, setViewMode }) => {
 	const { t } = useTranslation();
 	return (
@@ -146,7 +136,7 @@ const ViewModeToggle = ({ viewMode, setViewMode }) => {
 						viewMode === "kitchen" && styles.toggleButtonTextActive,
 					]}
 				>
-					{t("kitchen")}
+					{t("kitchen", "Kitchen")}
 				</Text>
 			</TouchableOpacity>
 			<TouchableOpacity
@@ -167,123 +157,131 @@ const ViewModeToggle = ({ viewMode, setViewMode }) => {
 						viewMode === "bar" && styles.toggleButtonTextActive,
 					]}
 				>
-					{t("bar")}
+					{t("bar", "Bar")}
 				</Text>
 			</TouchableOpacity>
 		</View>
 	);
 };
 
+// --- Main Screen ---
 const ChefsQScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const previousOrderCount = useRef(0);
-	const [sound, setSound] = useState();
 	const [error, setError] = useState(null);
 	const insets = useSafeAreaInsets();
-
 	const { t } = useTranslation();
 
 	const [viewMode, setViewMode] = useState("kitchen"); // 'kitchen' or 'bar'
 
 	useEffect(() => {
-		return sound
-			? () => {
-					sound.unloadAsync();
-				}
-			: undefined;
-	}, [sound]);
-
-	useEffect(() => {
-		// --- FIX: Use currentUserData.restaurantId for consistency ---
 		const restaurantId = currentUserData?.uid;
 
 		if (!restaurantId) {
-			if (!currentUserData) return; // Don't show error while user data is loading
-			console.warn(
-				"ChefsQScreen: No restaurantId found on currentUserData. Cannot fetch orders.",
-			);
+			if (!currentUserData) return;
 			setError(t("your_user_profile_is_not_linked_to_a_restaurant"));
 			setIsLoading(false);
 			return;
 		}
 
-		const q = db
+		// 🚨 NATIVE LISTENER SYNTAX WITH NEW overallStatus QUERY
+		const unsubscribe = db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", ["new", "preparing", "ready"])
-			.orderBy("createdAt", "desc");
+			.where("overallStatus", "==", "active")
+			.orderBy("createdAt", "desc")
+			.onSnapshot(
+				(querySnapshot) => {
+					const ordersData = querySnapshot.docs.map((doc) => ({
+						id: doc.id,
+						...doc.data(),
+					}));
 
-		const unsubscribe = onSnapshot(
-			q,
-			(querySnapshot) => {
-				const ordersData = querySnapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-
-				const newOrders = ordersData.filter((o) => o.status === "new");
-				if (
-					isLoading === false &&
-					newOrders.length > previousOrderCount.current
-				) {
-					playSound();
-				}
-				previousOrderCount.current = newOrders.length;
-
-				setOrders(ordersData);
-				setIsLoading(false);
-			},
-			(err) => {
-				console.error("ChefsQScreen snapshot error:", err);
-				setError(t("could_not_fetch_orders"));
-				setIsLoading(false);
-			},
-		);
+					setOrders(ordersData);
+					setIsLoading(false);
+				},
+				(err) => {
+					console.error("ChefsQScreen snapshot error:", err);
+					setError(t("could_not_fetch_orders", "Could not fetch orders"));
+					setIsLoading(false);
+				},
+			);
 
 		return () => unsubscribe();
-	}, [currentUserData?.uid]); // Dependency on restaurantId
+	}, [currentUserData?.uid, t]);
 
 	const filteredOrders = useMemo(() => {
 		if (!orders) return [];
-		// An order should be shown if it contains at least one item for the current view
-		return orders.filter(
-			(order) =>
+		return orders.filter((order) => {
+			// 1. Does it have items for this station?
+			const hasItems =
 				order.items &&
-				order.items.some((item) => item.destination === viewMode),
-		);
+				order.items.some((item) => item.destination === viewMode);
+
+			// 2. What is this specific station's status?
+			const currentStatus = order.stationStatuses?.[viewMode] || "new";
+
+			// 3. Only show the ticket if this station hasn't cleared it yet
+			const isStationActive = ["new", "preparing", "ready"].includes(
+				currentStatus,
+			);
+
+			return hasItems && isStationActive;
+		});
 	}, [orders, viewMode]);
 
-	const headingText = viewMode === "kitchen" ? t("chefs_q") : t("bar_q");
+	const headingText =
+		viewMode === "kitchen"
+			? t("chefs_q", "Chef's Queue")
+			: t("bar_q", "Bar Queue");
 	const emptyQueueText =
 		viewMode === "kitchen"
-			? t("the_kitchen_queue_is_clear")
-			: t("the_bar_queue_is_clear");
+			? t("the_kitchen_queue_is_clear", "The Kitchen queue is clear!")
+			: t("the_bar_queue_is_clear", "The Bar queue is clear!");
 
-	if (isLoading) {
-		return (
-			<View style={styles.centeredContainer}>
-				<ActivityIndicator size="large" color={colors.primary} />
-			</View>
-		);
-	}
-	if (error) {
-		return (
-			<View style={styles.centeredContainer}>
-				<Text style={styles.emptyQueueText}>{error}</Text>
-			</View>
-		);
-	}
+	// 🚨 BULLETPROOF UPDATE FUNCTION
+	const handleUpdateOrderStatus = async (order, newStatus, station) => {
+		console.log(`[KDS] Tapped ${newStatus} for station: ${station}`);
 
-	const handleUpdateOrderStatus = async (orderId, newStatus) => {
+		if (!order || !order.id) {
+			console.error("[KDS] Error: 'order' object is missing or invalid.");
+			return;
+		}
+
 		try {
-			const orderRef = doc(db, "kitchen_orders", orderId);
-			await updateDoc(orderRef, { status: newStatus });
-			// The listener will automatically update the UI
+			// 1. Update ONLY this station's status on the restaurant ticket
+			console.log(`[KDS] Updating kitchen_orders doc: ${order.id}`);
+			await db
+				.collection("kitchen_orders")
+				.doc(order.id)
+				.update({
+					[`stationStatuses.${station}`]: newStatus,
+				});
+
+			// 2. Real-Time Customer Sync!
+			if (order.partyId) {
+				console.log(`[KDS] Syncing to customer party: ${order.partyId}`);
+				await db
+					.collection("shared_baskets")
+					.doc(order.partyId)
+					.update({
+						// 🚨 THE FIX: Use update() so dot-notation works!
+						[`ticketStatuses.${order.id}.${station}`]: newStatus,
+						lastKitchenUpdate: new Date().toISOString(),
+					});
+			} else {
+				console.warn("[KDS] No partyId on this order. Skipping customer sync.");
+			}
+
+			console.log("[KDS] ✅ Status update complete!");
 		} catch (error) {
-			console.error(`Error updating order ${orderId} to ${newStatus}:`, error);
-			Alert.alert(t("error"), t("could_not_update_order_status"));
+			console.error(`[KDS] ❌ Error updating order ${order.id}:`, error);
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_update_order_status", "Could not update order status"),
+			);
 		}
 	};
 
@@ -291,6 +289,14 @@ const ChefsQScreen = () => {
 		return (
 			<View style={styles.centeredContainer}>
 				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
+
+	if (error) {
+		return (
+			<View style={styles.centeredContainer}>
+				<Text style={styles.emptyQueueText}>{error}</Text>
 			</View>
 		);
 	}

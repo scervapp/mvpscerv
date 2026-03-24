@@ -3,6 +3,44 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
+const { Translate } = require("@google-cloud/translate").v2;
+
+const translate = new Translate();
+
+exports.translateInstruction = functions.https.onCall(async (data, context) => {
+	// Ensure the user is authenticated
+	if (!context.auth) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be logged in to translate text.",
+		);
+	}
+
+	const { text } = data;
+
+	if (!text || text.trim() === "") {
+		return { en: "", es: "" };
+	}
+
+	try {
+		// Translate the text into both English and Spanish
+		// The API automatically detects the source language!
+		const [englishTranslation] = await translate.translate(text, "en");
+		const [spanishTranslation] = await translate.translate(text, "es");
+
+		return {
+			original: text,
+			en: englishTranslation,
+			es: spanishTranslation,
+		};
+	} catch (error) {
+		console.error("Translation Error:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to translate instruction.",
+		);
+	}
+});
 
 /**
  * Creates a new 'pending' party document initiated by a host for a specific restaurant.
@@ -443,11 +481,6 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 /**
  * Allows a user to leave a party. Removes them from the guest lists.
  * If the host leaves, it reassigns a new host or cancels the party if empty.
- *
- * @param {object} data - The data object.
- * @param {string} data.partyId - The ID of the party to leave.
- * @param {object} context - The Firebase Functions context object.
- * @returns {Promise<{success: boolean, error?: string}>}
  */
 exports.leaveParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -468,49 +501,61 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 
 	const partyRef = db.collection("parties").doc(partyId);
 	const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
-
 	const userRef = db.collection("customers").doc(leavingUserId);
 
 	try {
-		return await db.runTransaction(async (transaction) => {
+		await db.runTransaction(async (transaction) => {
 			const partyDoc = await transaction.get(partyRef);
 			const basketDoc = await transaction.get(sharedBasketRef);
 
+			// 1. If the party is already gone, just clean up the user doc and exit.
 			if (!partyDoc.exists) {
-				return { success: true, message: "Party already ended." };
-			}
-
-			const partyData = partyDoc.data();
-			if (!partyData.guestUserIds.includes(leavingUserId)) {
 				transaction.update(userRef, {
 					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
 				});
-				return { success: true, message: "Party already ended." };
+				return; // 🚨 Correct way to early-exit a transaction
 			}
 
-			// --- THIS IS THE FIX (PART 1) ---
-			// Before allowing a user to leave, check if they have sent items.
+			const partyData = partyDoc.data();
+
+			// 2. If the user is already not in the party, just clean up the user doc and exit.
+			if (
+				!partyData.guestUserIds ||
+				!partyData.guestUserIds.includes(leavingUserId)
+			) {
+				transaction.update(userRef, {
+					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+				});
+				return;
+			}
+
+			// 3. Check for SENT items. Block the leave if they exist.
 			if (basketDoc.exists) {
 				const basketItems = basketDoc.data().items || [];
 				const userHasSentItems = basketItems.some(
 					(item) =>
-						item.orderedByUserId === leavingUserId && item.status === "sent",
+						// Check both common ID fields just to be safe
+						(item.orderedByUserId === leavingUserId ||
+							item.userId === leavingUserId) &&
+						(item.status === "sent" ||
+							item.status === "processing" ||
+							item.status === "completed"),
 				);
 
 				if (userHasSentItems) {
-					// If they have sent items, block them from leaving.
 					throw new functions.https.HttpsError(
 						"failed-precondition",
 						"You cannot leave the party after sending an order to the kitchen. Please proceed to checkout to settle your bill.",
 					);
 				}
 			}
-			// --- END OF FIX ---
 
-			// If the check passes, proceed with removing the user and their "new" items.
+			// 4. Remove any "new" or "draft" items this user had in the basket
 			if (basketDoc.exists) {
 				const updatedItems = (basketDoc.data().items || []).filter(
-					(item) => item.orderedByUserId !== leavingUserId,
+					(item) =>
+						item.orderedByUserId !== leavingUserId &&
+						item.userId !== leavingUserId,
 				);
 				transaction.update(sharedBasketRef, {
 					items: updatedItems,
@@ -518,13 +563,16 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 				});
 			}
 
+			// 5. Remove the user from the guest list
 			const guestPips = (partyData.guestPips || []).filter(
 				(pip) => pip.userId !== leavingUserId,
 			);
+
 			const isHost = partyData.hostUserId === leavingUserId;
 
 			if (isHost) {
 				if (guestPips.length > 0) {
+					// Promote the next user in line to host
 					const newHost = guestPips[0];
 					transaction.update(partyRef, {
 						hostUserId: newHost.userId,
@@ -533,32 +581,36 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 						guestUserIds: admin.firestore.FieldValue.arrayRemove(leavingUserId),
 					});
 				} else {
+					// Everyone is gone. Delete the party entirely.
 					transaction.delete(partyRef);
 					if (basketDoc.exists) transaction.delete(sharedBasketRef);
 				}
 			} else {
+				// Just remove the guest
 				transaction.update(partyRef, {
 					guestPips: guestPips,
 					guestUserIds: admin.firestore.FieldValue.arrayRemove(leavingUserId),
 				});
 			}
 
+			// 6. Finally, remove the party ID from the user's profile
 			transaction.update(userRef, {
 				partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
 			});
-
-			return { success: true };
 		});
+
+		// Transaction completed successfully!
+		return { success: true };
 	} catch (error) {
 		console.error(`Error leaving party ${partyId}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
+
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not leave the party.",
+			error.message || "Could not leave the party.",
 		);
 	}
 });
-
 /**
  * Allows the host to cancel a party, but only if NO items have been sent to the kitchen by ANYONE.
  */
@@ -1227,20 +1279,24 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const hostId = context.auth.uid;
-	const { restaurantId, tableId, existingPartyId } = data;
+	const uid = context.auth.uid; // Note: I changed this from hostId to uid, since it might be a restaurant
+	const { restaurantId, tableId, existingPartyId, isManualSeat } = data; // Added isManualSeat
 
 	// 2. Input Validation
 	if (!restaurantId || !tableId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing required QR code data (restaurantId or tableId).",
+			"Missing required data (restaurantId or tableId).",
 		);
 	}
 
 	const restaurantRef = db.collection("restaurants").doc(restaurantId);
 	const tableRef = restaurantRef.collection("tables").doc(tableId);
-	const customerRef = db.collection("customers").doc(hostId);
+
+	// Only reference the customer doc if it's NOT a manual seat
+	const customerRef = !isManualSeat
+		? db.collection("customers").doc(uid)
+		: null;
 
 	// Determine if we use the existing document or a new one
 	const partyRef = existingPartyId
@@ -1257,14 +1313,16 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 			const [tableDoc, restaurantDoc, customerDoc] = await Promise.all([
 				transaction.get(tableRef),
 				transaction.get(restaurantRef),
-				transaction.get(customerRef),
+				customerRef
+					? transaction.get(customerRef)
+					: Promise.resolve({ exists: false, data: () => ({}) }),
 			]);
 
 			if (!tableDoc.exists) {
 				throw new functions.https.HttpsError("not-found", "Table not found.");
 			}
 
-			// B. Extract data BEFORE checking status (The Fix)
+			// B. Extract data
 			const tableData = tableDoc.data();
 			const restaurantData = restaurantDoc.exists ? restaurantDoc.data() : {};
 			const customerData = customerDoc.exists ? customerDoc.data() : {};
@@ -1273,16 +1331,21 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 			if (tableData.status !== "available") {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"This table was just claimed. Please scan again to join their party.",
+					"This table is not available.",
 				);
 			}
 
 			const realRestaurantName =
 				restaurantData.name || restaurantData.restaurantName || "Restaurant";
 			const tableName = tableData.name || `Table ${tableId}`;
-			const hostName =
-				`${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
-				`User ${hostId.slice(-4)}`;
+
+			// If it's a manual seat, the host is just a "Walk-In"
+			const hostId = isManualSeat ? "walk_in_guest" : uid;
+			const hostName = isManualSeat
+				? "Walk-In Guest"
+				: `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
+					`User ${hostId.slice(-4)}`;
+
 			const timestamp = admin.firestore.FieldValue.serverTimestamp();
 
 			// Check if we are actually linking a pre-built party
@@ -1294,7 +1357,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				}
 			}
 
-			// D. Create the CheckIn document (Historical record)
+			// D. Create the CheckIn document
 			const checkInData = {
 				id: checkInRef.id,
 				restaurantId: restaurantId,
@@ -1305,7 +1368,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				type: "party",
 				partyId: partyRef.id,
 				table: { id: tableId, name: tableName },
-				server: { id: "unassigned", name: "Self-Seated" },
+				server: { id: "unassigned", name: "Self-Seated" }, // You can update this later when a server is assigned
 				createdAt: timestamp,
 				acceptedAt: timestamp,
 			};
@@ -1313,17 +1376,14 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 
 			// E. Handle the Party/Basket Logic
 			if (isPreBuiltCart) {
-				// Scenario: User had a cart in the Uber. Just update it.
 				transaction.update(partyRef, {
 					status: "active",
 					table: { id: tableId, name: tableName },
-					partyName: tableName, // Update party name to current table
+					partyName: tableName,
 					checkInId: checkInRef.id,
 					lastUpdated: timestamp,
 				});
-				// We do NOT set the shared basket because it already exists with food!
 			} else {
-				// Scenario: Brand new walk-in. Create new everything.
 				transaction.set(sharedBasketRef, {
 					items: [],
 					lastUpdated: timestamp,
@@ -1363,17 +1423,19 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				seatedAt: timestamp,
 			});
 
-			// G. Update Host Profile
-			transaction.update(customerRef, {
-				activeCheckIn: {
-					checkInId: checkInRef.id,
-					partyId: partyRef.id,
-					restaurantId: restaurantId,
-					status: "ACCEPTED",
-					table: { id: tableId, name: tableName },
-				},
-				partyIds: admin.firestore.FieldValue.arrayUnion(partyRef.id),
-			});
+			// G. Update Host Profile (ONLY if it's not a manual seat)
+			if (!isManualSeat && customerRef) {
+				transaction.update(customerRef, {
+					activeCheckIn: {
+						checkInId: checkInRef.id,
+						partyId: partyRef.id,
+						restaurantId: restaurantId,
+						status: "ACCEPTED",
+						table: { id: tableId, name: tableName },
+					},
+					partyIds: admin.firestore.FieldValue.arrayUnion(partyRef.id),
+				});
+			}
 
 			return {
 				success: true,

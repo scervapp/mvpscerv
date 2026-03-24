@@ -1,12 +1,5 @@
 // screens/customer/PartyCheckoutScreen.js
-import React, {
-	useState,
-	useEffect,
-	useContext,
-	useMemo,
-	useCallback,
-	useRef,
-} from "react";
+import React, { useState, useEffect, useContext, useMemo, useRef } from "react";
 import {
 	View,
 	Text,
@@ -28,7 +21,7 @@ import {
 import { Button, Divider } from "react-native-paper";
 import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
 import { Picker } from "@react-native-picker/picker";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
@@ -37,9 +30,8 @@ import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
-import firestore from "@react-native-firebase/firestore"; // Ensure this is imported for the pending order
+import firestore from "@react-native-firebase/firestore";
 
-// NEW: Import our WebView Bridge Component
 import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
 
 const PartyCheckoutScreen = () => {
@@ -52,7 +44,7 @@ const PartyCheckoutScreen = () => {
 
 	const { partyId } = route.params;
 
-	const sharedBasketItems = sharedBaskets[partyId];
+	const sharedBasketItems = sharedBaskets[partyId]?.items || [];
 	const party = partyDetails[partyId] || [];
 
 	const { checkInObj } = useCheckInStatus(
@@ -64,12 +56,10 @@ const PartyCheckoutScreen = () => {
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [isPaying, setIsPaying] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
-	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
 	const [fees, setFees] = useState(0.05);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
-	const [isLoadingParty, setIsLoadingParty] = useState(false);
 
 	const [finalTotal, setFinalTotal] = useState(0);
 	const [isReadyToPay, setIsReadyToPay] = useState(false);
@@ -77,14 +67,17 @@ const PartyCheckoutScreen = () => {
 	// --- SMART FIELDS STATE VARIABLES ---
 	const [dlocalPublicKey, setDlocalPublicKey] = useState(null);
 	const [dlocalCheckoutToken, setDlocalCheckoutToken] = useState(null);
-
 	const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
+	const [isLiveMode, setIsLiveMode] = useState(null);
+
+	// 🚨 NEW: State to hold the pre-filled user details
+	const [savedName, setSavedName] = useState("");
+	const [savedDocument, setSavedDocument] = useState("");
 
 	// Determine region
-	const country = party?.restaurantCountryCode || "PA"; // Defaulting to PA for testing, ensure this exists on your restaurant doc
+	const country = party?.restaurantCountryCode || "PA";
 	const isPanama =
 		country === "PA" || country === "Panama" || country === "panama";
-	const isUSA = country === "US" || country === "USA" || country === "usa";
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
@@ -159,7 +152,6 @@ const PartyCheckoutScreen = () => {
 				restaurantId: item.restaurantId || "",
 				price: item.price || 0,
 				quantity: item.quantity || 1,
-				// 🚨 THE LEAK IS PLUGGED HERE: Force undefined to null
 				discountedPrice: item.discountedPrice ?? null,
 			})),
 			myOriginalSubtotal: originalSubtotalInCents,
@@ -171,18 +163,16 @@ const PartyCheckoutScreen = () => {
 		};
 	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
 
-	const slideAnim = useRef(new Animated.Value(800)).current; // Start 800px off-screen
+	const slideAnim = useRef(new Animated.Value(800)).current;
 
 	useEffect(() => {
 		if (isPaymentModalVisible) {
-			// Slide up
 			Animated.timing(slideAnim, {
 				toValue: 0,
 				duration: 300,
 				useNativeDriver: true,
 			}).start();
 		} else {
-			// Slide down
 			Animated.timing(slideAnim, {
 				toValue: 800,
 				duration: 250,
@@ -198,6 +188,29 @@ const PartyCheckoutScreen = () => {
 		setIsReadyToPay(canPay);
 	}, [myFinalTotal, party, currentUserData]);
 
+	// 🚨 NEW: Fetch saved user details when component mounts
+	useEffect(() => {
+		if (!currentUserData?.uid) return;
+
+		const fetchSavedDetails = async () => {
+			try {
+				const userDoc = await db
+					.collection("customers")
+					.doc(currentUserData.uid)
+					.get();
+				if (userDoc.exists) {
+					const data = userDoc.data();
+					if (data.dlocalName) setSavedName(data.dlocalName);
+					if (data.dlocalDocument) setSavedDocument(data.dlocalDocument);
+				}
+			} catch (error) {
+				console.error("Error fetching user details:", error);
+			}
+		};
+
+		fetchSavedDetails();
+	}, [currentUserData?.uid]);
+
 	// --- Fetch Configs & INITIALIZE DLOCAL ---
 	useEffect(() => {
 		let isMounted = true;
@@ -205,7 +218,6 @@ const PartyCheckoutScreen = () => {
 		const fetchInitialData = async () => {
 			if (!party?.restaurantId) return;
 
-			// Fetch Fees
 			const feesSnap = await db.collection("appConfig").doc("general").get();
 			if (feesSnap.exists() && isMounted) {
 				setFees(feesSnap.data().fees);
@@ -213,7 +225,6 @@ const PartyCheckoutScreen = () => {
 				setFees(0.03);
 			}
 
-			// Initialize Stripe (USA)
 			if (!isPanama) {
 				try {
 					const getStripePublishableKeyFunction = httpsCallable(
@@ -234,22 +245,23 @@ const PartyCheckoutScreen = () => {
 				}
 			}
 
-			// === INITIALIZE DLOCAL SMART FIELDS FOR PANAMA ===
 			if (isPanama && finalTotal > 0 && isMounted) {
 				try {
-					// 1. Fetch Public Key
 					const getPublicKey = httpsCallable(functions, "getDlocalPublicKey");
-					const keyResponse = await getPublicKey();
+					const keyResponse = await getPublicKey({
+						restaurantId: party.restaurantId,
+					});
+					setIsLiveMode(keyResponse.data.isLive);
 					if (isMounted && keyResponse.data.publicKey) {
 						setDlocalPublicKey(keyResponse.data.publicKey);
 					}
 
-					// 2. Fetch Merchant Checkout Token
 					const createPayment = httpsCallable(functions, "createDlocalPayment");
 					const paymentResponse = await createPayment({
 						amount: finalTotal,
 						currency: "USD",
 						country: "PA",
+						restaurantId: party.restaurantId,
 					});
 
 					if (isMounted && paymentResponse.data.merchant_checkout_token) {
@@ -276,21 +288,34 @@ const PartyCheckoutScreen = () => {
 	// =========================================================
 	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
 	// =========================================================
-	// =========================================================
-	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
-	// =========================================================
 	const handleSmartFieldToken = async (cardData) => {
 		if (!isReadyToPay || myFinalTotal <= 0) return;
 
 		setIsPreparing(true);
 		setPaymentError(null);
 
-		const { token: cardToken, name: cardholderName, document } = cardData;
+		// 🚨 Unpack the saveDetails flag
+		const {
+			token: cardToken,
+			name: cardholderName,
+			document,
+			saveDetails,
+		} = cardData;
 
 		try {
 			const uid = currentUserData?.uid;
 
-			// 🚨 CLEAN THE DOCUMENT: Strip any accidental spaces that ruin dLocal's Regex
+			// 🚨 NEW: Save details to Firestore if the user checked the box
+			if (saveDetails && uid) {
+				await db.collection("customers").doc(uid).set(
+					{
+						dlocalName: cardholderName,
+						dlocalDocument: document,
+					},
+					{ merge: true },
+				);
+			}
+
 			const cleanDocument = document
 				? document.replace(/\s+/g, "")
 				: "8-888-8888";
@@ -306,6 +331,8 @@ const PartyCheckoutScreen = () => {
 				items: myItemsInBasket,
 				table: party?.table || null,
 				checkInId: party?.checkInId || null,
+				checkInTimestamp:
+					checkInObj?.createdAt || firestore.FieldValue.serverTimestamp(),
 				server: party?.server || null,
 				status: "pending",
 				type: "party",
@@ -328,18 +355,12 @@ const PartyCheckoutScreen = () => {
 				clientFirstName: cardholderName.split(" ")[0] || "Guest",
 				clientLastName: cardholderName.split(" ").slice(1).join(" ") || "User",
 				clientDocument: cleanDocument,
-				clientDocumentType: "CIP", // Hardcoded to satisfy dLocal for now
+				clientDocumentType: "CIP",
 				clientEmail: currentUserData?.email || "customer@scerv.com",
 				country: "PA",
+				restaurantId: party?.restaurantId,
 			});
 
-			// 🚨 X-RAY LOGGING: See EXACTLY what the CF returned
-			console.log(
-				"🔍 RAW BACKEND RESPONSE:",
-				JSON.stringify(result.data, null, 2),
-			);
-
-			// 🚨 ROBUST SUCCESS CHECK: Catch 'success' wherever it might be hiding
 			const isSuccessful =
 				result.data?.success === true ||
 				result.data?.data?.success === true ||
@@ -366,7 +387,6 @@ const PartyCheckoutScreen = () => {
 					}),
 				);
 			} else {
-				// Look for the error message in multiple possible fields
 				const backendError =
 					result.data?.error ||
 					result.data?.message ||
@@ -382,6 +402,7 @@ const PartyCheckoutScreen = () => {
 			setIsPreparing(false);
 		}
 	};
+
 	// --- Stripe Payment Action (USA) ---
 	const handlePayment = async () => {
 		if (!isReadyToPay || isPreparing) return;
@@ -456,6 +477,11 @@ const PartyCheckoutScreen = () => {
 		}
 	};
 
+	console.log("🚨 CHECKING CHECKOUT VARS:", {
+		key: dlocalPublicKey,
+		token: dlocalCheckoutToken,
+		isLive: isLiveMode,
+	});
 	// --- Render Logic ---
 	return (
 		<StripeProvider publishableKey={stripePublishableKey || ""}>
@@ -469,7 +495,6 @@ const PartyCheckoutScreen = () => {
 						<Text style={styles.restaurantName}>{party?.restaurantName}</Text>
 					</View>
 
-					{/* Your Itemized List */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
 						{myItemsInBasket.length > 0 ? (
@@ -493,7 +518,6 @@ const PartyCheckoutScreen = () => {
 						)}
 					</View>
 
-					{/* Gratuity Section */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
 						<View style={styles.gratuityContainer}>
@@ -513,7 +537,6 @@ const PartyCheckoutScreen = () => {
 						</View>
 					</View>
 
-					{/* Order Summary */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
 						{myTotalDiscount > 0 && (
@@ -563,48 +586,46 @@ const PartyCheckoutScreen = () => {
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 				</ScrollView>
 
-				{/* THE DYNAMIC FOOTER */}
-				<View style={styles.footer}>
-					<Button
-						mode="contained"
-						onPress={() => {
-							if (isPanama) {
-								setIsPaymentModalVisible(true); // Slide up the dLocal sheet
-							} else {
-								handlePayment(); // Launch Stripe's native sheet
-							}
-						}}
-						disabled={!isReadyToPay || isPreparing}
-						loading={isPreparing || isPaying}
-						style={styles.payButton}
-						labelStyle={styles.payButtonText}
-					>
-						{isPreparing
-							? t("preparing")
-							: isPaying
-								? t("processing")
-								: `${t("pay")} ${formatCurrency(finalTotal)}`}
-					</Button>
-				</View>
+				{!isPaymentModalVisible && (
+					<View style={styles.footer}>
+						<Button
+							mode="contained"
+							onPress={() => {
+								if (isPanama) {
+									setIsPaymentModalVisible(true);
+								} else {
+									handlePayment();
+								}
+							}}
+							disabled={!isReadyToPay || isPreparing}
+							loading={isPreparing || isPaying}
+							style={styles.payButton}
+							labelStyle={styles.payButtonText}
+						>
+							{isPreparing
+								? t("preparing")
+								: isPaying
+									? t("processing")
+									: `${t("pay")} ${formatCurrency(finalTotal)}`}
+						</Button>
+					</View>
+				)}
 			</SafeAreaView>
 
-			{/* 🚨 THE NEW SLIDE-UP PAYMENT SHEET FOR PANAMA 🚨 */}
-			{isPaymentModalVisible && (
-				<View style={[StyleSheet.absoluteFill, styles.modalBackground]}>
-					{/* Dark background overlay (tap to close) */}
+			<Modal
+				visible={isPaymentModalVisible}
+				transparent={true}
+				animationType="slide"
+				onRequestClose={() => setIsPaymentModalVisible(false)}
+			>
+				<View style={styles.modalBackground}>
 					<TouchableOpacity
 						style={StyleSheet.absoluteFill}
 						activeOpacity={1}
 						onPress={() => setIsPaymentModalVisible(false)}
 					/>
 
-					{/* The Animated sliding sheet */}
-					<Animated.View
-						style={[
-							styles.bottomSheet,
-							{ transform: [{ translateY: slideAnim }] },
-						]}
-					>
+					<View style={styles.bottomSheet}>
 						<View style={styles.sheetHeader}>
 							<Text style={styles.sheetTitle}>
 								{t("enter_payment_details", "Payment Details")}
@@ -628,6 +649,10 @@ const PartyCheckoutScreen = () => {
 									checkoutToken={dlocalCheckoutToken}
 									amountFormatted={formatCurrency(finalTotal)}
 									locale={i18n.language || "es"}
+									// 🚨 NEW: Passing the saved details as props
+									isLive={isLiveMode}
+									initialName={savedName}
+									initialDocument={savedDocument}
 									onProcessing={() => setIsPreparing(true)}
 									onError={(msg) => {
 										setIsPreparing(false);
@@ -648,9 +673,9 @@ const PartyCheckoutScreen = () => {
 								</Text>
 							</View>
 						)}
-					</Animated.View>
+					</View>
 				</View>
-			)}
+			</Modal>
 		</StripeProvider>
 	);
 };
@@ -658,7 +683,7 @@ const PartyCheckoutScreen = () => {
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	container: { flex: 1 },
-	scrollContentContainer: { paddingBottom: 120 }, // Increased space for larger webview footer
+	scrollContentContainer: { paddingBottom: 120 },
 	header: { padding: 20, paddingBottom: 10, alignItems: "center" },
 	title: { fontSize: 24, fontWeight: "bold", color: colors.textDark },
 	restaurantName: { fontSize: 16, color: colors.textMedium, marginTop: 4 },
@@ -728,11 +753,11 @@ const styles = StyleSheet.create({
 		left: 0,
 		right: 0,
 		padding: 20,
-		paddingBottom: 30, // Extra padding for home bar
+		paddingBottom: 30,
 		backgroundColor: colors.surfaceWhite,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
-		minHeight: 100, // Ensure space for the Dlocal bridge component
+		minHeight: 100,
 	},
 	payButton: {
 		paddingVertical: 8,
@@ -751,10 +776,9 @@ const styles = StyleSheet.create({
 		color: colors.statusSuccess,
 	},
 	modalBackground: {
+		flex: 1,
 		backgroundColor: "rgba(0, 0, 0, 0.6)",
 		justifyContent: "flex-end",
-		zIndex: 9999, // 🚨 Ensure it hovers above everything
-		elevation: 9999,
 	},
 	bottomSheet: {
 		backgroundColor: colors.surfaceWhite,
@@ -762,13 +786,18 @@ const styles = StyleSheet.create({
 		borderTopRightRadius: 24,
 		paddingHorizontal: 20,
 		paddingTop: 20,
-		paddingBottom: Platform.OS === "ios" ? 40 : 20, // Safe area for iPhones
-		minHeight: 450, // Ensures enough room for the WebView
+		paddingBottom: Platform.OS === "ios" ? 40 : 20,
+		width: "100%",
+		maxHeight: "85%",
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: -4 },
 		shadowOpacity: 0.1,
 		shadowRadius: 10,
 		elevation: 10,
+	},
+	webViewContainer: {
+		height: 420,
+		width: "100%",
 	},
 	sheetHeader: {
 		flexDirection: "row",
@@ -783,10 +812,6 @@ const styles = StyleSheet.create({
 		fontSize: 20,
 		fontWeight: "bold",
 		color: colors.textDark,
-	},
-	webViewContainer: {
-		flex: 1,
-		minHeight: 350,
 	},
 	loadingSheet: {
 		flex: 1,

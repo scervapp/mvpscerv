@@ -1,4 +1,5 @@
-import React, { useContext, useEffect, useLayoutEffect, useState } from "react";
+// screens/restaurant/BackOfficeScreen.js
+import React, { useContext, useEffect, useState } from "react";
 import {
 	View,
 	Text,
@@ -7,8 +8,6 @@ import {
 	TouchableOpacity,
 	Linking,
 	Alert,
-	Image,
-	Button,
 	Dimensions,
 	ActivityIndicator,
 } from "react-native";
@@ -21,7 +20,7 @@ import { httpsCallable } from "@react-native-firebase/functions";
 import { StatusIndicator } from "./StatusIndicator";
 import { useTranslation } from "react-i18next";
 
-// --- 1. IMPORT i18n DIRECTLY (The Fix) ---
+// --- 1. IMPORT i18n DIRECTLY ---
 import i18n from "../../config/i18n";
 
 const { width } = Dimensions.get("window");
@@ -32,7 +31,6 @@ const cardWidth = width / numColumns - cardMargin * (numColumns + 1);
 const BackOfficeScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
-	const [restaurantData, setRestaurantData] = useState(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [isStripeLoading, setIsStripeLoading] = useState(false);
 	const [isLogoutLoading, setIsLogoutLoading] = useState(false);
@@ -95,23 +93,41 @@ const BackOfficeScreen = ({ navigation }) => {
 			},
 		];
 
-		if (!currentUserData?.stripeAccountId) {
-			dynamicScreens.push({
-				name: "CreateStripeAccount",
-				label: t("setup_payouts"),
-				iconName: "credit-card-plus-outline",
-				action: handleCreateConnectedAccount,
-			});
-		} else {
-			dynamicScreens.push({
-				name: "ConnectAccount",
-				label: t("payouts_dashboard"),
-				iconName: "open-in-new",
-				action: handleCheckOnboardingStatus,
-			});
+		// 🚨 NEW: Check if the restaurant is in Panama
+		const country =
+			currentUserData?.country ||
+			currentUserData?.countryCode ||
+			currentUserData?.restaurantCountryCode ||
+			"";
+		const isPanama = country === "PA" || country.toLowerCase() === "panama";
+
+		// Only add Stripe screens if the restaurant is NOT in Panama
+		if (!isPanama) {
+			if (!currentUserData?.stripeAccountId) {
+				dynamicScreens.push({
+					name: "CreateStripeAccount",
+					label: t("setup_payouts"),
+					iconName: "credit-card-plus-outline",
+					action: handleCreateConnectedAccount,
+				});
+			} else {
+				dynamicScreens.push({
+					name: "ConnectAccount",
+					label: t("payouts_dashboard"),
+					iconName: "open-in-new",
+					action: handleCheckOnboardingStatus,
+				});
+			}
 		}
+
 		setScreens(dynamicScreens);
-	}, [currentUserData?.stripeAccountId, t]); // Added 't' dependency so labels update
+	}, [
+		currentUserData?.stripeAccountId,
+		currentUserData?.country,
+		currentUserData?.countryCode,
+		currentUserData?.restaurantCountryCode,
+		t,
+	]);
 
 	const handleCreateConnectedAccount = async () => {
 		try {
@@ -252,7 +268,8 @@ const BackOfficeScreen = ({ navigation }) => {
 				<StatusIndicator isTestMode={isTestMode} />
 			</View>
 
-			{isLoading ? (
+			{/* Replaced fixed isLoading logic so it actually uses the grid */}
+			{!screens || screens.length === 0 ? (
 				<ActivityIndicator size="large" color={colors.primary} />
 			) : (
 				<FlatList
@@ -285,7 +302,6 @@ const styles = StyleSheet.create({
 		padding: cardMargin,
 		backgroundColor: colors.background || "#f8f9fa",
 	},
-	// --- NEW STYLE FOR LANGUAGE BUTTON ---
 	languageButton: {
 		backgroundColor: "#fff",
 		paddingVertical: 6,
@@ -314,7 +330,7 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 	},
 	indicatorContainer: {
-		marginBottom: 15, // Added some spacing
+		marginBottom: 15,
 	},
 	listContainer: {
 		paddingBottom: 20,

@@ -1,34 +1,84 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
+import SEO from "./SEO";
 
 const FormSection = styled.section`
 	padding: ${({ theme }) => theme.spacing.xl} 0;
 	background-color: ${({ theme }) => theme.colors.background};
+	min-height: calc(100vh - 200px); /* Keeps footer at the bottom */
 `;
 
 const Container = styled.div`
-	max-width: ${({ theme }) =>
-		theme.breakpoints.md}; /* Smaller container for the form */
+	max-width: ${({ theme }) => theme.breakpoints.xl};
 	margin: 0 auto;
 	padding: 0 ${({ theme }) => theme.spacing.md};
+	display: flex;
+	flex-direction: column;
+	gap: 40px;
+
+	/* Split layout for desktop */
+	@media (min-width: ${({ theme }) => theme.breakpoints.lg}) {
+		flex-direction: row;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+`;
+
+const PitchSide = styled.div`
+	flex: 1;
+	max-width: 500px;
+
+	h1 {
+		font-size: 2.5rem;
+		color: ${({ theme }) => theme.colors.primary};
+		margin-bottom: 20px;
+		line-height: 1.2;
+	}
+
+	p {
+		font-size: 1.1rem;
+		color: ${({ theme }) => theme.colors.textLight};
+		margin-bottom: 30px;
+		line-height: 1.6;
+	}
+
+	ul {
+		list-style: none;
+		padding: 0;
+
+		li {
+			font-size: 1.1rem;
+			color: ${({ theme }) => theme.colors.text};
+			margin-bottom: 15px;
+			display: flex;
+			align-items: flex-start;
+			gap: 10px;
+
+			&:before {
+				content: "✓";
+				color: ${({ theme }) => theme.colors.secondary};
+				font-weight: bold;
+			}
+		}
+	}
+`;
+
+const FormSide = styled.div`
+	flex: 1;
+	width: 100%;
+	max-width: 550px;
 `;
 
 const Form = styled.form`
 	display: flex;
 	flex-direction: column;
 	background-color: ${({ theme }) => theme.colors.white};
-	padding: ${({ theme }) => theme.spacing.lg};
-	border-radius: ${({ theme }) => theme.radius.md};
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-`;
-
-const H2 = styled.h2`
-	font-size: 2rem;
-	margin-bottom: 1rem;
-	text-align: center;
+	padding: ${({ theme }) => theme.spacing.xl};
+	border-radius: ${({ theme }) => theme.radius.lg};
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 `;
 
 const FormGroup = styled.div`
@@ -37,91 +87,115 @@ const FormGroup = styled.div`
 
 const Label = styled.label`
 	display: block;
-	margin-bottom: ${({ theme }) => theme.spacing.xs};
+	margin-bottom: 6px;
 	font-weight: 600;
+	font-size: 0.95rem;
 	color: ${({ theme }) => theme.colors.text};
 `;
 
 const Input = styled.input`
 	width: 100%;
-	padding: ${({ theme }) => theme.spacing.sm};
+	padding: 12px;
 	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.sm};
 	font-size: 1rem;
 	color: ${({ theme }) => theme.colors.text};
-	transition: border-color 0.2s ease;
+	transition: all 0.2s ease;
+	box-sizing: border-box;
 
 	&:focus {
 		outline: none;
 		border-color: ${({ theme }) => theme.colors.primary};
+		box-shadow: 0 0 0 3px rgba(16, 107, 125, 0.1); /* Scerv teal glow */
 	}
 
-	/* Style for invalid input */
 	&.invalid {
-		border-color: ${({ theme }) =>
-			theme.colors.error}; /*  add an error color to your theme */
+		border-color: ${({ theme }) => theme.colors.error};
 	}
 `;
+
 const TextArea = styled.textarea`
 	width: 100%;
-	padding: ${({ theme }) => theme.spacing.sm};
+	padding: 12px;
 	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.sm};
 	font-size: 1rem;
 	color: ${({ theme }) => theme.colors.text};
-	transition: border-color 0.2s ease;
-	font-family: inherit; /* Important for textareas */
+	transition: all 0.2s ease;
+	font-family: inherit;
+	box-sizing: border-box;
+	resize: vertical;
 
 	&:focus {
 		outline: none;
 		border-color: ${({ theme }) => theme.colors.primary};
+		box-shadow: 0 0 0 3px rgba(16, 107, 125, 0.1);
 	}
-	/* Style for invalid input */
+
 	&.invalid {
-		border-color: ${({ theme }) =>
-			theme.colors.error}; /*  add an error color to your theme */
+		border-color: ${({ theme }) => theme.colors.error};
 	}
 `;
 
 const ErrorMessage = styled.p`
 	color: ${({ theme }) => theme.colors.error};
-	font-size: 0.9rem;
-	margin-top: ${({ theme }) => theme.spacing.xs};
+	font-size: 0.85rem;
+	margin-top: 6px;
+	font-weight: 500;
 `;
 
 const SubmitButton = styled.button`
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
-	background-color: ${({ theme }) => theme.colors.primary};
+	padding: 14px 24px;
+	background-color: ${({ theme }) =>
+		theme.colors.secondary}; /* Using Orange for high contrast CTA */
 	color: ${({ theme }) => theme.colors.white};
 	border: none;
 	border-radius: ${({ theme }) => theme.radius.md};
-	font-weight: 600;
+	font-weight: 700;
+	font-size: 1.1rem;
 	cursor: pointer;
-	transition: background-color 0.2s ease;
+	transition: all 0.2s ease;
+	margin-top: 10px;
 
 	&:hover {
-		background-color: ${({ theme }) => theme.colors.primaryDark};
+		background-color: ${({ theme }) => theme.colors.secondaryDark};
+		transform: translateY(-2px);
 	}
 
 	&:disabled {
 		background-color: ${({ theme }) => theme.colors.gray};
 		cursor: not-allowed;
+		transform: none;
 	}
 `;
-const SuccessMessage = styled.p`
+
+const SuccessMessage = styled.div`
+	background-color: rgba(40, 167, 69, 0.1);
+	border: 1px solid ${({ theme }) => theme.colors.success};
 	color: ${({ theme }) => theme.colors.success};
-	font-size: 1.1rem;
+	padding: 30px;
+	border-radius: ${({ theme }) => theme.radius.md};
 	text-align: center;
-	margin-top: ${({ theme }) => theme.spacing.md};
+
+	h3 {
+		font-size: 1.5rem;
+		margin-bottom: 10px;
+	}
+
+	p {
+		font-size: 1.1rem;
+	}
 `;
 
 const RequestDemo = () => {
+	const { t } = useTranslation();
+
 	const [formData, setFormData] = useState({
 		name: "",
 		restaurantName: "",
 		email: "",
 		phone: "",
-		message: "", // Optional message
+		message: "",
 	});
 
 	const [errors, setErrors] = useState({});
@@ -130,7 +204,6 @@ const RequestDemo = () => {
 
 	const handleChange = (e) => {
 		setFormData({ ...formData, [e.target.name]: e.target.value });
-		// Clear error for the field when it's changed
 		if (errors[e.target.name]) {
 			setErrors({ ...errors, [e.target.name]: null });
 		}
@@ -138,138 +211,152 @@ const RequestDemo = () => {
 
 	const validateForm = () => {
 		let newErrors = {};
-		if (!formData.name.trim()) {
-			newErrors.name = "Name is required";
-		}
-		if (!formData.restaurantName.trim()) {
-			newErrors.restaurantName = "Restaurant name is required";
-		}
+		if (!formData.name.trim()) newErrors.name = t("demo.errors.name");
+		if (!formData.restaurantName.trim())
+			newErrors.restaurantName = t("demo.errors.restaurant");
+
 		if (!formData.email.trim()) {
-			newErrors.email = "Email is required";
+			newErrors.email = t("demo.errors.emailReq");
 		} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-			newErrors.email = "Invalid email format";
+			newErrors.email = t("demo.errors.emailInv");
 		}
+
+		// 2. Fixed Phone Validation for international/Panama formats
 		if (!formData.phone.trim()) {
-			newErrors.phone = "Phone is required";
-		} else if (!/^\d{10}$/.test(formData.phone)) {
-			newErrors.phone = "Invalid phone number. Must be 10 digits.";
+			newErrors.phone = t("demo.errors.phoneReq");
+		} else if (!/^[\d\s\-\+\(\)]{8,15}$/.test(formData.phone)) {
+			newErrors.phone = t("demo.errors.phoneInv");
 		}
 
 		setErrors(newErrors);
-		return Object.keys(newErrors).length === 0; // Return true if no errors
+		return Object.keys(newErrors).length === 0;
 	};
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
-
-		if (!validateForm()) {
-			return; // Stop if validation fails
-		}
+		if (!validateForm()) return;
 
 		setLoading(true);
 
 		try {
-			const docRef = await addDoc(collection(db, "demoRequests"), {
+			await addDoc(collection(db, "demoRequests"), {
 				...formData,
 				timestamp: serverTimestamp(),
 			});
-			console.log("Document written with ID: ", docRef.id);
 			setFormData({
 				name: "",
 				restaurantName: "",
 				email: "",
 				phone: "",
 				message: "",
-			}); // Reset form
+			});
 			setSuccess(true);
 		} catch (error) {
 			console.error("Error adding document: ", error);
-			setErrors({ submit: "Failed to submit request. Please try again." });
+			setErrors({ submit: t("demo.errors.submit") });
 		} finally {
 			setLoading(false);
 		}
 	};
+
 	return (
 		<FormSection>
+			<SEO titleKey="seo.demo.title" descKey="seo.demo.desc" />
 			<Container>
-				<H2>Request a Demo</H2>
-				{success ? (
-					<SuccessMessage>
-						Thank you! Your request has been submitted. We'll be in touch soon.
-					</SuccessMessage>
-				) : (
-					<Form onSubmit={handleSubmit}>
-						<FormGroup>
-							<Label htmlFor="name">Your Name:</Label>
-							<Input
-								type="text"
-								id="name"
-								name="name"
-								value={formData.name}
-								onChange={handleChange}
-								className={errors.name ? "invalid" : ""}
-							/>
-							{errors.name && <ErrorMessage>{errors.name}</ErrorMessage>}
-						</FormGroup>
+				<PitchSide>
+					<h1>{t("demo.pitch.title")}</h1>
+					<p>{t("demo.pitch.subtitle")}</p>
+					<ul>
+						<li>{t("demo.pitch.bullet1")}</li>
+						<li>{t("demo.pitch.bullet2")}</li>
+						<li>{t("demo.pitch.bullet3")}</li>
+					</ul>
+				</PitchSide>
 
-						<FormGroup>
-							<Label htmlFor="restaurantName">Restaurant Name:</Label>
-							<Input
-								type="text"
-								id="restaurantName"
-								name="restaurantName"
-								value={formData.restaurantName}
-								onChange={handleChange}
-								className={errors.restaurantName ? "invalid" : ""}
-							/>
-							{errors.restaurantName && (
-								<ErrorMessage>{errors.restaurantName}</ErrorMessage>
-							)}
-						</FormGroup>
+				<FormSide>
+					{success ? (
+						<SuccessMessage>
+							<h3>{t("demo.success.title")}</h3>
+							<p>{t("demo.success.desc")}</p>
+						</SuccessMessage>
+					) : (
+						<Form onSubmit={handleSubmit}>
+							<FormGroup>
+								<Label htmlFor="name">{t("demo.form.name")}</Label>
+								<Input
+									type="text"
+									id="name"
+									name="name"
+									value={formData.name}
+									onChange={handleChange}
+									className={errors.name ? "invalid" : ""}
+								/>
+								{errors.name && <ErrorMessage>{errors.name}</ErrorMessage>}
+							</FormGroup>
 
-						<FormGroup>
-							<Label htmlFor="email">Email:</Label>
-							<Input
-								type="email"
-								id="email"
-								name="email"
-								value={formData.email}
-								onChange={handleChange}
-								className={errors.email ? "invalid" : ""}
-							/>
-							{errors.email && <ErrorMessage>{errors.email}</ErrorMessage>}
-						</FormGroup>
-						<FormGroup>
-							<Label htmlFor="phone">Phone:</Label>
-							<Input
-								type="tel"
-								id="phone"
-								name="phone"
-								value={formData.phone}
-								onChange={handleChange}
-								className={errors.phone ? "invalid" : ""}
-							/>
-							{errors.phone && <ErrorMessage>{errors.phone}</ErrorMessage>}
-						</FormGroup>
+							<FormGroup>
+								<Label htmlFor="restaurantName">
+									{t("demo.form.restaurantName")}
+								</Label>
+								<Input
+									type="text"
+									id="restaurantName"
+									name="restaurantName"
+									value={formData.restaurantName}
+									onChange={handleChange}
+									className={errors.restaurantName ? "invalid" : ""}
+								/>
+								{errors.restaurantName && (
+									<ErrorMessage>{errors.restaurantName}</ErrorMessage>
+								)}
+							</FormGroup>
 
-						<FormGroup>
-							<Label htmlFor="message">Message (Optional):</Label>
-							<TextArea
-								id="message"
-								name="message"
-								value={formData.message}
-								onChange={handleChange}
-								rows="4"
-							/>
-						</FormGroup>
+							<FormGroup>
+								<Label htmlFor="email">{t("demo.form.email")}</Label>
+								<Input
+									type="email"
+									id="email"
+									name="email"
+									value={formData.email}
+									onChange={handleChange}
+									className={errors.email ? "invalid" : ""}
+								/>
+								{errors.email && <ErrorMessage>{errors.email}</ErrorMessage>}
+							</FormGroup>
 
-						{errors.submit && <ErrorMessage>{errors.submit}</ErrorMessage>}
+							<FormGroup>
+								<Label htmlFor="phone">{t("demo.form.phone")}</Label>
+								<Input
+									type="tel"
+									id="phone"
+									name="phone"
+									value={formData.phone}
+									onChange={handleChange}
+									className={errors.phone ? "invalid" : ""}
+									placeholder="+507 1234 5678"
+								/>
+								{errors.phone && <ErrorMessage>{errors.phone}</ErrorMessage>}
+							</FormGroup>
 
-						<SubmitButton type="submit" disabled={loading}>
-							{loading ? "Submitting..." : "Request Demo"}
-						</SubmitButton>
-					</Form>
-				)}
+							<FormGroup>
+								<Label htmlFor="message">{t("demo.form.message")}</Label>
+								<TextArea
+									id="message"
+									name="message"
+									value={formData.message}
+									onChange={handleChange}
+									rows="4"
+								/>
+							</FormGroup>
+
+							{errors.submit && <ErrorMessage>{errors.submit}</ErrorMessage>}
+
+							<SubmitButton type="submit" disabled={loading}>
+								{loading ? t("demo.form.submitting") : t("demo.form.submit")}
+							</SubmitButton>
+						</Form>
+					)}
+				</FormSide>
 			</Container>
 		</FormSection>
 	);

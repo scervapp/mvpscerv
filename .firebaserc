@@ -20,6 +20,12 @@
       }
     }
   },
-  "etags": {},
+  "etags": {
+    "scervmvp": {
+      "extensionInstances": {
+        "firestore-send-email-myyv": "047fda962ad9a55445a15dd449fee2ca4f282994dfedf9220ba1cee4c03b26ac"
+      }
+    }
+  },
   "dataconnectEmulatorConfig": {}
 }

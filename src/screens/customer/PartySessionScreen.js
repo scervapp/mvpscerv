@@ -31,6 +31,19 @@ import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
 import formatTimeLeft from "../../utils/formatTimeLeft";
 
+const DRINK_CATEGORIES = [
+	"Beer",
+	"Wine",
+	"Cocktails",
+	"Spirits",
+	"Sodas",
+	"Drinks",
+	"Juices",
+	"Non-Alcoholic Drinks",
+	"Alcoholic Drinks",
+	"Beverages",
+];
+
 const PartySessionScreen = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
@@ -65,9 +78,10 @@ const PartySessionScreen = () => {
 		useState(false);
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 	const [isSendingItems, setIsSendingItems] = useState(false);
+	const [lastServiceRequest, setLastServiceRequest] = useState(0);
 
 	// UI Upgrades State
-	const [showInviteCode, setShowInviteCode] = useState(false); // Hidden by default
+	const [showInviteCode, setShowInviteCode] = useState(false);
 
 	const currentParty = partyDetails[currentPartyId];
 	const isHost = currentParty
@@ -75,14 +89,52 @@ const PartySessionScreen = () => {
 		: false;
 
 	// --- Virtual Service Bell Action ---
-	const handleCallServer = () => {
-		Alert.alert(
-			t("service_requested", "Service Requested"),
-			t(
-				"a_staff_member_will_be_with_you_shortly",
-				"A staff member will be with you shortly.",
-			),
-		);
+	const handleCallServer = async () => {
+		const now = Date.now();
+		const cooldownMs = 60000;
+
+		if (now - lastServiceRequest < cooldownMs) {
+			Alert.alert(
+				t("please_wait", "Please Wait"),
+				t(
+					"staff_already_notified",
+					"We've already notified the staff. Someone will be right with you!",
+				),
+			);
+			return;
+		}
+
+		if (!currentPartyId) return;
+
+		try {
+			await db
+				.collection("parties")
+				.doc(currentPartyId)
+				.update({
+					serviceRequested: true,
+					serviceRequestedAt: new Date().toISOString(),
+					serviceTableName: currentParty?.table?.name || "A table",
+				});
+
+			setLastServiceRequest(now);
+
+			Alert.alert(
+				t("service_requested", "Service Requested"),
+				t(
+					"a_staff_member_will_be_with_you_shortly",
+					"A staff member has been alerted and will be with you shortly.",
+				),
+			);
+		} catch (error) {
+			console.error("Error requesting service:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t(
+					"could_not_request_service",
+					"Could not request service. Please try waving down a staff member.",
+				),
+			);
+		}
 	};
 
 	useEffect(() => {
@@ -129,6 +181,23 @@ const PartySessionScreen = () => {
 		return party.guestPips?.find((p) => p.userId === currentUserData.uid);
 	}, [currentPartyId, partyDetails, currentUserData?.uid]);
 
+	// --- 🚨 NEW: Smart Leave Party Wrapper ---
+	const handleLeavePartyPress = () => {
+		// Prevent dine-and-dash by blocking exit if they have items in cart
+		if (myItems.length > 0 && !userHasPaid) {
+			Alert.alert(
+				t("cannot_leave", "Cannot Leave"),
+				t(
+					"cannot_leave_with_items",
+					"You have items in your basket. Please delete unsent items or pay for your ordered items before leaving the party.",
+				),
+			);
+			return;
+		}
+
+		handleLeaveParty();
+	};
+
 	const handleLeaveParty = async () => {
 		Alert.alert(
 			t("leave_party", "Leave Party"),
@@ -144,7 +213,8 @@ const PartySessionScreen = () => {
 					onPress: async () => {
 						setUiLoading(true);
 						try {
-							await leaveParty();
+							// 🚨 THE FIX: Pass the currentPartyId here!
+							await leaveParty(currentPartyId);
 						} catch (e) {
 							Alert.alert(
 								t("error", "Error"),
@@ -184,7 +254,7 @@ const PartySessionScreen = () => {
 					partyIdToUse,
 					itemId,
 					newQuantity,
-					currentUserData.uid, // The CF uses this to verify the caller's identity
+					currentUserData.uid,
 				);
 			} catch (error) {
 				console.error("Item Update Error", error);
@@ -218,17 +288,17 @@ const PartySessionScreen = () => {
 		});
 	};
 
-	// --- 🚨 THE FIX: PIP-AWARE DATA MEMOS ---
 	const groupedBasket = useMemo(() => {
 		if (!sharedBaskets || !currentPartyId || !partyDetails[currentPartyId])
 			return [];
-		const items = sharedBaskets[currentPartyId] || [];
+
+		const rawBasket = sharedBaskets[currentPartyId] || {};
+		const items = rawBasket.items || [];
+
 		if (!items || items.length === 0) return [];
 
 		const groups = {};
 		items.forEach((item) => {
-			// 🚨 THE FIX: Group by the physical App User, NOT the PIP.
-			// Uses addedByUserId (from Party Menu) or userId (from Uber Pre-built Cart)
 			let groupOwnerUserId =
 				item.addedByUserId ||
 				item.userId ||
@@ -242,16 +312,12 @@ const PartySessionScreen = () => {
 					groupDisplayName = currentUserData.firstName
 						? `${currentUserData.firstName} (${t("you", "You")})`
 						: t("your_items", "Your Items");
-				}
-				// Look up the other App Users in the party
-				else if (partyDetails[currentPartyId]?.guestPips) {
+				} else if (partyDetails[currentPartyId]?.guestPips) {
 					const guestInfo = partyDetails[currentPartyId]?.guestPips?.find(
 						(p) => p.userId === groupOwnerUserId,
 					);
 					groupDisplayName = guestInfo?.name || `${t("guest", "Guest")}`;
-				}
-				// Fallback
-				else {
+				} else {
 					groupDisplayName = `${t("guest", "Guest")}`;
 				}
 
@@ -264,7 +330,6 @@ const PartySessionScreen = () => {
 			groups[groupOwnerUserId].items.push(item);
 		});
 
-		// Always push "You" to the very top of the list
 		const currentUserGroupKey = currentUserData?.uid;
 		const currentUserGroup = groups[currentUserGroupKey];
 		if (currentUserGroupKey) delete groups[currentUserGroupKey];
@@ -274,29 +339,55 @@ const PartySessionScreen = () => {
 			: Object.values(groups);
 	}, [sharedBaskets, currentPartyId, currentUserData, partyDetails, t]);
 
-	// --- 🚨 2. SECOND: Extract myItems FROM the Grouped Basket ---
 	const myItems = useMemo(() => {
-		// 🚨 Added ?. before find()
 		const myGroup = groupedBasket?.find(
 			(g) => g.userId === currentUserData?.uid,
 		);
 		return myGroup ? myGroup.items : [];
 	}, [groupedBasket, currentUserData?.uid]);
 
-	// --- 🚨 3. THIRD: Check for unsent items ---
 	const hasUnsentItems = useMemo(() => {
-		// 🚨 Added ?. before some()
 		return (
 			myItems?.some((item) => item.status === "new" || !item.status) || false
 		);
 	}, [myItems]);
 
-	// --- 🚨 4. FOURTH: Check checkout status ---
 	const canCheckout = useMemo(() => {
 		return myItems?.length > 0 && !hasUnsentItems && !userHasPaid;
 	}, [myItems, hasUnsentItems, userHasPaid]);
 
-	// Handlers (Keep these right below the useMemos)
+	const getItemLiveStatus = (item) => {
+		if (item.status === "new" || !item.status) {
+			return null;
+		}
+
+		if (!item.ticketId) {
+			return item.status;
+		}
+
+		const rawBasketData = sharedBaskets[currentPartyId] || {};
+		const ticketStatuses = rawBasketData.ticketStatuses || {};
+
+		const ticketInfo = ticketStatuses[item.ticketId];
+
+		if (!ticketInfo) {
+			return item.status;
+		}
+
+		const category = item.category || "Other";
+		const destination = DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen";
+
+		const liveStatus = ticketInfo[destination];
+
+		if (liveStatus === "new") {
+			return "sent";
+		}
+
+		const finalStatus = liveStatus || item.status;
+
+		return finalStatus;
+	};
+
 	const handleSendMyItems = () => {
 		if (!sendMyItemsToKitchen) return;
 		setIsSendingItems(true);
@@ -311,7 +402,6 @@ const PartySessionScreen = () => {
 
 	// --- RENDERS ---
 
-	// Loading State
 	if (isLoadingParty || !currentPartyId || !partyDetails[currentPartyId]) {
 		return (
 			<SafeAreaView
@@ -400,6 +490,18 @@ const PartySessionScreen = () => {
 					>
 						<Ionicons name="people-outline" size={28} color={colors.textDark} />
 					</TouchableOpacity>
+
+					{/* 🚨 NEW: LEAVE PARTY BUTTON IN HEADER */}
+					<TouchableOpacity
+						style={styles.headerIconButton}
+						onPress={handleLeavePartyPress}
+					>
+						<Ionicons
+							name="exit-outline"
+							size={28}
+							color={colors.statusDanger}
+						/>
+					</TouchableOpacity>
 				</View>
 			</View>
 
@@ -427,11 +529,11 @@ const PartySessionScreen = () => {
 			{/* BASKET LIST */}
 			<FlatList
 				data={groupedBasket}
+				extraData={sharedBaskets}
 				keyExtractor={(group) => group.userId || group.userName}
 				contentContainerStyle={styles.flatListContentContainer}
 				ListEmptyComponent={<PartyBasketGuide isHost={isHost} />}
 				renderItem={({ item: group }) => {
-					// 🚨 THE FIX: Check if this entire block of food belongs to the phone holder
 					const isMyGroup = group.userId === currentUserData?.uid;
 
 					return (
@@ -450,7 +552,6 @@ const PartySessionScreen = () => {
 
 							{group.items.length > 0 ? (
 								group.items.map((basketItem, index) => {
-									// Check if this specific item is for a PIP (and not "Myself")
 									const isForPip =
 										basketItem.orderedByPipName &&
 										basketItem.orderedByPipName !== "Myself";
@@ -464,10 +565,17 @@ const PartySessionScreen = () => {
 											)}
 
 											<OrderItemCard
-												item={basketItem}
+												item={{
+													...basketItem,
+													status:
+														getItemLiveStatus(basketItem) || basketItem.status,
+												}}
 												onQuantityChange={onItemQuantityChangeCallbackForParty}
-												isSentToKitchen={basketItem.status === "sent"}
-												// 🚨 THE FIX: Only allow edits if it's YOUR group!
+												liveTrackerStatus={getItemLiveStatus(basketItem)}
+												isSentToKitchen={
+													getItemLiveStatus(basketItem) !== "new" &&
+													getItemLiveStatus(basketItem) !== null
+												}
 												allowEdit={
 													isMyGroup &&
 													(basketItem.status === "new" || !basketItem.status) &&
@@ -491,24 +599,41 @@ const PartySessionScreen = () => {
 			{/* UI UPGRADE: THE STICKY BOTTOM ACTION BAR */}
 			{(partyIsActive || partyIsPending) && (
 				<View style={styles.stickyBottomBar}>
-					{/* 🚨 1. THE PRE-BUILD STATE: User has a cart, but no table! */}
+					{/* 1. THE PRE-BUILD STATE: User has a cart, but no table! */}
 					{partyIsPending && (
 						<View style={styles.stickySplitRow}>
-							<TouchableOpacity
-								style={styles.stickySecondaryBtn}
-								onPress={handleAddMyItems}
-							>
-								<Text style={styles.stickySecondaryBtnText}>
-									+ {t("add_more", "Add More")}
-								</Text>
-							</TouchableOpacity>
+							{/* 🚨 NEW: Leave Party Option if Cart is Empty */}
+							{myItems.length === 0 ? (
+								<TouchableOpacity
+									style={styles.stickySecondaryBtn}
+									onPress={handleLeavePartyPress}
+								>
+									<Text
+										style={[
+											styles.stickySecondaryBtnText,
+											{ color: colors.statusDanger },
+										]}
+									>
+										{t("leave_party", "Leave Party")}
+									</Text>
+								</TouchableOpacity>
+							) : (
+								<TouchableOpacity
+									style={styles.stickySecondaryBtn}
+									onPress={handleAddMyItems}
+								>
+									<Text style={styles.stickySecondaryBtnText}>
+										+ {t("add_more", "Add More")}
+									</Text>
+								</TouchableOpacity>
+							)}
+
 							<TouchableOpacity
 								style={[
 									styles.stickyPrimaryBtn,
 									{ flex: 2, backgroundColor: colors.primary },
 								]}
 								onPress={() =>
-									// 🚨 Back to the clean, simple local navigation!
 									navigation.navigate("QRScannerScreen", {
 										restaurantId: currentParty?.restaurantId,
 										partyId: currentPartyId,
@@ -531,25 +656,41 @@ const PartySessionScreen = () => {
 					{/* 2. THE ACTIVE STATE: Checked in and seated */}
 					{partyIsActive && (
 						<>
-							{/* If cart is completely empty */}
+							{/* 🚨 NEW: Split row for Empty Cart */}
 							{myItems.length === 0 && !userHasPaid && (
-								<TouchableOpacity
-									style={[
-										styles.stickyPrimaryBtn,
-										{ backgroundColor: colors.primary },
-									]}
-									onPress={handleAddMyItems}
-								>
-									<Ionicons
-										name="restaurant-outline"
-										size={20}
-										color={colors.surfaceWhite}
-										style={{ marginRight: 8 }}
-									/>
-									<Text style={styles.stickyPrimaryBtnText}>
-										{t("browse_menu", "Browse Menu")}
-									</Text>
-								</TouchableOpacity>
+								<View style={styles.stickySplitRow}>
+									<TouchableOpacity
+										style={styles.stickySecondaryBtn}
+										onPress={handleLeavePartyPress}
+									>
+										<Text
+											style={[
+												styles.stickySecondaryBtnText,
+												{ color: colors.statusDanger },
+											]}
+										>
+											{t("leave_party", "Leave Party")}
+										</Text>
+									</TouchableOpacity>
+
+									<TouchableOpacity
+										style={[
+											styles.stickyPrimaryBtn,
+											{ flex: 2, backgroundColor: colors.primary },
+										]}
+										onPress={handleAddMyItems}
+									>
+										<Ionicons
+											name="restaurant-outline"
+											size={20}
+											color={colors.surfaceWhite}
+											style={{ marginRight: 8 }}
+										/>
+										<Text style={styles.stickyPrimaryBtnText}>
+											{t("browse_menu", "Browse Menu")}
+										</Text>
+									</TouchableOpacity>
+								</View>
 							)}
 
 							{/* If user has un-sent items */}
@@ -566,13 +707,11 @@ const PartySessionScreen = () => {
 									<TouchableOpacity
 										style={[
 											styles.stickyPrimaryBtn,
-											// Optional: Make it orange to stand out!
 											{
 												flex: 2,
 												backgroundColor: colors.brandOrange || colors.primary,
 											},
 										]}
-										// 🚨 THE FIX: Replaced navigation with the correct handler!
 										onPress={handleSendMyItems}
 										disabled={isSendingItems}
 									>
@@ -832,7 +971,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		paddingHorizontal: 20,
 		paddingTop: 15,
-		paddingBottom: 30, // Safe area lift
+		paddingBottom: 30,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
 		shadowColor: "#000",
@@ -931,7 +1070,7 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		color: colors.primary,
 		marginLeft: 12,
-		marginBottom: -4, // Pulls the OrderItemCard slightly up to group them visually
+		marginBottom: -4,
 		marginTop: 10,
 		zIndex: 1,
 	},

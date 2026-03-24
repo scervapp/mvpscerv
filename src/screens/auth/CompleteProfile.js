@@ -8,40 +8,66 @@ import {
 	Alert,
 	StyleSheet,
 	ActivityIndicator,
-} from "react-native"; // Added Text, StyleSheet, ActivityIndicator
-import { doc, getDoc, setDoc } from "@react-native-firebase/firestore";
-import { db } from "../../config/firebase"; // Check your path. usually just 'firebase', not 'firebase.native' unless you specifically named it that.
+	TouchableOpacity,
+	Platform,
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { doc, setDoc } from "@react-native-firebase/firestore";
+import { db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
+import { Picker } from "@react-native-picker/picker";
 
 export default function CompleteProfileScreen() {
 	const { t } = useTranslation();
 	const [firstName, setFirstName] = useState("");
 	const [lastName, setLastName] = useState("");
-	const [loading, setLoading] = useState(false);
 
-	// FIX: Use 'currentUser' (Auth Object), NOT 'currentUserData' (Firestore Doc)
+	// Gender & DOB State
+	const [gender, setGender] = useState("");
+	const [dob, setDob] = useState(new Date());
+	const [isDobSelected, setIsDobSelected] = useState(false);
+	const [showPicker, setShowPicker] = useState(false);
+
+	const [loading, setLoading] = useState(false);
 	const { currentUser } = useContext(AuthContext);
 
+	const onChangeDate = (event, selectedDate) => {
+		const currentDate = selectedDate || dob;
+		if (Platform.OS === "android") {
+			setShowPicker(false);
+		}
+		if (event.type === "set" || selectedDate) {
+			setDob(currentDate);
+			setIsDobSelected(true);
+		} else {
+			setShowPicker(false);
+		}
+	};
+
 	const saveProfile = async () => {
-		if (!firstName.trim() || !lastName.trim()) {
+		if (!firstName.trim() || !lastName.trim() || !gender || !isDobSelected) {
 			return Alert.alert(
-				t("required"),
-				t("please_enter_your_first_and_last_name"),
+				t("required") || "Required",
+				t("please_fill_out_all_fields_to_continue") ||
+					"Please fill out all fields to continue.",
 			);
 		}
 
 		setLoading(true);
 		try {
-			// 1. Create the document in Firestore
-			// We use currentUser.uid (from Firebase Auth) because currentUserData is null
+			const formattedDob = dob.toLocaleDateString("en-US");
+
 			await setDoc(
 				doc(db, "customers", currentUser.uid),
 				{
 					uid: currentUser.uid,
 					firstName: firstName.trim(),
 					lastName: lastName.trim(),
+					gender: gender, // Now guaranteed to be Male, Female, or Other
+					dateOfBirth: formattedDob,
 					phoneNumber: currentUser.phoneNumber,
 					role: "customer",
 					canViewHiddenRestaurants: false,
@@ -54,14 +80,10 @@ export default function CompleteProfileScreen() {
 				{ merge: true },
 			);
 
-			// 2. Do NOTHING else.
-			// The onSnapshot listener in AppNavigator.js will detect this new document
-			// and automatically flip the switch to show the App Stack.
 			console.log("Profile created successfully.");
 		} catch (e) {
 			console.error(e);
-			//Alert.alert(t("error_saving_profile"), e.message);
-			setLoading(false); // Only stop loading if there is an error
+			setLoading(false);
 		}
 	};
 
@@ -69,32 +91,86 @@ export default function CompleteProfileScreen() {
 		<View style={styles.container}>
 			<Text style={styles.title}>{t("almost_there")}</Text>
 			<Text style={styles.subtitle}>
-				{t("please_confirm_your_name_to_finish_setup")}
+				{t("please_confirm_your_details_to_finish_setup") ||
+					"Please confirm your details to finish setup."}
 			</Text>
 
 			<TextInput
 				style={styles.input}
-				placeholder={t("first_name")}
+				placeholder={t("first_name") || "First Name"}
 				value={firstName}
 				onChangeText={setFirstName}
 				placeholderTextColor={colors.textMedium}
 			/>
 			<TextInput
 				style={styles.input}
-				placeholder={t("last_name")}
+				placeholder={t("last_name") || "Last Name"}
 				value={lastName}
 				onChangeText={setLastName}
 				placeholderTextColor={colors.textMedium}
 			/>
 
+			{/* Native Gender Picker */}
+			<View style={styles.pickerContainer}>
+				<Picker
+					selectedValue={gender}
+					onValueChange={(itemValue) => setGender(itemValue)}
+					style={{ color: gender ? colors.textDark : colors.textMedium }}
+				>
+					<Picker.Item
+						label={t("select_gender") || "Select Gender"}
+						value=""
+						color={colors.textMedium}
+						enabled={false}
+					/>
+					<Picker.Item label={t("male") || "Male"} value="Male" />
+					<Picker.Item label={t("female") || "Female"} value="Female" />
+					<Picker.Item label={t("other") || "Other"} value="Other" />
+				</Picker>
+			</View>
+
+			{/* Date Picker Button */}
+			<TouchableOpacity
+				style={styles.input}
+				onPress={() => setShowPicker(true)}
+				activeOpacity={0.7}
+			>
+				<Text
+					style={{
+						color: isDobSelected ? colors.textDark : colors.textMedium,
+						fontSize: 16,
+					}}
+				>
+					{isDobSelected
+						? dob.toLocaleDateString()
+						: t("date_of_birth") || "Select Date of Birth"}
+				</Text>
+			</TouchableOpacity>
+
+			{showPicker && (
+				<DateTimePicker
+					value={dob}
+					mode="date"
+					display={Platform.OS === "ios" ? "spinner" : "default"}
+					onChange={onChangeDate}
+					maximumDate={new Date()}
+				/>
+			)}
+
+			{showPicker && Platform.OS === "ios" && (
+				<Button title="Done" onPress={() => setShowPicker(false)} />
+			)}
+
 			{loading ? (
 				<ActivityIndicator size="large" color="#0000ff" />
 			) : (
-				<Button
-					color={colors.primary}
-					title={t("complete_setup")}
-					onPress={saveProfile}
-				/>
+				<View style={{ marginTop: 10 }}>
+					<Button
+						color={colors.primary}
+						title={t("complete_setup") || "Complete Setup"}
+						onPress={saveProfile}
+					/>
+				</View>
 			)}
 		</View>
 	);
@@ -116,7 +192,6 @@ const styles = StyleSheet.create({
 	},
 	subtitle: {
 		fontSize: 16,
-		color: "#666",
 		marginBottom: 30,
 		textAlign: "center",
 		color: colors.textDark,
@@ -127,7 +202,17 @@ const styles = StyleSheet.create({
 		padding: 15,
 		marginBottom: 15,
 		borderRadius: 8,
-		fontSize: 16,
-		color: colors.textDark,
+		justifyContent: "center",
+		minHeight: 54,
+	},
+	pickerContainer: {
+		borderWidth: 1,
+		borderColor: "#ccc",
+		marginBottom: 15,
+		borderRadius: 8,
+		justifyContent: "center",
+		// Platform specific tweaks to ensure the picker fits well inside the border
+		paddingVertical: Platform.OS === "ios" ? 0 : 2,
+		overflow: "hidden",
 	},
 });

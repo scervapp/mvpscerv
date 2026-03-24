@@ -1,3 +1,4 @@
+// components/restaurant/OrderDetailModal.js
 import React, { useState, useEffect, useCallback } from "react";
 import {
 	View,
@@ -10,43 +11,51 @@ import {
 	TouchableOpacity,
 	SafeAreaView,
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
 
-import { db, functions } from "../../config/firebase"; // Adjust path
+import { db, functions } from "../../config/firebase";
 import formatCurrency from "../../utils/currencyFormatter";
-import colors from "../../utils/styles/appStyles"; // Adjust path
+import colors from "../../utils/styles/appStyles";
 
-// Import the newly created component
 import DiscountModal from "./DiscountModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 
-// Helper function to normalize party items
-const normalizePartyItem = (item) => ({
-	id: item.id,
-	dishName: item.dishName,
-	quantity: item.quantity,
-	specialInstructions: item.specialInstructions,
-	orderedFor: item.orderedByPipName || `User ${item.orderedByUserId.slice(-4)}`,
-	price: item.price,
-	discount: item.discount,
-	discountedPrice: item.discountedPrice,
-	status: item.status,
-});
+// 🚨 THE FIX: Bulletproof normalizer to prevent silent crashes!
+const normalizePartyItem = (item) => {
+	// 1. Safely grab the user ID no matter what it was saved as
+	const rawUserId =
+		item.orderedByUserId || item.addedByUserId || item.userId || "0000";
+	const safeUserId = String(rawUserId);
 
-// Helper function to normalize individual items
+	return {
+		id: item.id || Math.random().toString(),
+		// 2. Safely grab the name (sometimes saved as 'name', sometimes 'dishName')
+		dishName: item.dishName || item.name || "Order Item",
+		quantity: item.quantity || 1,
+		specialInstructions: item.specialInstructions || "",
+		// 3. Safely grab the PIP name or fallback to the sliced ID
+		orderedFor:
+			item.orderedByPipName || item.pipName || `User ${safeUserId.slice(-4)}`,
+		price: item.price || 0,
+		discount: item.discount || 0,
+		discountedPrice: item.discountedPrice || 0,
+		status: item.status || "new",
+	};
+};
+
 const normalizeIndividualItem = (docSnap) => {
 	const item = docSnap.data();
 	return {
 		id: docSnap.id,
-		dishName: item.dish?.name,
-		quantity: item.quantity,
-		specialInstructions: item.specialInstructions,
-		orderedFor: item.pipName || item.customerName || t('guest'),
-		price: item.dish?.price,
-		discount: item.discount,
-		discountedPrice: item.discountedPrice,
-		status: item.sentToChefQ ? "sent" : "new",
+		dishName: item.dish?.name || item.name || "Order Item",
+		quantity: item.quantity || 1,
+		specialInstructions: item.specialInstructions || "",
+		orderedFor: item.pipName || item.customerName || "Guest",
+		price: item.dish?.price || item.price || 0,
+		discount: item.discount || 0,
+		discountedPrice: item.discountedPrice || 0,
+		status: item.sentToChefQ ? "sent" : item.status || "new",
 	};
 };
 
@@ -61,11 +70,10 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 	const [checkInType, setCheckInType] = useState(null);
 	const [associatedPartyId, setAssociatedPartyId] = useState(null);
 
-	// Using useCallback ensures this function isn't recreated on every render
 	const fetchOrders = useCallback(() => {
 		if (!table?.currentCheckInId) {
 			setIsLoading(false);
-			return () => {}; // Return an empty unsubscribe function
+			return () => {};
 		}
 
 		setIsLoading(true);
@@ -78,23 +86,31 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			try {
 				const checkInSnap = await checkInRef.get();
 				if (!checkInSnap.exists()) {
-					throw new Error(t('associated_check_in_document_not_found_error'));
+					throw new Error(t("associated_check_in_document_not_found_error"));
 				}
 
 				const checkInData = checkInSnap.data();
 
 				setCheckInType(checkInData.type);
+				// Handle fallback if it's saved as partyId instead of associatedPartyId
+				const safePartyId =
+					checkInData.associatedPartyId || checkInData.partyId;
+
 				if (checkInData.type === "party") {
-					setAssociatedPartyId(checkInData.associatedPartyId);
+					setAssociatedPartyId(safePartyId);
 				}
 
-				if (checkInData.type === "party" && checkInData.associatedPartyId) {
+				if (checkInData.type === "party" && safePartyId) {
 					const sharedBasketRef = db
 						.collection("shared_baskets")
-						.doc(checkInData.associatedPartyId);
+						.doc(safePartyId);
+
 					unsubscribe = sharedBasketRef.onSnapshot((basketSnap) => {
 						const items = basketSnap.exists()
-							? (basketSnap.data().items || []).map(normalizePartyItem)
+							? (basketSnap.data().items || [])
+									.map(normalizePartyItem)
+									// 🚨 THE FIX: Explicitly hide items that haven't been sent yet!
+									.filter((item) => item.status !== "new")
 							: [];
 						setOrderedItems(items);
 						setIsLoading(false);
@@ -103,32 +119,35 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 					const itemsQuery = db
 						.collection("baskets")
 						.where("checkInId", "==", table.currentCheckInId);
+
 					unsubscribe = itemsQuery.onSnapshot((snapshot) => {
-						const items = snapshot.docs.map(normalizeIndividualItem);
+						const items = snapshot.docs
+							.map(normalizeIndividualItem)
+							// 🚨 Filter individuals too
+							.filter((item) => item.status !== "new");
+
 						setOrderedItems(items);
 						setIsLoading(false);
 					});
 				}
 			} catch (err) {
 				console.error("Error setting up order details listener:", err);
-				setError(t('could_not_load_order_details_error'));
+				setError(t("could_not_load_order_details_error"));
 				setIsLoading(false);
 			}
 		};
 
 		setupSubscription();
-		return unsubscribe; // Return the firestore listener's unsubscribe function
-	}, [table?.currentCheckInId]); // Dependency is now more specific
+		return unsubscribe;
+	}, [table?.currentCheckInId, t]);
 
 	useEffect(() => {
 		let unsubscribe;
 		if (isVisible) {
 			unsubscribe = fetchOrders();
 		} else {
-			// Clear data when modal is not visible
 			setOrderedItems([]);
 		}
-		// This is the cleanup function for useEffect
 		return () => {
 			if (unsubscribe) {
 				unsubscribe();
@@ -137,7 +156,6 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 	}, [isVisible, fetchOrders]);
 
 	const handleOpenDiscountModal = useCallback((item) => {
-		console.log("Opening discount modal for item:", item.dishName);
 		setItemToDiscount(item);
 		setIsDiscountModalVisible(true);
 	}, []);
@@ -150,22 +168,15 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			!reason?.trim()
 		) {
 			return Alert.alert(
-				t('invalid_input_title'),
-				t('enter_valid_discount_amount_and_reason_message')
+				t("invalid_input_title"),
+				t("enter_valid_discount_amount_and_reason_message"),
 			);
 		}
-		console.log("CLIENT-SIDE: Attempting to discount item with this data:", {
-			partyId: checkInType === "party" ? associatedPartyId : null,
-			checkInId: checkInType === "individual" ? table.currentCheckInId : null,
-			itemId: item.id, // The ID we are sending
-			itemName: item.dishName, // For context
-		});
 
 		setIsDiscounting(true);
 		try {
 			const discountFunction = httpsCallable(functions, "discountOrderItem");
 
-			// This payload now reliably uses the stored context from state
 			const payload = {
 				partyId: checkInType === "party" ? associatedPartyId : null,
 				checkInId: checkInType === "individual" ? table.currentCheckInId : null,
@@ -174,25 +185,26 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				reason,
 			};
 
-			// This check prevents sending a request that is guaranteed to fail
 			if (!payload.partyId && !payload.checkInId) {
 				throw new Error(
-					t('could_not_determine_party_or_check_in_id_for_discount_error')
+					t("could_not_determine_party_or_check_in_id_for_discount_error"),
 				);
 			}
 
 			await discountFunction(payload);
-			Alert.alert(t('success_title'), t('discount_applied_message'));
+			Alert.alert(t("success_title"), t("discount_applied_message"));
 		} catch (error) {
 			console.error("Error applying discount on client:", error);
-			Alert.alert(t('error_title'), error.message || t('could_not_apply_discount_message'));
+			Alert.alert(
+				t("error_title"),
+				error.message || t("could_not_apply_discount_message"),
+			);
 		} finally {
 			setIsDiscounting(false);
 			setIsDiscountModalVisible(false);
 		}
 	};
 
-	// Using useCallback for renderItem is a performance best practice
 	const renderOrderItem = useCallback(
 		({ item }) => (
 			<TouchableOpacity
@@ -202,15 +214,18 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName}</Text>
-					<Text style={styles.itemFor}>{t('for_label')}: {item.orderedFor}</Text>
-					{item.specialInstructions && (
+					<Text style={styles.itemFor}>
+						{t("for_label")}: {item.orderedFor}
+					</Text>
+					{item.specialInstructions ? (
 						<Text style={styles.itemInstructions}>
 							"{item.specialInstructions}"
 						</Text>
-					)}
+					) : null}
 					{item.discount > 0 && (
 						<Text style={styles.discountText}>
-							{t('discounted_by_label')} {formatCurrency(item.discount * 100)} - {t('new_price_label')}:{" "}
+							{t("discounted_by_label")} {formatCurrency(item.discount * 100)} -{" "}
+							{t("new_price_label")}:{" "}
 							{formatCurrency(item.discountedPrice * 100)}
 						</Text>
 					)}
@@ -220,7 +235,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				</Text>
 			</TouchableOpacity>
 		),
-		[handleOpenDiscountModal]
+		[handleOpenDiscountModal, t],
 	);
 
 	return (
@@ -231,11 +246,10 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			onRequestClose={onClose}
 		>
 			<View style={styles.modalOverlay}>
-				{/* The new container that acts as the centered "card" */}
 				<View style={styles.modalContainer}>
 					<View style={styles.header}>
 						<Text style={styles.modalTitle}>
-							{t('order_details_for_table', { tableName: table?.name })}
+							{t("order_details_for_table", { tableName: table?.name })}
 						</Text>
 					</View>
 
@@ -252,13 +266,13 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 									keyExtractor={(item) => item.id}
 									ListEmptyComponent={
 										<Text style={styles.noDataText}>
-											{t('no_items_sent_to_kitchen_yet_message')}
+											{t("no_items_sent_to_kitchen_yet_message")}
 										</Text>
 									}
 								/>
 								{orderedItems.length > 0 && (
 									<Text style={styles.tooltipText}>
-										{t('long_press_item_for_discount_tooltip')}
+										{t("long_press_item_for_discount_tooltip")}
 									</Text>
 								)}
 							</>
@@ -267,12 +281,12 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 
 					<View style={styles.footer}>
 						<Button onPress={onClose} mode="contained">
-							{t('close_button')}
+							{t("close_button")}
 						</Button>
 					</View>
 				</View>
 			</View>
-			{/* The new DiscountModal component is used here */}
+
 			{itemToDiscount && (
 				<DiscountModal
 					isVisible={isDiscountModalVisible}
@@ -286,7 +300,6 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 	);
 };
 
-// Only keep styles relevant to OrderDetailsModal
 const styles = StyleSheet.create({
 	modalOverlay: {
 		flex: 1,
@@ -299,12 +312,9 @@ const styles = StyleSheet.create({
 		maxHeight: "80%",
 		backgroundColor: colors.backgroundLight,
 		borderRadius: 15,
-		overflow: "hidden", // Ensures content respects the border radius
+		overflow: "hidden",
 		shadowColor: "#000",
-		shadowOffset: {
-			width: 0,
-			height: 2,
-		},
+		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.25,
 		shadowRadius: 3.84,
 		elevation: 5,
@@ -316,13 +326,12 @@ const styles = StyleSheet.create({
 		borderBottomColor: colors.borderLight,
 	},
 	modalTitle: {
-		fontSize: 20, // Slightly smaller for a card view
+		fontSize: 20,
 		fontWeight: "bold",
 		color: colors.textDark,
 		textAlign: "center",
 	},
 	content: {
-		// Let content grow but not shrink, FlatList will handle scrolling
 		flexGrow: 1,
 		flexShrink: 1,
 		padding: 15,
@@ -344,7 +353,6 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		paddingVertical: 40,
 	},
-	// --- Item styles remain the same ---
 	itemRow: {
 		flexDirection: "row",
 		paddingVertical: 12,
@@ -353,7 +361,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 	},
 	itemQuantity: {
-		fontSize: 16, // Adjusted for smaller modal
+		fontSize: 16,
 		fontWeight: "bold",
 		color: colors.primary,
 		marginRight: 15,
@@ -384,4 +392,3 @@ const styles = StyleSheet.create({
 });
 
 export default OrderDetailsModal;
-
