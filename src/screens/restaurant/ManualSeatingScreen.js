@@ -48,6 +48,18 @@ const ManualSeatScreen = () => {
 					id: doc.id,
 					...doc.data(),
 				}));
+
+				// 🚨 NEW: True Numerical Sort (Fixes 1, 10, 11 coming before 2)
+				tableData.sort((a, b) => {
+					const numA =
+						a.tableNumber ||
+						parseInt((a.name || "").match(/\d+/)?.[0] || 0, 10);
+					const numB =
+						b.tableNumber ||
+						parseInt((b.name || "").match(/\d+/)?.[0] || 0, 10);
+					return numA - numB;
+				});
+
 				setTables(tableData);
 			} catch (error) {
 				console.error("Error fetching tables:", error);
@@ -58,7 +70,7 @@ const ManualSeatScreen = () => {
 			}
 		};
 
-		// 2. Listen for ACTIVE parties to see which tables are occupied
+		// 2. Listen for ACTIVE parties to see which tables are currently occupied by a session
 		const q = query(
 			collection(db, "parties"),
 			where("restaurantId", "==", restaurantId),
@@ -77,15 +89,15 @@ const ManualSeatScreen = () => {
 		return () => unsubscribe();
 	}, [currentUserData?.uid]);
 
-	const handleSeatTable = async (table) => {
-		if (activeTableIds.has(table.id)) {
-			Alert.alert(
-				t("table_occupied", "Table Occupied"),
-				t("table_already_seated", "This table is already seated."),
-			);
-			return;
-		}
+	// Filter out any table that is currently occupied or hasn't been bussed/cleared yet
+	const availableTables = tables.filter((table) => {
+		const isOccupiedByParty = activeTableIds.has(table.id);
+		const isStatusAvailable = !table.status || table.status === "available";
 
+		return !isOccupiedByParty && isStatusAvailable;
+	});
+
+	const handleSeatTable = async (table) => {
 		const tableName =
 			table.name || `${t("table", "Table")} ${table.tableNumber}`;
 
@@ -131,33 +143,19 @@ const ManualSeatScreen = () => {
 	};
 
 	const renderTable = ({ item }) => {
-		const isOccupied = activeTableIds.has(item.id);
-
 		return (
 			<TouchableOpacity
-				style={[
-					styles.tableCard,
-					isOccupied ? styles.occupiedCard : styles.availableCard,
-				]}
-				disabled={isOccupied || isSeating}
+				style={[styles.tableCard, styles.availableCard]}
+				disabled={isSeating}
 				onPress={() => handleSeatTable(item)}
 			>
 				<View style={styles.cardHeader}>
 					<Text style={styles.tableName}>
 						{item.name || `${t("table", "Table")} ${item.tableNumber}`}
 					</Text>
-					{isOccupied && (
-						<Ionicons name="people" size={20} color={colors.surfaceWhite} />
-					)}
+					<Ionicons name="checkmark-circle-outline" size={20} color="#065F46" />
 				</View>
-				<Text
-					style={[
-						styles.statusText,
-						isOccupied && { color: colors.surfaceWhite },
-					]}
-				>
-					{isOccupied ? t("occupied", "Occupied") : t("available", "Available")}
-				</Text>
+				<Text style={styles.statusText}>{t("available", "Available")}</Text>
 			</TouchableOpacity>
 		);
 	};
@@ -186,11 +184,23 @@ const ManualSeatScreen = () => {
 			</View>
 
 			<FlatList
-				data={tables}
+				data={availableTables}
 				keyExtractor={(item) => item.id}
 				renderItem={renderTable}
 				numColumns={2}
 				contentContainerStyle={styles.listContainer}
+				ListEmptyComponent={
+					<View style={styles.emptyContainer}>
+						<Ionicons
+							name="restaurant-outline"
+							size={48}
+							color={colors.textLight}
+						/>
+						<Text style={styles.emptyText}>
+							{t("no_tables_available", "No tables are currently available.")}
+						</Text>
+					</View>
+				}
 			/>
 		</SafeAreaView>
 	);
@@ -211,6 +221,17 @@ const styles = StyleSheet.create({
 	headerTitle: { fontSize: 20, fontWeight: "bold", color: colors.textDark },
 	backButton: { padding: 5 },
 	listContainer: { padding: 15 },
+	emptyContainer: {
+		marginTop: 50,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	emptyText: {
+		marginTop: 15,
+		fontSize: 16,
+		color: colors.textMedium,
+		textAlign: "center",
+	},
 	tableCard: {
 		flex: 1,
 		margin: 8,
@@ -218,21 +239,18 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		alignItems: "center",
 		justifyContent: "center",
-		minHeight: 120,
+		minHeight: 110,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.1,
 		shadowRadius: 4,
 		elevation: 3,
-	},
-	availableCard: {
-		backgroundColor: colors.surfaceWhite,
 		borderWidth: 2,
-		borderColor: colors.primary,
 	},
-	occupiedCard: {
-		backgroundColor: colors.textMedium,
-		opacity: 0.7,
+	// 🚨 NEW: Matched the pastel palette from TableManagementScreen
+	availableCard: {
+		backgroundColor: "#D1FAE5",
+		borderColor: "#6EE7B7",
 	},
 	cardHeader: {
 		flexDirection: "row",
@@ -243,12 +261,12 @@ const styles = StyleSheet.create({
 	tableName: {
 		fontSize: 18,
 		fontWeight: "bold",
-		color: colors.textDark,
+		color: "#065F46", // Deep Emerald
 	},
 	statusText: {
 		fontSize: 14,
-		color: colors.primary,
-		fontWeight: "600",
+		color: "#065F46", // Deep Emerald
+		fontWeight: "700",
 	},
 });
 

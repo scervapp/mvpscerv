@@ -26,7 +26,8 @@ import colors from "../../utils/styles/appStyles";
 const ManagePartyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation(); // 🚨 Bring in i18n
+	const currentLang = i18n.language?.substring(0, 2) || "en";
 	const { partyId } = route.params;
 
 	const [partyData, setPartyData] = useState(null);
@@ -46,8 +47,15 @@ const ManagePartyScreen = () => {
 			if (doc.exists) setPartyData({ id: doc.id, ...doc.data() });
 		});
 
-		const unsubscribeBasket = onSnapshot(basketRef, (doc) => {
-			if (doc.exists) setBasketItems(doc.data().items || []);
+		const unsubscribeBasket = onSnapshot(basketRef, (snapshot) => {
+			// Check if snapshot exists AND has data
+			if (snapshot.exists()) {
+				setBasketItems(snapshot.data().items || []);
+			} else {
+				// If the document is deleted (party closed), set items to empty
+				// instead of leaving it as the old data or undefined
+				setBasketItems([]);
+			}
 			setIsLoading(false);
 		});
 
@@ -59,7 +67,10 @@ const ManagePartyScreen = () => {
 
 	// 2. Calculate Totals
 	const officiallyOrderedItems = useMemo(() => {
-		return basketItems.filter((item) => item.status && item.status !== "new");
+		// Add the ?. and fallback || [] here as a safety net
+		return (basketItems || []).filter(
+			(item) => item?.status && item.status !== "new",
+		);
 	}, [basketItems]);
 
 	// 🚨 THE FIX: Calculate the total ONLY using the officially ordered items
@@ -194,7 +205,14 @@ const ManagePartyScreen = () => {
 
 					{item.specialInstructions ? (
 						<Text style={styles.itemInstructions}>
-							"{item.specialInstructions}"
+							"
+							{typeof item.specialInstructions === "object"
+								? item.specialInstructions[currentLang] ||
+									item.specialInstructions.original ||
+									item.specialInstructions.en ||
+									""
+								: item.specialInstructions}
+							"
 						</Text>
 					) : null}
 				</View>

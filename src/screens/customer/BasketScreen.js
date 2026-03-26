@@ -40,7 +40,7 @@ import formatCurrency from "../../utils/currencyFormatter";
 import { useTranslation } from "react-i18next";
 
 const BasketScreen = ({ route, navigation }) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const { restaurant } = route.params;
 	const {

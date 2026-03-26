@@ -47,14 +47,20 @@ const CustomerSignupScreen = ({ navigation }) => {
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
-			// NEW: Use the dynamic country code
-			const fullPhoneNumber = `${countryCode}${values.phoneNumber}`;
-			console.log(`[DEBUG] Attempting to send SMS to: ${fullPhoneNumber}`);
+			// 1. Strip all non-numeric characters (spaces, dashes, parens) from the user input
+			const cleanedNumber = values.phoneNumber.replace(/\D/g, "");
 
+			// 2. Combine the selected country code with the clean number
+			const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
+
+			console.log(`[DEBUG] Cleaned SMS target: ${fullPhoneNumber}`);
+
+			// 3. Send to Firebase
 			const confirmationResult =
 				await auth.signInWithPhoneNumber(fullPhoneNumber);
 
-			setFormValues(values);
+			// Save the cleaned number into formValues so the rest of the app uses the correct format
+			setFormValues({ ...values, phoneNumber: cleanedNumber });
 			setConfirmation(confirmationResult);
 		} catch (error) {
 			console.error("[DEBUG] CRITICAL ERROR sending verification code:", error);
@@ -133,6 +139,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 											}
 										>
 											<Text style={styles.countryCodeText}>{countryCode}</Text>
+											{/* Adds a simple, dependency-free dropdown arrow */}
+											<Text style={styles.dropdownArrow}> ▾</Text>
 										</TouchableOpacity>
 
 										<TextInput
@@ -252,6 +260,8 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 		borderRadius: 8,
+		// Ensure items sit side-by-side
+		flexDirection: "row",
 		justifyContent: "center",
 		alignItems: "center",
 		paddingHorizontal: 15,
@@ -261,6 +271,12 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "bold",
 		color: colors.textDark,
+	},
+	dropdownArrow: {
+		fontSize: 18,
+		color: colors.textMedium,
+		marginLeft: 4, // Gives a little breathing room between the number and arrow
+		marginTop: -2, // Visually centers the arrow with the text
 	},
 	phoneInputFlex: {
 		flex: 1,

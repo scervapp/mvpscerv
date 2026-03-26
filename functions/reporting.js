@@ -542,7 +542,6 @@ const parseDate = (ts) => {
 exports.getSalesReport = functions
 	.runWith({ memory: "512MB" })
 	.https.onCall(async (data, context) => {
-		// 1. ============== VALIDATION & DATE RANGE SETUP ==============
 		if (!context.auth) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
@@ -560,7 +559,6 @@ exports.getSalesReport = functions
 		const startDate = getStartDateForPeriod(period, "America/New_York");
 
 		try {
-			// 2. ============== FIRESTORE QUERY ==============
 			const ordersQuery = db
 				.collection("orders")
 				.where("restaurantId", "==", restaurantId)
@@ -576,7 +574,13 @@ exports.getSalesReport = functions
 			if (ordersSnapshot.empty) {
 				return {
 					grossSales: 0,
+					cashSales: 0,
+					digitalSales: 0,
+					averageOrderValue: 0,
 					totalGratuity: 0,
+					totalProcessorFees: 0,
+					totalPlatformFees: 0,
+					totalDiscounts: 0,
 					totalFees: 0,
 					netPayout: 0,
 					totalOrders: 0,
@@ -587,14 +591,17 @@ exports.getSalesReport = functions
 				};
 			}
 
-			// 3. ============== CORRECTED DATA AGGREGATION ==============
 			let grossSales = 0;
+			let cashSales = 0;
+			let digitalSales = 0;
 			let totalGratuity = 0;
-			let totalStripeFees = 0;
+			let totalProcessorFees = 0;
 			let totalPlatformFees = 0;
+			let totalDiscounts = 0;
 			let totalOrders = 0;
-			let totalTurnoverDuration = 0;
+			let sumTurnoverMinutes = 0;
 			let ordersWithTurnover = 0;
+
 			const serverTips = {};
 			const topSellingItems = {};
 			const salesByCategory = { Food: 0, Bar: 0 };
@@ -602,30 +609,43 @@ exports.getSalesReport = functions
 			ordersSnapshot.forEach((doc) => {
 				const order = doc.data();
 
-				const orderSubtotal = Number(order.subtotal) || 0;
-				const orderGratuity = Number(order.gratuity) || 0;
-				const orderStripeFee = Number(order.stripeFeeActual) || 0;
-				const orderPlatformFee = Number(order.platformFeeActual) || 0;
+				// Reads are natively mapped in CENTS
+				const orderSubtotalCents = Number(order.subtotal) || 0;
+				const orderGratuityCents =
+					Number(order.gratuityAmount) || Number(order.gratuity) || 0;
+				const orderProcessorFeeCents =
+					Number(order.processorFee) || Number(order.stripeFeeActual) || 0;
+				const orderPlatformFeeCents =
+					Number(order.platformFee) || Number(order.platformFeeActual) || 0;
+				const orderDiscountCents = Number(order.discountTotal) || 0;
 
-				grossSales += orderSubtotal;
-				totalGratuity += orderGratuity;
-				totalStripeFees += orderStripeFee;
-				totalPlatformFees += orderPlatformFee;
+				grossSales += orderSubtotalCents;
+				totalGratuity += orderGratuityCents;
+				totalProcessorFees += orderProcessorFeeCents;
+				totalPlatformFees += orderPlatformFeeCents;
+				totalDiscounts += orderDiscountCents;
 				totalOrders += 1;
 
-				let serverId = null;
-				let serverName = "Unassigned";
-
-				if (order.server && typeof order.server === "object") {
-					serverId = order.server.id || null;
-					serverName = order.server.name || "Unassigned";
+				const processor = order.paymentProcessor || "none";
+				if (processor === "external" || processor === "none") {
+					cashSales += orderSubtotalCents;
+				} else {
+					digitalSales += orderSubtotalCents;
 				}
 
-				if (serverId && orderGratuity > 0) {
+				if (order.turnaroundTimeMinutes && order.turnaroundTimeMinutes > 0) {
+					sumTurnoverMinutes += order.turnaroundTimeMinutes;
+					ordersWithTurnover += 1;
+				}
+
+				let serverId = order.server.id || null;
+				let serverName = order.server.name || "Unassigned";
+
+				if (serverId && orderGratuityCents > 0) {
 					if (!serverTips[serverId]) {
 						serverTips[serverId] = { serverId, serverName, gratuityTotal: 0 };
 					}
-					serverTips[serverId].gratuityTotal += orderGratuity;
+					serverTips[serverId].gratuityTotal += orderGratuityCents;
 				}
 
 				if (Array.isArray(order.items)) {
@@ -633,16 +653,15 @@ exports.getSalesReport = functions
 						if (!item) return;
 
 						const price =
-							item.discountedPrice ||
-							item.price ||
-							(item.dish && item.dish.price) ||
-							0;
+							item.discountedPrice !== undefined &&
+							item.discountedPrice !== null
+								? item.discountedPrice
+								: item.price || (item.dish && item.dish.price) || 0;
 
-						// 🚨 FIX: Multiply by 100 to convert dollars to cents before rounding
+						// Item arrays still store raw decimals, so convert to cents
 						const revenueInCents = Math.round(
 							price * 100 * (item.quantity || 1),
 						);
-
 						const category =
 							item.category || (item.dish && item.dish.category) || "Other";
 						const itemName =
@@ -668,43 +687,34 @@ exports.getSalesReport = functions
 						topSellingItems[itemName].totalRevenue += revenueInCents;
 					});
 				}
-
-				// 🚨 FIX: Universal timestamp parsing
-				const checkInTime = parseDate(order.checkInTimestamp);
-				const fulfilledTime = parseDate(order.fulfilledAt);
-
-				if (checkInTime && fulfilledTime) {
-					const durationMinutes =
-						(fulfilledTime.getTime() - checkInTime.getTime()) / 60000;
-
-					if (durationMinutes > 0) {
-						totalTurnoverDuration += durationMinutes;
-						ordersWithTurnover += 1;
-					}
-				}
 			});
 
-			// 4. ============== FINAL CALCULATIONS & FORMATTING ==============
-			const totalFees = totalStripeFees + totalPlatformFees;
+			const totalFees = totalProcessorFees + totalPlatformFees;
 			const netPayout = grossSales - totalPlatformFees + totalGratuity;
 
 			const formattedServerTips = Object.values(serverTips).sort(
 				(a, b) => b.gratuityTotal - a.gratuityTotal,
 			);
-			const formattedTopItems = Object.values(topSellingItems)
-				.sort((a, b) => b.totalRevenue - a.totalRevenue)
-				.slice(0, 10);
+			const formattedTopItems = Object.values(topSellingItems).sort(
+				(a, b) => b.totalRevenue - a.totalRevenue,
+			);
 
 			const avgTurnoverRate =
 				ordersWithTurnover > 0
-					? Math.round(totalTurnoverDuration / ordersWithTurnover)
+					? Math.round(sumTurnoverMinutes / ordersWithTurnover)
 					: 0;
+			const averageOrderValue =
+				totalOrders > 0 ? Math.round(grossSales / totalOrders) : 0;
 
 			return {
 				grossSales,
+				cashSales,
+				digitalSales,
+				averageOrderValue,
 				totalGratuity,
-				totalStripeFees,
+				totalProcessorFees,
 				totalPlatformFees,
+				totalDiscounts,
 				totalFees,
 				netPayout,
 				totalOrders,

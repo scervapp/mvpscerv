@@ -21,7 +21,8 @@ import { useTranslation } from "react-i18next";
 
 // --- Kitchen Ticket Component ---
 const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation(); // Bring in i18n
+	const currentLang = i18n.language?.substring(0, 2) || "en"; // Get active language
 	const timeSince = moment(order.createdAt?.toDate()).fromNow();
 
 	// Filter items based on the current view mode ('kitchen' or 'bar')
@@ -76,7 +77,14 @@ const KitchenTicket = ({ order, onUpdateStatus, viewMode }) => {
 							)}
 							{item.specialInstructions ? (
 								<Text style={styles.itemInstructions}>
-									"{item.specialInstructions}"
+									"
+									{typeof item.specialInstructions === "object"
+										? item.specialInstructions[currentLang] ||
+											item.specialInstructions.original ||
+											item.specialInstructions.en ||
+											""
+										: item.specialInstructions}
+									"
 								</Text>
 							) : null}
 						</View>

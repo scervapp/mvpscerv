@@ -141,3 +141,7 @@ exports.confirmDlocalPayment = dLocalFunctions.confirmDlocalPayment;
 exports.chargeSavedDlocalCard = dLocalFunctions.chargeSavedDlocalCard;
 //
 exports.translateInstruction = partyFunctions.translateInstruction;
+
+//
+exports.seedMenuOnce = paymentFunctions.seedMenuOnce
+
