@@ -7,7 +7,7 @@ import colors from "../../utils/styles/appStyles";
 import formatCurrency from "../../utils/currencyFormatter";
 
 const OrderItemCard = (props) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const {
 		restaurantId,
 		item,
@@ -17,6 +17,8 @@ const OrderItemCard = (props) => {
 		isUpdating = false,
 		liveTrackerStatus, // 🚨 NEW PROP
 	} = props;
+
+	const currentLang = i18n.language?.substring(0, 2) || "en";
 
 	if (!item || !item.dishName) {
 		return (
@@ -141,7 +143,12 @@ const OrderItemCard = (props) => {
 								isSentToKitchen && styles.sentItemText,
 							]}
 						>
-							{t("notes_label")}: {item.specialInstructions}
+							{t("notes_label")}:{" "}
+							{typeof item.specialInstructions === "object"
+								? item.specialInstructions[currentLang] ||
+									item.specialInstructions.original ||
+									""
+								: item.specialInstructions}
 						</Text>
 					)}
 

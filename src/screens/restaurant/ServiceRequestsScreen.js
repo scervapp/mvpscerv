@@ -82,25 +82,60 @@ const ServiceRequestsScreen = () => {
 		const timeWaiting = moment(item.serviceRequestedAt).fromNow();
 		const tableName = item.serviceTableName || item.table?.name || "A Table";
 
+		// 🚨 NEW: Check if this is a checkout request
+		const isCheckoutRequest = item.customerStatus === "ready_to_pay";
+
 		return (
-			<View style={styles.cardContainer}>
+			<View
+				style={[
+					styles.cardContainer,
+					isCheckoutRequest && { borderLeftColor: colors.statusSuccess },
+				]}
+			>
 				<View style={styles.cardHeader}>
 					<View style={styles.tableInfoRow}>
 						<MaterialCommunityIcons
-							name="bell-ring"
+							// Change icon based on type
+							name={isCheckoutRequest ? "cash-register" : "bell-ring"}
 							size={24}
-							color={colors.statusDanger}
+							color={
+								isCheckoutRequest ? colors.statusSuccess : colors.statusDanger
+							}
 							style={{ marginRight: 8 }}
 						/>
 						<Text style={styles.tableName}>{tableName}</Text>
 					</View>
-					<Text style={styles.timeText}>{timeWaiting}</Text>
+					<Text
+						style={[
+							styles.timeText,
+							isCheckoutRequest && { color: colors.statusSuccess },
+						]}
+					>
+						{timeWaiting}
+					</Text>
 				</View>
+
+				{/* 🚨 NEW: Show a clear label so the server knows what they want */}
+				{isCheckoutRequest && (
+					<Text
+						style={{
+							fontSize: 16,
+							fontWeight: "bold",
+							color: colors.statusSuccess,
+							marginBottom: 15,
+							paddingLeft: 32,
+						}}
+					>
+						{t("ready_to_pay", "Ready to Pay / Needs Check")}
+					</Text>
+				)}
 
 				<View style={styles.cardActions}>
 					<TouchableOpacity
 						style={styles.acknowledgeButton}
-						onPress={() => handleAcknowledge(item.id, tableName)}
+						onPress={() =>
+							handleAcknowledge(item.id, tableName, isCheckoutRequest)
+						}
 					>
 						<Ionicons
 							name="checkmark-done"
@@ -116,7 +151,6 @@ const ServiceRequestsScreen = () => {
 			</View>
 		);
 	};
-
 	if (isLoading) {
 		return (
 			<View style={styles.centeredContainer}>

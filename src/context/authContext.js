@@ -20,62 +20,112 @@ export const AuthProvider = ({ children }) => {
 	const [authError, setAuthError] = useState(null);
 	const [redirectPath, setRedirectPath] = useState(null);
 
+	console.log(
+		"INITIAL MOUNT CHECK. auth.currentUser is:",
+		auth.currentUser ? auth.currentUser.uid : "NULL",
+	);
+
 	useEffect(() => {
+		console.log("[AUTH] 1. Setting up onAuthStateChanged listener...");
+
 		const subscriber = auth.onAuthStateChanged(async (user) => {
+			console.log("[AUTH] 2. onAuthStateChanged fired. User exists?", !!user);
 			setIsLoading(true);
+
 			if (user) {
-				let userRole;
-				let restId;
+				try {
+					console.log(`[AUTH] 3. User found: ${user.uid}. Fetching token...`);
+					let userRole;
+					let restId;
 
-				if (user.isAnonymous) {
-					userRole = "guest";
-					setCurrentUserData({ uid: user.uid, role: userRole });
-					setCurrentUser(user);
-					setIsLoading(false);
-					return;
-				}
-
-				const tokenResult = await user.getIdTokenResult(true);
-				userRole = tokenResult.claims.role || "customer";
-				restId =
-					tokenResult.claims.restaurantId ||
-					(userRole !== "customer" ? user.uid : null);
-
-				// --- NATIVE FIRESTORE LOGIC ---
-				// The collection name logic is the same
-				const collectionName = ["owner", "manager", "worker"].includes(userRole)
-					? "restaurants"
-					: "customers";
-
-				// Use the native 'db' object to create a reference
-				const docRef = db.collection(collectionName).doc(user.uid);
-
-				const unsubDoc = docRef.onSnapshot((docSnap) => {
-					if (docSnap.exists) {
-						setCurrentUserData({
-							uid: user.uid,
-							role: userRole,
-							restaurantId: restId,
-							...docSnap.data(),
-						});
-					} else {
-						setCurrentUserData({
-							uid: user.uid,
-							role: userRole,
-							restaurantId: restId,
-						});
+					if (user.isAnonymous) {
+						console.log("[AUTH] 3a. User is anonymous. Setting as guest.");
+						userRole = "guest";
+						setCurrentUserData({ uid: user.uid, role: userRole });
+						setCurrentUser(user);
+						setIsLoading(false);
+						return;
 					}
+
+					const tokenResult = await user.getIdTokenResult();
+					console.log(
+						"[AUTH] 4. Token fetched successfully. Claims:",
+						tokenResult.claims,
+					);
+
+					userRole = tokenResult.claims.role || "customer";
+					restId =
+						tokenResult.claims.restaurantId ||
+						(userRole !== "customer" ? user.uid : null);
+
+					const collectionName = ["owner", "manager", "worker"].includes(
+						userRole,
+					)
+						? "restaurants"
+						: "customers";
+
+					console.log(
+						`[AUTH] 5. Attaching Firestore listener to /${collectionName}/${user.uid}...`,
+					);
+					const docRef = db.collection(collectionName).doc(user.uid);
+
+					const unsubDoc = docRef.onSnapshot(
+						(docSnap) => {
+							console.log(
+								"[AUTH] 6. Firestore snapshot received. Exists?",
+								docSnap.exists,
+							);
+							if (docSnap.exists) {
+								setCurrentUserData({
+									uid: user.uid,
+									role: userRole,
+									restaurantId: restId,
+									...docSnap.data(),
+								});
+							} else {
+								console.log("[AUTH] 6a. Document does not exist in Firestore.");
+								setCurrentUserData({
+									uid: user.uid,
+									role: userRole,
+									restaurantId: restId,
+								});
+							}
+							setIsLoading(false);
+						},
+						(firestoreError) => {
+							console.error(
+								"[AUTH] ❌ Firestore snapshot ERROR:",
+								firestoreError,
+							);
+							setIsLoading(false);
+						},
+					);
+
+					setCurrentUser(user);
+
+					return () => {
+						console.log("[AUTH] Cleaning up Firestore listener.");
+						unsubDoc();
+					};
+				} catch (error) {
+					console.error(
+						"[AUTH] ❌ CRITICAL ERROR inside onAuthStateChanged:",
+						error,
+					);
 					setIsLoading(false);
-				});
-				setCurrentUser(user);
-				return () => unsubDoc();
+				}
 			} else {
+				console.log("[AUTH] No user logged in. Clearing state.");
 				setCurrentUser(null);
 				setCurrentUserData(null);
 				setIsLoading(false);
 			}
 		});
-		return subscriber;
+
+		return () => {
+			console.log("[AUTH] Cleaning up auth subscriber.");
+			subscriber();
+		};
 	}, []);
 
 	const login = useCallback(async (email, password) => {
@@ -115,11 +165,11 @@ export const AuthProvider = ({ children }) => {
 			try {
 				console.log(
 					"Verifying code:",
-					verificationCode.substring(0, 2) + "***"
+					verificationCode.substring(0, 2) + "***",
 				);
 
 				const userCredential = await confirmation.confirm(
-					verificationCode.trim()
+					verificationCode.trim(),
 				);
 				const user = userCredential.user;
 
@@ -142,7 +192,7 @@ export const AuthProvider = ({ children }) => {
 				setIsLoading(false);
 			}
 		},
-		[]
+		[],
 	);
 
 	const continueAsGuest = useCallback(async () => {
@@ -170,7 +220,7 @@ export const AuthProvider = ({ children }) => {
 			await auth.sendPasswordResetEmail(email);
 			Alert.alert(
 				"Password Reset",
-				"A password reset link has been sent to your email."
+				"A password reset link has been sent to your email.",
 			);
 		} catch (error) {
 			setAuthError(error.message);

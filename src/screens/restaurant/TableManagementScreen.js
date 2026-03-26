@@ -1,4 +1,3 @@
-// screens/restaurant/TableManagementScreen.js
 import React, {
 	useContext,
 	useEffect,
@@ -25,10 +24,13 @@ import colors from "../../utils/styles/appStyles";
 import { clearTable, fetchTables } from "../../utils/firebaseUtils";
 import TableItem from "../../components/restaurant/TableItem";
 
-// 🚨 Don't forget to import your new modal!
-import DiscountModal from "../../components/restaurant/DiscountModal";
-
-import { functions } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
+import {
+	collection,
+	query,
+	where,
+	onSnapshot,
+} from "@react-native-firebase/firestore";
 import * as Yup from "yup";
 import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
@@ -76,7 +78,7 @@ const AddEditTableModal = ({
 							capacity: initialData?.capacity?.toString() || "",
 						}}
 						validationSchema={validationSchema}
-						enableReinitialize
+						enableReinitialize // Important for pre-filling form when editing
 						onSubmit={onSubmit}
 					>
 						{({
@@ -136,6 +138,7 @@ const AddEditTableModal = ({
 						)}
 					</Formik>
 
+					{/* Delete button only shows when editing an existing table */}
 					{initialData && (
 						<View style={styles.deleteAction}>
 							<Divider style={styles.divider} />
@@ -157,36 +160,14 @@ const AddEditTableModal = ({
 	);
 };
 
-const isTableOccupied = (table) => {
-	if (!table) return false;
-
-	// 🚨 FIX: Explicitly mark as not occupied if they are checked out
-	if (table.status === "checkedOut" || table.status === "CHECKEDOUT") {
-		return false;
-	}
-
-	return (
-		table.status === "OCCUPIED" ||
-		table.status === "occupied" ||
-		!!table.currentCheckInId
-	);
-};
-
-const getDisplayStatus = (table) => {
-	if (!table) return "UNKNOWN";
-	if (isTableOccupied(table)) return "OCCUPIED";
-	if (table.status) return table.status;
-	return "AVAILABLE";
-};
-
 const getStatusColor = (status) => {
-	const formattedStatus = status?.toUpperCase() || "";
-	switch (formattedStatus) {
-		case "AVAILABLE":
+	switch (status) {
+		case "available":
 			return colors.statusSuccess;
 		case "OCCUPIED":
+		case "occupied":
 			return colors.statusDanger;
-		case "CHECKEDOUT":
+		case "checkedOut":
 			return colors.statusWarning;
 		default:
 			return colors.textMedium;
@@ -197,15 +178,13 @@ const TableManagementScreen = () => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const [tables, setTables] = useState([]);
+	const [activeTableIds, setActiveTableIds] = useState(new Set());
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
 
 	const [isEditMode, setIsEditMode] = useState(false);
 	const [isModalVisible, setIsModalVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
-
-	// 🚨 NEW: Discount Modal State
-	const [isDiscountModalVisible, setIsDiscountModalVisible] = useState(false);
 
 	const addTableFunction = httpsCallable(functions, "addTable");
 	const updateTableFunction = httpsCallable(functions, "updateTable");
@@ -217,6 +196,8 @@ const TableManagementScreen = () => {
 			setIsLoading(false);
 			return;
 		}
+
+		// 1. Fetch Local Tables via Utility
 		const unsubscribe = fetchTables(currentUserData.uid, (fetchedTables) => {
 			const sortedTables = (fetchedTables || []).sort((a, b) => {
 				const numA = parseInt((a.name || "").match(/\d+/)?.[0] || 0, 10);
@@ -226,8 +207,110 @@ const TableManagementScreen = () => {
 			setTables(sortedTables);
 			setIsLoading(false);
 		});
-		return () => unsubscribe();
+
+		// 2. Listen for Active Parties for Safety Checks
+		const q = query(
+			collection(db, "parties"),
+			where("restaurantId", "==", currentUserData.uid),
+			where("status", "==", "active"),
+		);
+		const unsubscribeParties = onSnapshot(q, (snapshot) => {
+			const occupiedIds = new Set(
+				snapshot.docs.map((doc) => doc.data().tableId),
+			);
+			setActiveTableIds(occupiedIds);
+		});
+
+		return () => {
+			unsubscribe();
+			unsubscribeParties();
+		};
 	}, [currentUserData?.uid]);
+
+	// ==========================================
+	// AUTO POPULATE LOGIC
+	// ==========================================
+	const handleAutoPopulate = async () => {
+		const hasUnavailableTables = tables.some(
+			(t) => (t.status && t.status !== "available") || activeTableIds.has(t.id),
+		);
+
+		if (hasUnavailableTables) {
+			Alert.alert(
+				t("action_denied", "Action Denied"),
+				t(
+					"cannot_auto_populate",
+					"You have occupied or uncleared tables. Please ensure all tables are set to 'Available' before auto-populating.",
+				),
+			);
+			return;
+		}
+
+		Alert.alert(
+			t("auto_populate", "Auto Populate Tables"),
+			t(
+				"auto_populate_confirm",
+				"This will automatically generate tables up to Table 50. Are you sure?",
+			),
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("confirm_button", "Confirm"),
+					onPress: async () => {
+						setIsActionLoading(true);
+						try {
+							const restaurantId = currentUserData?.uid;
+							const batch = db.batch();
+							let tablesAdded = 0;
+
+							for (let i = 1; i <= 50; i++) {
+								const tableId = `table_${i}`;
+								const alreadyExists = tables.some((t) => t.id === tableId);
+
+								if (!alreadyExists) {
+									const tableRef = db
+										.collection("restaurants")
+										.doc(restaurantId)
+										.collection("tables")
+										.doc(tableId);
+
+									batch.set(tableRef, {
+										name: `Table ${i}`,
+										tableNumber: i,
+										capacity: 4,
+										status: "available",
+									});
+									tablesAdded++;
+								}
+							}
+
+							if (tablesAdded > 0) {
+								await batch.commit();
+								Alert.alert(
+									t("success", "Success"),
+									`${tablesAdded} tables generated successfully.`,
+								);
+							} else {
+								Alert.alert(
+									t("info", "Info"),
+									"You already have 50 tables set up!",
+								);
+							}
+						} catch (error) {
+							console.error("Auto populate error:", error);
+							Alert.alert(
+								t("error", "Error"),
+								"Could not auto populate tables.",
+							);
+						} finally {
+							setIsActionLoading(false);
+							setIsEditMode(false);
+						}
+					},
+				},
+			],
+		);
+	};
 
 	const handleTablePress = (table) => {
 		setSelectedTable(table);
@@ -265,23 +348,17 @@ const TableManagementScreen = () => {
 		}
 	};
 
-	// 🚨 NEW: Modified Long Press to show options instead of instantly force clearing
 	const handleTableLongPress = (table) => {
-		if (isTableOccupied(table)) {
+		if (table.status === "OCCUPIED" || table.status === "occupied") {
 			Alert.alert(
-				t("table_options", "Table Options"),
-				`${t("what_would_you_like_to_do_with", "What would you like to do with")} ${table.name}?`,
+				t("force_clear_table"),
+				`${t("this_will_clear_all_data_for")} ${
+					table.name
+				} ${t("and_check_out_the_current_customer_this_action_cannot_be_undone")}`,
 				[
-					{ text: t("cancel", "Cancel"), style: "cancel" },
+					{ text: t("cancel"), style: "cancel" },
 					{
-						text: t("apply_discount", "Apply Discount"),
-						onPress: () => {
-							setSelectedTable(table);
-							setIsDiscountModalVisible(true);
-						},
-					},
-					{
-						text: t("force_clear", "Force Clear"),
+						text: t("confirm_clear"),
 						style: "destructive",
 						onPress: () => forceClearAction(table),
 					},
@@ -289,28 +366,6 @@ const TableManagementScreen = () => {
 			);
 		} else {
 			Alert.alert(t("info"), t("only_occupied_tables_can_be_force_cleared"));
-		}
-	};
-
-	// 🚨 NEW: Submit Handler for the Discount
-	const handleDiscountSubmit = async (amount, reason, table) => {
-		setIsActionLoading(true);
-		try {
-			// Placeholder: Call your Cloud Function to apply the discount here
-			// await applyDiscountFunction({ tableId: table.id, amount, reason });
-
-			console.log(
-				`Applying $${amount} discount to ${table.name} for: ${reason}`,
-			);
-			Alert.alert(
-				"Success",
-				`Discount of $${amount} staged for ${table.name}.`,
-			);
-			setIsDiscountModalVisible(false);
-		} catch (error) {
-			Alert.alert("Error", "Could not apply discount.");
-		} finally {
-			setIsActionLoading(false);
 		}
 	};
 
@@ -349,17 +404,7 @@ const TableManagementScreen = () => {
 				});
 				Alert.alert(t("success"), t("table_updated_successfully"));
 			} else {
-				const generatedId = values.name
-					.trim()
-					.toLowerCase()
-					.replace(/\s+/g, "_")
-					.replace(/[^a-z0-9_]/g, "");
-
-				await addTableFunction({
-					restaurantId,
-					tableId: generatedId,
-					...values,
-				});
+				await addTableFunction({ restaurantId, ...values });
 				Alert.alert(t("success"), t("new_table_added_successfully"));
 			}
 		} catch (error) {
@@ -373,7 +418,11 @@ const TableManagementScreen = () => {
 	};
 
 	const handleDeleteTable = () => {
-		if (!selectedTable || isTableOccupied(selectedTable)) {
+		if (
+			!selectedTable ||
+			selectedTable.status === "OCCUPIED" ||
+			activeTableIds.has(selectedTable.id)
+		) {
 			Alert.alert(
 				t("cannot_delete"),
 				t(
@@ -416,12 +465,13 @@ const TableManagementScreen = () => {
 	};
 
 	const tableStats = useMemo(() => {
-		const occupied = tables.filter((t) => isTableOccupied(t)).length;
-		const needsCleaning = tables.filter(
-			(t) => !isTableOccupied(t) && t.status === "checkedOut",
+		const available = tables.filter((t) => t.status === "available").length;
+		const occupied = tables.filter(
+			(t) => t.status === "OCCUPIED" || t.status === "occupied",
 		).length;
-		const available = tables.length - occupied - needsCleaning;
-
+		const needsCleaning = tables.filter(
+			(t) => t.status === "checkedOut",
+		).length;
 		return { available, occupied, needsCleaning, total: tables.length };
 	}, [tables]);
 
@@ -442,6 +492,7 @@ const TableManagementScreen = () => {
 						{tableStats.available} {t("available")} / {tableStats.total}{" "}
 						{t("total")}
 					</Text>
+
 					<View style={styles.editToggleContainer}>
 						<Text style={styles.editToggleLabel}>{t("edit_floor_plan")}</Text>
 						<Switch
@@ -450,6 +501,36 @@ const TableManagementScreen = () => {
 							color={colors.primary}
 						/>
 					</View>
+
+					{/* 🚨 NEW: Auto Populate Button visible only in Edit Mode */}
+					{isEditMode && (
+						<TouchableOpacity
+							style={[
+								styles.autoPopulateButton,
+								{
+									backgroundColor: colors.textDark,
+									opacity: isActionLoading ? 0.7 : 1,
+								},
+							]}
+							onPress={handleAutoPopulate}
+							disabled={isActionLoading}
+						>
+							{isActionLoading ? (
+								<ActivityIndicator size="small" color={colors.surfaceWhite} />
+							) : (
+								<>
+									<Ionicons
+										name="flash-outline"
+										size={18}
+										color={colors.surfaceWhite}
+									/>
+									<Text style={styles.autoPopulateText}>
+										{t("auto_populate", "Auto Populate 50")}
+									</Text>
+								</>
+							)}
+						</TouchableOpacity>
+					)}
 				</View>
 
 				{tables.length === 0 ? (
@@ -476,6 +557,7 @@ const TableManagementScreen = () => {
 					/>
 				)}
 
+				{/* FAB FOR ADDING A SINGLE TABLE */}
 				{isEditMode && (
 					<Button
 						icon="plus-circle"
@@ -487,12 +569,14 @@ const TableManagementScreen = () => {
 					</Button>
 				)}
 
-				{/* Modals */}
 				{selectedTable && (
 					<>
 						<OrderDetailsModal
 							isVisible={
-								isModalVisible && isTableOccupied(selectedTable) && !isEditMode
+								isModalVisible &&
+								(selectedTable.status === "OCCUPIED" ||
+									selectedTable.status === "occupied") &&
+								!isEditMode
 							}
 							onClose={closeModal}
 							table={selectedTable}
@@ -500,7 +584,10 @@ const TableManagementScreen = () => {
 
 						<Modal
 							visible={
-								isModalVisible && !isTableOccupied(selectedTable) && !isEditMode
+								isModalVisible &&
+								selectedTable.status !== "OCCUPIED" &&
+								selectedTable.status !== "occupied" &&
+								!isEditMode
 							}
 							transparent={true}
 							animationType="fade"
@@ -521,14 +608,10 @@ const TableManagementScreen = () => {
 										<Text
 											style={[
 												styles.modalDetailValue,
-												{
-													color: getStatusColor(
-														getDisplayStatus(selectedTable),
-													),
-												},
+												{ color: getStatusColor(selectedTable.status) },
 											]}
 										>
-											{getDisplayStatus(selectedTable).toUpperCase()}
+											{(selectedTable.status || "UNKNOWN").toUpperCase()}
 										</Text>
 									</View>
 									<View style={styles.modalDetailRow}>
@@ -565,22 +648,12 @@ const TableManagementScreen = () => {
 						</Modal>
 					</>
 				)}
-
 				<AddEditTableModal
 					isVisible={isModalVisible && isEditMode}
 					onClose={closeModal}
 					onSubmit={handleAddEditSubmit}
 					onDelete={handleDeleteTable}
 					initialData={selectedTable}
-					isLoading={isActionLoading}
-				/>
-
-				{/* 🚨 NEW: Discount Modal */}
-				<DiscountModal
-					isVisible={isDiscountModalVisible}
-					onClose={() => setIsDiscountModalVisible(false)}
-					onSubmit={handleDiscountSubmit}
-					item={selectedTable}
 					isLoading={isActionLoading}
 				/>
 			</View>
@@ -604,11 +677,7 @@ const styles = StyleSheet.create({
 		borderBottomColor: colors.borderLight,
 	},
 	title: { fontSize: 28, fontWeight: "bold", color: colors.textDark },
-	statsText: {
-		fontSize: 16,
-		color: colors.textMedium,
-		marginTop: 5,
-	},
+	statsText: { fontSize: 14, color: colors.textMedium, marginTop: 5 },
 	editToggleContainer: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -619,6 +688,20 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: colors.textMedium,
 		fontWeight: "500",
+	},
+	autoPopulateButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		marginTop: 15,
+		paddingVertical: 10,
+		borderRadius: 8,
+		gap: 8,
+	},
+	autoPopulateText: {
+		color: colors.surfaceWhite,
+		fontWeight: "bold",
+		fontSize: 14,
 	},
 	tableList: { padding: 10 },
 	noDataText: {
@@ -636,6 +719,8 @@ const styles = StyleSheet.create({
 		borderRadius: 28,
 		paddingVertical: 5,
 	},
+
+	// Modal Styles
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0,0,0,0.6)",
@@ -655,7 +740,7 @@ const styles = StyleSheet.create({
 	modalTitle: {
 		fontSize: 22,
 		fontWeight: "bold",
-		color: colors.textDark,
+		color: colors.primary,
 		marginBottom: 25,
 		textAlign: "center",
 	},
@@ -687,6 +772,8 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.borderLight,
 	},
 	deleteAction: { marginTop: 15, padding: 5 },
+
+	// Status Modal Specific Styles
 	statusModalContent: {
 		backgroundColor: colors.surfaceWhite,
 		padding: 25,
@@ -697,17 +784,19 @@ const styles = StyleSheet.create({
 	modalDetailRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",
-		alignItems: "center",
-		marginBottom: 15,
+		paddingVertical: 10,
+		borderBottomWidth: 1,
+		borderColor: colors.borderLight,
 	},
 	modalDetailLabel: {
 		fontSize: 16,
 		color: colors.textMedium,
-		fontWeight: "600",
+		fontWeight: "500",
 	},
 	modalDetailValue: {
 		fontSize: 16,
 		fontWeight: "bold",
+		color: colors.textDark,
 	},
 });
 

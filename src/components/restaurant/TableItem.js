@@ -1,7 +1,6 @@
-// src/components/restaurant/TableItem.js
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
@@ -10,69 +9,70 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 	if (!item || !item.name || !item.status) {
 		return null; // Render nothing to prevent the crash
 	}
-	// --- Determine table status and corresponding styles ---
-	let statusText = t('unknown_status');
-	let statusColor = colors.textLight;
+
+	// --- Determine table status and corresponding Pastel/Deep styles ---
+	let statusText = t("unknown_status");
+	let bgColor = colors.surfaceWhite;
+	let textColor = colors.textDark;
+	let borderColor = colors.borderLight;
 	let iconName = "help-circle-outline";
-	let canBePressed = false;
 
 	switch (item.status) {
 		case "available":
-			statusText = t('available_status');
-			statusColor = colors.statusSuccess;
+			statusText = t("available_status");
+			bgColor = "#D1FAE5"; // Pastel Mint Green
+			textColor = "#065F46"; // Deep Emerald Text
+			borderColor = "#6EE7B7";
 			iconName = "checkmark-circle-outline";
-			canBePressed = true;
 			break;
-		case "OCCUPIED": // Handle both cases for robustness
+		case "OCCUPIED":
 		case "occupied":
-			statusText = t('occupied_status');
-			statusColor = colors.statusDanger;
-			iconName = "person";
+			statusText = t("occupied_status");
+			bgColor = "#FEE2E2"; // Pastel Rose Red
+			textColor = "#991B1B"; // Deep Crimson Text
+			borderColor = "#FCA5A5";
+			iconName = "people";
 			break;
 		case "checkedOut":
-			statusText = t('needs_cleaning_status');
-			statusColor = colors.statusWarning;
+			statusText = t("needs_cleaning_status");
+			bgColor = "#FEF3C7"; // Pastel Lemon Yellow
+			textColor = "#92400E"; // Deep Amber Text
+			borderColor = "#FCD34D";
 			iconName = "alert-circle-outline";
 			break;
 	}
 
-	const cardStyle = [
-		styles.cardContainer,
-		!canBePressed && styles.cardDisabled,
-		isSelected && styles.cardSelected,
-	];
+	// Dynamic styles to handle the pastel theme OR the selected state
+	const dynamicContainerStyle = {
+		backgroundColor: isSelected ? colors.primary : bgColor,
+		borderColor: isSelected ? colors.brandOrange : borderColor,
+	};
 
-	const textStyle = [styles.tableName, isSelected && styles.textSelected];
+	const dynamicTextStyle = {
+		color: isSelected ? colors.surfaceWhite : textColor,
+	};
 
 	return (
 		<TouchableOpacity
-			style={cardStyle}
+			style={[styles.cardContainer, dynamicContainerStyle]}
 			onPress={() => onPress(item)}
 			onLongPress={() => onLongPress(item)}
-			// A table can be tapped to view details even if occupied, but seating is only for available tables.
-			// The parent modal will decide what actions are available based on status.
-			// disabled={!canBePressed}
+			activeOpacity={0.7}
 		>
 			<View style={styles.header}>
-				<Text style={textStyle}>{item.name}</Text>
+				<Text style={[styles.tableName, dynamicTextStyle]}>{item.name}</Text>
 				<Ionicons
 					name={iconName}
 					size={24}
-					color={isSelected ? colors.surfaceWhite : statusColor}
+					color={isSelected ? colors.surfaceWhite : textColor}
 				/>
 			</View>
 
 			<View style={styles.body}>
-				<Text
-					style={[
-						styles.statusText,
-						{ color: isSelected ? colors.surfaceWhite + "90" : statusColor },
-					]}
-				>
-					{statusText}
-				</Text>
-				<Text style={[styles.capacityText, isSelected && styles.textSelected]}>
-					{t('seats_label')}: {item.capacity}
+				<Text style={[styles.statusText, dynamicTextStyle]}>{statusText}</Text>
+				{/* Adding slight opacity to capacity so it visually separates from the bold status */}
+				<Text style={[styles.capacityText, dynamicTextStyle, { opacity: 0.8 }]}>
+					{t("seats_label")}: {item.capacity}
 				</Text>
 			</View>
 		</TouchableOpacity>
@@ -85,7 +85,6 @@ const styles = StyleSheet.create({
 		margin: 8,
 		height: 110, // Consistent height
 		borderRadius: 12,
-		backgroundColor: colors.surfaceWhite,
 		justifyContent: "space-between", // Space out header and body
 		padding: 12,
 		// Professional shadow
@@ -94,15 +93,7 @@ const styles = StyleSheet.create({
 		shadowOpacity: 0.1,
 		shadowRadius: 3.84,
 		elevation: 4,
-		borderWidth: 2,
-		borderColor: "transparent",
-	},
-	cardDisabled: {
-		backgroundColor: colors.backgroundLight,
-	},
-	cardSelected: {
-		backgroundColor: colors.primary,
-		borderColor: colors.brandOrange, // Use your accent color for selection border
+		borderWidth: 2, // Border width is constant, color changes dynamically
 	},
 	header: {
 		flexDirection: "row",
@@ -115,19 +106,15 @@ const styles = StyleSheet.create({
 	tableName: {
 		fontSize: 18,
 		fontWeight: "bold",
-		color: colors.textDark,
 	},
 	statusText: {
 		fontSize: 15,
-		fontWeight: "600",
+		fontWeight: "700",
 		marginBottom: 4,
 	},
 	capacityText: {
 		fontSize: 14,
-		color: colors.textMedium,
-	},
-	textSelected: {
-		color: colors.surfaceWhite,
+		fontWeight: "500",
 	},
 });
 

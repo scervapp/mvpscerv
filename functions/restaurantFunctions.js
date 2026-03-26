@@ -1134,208 +1134,241 @@ exports.autoTranslateMenuItem = functions.firestore
 		return null;
 	});
 
-exports.closePartyTable = functions.https.onCall(async (data, context) => {
-	if (!context.auth || !context.auth.uid) {
-		throw new functions.https.HttpsError(
-			"unauthenticated",
-			"User must be authorized.",
-		);
-	}
-
-	const { partyId, paymentMethod = "manual", receiptEmail } = data;
-
-	if (!partyId) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Party ID is required.",
-		);
-	}
-
-	try {
-		return await db.runTransaction(async (transaction) => {
-			// ==========================================
-			// 1. ALL READS MUST HAPPEN FIRST
-			// ==========================================
-			const partyRef = db.collection("parties").doc(partyId);
-			const partyDoc = await transaction.get(partyRef);
-
-			if (!partyDoc.exists) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Party document not found.",
-				);
-			}
-
-			const partyData = partyDoc.data();
-
-			if (partyData.status === "completed") {
-				return { success: true, message: "Table is already closed." };
-			}
-
-			// READ: Fetch the basket data for the permanent order record
-			const basketRef = db.collection("shared_baskets").doc(partyId);
-			const basketDoc = await transaction.get(basketRef);
-
-			let basketData = { items: [] };
-			if (basketDoc.exists) {
-				basketData = basketDoc.data();
-			}
-
-			// ==========================================
-			// 2. DATA PREP & CALCULATIONS
-			// ==========================================
-			const restaurantId = partyData.restaurantId;
-			const tableId = partyData.table.id;
-			const restaurantName = partyData.restaurantName || "Scerv Partner";
-			const tableName = partyData.table.name || "Table";
-
-			// Calculate the exact total of the table
-			const allItems = basketData.items || [];
-			const officiallyOrderedItems = allItems.filter(
-				(item) => item.status && item.status !== "new",
+exports.closePartyTable = functions
+	.runWith({ memory: "512MB" })
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authorized.",
 			);
+		}
 
-			let tableTotal = 0;
-			officiallyOrderedItems.forEach((item) => {
-				const itemPrice = parseFloat(item.price || 0);
-				const quantity = parseInt(item.quantity || 1, 10);
-				tableTotal += itemPrice * quantity;
-			});
+		const { partyId, paymentMethod = "manual", receiptEmail } = data;
 
-			// ==========================================
-			// 3. ALL WRITES CAN HAPPEN NOW
-			// ==========================================
+		if (!partyId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID is required.",
+			);
+		}
 
-			// Write 1: Mark the Party as Completed
-			transaction.update(partyRef, {
-				status: "completed",
-				paymentStatus: "paid",
-				paymentMethod: paymentMethod,
-				closedAt: admin.firestore.FieldValue.serverTimestamp(),
-				closedByUserId: context.auth.uid,
-			});
+		try {
+			return await db.runTransaction(async (transaction) => {
+				// ==========================================
+				// 1. READS
+				// ==========================================
+				const partyRef = db.collection("parties").doc(partyId);
+				const partyDoc = await transaction.get(partyRef);
 
-			// Write 2: Free the Customers (So their app resets as they walk out)
-			const usersToFree = [];
-			if (partyData.hostUserId && partyData.hostUserId !== "walk_in_guest") {
-				usersToFree.push(partyData.hostUserId);
-			}
-			if (partyData.guestPips && Array.isArray(partyData.guestPips)) {
-				partyData.guestPips.forEach((pip) => {
-					if (
-						pip.userId &&
-						pip.userId !== "walk_in_guest" &&
-						!usersToFree.includes(pip.userId)
-					) {
-						usersToFree.push(pip.userId);
+				if (!partyDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Party document not found.",
+					);
+				}
+
+				const partyData = partyDoc.data();
+				if (partyData.status === "completed") {
+					return { success: true, message: "Table is already closed." };
+				}
+
+				const basketRef = db.collection("shared_baskets").doc(partyId);
+				const basketDoc = await transaction.get(basketRef);
+				let basketData = { items: [] };
+				if (basketDoc.exists) {
+					basketData = basketDoc.data();
+				}
+
+				const kitchenOrdersQuery = db
+					.collection("kitchen_orders")
+					.where("partyId", "==", partyId);
+				const kitchenOrdersSnap = await transaction.get(kitchenOrdersQuery);
+
+				// ==========================================
+				// 2. DATA PREP & CENTS CONVERSION
+				// ==========================================
+				const restaurantId = partyData.restaurantId;
+				const tableId = partyData.table.id;
+				const restaurantName = partyData.restaurantName || "Scerv Partner";
+
+				const allItems = basketData.items || [];
+				const officiallyOrderedItems = allItems.filter(
+					(item) => item.status && item.status !== "new",
+				);
+
+				let subtotalCents = 0;
+				let originalSubtotalCents = 0;
+
+				officiallyOrderedItems.forEach((item) => {
+					// Safe parser avoiding syntax errors
+					const activePrice =
+						item.discountedPrice !== undefined && item.discountedPrice !== null
+							? item.discountedPrice
+							: item.price || 0;
+
+					const itemPrice = parseFloat(activePrice);
+					const origPrice = parseFloat(item.price || 0);
+					const quantity = parseInt(item.quantity || 1, 10);
+
+					subtotalCents += Math.round(itemPrice * 100) * quantity;
+					originalSubtotalCents += Math.round(origPrice * 100) * quantity;
+				});
+
+				const discountTotalCents = originalSubtotalCents - subtotalCents;
+
+				let turnaroundTimeMinutes = 0;
+				if (partyData.createdAt) {
+					const openedAtMs = partyData.createdAt.toDate().getTime();
+					turnaroundTimeMinutes = Math.round((Date.now() - openedAtMs) / 60000);
+				}
+
+				// ==========================================
+				// 3. WRITES
+				// ==========================================
+				transaction.update(partyRef, {
+					status: "completed",
+					paymentStatus: "paid",
+					paymentMethod: paymentMethod,
+					closedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByUserId: context.auth.uid,
+				});
+
+				const usersToFree = [];
+				if (partyData.hostUserId && partyData.hostUserId !== "walk_in_guest") {
+					usersToFree.push(partyData.hostUserId);
+				}
+				if (partyData.guestPips && Array.isArray(partyData.guestPips)) {
+					partyData.guestPips.forEach((pip) => {
+						if (
+							pip.userId &&
+							pip.userId !== "walk_in_guest" &&
+							!usersToFree.includes(pip.userId)
+						) {
+							usersToFree.push(pip.userId);
+						}
+					});
+				}
+
+				usersToFree.forEach((uid) => {
+					const customerRef = db.collection("customers").doc(uid);
+					transaction.set(
+						customerRef,
+						{
+							activeCheckIn: null,
+							activePartyId: null,
+							activeRestaurantId: null,
+						},
+						{ merge: true },
+					);
+
+					if (restaurantId) {
+						const personalBasketRef = customerRef
+							.collection("baskets")
+							.doc(restaurantId);
+						transaction.delete(personalBasketRef);
 					}
 				});
-			}
 
-			usersToFree.forEach((uid) => {
-				if (!uid) return;
-				const customerRef = db.collection("customers").doc(uid);
-				transaction.set(
-					customerRef,
-					{
-						activeCheckIn: null,
-						activePartyId: null,
-						activeRestaurantId: null,
-					},
-					{ merge: true },
-				);
-			});
+				if (partyData.checkInId) {
+					const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
+					transaction.delete(checkInRef);
+				}
+				transaction.delete(basketRef);
 
-			// Write 3: Close the CheckIn document
-			if (partyData.checkInId) {
-				const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
-				transaction.update(checkInRef, {
-					status: "COMPLETED",
-					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				if (!kitchenOrdersSnap.empty) {
+					kitchenOrdersSnap.forEach((docSnap) => {
+						transaction.delete(docSnap.ref);
+					});
+				}
+
+				const orderRef = db.collection("orders").doc(partyId);
+				transaction.set(orderRef, {
+					id: partyId,
+					partyId: partyId,
+					restaurantId: restaurantId,
+					restaurantName: restaurantName,
+					table: partyData.table || null,
+					server: partyData.server || null,
+
+					subtotal: subtotalCents,
+					originalSubtotal: originalSubtotalCents,
+					discountTotal: discountTotalCents,
+					taxAmount: 0,
+					gratuityAmount: 0,
+					platformFee: 0,
+					processorFee: 0,
+					totalPrice: subtotalCents,
+
+					openedAt:
+						partyData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+					fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+					turnaroundTimeMinutes: turnaroundTimeMinutes,
+
+					items: officiallyOrderedItems,
+					paymentProcessor: "external",
+					paymentMethod: paymentMethod,
+					paymentStatus: "paid",
+					orderStatus: "confirmed",
 				});
-			}
 
-			// Write 4: Create Permanent Sales Record
-			const orderRef = db.collection("orders").doc(partyId);
-			transaction.set(orderRef, {
-				id: partyId,
-				partyId: partyId,
-				restaurantId: restaurantId,
-				restaurantName: restaurantName,
-				table: partyData.table,
-				server: partyData.server || null,
-				items: officiallyOrderedItems,
-				paymentProcessor: "none",
-				paymentMethod: paymentMethod,
-				paymentStatus: "paid",
-				orderStatus: "confirmed",
-				totalPrice: tableTotal,
-				fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
-			});
+				if (receiptEmail && officiallyOrderedItems.length > 0) {
+					const itemsHtml = officiallyOrderedItems
+						.map((item) => {
+							const activePrice =
+								item.discountedPrice !== undefined &&
+								item.discountedPrice !== null
+									? item.discountedPrice
+									: item.price || 0;
+							const lineTotal =
+								parseFloat(activePrice) * parseInt(item.quantity || 1, 10);
+							return `
+                            <tr>
+                                <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${item.quantity || 1}x ${item.dishName || item.name}</td>
+                                <td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right;">$${lineTotal.toFixed(2)}</td>
+                            </tr>
+                        `;
+						})
+						.join("");
 
-			// Write 5: Generate & Send Digital Receipt
-			if (receiptEmail && officiallyOrderedItems.length > 0) {
-				const itemsHtml = officiallyOrderedItems
-					.map((item) => {
-						const lineTotal =
-							parseFloat(item.price || 0) * parseInt(item.quantity || 1, 10);
-						return `
-                        <tr>
-                            <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${item.quantity || 1}x ${item.dishName || item.name}</td>
-                            <td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right;">$${lineTotal.toFixed(2)}</td>
-                        </tr>
-                    `;
-					})
-					.join("");
-
-				const mailRef = db.collection("mail").doc();
-				transaction.set(mailRef, {
-					to: receiptEmail,
-					message: {
-						subject: `Your Receipt from ${restaurantName}`,
-						html: `
-                            <div style="font-family: Helvetica, Arial, sans-serif; max-width: 450px; margin: auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 12px; background-color: #ffffff;">
-                                <h2 style="text-align: center; color: #1a1a1a; margin-bottom: 5px;">${restaurantName}</h2>
-                                <p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">Table: ${tableName}</p>
-                                
-                                <table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
-                                    ${itemsHtml}
-                                </table>
-                                
-                                <h3 style="text-align: right; margin-top: 20px; color: #1a1a1a;">Total: $${tableTotal.toFixed(2)}</h3>
-                                
-                                <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
-                                    <p style="font-size: 12px; color: #999; margin: 0;">Thanks for dining with us!</p>
-                                    <p style="font-size: 12px; color: #999; margin: 5px 0 0 0;">Powered by <strong>Scerv</strong></p>
+					const mailRef = db.collection("mail").doc();
+					transaction.set(mailRef, {
+						to: receiptEmail,
+						message: {
+							subject: `Your Receipt from ${restaurantName}`,
+							html: `
+                                <div style="font-family: Helvetica, Arial, sans-serif; max-width: 450px; margin: auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 12px; background-color: #ffffff;">
+                                    <h2 style="text-align: center; color: #1a1a1a; margin-bottom: 5px;">${restaurantName}</h2>
+                                    <p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">Table: ${partyData.table.name || "Table"}</p>
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
+                                        ${itemsHtml}
+                                    </table>
+                                    <h3 style="text-align: right; margin-top: 20px; color: #1a1a1a;">Total: $${(subtotalCents / 100).toFixed(2)}</h3>
+                                    <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
+                                        <p style="font-size: 12px; color: #999; margin: 0;">Thanks for dining with us!</p>
+                                    </div>
                                 </div>
-                            </div>
-                        `,
-					},
-				});
-			}
+                            `,
+						},
+					});
+				}
 
-			// Write 6: Flag Table for Bussing
-			if (restaurantId && tableId) {
-				const tableRef = db
-					.collection("restaurants")
-					.doc(restaurantId)
-					.collection("tables")
-					.doc(tableId);
+				if (restaurantId && tableId) {
+					const tableRef = db
+						.collection("restaurants")
+						.doc(restaurantId)
+						.collection("tables")
+						.doc(tableId);
+					transaction.update(tableRef, { status: "checkedOut" });
+				}
 
-				// We ONLY change the status. We leave the IDs so your UI can still
-				// reference the party/checkIn when the staff hits "Clear Table"
-				transaction.update(tableRef, {
-					status: "checkedOut",
-				});
-			}
-
-			return { success: true };
-		});
-	} catch (error) {
-		console.error(`Error closing party ${partyId}:`, error);
-		throw new functions.https.HttpsError(
-			"internal",
-			"An error occurred while closing the table.",
-		);
-	}
-});
+				return { success: true };
+			});
+		} catch (error) {
+			console.error(`Error closing party ${partyId}:`, error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"An error occurred while closing the table.",
+			);
+		}
+	});

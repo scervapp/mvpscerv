@@ -58,14 +58,16 @@ const ItemsSoldList = ({ items, formatCurrency }) => {
 	return (
 		<View>
 			<View style={styles.tableHeader}>
-				<Text style={[styles.tableHeaderText, { flex: 3 }]}>{t("item")}</Text>
+				<Text style={[styles.tableHeaderText, { flex: 3 }]}>
+					{t("item", "Item")}
+				</Text>
 				<Text
 					style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}
 				>
-					{t("qty")}
+					{t("qty", "Qty")}
 				</Text>
 				<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
-					{t("revenue")}
+					{t("revenue", "Revenue")}
 				</Text>
 			</View>
 			{(items || []).map((item, index) => (
@@ -170,74 +172,107 @@ const SalesReportScreen = ({ navigation }) => {
 		if (!reportData)
 			return (
 				<Text style={styles.noDataText}>
-					{t("no_sales_data_available_for_this_period")}
+					{t(
+						"no_sales_data_available_for_this_period",
+						"No sales data available for this period.",
+					)}
 				</Text>
 			);
 
 		return (
 			<ScrollView contentContainerStyle={styles.scrollContent}>
+				{/* 🚨 UPDATED KPI GRID */}
 				<View style={styles.kpiContainer}>
 					<KPICard
-						title={t("gross_sales")}
+						title={t("gross_sales", "Gross Sales")}
 						value={formatCurrency(reportData.grossSales)}
 						iconName="cash-outline"
 					/>
 					<KPICard
-						title={t("tips_collected")}
+						title={t("tips_collected", "Tips Collected")}
 						value={formatCurrency(reportData.totalGratuity)}
 						iconName="gift-outline"
 					/>
 					<KPICard
-						title={t("transaction_fees")}
-						value={`-${formatCurrency(reportData.totalPlatformFees)}`}
+						title={t("total_fees", "Total Fees")}
+						value={`-${formatCurrency(reportData.totalFees)}`}
 						iconName="trending-down-outline"
 						isDeduction={true}
 					/>
 					<KPICard
-						title={t("net_payout")}
+						title={t("net_payout", "Net Payout")}
 						value={formatCurrency(reportData.netPayout)}
 						iconName="wallet-outline"
 					/>
+
+					{/* 5th KPI for Discounts (Centered full width wrap) */}
+					<View style={styles.fullWidthKpiWrapper}>
+						<View style={styles.centeredKpi}>
+							<KPICard
+								title={t("discounts_voids", "Discounts & Voids")}
+								value={`-${formatCurrency(reportData.totalDiscounts)}`}
+								iconName="pricetag-outline"
+								isDeduction={true}
+							/>
+						</View>
+					</View>
 				</View>
 
+				{/* 🚨 UPDATED OPERATIONAL METRICS */}
 				<DetailedReportCard
-					title={t("operational_metrics")}
+					title={t("operational_metrics", "Operational Metrics")}
 					iconName="stats-chart-outline"
 				>
 					<DetailRow
-						label={t("total_orders")}
+						label={t("total_orders", "Total Orders")}
 						value={reportData.totalOrders?.toString() || "0"}
 					/>
 					<DetailRow
-						label={t("avg_table_turnover")}
+						label={t("avg_order_value", "Average Order Value")}
+						value={formatCurrency(reportData.averageOrderValue)} // 🚨 NEW
+					/>
+					<DetailRow
+						label={t("avg_table_turnover", "Avg Table Turnover")}
 						value={`${reportData.avgTurnoverRate || 0} min`}
 					/>
-				</DetailedReportCard>
 
-				<DetailedReportCard
-					title={t("items_sold")}
-					iconName="fast-food-outline"
-				>
-					<ItemsSoldList
-						items={reportData.topSellingItems || []}
-						formatCurrency={formatCurrency}
+					<View style={styles.divider} />
+
+					<Text style={styles.subSectionTitle}>
+						{t("fee_breakdown", "Fee Breakdown")}
+					</Text>
+					<DetailRow
+						label={t("platform_fees", "Scerv Platform Fees")}
+						value={`-${formatCurrency(reportData.totalPlatformFees)}`}
+					/>
+					<DetailRow
+						label={t("payment_processing", "Payment Processing")}
+						value={`-${formatCurrency(reportData.totalProcessorFees)}`}
 					/>
 				</DetailedReportCard>
 
-				<DetailedReportCard title={t("server_tips")} iconName="people-outline">
-					{(reportData.serverTips || []).length > 0 ? (
-						reportData.serverTips.map((tip, index) => (
-							<DetailRow
-								key={index}
-								label={tip.serverName}
-								value={formatCurrency(tip.gratuityTotal)}
-							/>
-						))
-					) : (
-						<Text style={styles.noDataText}>
-							{t("no_tips_were_recorded_yet")}
-						</Text>
-					)}
+				{/* 🚨 NEW REVENUE BREAKDOWN CARD */}
+				<DetailedReportCard
+					title={t("revenue_breakdown", "Revenue Breakdown")}
+					iconName="pie-chart-outline"
+				>
+					<DetailRow
+						label={t("digital_in_app", "In-App / Digital Sales")}
+						value={formatCurrency(reportData.digitalSales)}
+					/>
+					<DetailRow
+						label={t("cash_external", "Cash / External Terminal")}
+						value={formatCurrency(reportData.cashSales)}
+					/>
+					<View style={styles.divider} />
+					<DetailRow
+						label={t("food_sales", "Food Sales")}
+						value={formatCurrency(reportData.salesByCategory?.Food)}
+					/>
+					<DetailRow
+						label={t("bar_sales", "Bar / Beverage Sales")}
+						value={formatCurrency(reportData.salesByCategory?.Bar)}
+					/>
 				</DetailedReportCard>
 			</ScrollView>
 		);
@@ -246,7 +281,9 @@ const SalesReportScreen = ({ navigation }) => {
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.header}>
-				<Text style={styles.headerTitle}>{t("business_report")}</Text>
+				<Text style={styles.headerTitle}>
+					{t("business_report", "Business Report")}
+				</Text>
 				<PeriodSelector
 					selectedPeriod={selectedPeriod}
 					onSelectPeriod={setSelectedPeriod}
@@ -296,25 +333,36 @@ const styles = StyleSheet.create({
 	},
 	periodButtonTextActive: { color: colors.primary },
 	scrollContent: { padding: 15, paddingBottom: 30 },
+
+	// 🚨 UPDATED KPI GRID STYLES
 	kpiContainer: {
 		flexDirection: "row",
+		flexWrap: "wrap",
 		justifyContent: "space-between",
 		marginBottom: 20,
-		marginHorizontal: -5,
 	},
 	kpiCard: {
-		flex: 1,
+		flexBasis: "48%",
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 12,
 		paddingVertical: 15,
 		paddingHorizontal: 5,
 		alignItems: "center",
-		marginHorizontal: 5,
+		marginBottom: 15,
 		elevation: 2,
 		shadowColor: "#000",
 		shadowOpacity: 0.05,
 		shadowRadius: 5,
 	},
+	fullWidthKpiWrapper: {
+		width: "100%",
+		alignItems: "center",
+		marginTop: -5,
+	},
+	centeredKpi: {
+		width: "48%",
+	},
+
 	kpiValue: {
 		fontSize: 16,
 		fontWeight: "bold",
@@ -363,6 +411,21 @@ const styles = StyleSheet.create({
 	},
 	summaryLabel: { fontSize: 16, color: colors.textMedium },
 	summaryValue: { fontSize: 16, fontWeight: "500", color: colors.textDark },
+
+	// 🚨 NEW STYLES FOR METRICS DIVIDER
+	divider: {
+		height: 1,
+		backgroundColor: colors.borderLight,
+		marginVertical: 10,
+	},
+	subSectionTitle: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginBottom: 5,
+		marginTop: 5,
+	},
+
 	tableHeader: {
 		flexDirection: "row",
 		borderBottomWidth: 2,

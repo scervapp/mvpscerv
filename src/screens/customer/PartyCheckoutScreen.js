@@ -298,6 +298,35 @@ const PartyCheckoutScreen = () => {
 		};
 	}, [party?.restaurantId, finalTotal, isPanama]);
 
+	useEffect(() => {
+		// If the table is officially closed by the restaurant...
+		if (party?.status === "completed") {
+			console.log(
+				"Restaurant closed the table. Auto-routing to Order Confirmation...",
+			);
+
+			// ...instantly navigate the user to rate their dishes.
+			// We pass the party.id as the appOrderId because that's what the CF uses to save the final receipt!
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0,
+					routes: [
+						{
+							name: "OrderConfirmation",
+							params: {
+								initialStatus: "completed",
+								itemsToRate: myItemsInBasket, // Pass their specific items so they can rate them
+								isIndividual: false,
+								origin: "party",
+								appOrderId: party.id, // The final order uses the party ID
+							},
+						},
+					],
+				}),
+			);
+		}
+	}, [party?.status, navigation, myItemsInBasket, party?.id]);
+
 	// =========================================================
 	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
 	// =========================================================
@@ -419,27 +448,24 @@ const PartyCheckoutScreen = () => {
 	const handleManualCheckout = async () => {
 		setIsPreparing(true);
 		try {
-			await db.collection("parties").doc(partyId).update({
-				customerStatus: "ready_to_pay",
-				checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
-			});
+			await db
+				.collection("parties")
+				.doc(partyId)
+				.update({
+					customerStatus: "ready_to_pay",
+					checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
+					// 🚨 NEW: Trigger the service request system simultaneously
+					serviceRequested: true,
+					serviceRequestedAt: new Date().toISOString(),
+					serviceTableName: party?.table?.name || "A table",
+				});
 
-			navigation.dispatch(
-				CommonActions.reset({
-					index: 0,
-					routes: [
-						{
-							name: "OrderConfirmation",
-							params: {
-								initialStatus: "manual_checkout",
-								origin: "party",
-								isIndividual: false,
-								// Pass the dishes here
-								items: myItemsInBasket,
-							},
-						},
-					],
-				}),
+			Alert.alert(
+				t("check_requested", "Check Requested"),
+				t(
+					"server_notified_message",
+					"Your server has been notified and will bring the bill to your table shortly.",
+				),
 			);
 		} catch (error) {
 			Alert.alert("Error", "Could not request checkout.");
@@ -616,28 +642,101 @@ const PartyCheckoutScreen = () => {
 
 				{/* Footer Action Button */}
 				<View style={styles.footer}>
-					<Button
-						mode="contained"
-						onPress={() => {
-							if (!canAcceptPayments) {
-								handleManualCheckout();
-							} else if (isPanama) {
-								setIsPaymentModalVisible(true);
-							} else {
-								handlePayment();
-							}
-						}}
-						disabled={!isReadyToPay || isPreparing}
-						loading={isPreparing}
-						style={styles.payButton}
-						labelStyle={styles.payButtonText}
-					>
-						{isPreparing
-							? t("preparing")
-							: !canAcceptPayments
-								? t("request_check", "Request Check")
-								: `${t("pay")} ${formatCurrency(finalTotal)}`}
-					</Button>
+					{canAcceptPayments ? (
+						/* SCENARIO A: Restaurant accepts payments. Give them the choice between Cash or Card. */
+						<View style={{ flexDirection: "row", gap: 10 }}>
+							{/* Secondary Action: Pay Cash / Request Check */}
+							<Button
+								mode="outlined"
+								onPress={handleManualCheckout}
+								disabled={
+									!isReadyToPay ||
+									isPreparing ||
+									party?.customerStatus === "ready_to_pay"
+								}
+								loading={isPreparing}
+								style={[
+									styles.payButton,
+									{
+										flex: 1,
+										backgroundColor: colors.surfaceWhite,
+										borderColor: colors.primary,
+										borderWidth: 1,
+									},
+								]}
+								labelStyle={[styles.payButtonText, { color: colors.primary }]}
+							>
+								{party?.customerStatus === "ready_to_pay"
+									? t("server_notified", "Server Notified")
+									: t("pay_cash", "Pay Cash")}
+							</Button>
+
+							{/* Primary Action: Pay Digitally */}
+							<Button
+								mode="contained"
+								onPress={() => {
+									if (isPanama) {
+										setIsPaymentModalVisible(true);
+									} else {
+										handlePayment();
+									}
+								}}
+								disabled={
+									!isReadyToPay ||
+									isPreparing ||
+									party?.customerStatus === "ready_to_pay"
+								}
+								loading={isPreparing}
+								style={[styles.payButton, { flex: 1 }]}
+								labelStyle={styles.payButtonText}
+							>
+								{isPreparing
+									? t("preparing")
+									: party?.customerStatus === "ready_to_pay"
+										? t("server_notified", "Server Notified")
+										: `${t("pay")} ${formatCurrency(finalTotal)}`}
+							</Button>
+						</View>
+					) : (
+						/* SCENARIO B: No in-app payments. Show "Request Check" AND a disabled "Pay" button. */
+						<View style={{ flexDirection: "row", gap: 10 }}>
+							<Button
+								mode="contained"
+								onPress={handleManualCheckout}
+								disabled={
+									!isReadyToPay ||
+									isPreparing ||
+									party?.customerStatus === "ready_to_pay"
+								}
+								loading={isPreparing}
+								style={[
+									styles.payButton,
+									{ flex: 1, backgroundColor: colors.statusWarning },
+								]}
+								labelStyle={styles.payButtonText}
+							>
+								{party?.customerStatus === "ready_to_pay"
+									? t("server_notified", "Server Notified")
+									: t("request_check", "Request Check")}
+							</Button>
+
+							<Button
+								mode="contained"
+								onPress={() => {}}
+								disabled={true}
+								style={[
+									styles.payButton,
+									{ flex: 1, backgroundColor: colors.borderLight },
+								]}
+								labelStyle={[
+									styles.payButtonText,
+									{ color: colors.textMedium },
+								]}
+							>
+								{t("pay_with_card", "Pay with Card")}
+							</Button>
+						</View>
+					)}
 				</View>
 
 				{/* DLocal Payment Sheet Modal */}
@@ -678,6 +777,7 @@ const PartyCheckoutScreen = () => {
 										setIsPaymentModalVisible(false);
 										handleSmartFieldToken(cardData);
 									}}
+									onProcessing={() => setIsPreparing(true)}
 								/>
 							</View>
 						</View>

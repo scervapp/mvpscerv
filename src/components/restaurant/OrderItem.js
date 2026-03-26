@@ -9,7 +9,7 @@ import {
 	TextInput,
 } from "react-native";
 import moment from "moment";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { Picker } from "@react-native-picker/picker";
 import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
@@ -22,12 +22,14 @@ const OrderItem = ({
 	onMarkInProgress,
 	onApplyDiscount,
 }) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const [modalVisible, setModalVisible] = useState(false);
 	const [itemStatus, setItemStatus] = useState(item.itemStatus || "pending");
 	const [discountAmount, setDiscountAmount] = useState("");
 	const { showActionSheetWithOptions } = useActionSheet();
 	const formattedTime = moment(item.sentToChefQAt.toDate()).fromNow();
+
+	const currentLang = i18n.language?.substring(0, 2) || "en";
 
 	const handleStatusChange = (newStatus) => {
 		setItemStatus(newStatus);
@@ -48,7 +50,12 @@ const OrderItem = ({
 	};
 
 	const handleOpenActionSheet = () => {
-		const options = [t('pending_status'), t('in_progress_status'), t('completed_status'), t('cancel_button')];
+		const options = [
+			t("pending_status"),
+			t("in_progress_status"),
+			t("completed_status"),
+			t("cancel_button"),
+		];
 		const cancelButtonIndex = 3;
 
 		showActionSheetWithOptions(
@@ -60,7 +67,7 @@ const OrderItem = ({
 				if (buttonIndex !== cancelButtonIndex) {
 					handleStatusChange(options[buttonIndex].toLowerCase());
 				}
-			}
+			},
 		);
 	};
 
@@ -73,23 +80,21 @@ const OrderItem = ({
 				{/* Table Number */}
 				<View style={styles.tableNumberContainer}>
 					<Text style={styles.tableNumber}>
-						{t('table_number_label', { number: item.table.name.replace("Table ", "") })}
+						{t("table_number_label", {
+							number: item.table.name.replace("Table ", ""),
+						})}
 					</Text>
 				</View>
 
 				{/* Item Details */}
 				<View style={styles.itemDetailsContainer}>
 					<Text style={styles.dishName}>
-						{t('dish_quantity', { dishName: item.dish.name, quantity: item.quantity })}
+						{t("dish_quantity", {
+							dishName: item.dish.name,
+							quantity: item.quantity,
+						})}
 					</Text>
-
-					{/* Special Instructions (if any) */}
-					{item.pip.specialInstructions && (
-						<Text style={styles.specialInstructions}>
-							{item.pip.specialInstructions}
-						</Text>
-					)}
-
+					{/* Special Instructions (if any) */}v
 					{/* Display price with discount (if applicable) */}
 					<Text style={styles.itemPrice}>
 						{item.discount ? (
@@ -103,7 +108,6 @@ const OrderItem = ({
 							`$${item.dish.price}`
 						)}
 					</Text>
-
 					{/* Order Time */}
 					<Text style={styles.orderTime}>{formattedTime}</Text>
 				</View>
@@ -129,7 +133,12 @@ const OrderItem = ({
 						<Text style={styles.modalTitle}>{item.dish.name}</Text>
 						{item.pip.specialInstructions && (
 							<Text style={styles.specialInstructions}>
-								{item.pip.specialInstructions}
+								{typeof item.pip.specialInstructions === "object"
+									? item.pip.specialInstructions[currentLang] ||
+										item.pip.specialInstructions.original ||
+										item.pip.specialInstructions.en ||
+										""
+									: item.pip.specialInstructions}
 							</Text>
 						)}
 						{/* Status Picker */}
@@ -138,16 +147,16 @@ const OrderItem = ({
 							onValueChange={handleStatusChange}
 							style={styles.statusPicker}
 						>
-							<Picker.Item label={t('pending_status')} value="pending" />
-							<Picker.Item label={t('preparing_status')} value="preparing" />
-							<Picker.Item label={t('completed_status')} value="completed" />
+							<Picker.Item label={t("pending_status")} value="pending" />
+							<Picker.Item label={t("preparing_status")} value="preparing" />
+							<Picker.Item label={t("completed_status")} value="completed" />
 						</Picker>
 
 						{/* Discount Input */}
 						<View style={styles.discountInputContainer}>
 							<TextInput
 								style={styles.discountInput}
-								placeholder={t('enter_discount_amount_placeholder')}
+								placeholder={t("enter_discount_amount_placeholder")}
 								value={discountAmount}
 								onChangeText={setDiscountAmount}
 								keyboardType="numeric"
@@ -156,12 +165,17 @@ const OrderItem = ({
 								onPress={handleApplyDiscount}
 								style={styles.applyDiscountButton}
 							>
-								<Text style={styles.applyDiscountButtonText}>{t('apply_button')}</Text>
+								<Text style={styles.applyDiscountButtonText}>
+									{t("apply_button")}
+								</Text>
 							</TouchableOpacity>
 						</View>
 
 						{/* Close Modal Button */}
-						<Button title={t('close_button')} onPress={() => setModalVisible(false)} />
+						<Button
+							title={t("close_button")}
+							onPress={() => setModalVisible(false)}
+						/>
 					</View>
 				</View>
 			</Modal>
