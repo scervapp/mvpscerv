@@ -27,6 +27,7 @@ import ContactUs from "./components/ContactUs";
 import { PaymentCancel, PaymentSuccess } from "./components/PayRedirects";
 import ScanRedirect from "./components/ScanRedirect";
 import AboutUs from "./components/AboutUs";
+import RestaurantLanding from "./components/RestaurantLanding";
 
 // --- Styled Components ---
 const AppContainer = styled.div`
@@ -98,6 +99,10 @@ const App = () => {
 								<Route path="/contact" element={<ContactUs />} />
 								<Route path="/pricing" element={<Pricing />} />
 								<Route path="/about" element={<AboutUs />} />
+								<Route
+									path="/restaurants/:slug"
+									element={<RestaurantLanding />}
+								/>
 							</Route>
 
 							{/* 2. APP REDIRECTS */}
