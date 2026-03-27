@@ -1,4 +1,4 @@
-// screens/customer/PartyMenuScreen.js (NEW FILE)
+// screens/customer/PartyMenuScreen.js
 import React, {
 	useState,
 	useEffect,
@@ -13,7 +13,7 @@ import {
 	ActivityIndicator,
 	SafeAreaView,
 	Alert,
-	ScrollView,
+	TouchableOpacity,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import MenuItemsList from "../../components/customer/MenuItemsList";
@@ -22,6 +22,7 @@ import { AuthContext } from "../../context/authContext";
 import { fetchMenu } from "../../utils/customerUtils";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 const PartyMenuScreen = () => {
 	const { t } = useTranslation();
@@ -29,20 +30,22 @@ const PartyMenuScreen = () => {
 	const navigation = useNavigation();
 	const { partyId, restaurantId } = route.params;
 
-	const {
-		addItemToPartyBasket,
-		isLoadingParty,
-		partyDetails,
-		currentPartyId,
-		sharedBaskets,
-	} = useParty(); // isLoadingParty for context actions
+	const { addItemToPartyBasket, isLoadingParty, partyDetails } = useParty();
+
 	const { currentUserData } = useContext(AuthContext);
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 
+	// 🚨 STATE: Quick-select checkbox items
+	const [selectedItems, setSelectedItems] = useState({});
+
+	// 🚨 NEW STATE: Items customized via the modal (qty, instructions)
+	const [customizedItems, setCustomizedItems] = useState([]);
+
+	const [isAddingBulk, setIsAddingBulk] = useState(false);
+
 	useEffect(() => {
-		// Update header with restaurant name from the live party details
 		if (
 			partyDetails[partyId]?.id === partyId &&
 			partyDetails[partyId]?.restaurantName
@@ -55,20 +58,19 @@ const PartyMenuScreen = () => {
 		}
 	}, [partyId, partyDetails[partyId]?.restaurantName, navigation]);
 
-	// This effect fetches the menu, but only if the context has loaded the correct party details.
 	useEffect(() => {
 		let isMounted = true;
 		const loadMenu = async () => {
-			const restaurantId =
+			const restId =
 				partyDetails[partyId]?.restaurantId || route.params?.restaurantId;
-			if (!restaurantId || partyDetails[partyId]?.id !== partyId) {
+			if (!restId || partyDetails[partyId]?.id !== partyId) {
 				if (isMounted) setIsLoadingMenu(false);
 				Alert.alert(t("error"), t("restaurant_id_or_party_details_missing"));
 				return;
 			}
 			setIsLoadingMenu(true);
 			try {
-				const fetchedMenu = await fetchMenu(restaurantId);
+				const fetchedMenu = await fetchMenu(restId);
 				if (isMounted) setMenuItems(fetchedMenu);
 			} catch (error) {
 				console.error("PartyMenuScreen: Error fetching menu:", error);
@@ -83,126 +85,128 @@ const PartyMenuScreen = () => {
 		};
 	}, [partyId, partyDetails, route.params?.restaurantId]);
 
+	const toggleItemSelection = useCallback((itemId) => {
+		setSelectedItems((prev) => ({
+			...prev,
+			[itemId]: !prev[itemId],
+		}));
+	}, []);
+
+	// 🚨 UPDATED: This now ONLY saves to local state! No database writes here.
 	const handleConfirmAddItemToPartyContext = useCallback(
-		async (itemDataFromModal) => {
-			// Log 1: Confirm this function is now being entered
+		(itemDataFromModal) => {
+			setCustomizedItems((prev) => [...prev, itemDataFromModal]);
+		},
+		[],
+	);
 
-			if (!partyId || !currentUserData?.uid || !addItemToPartyBasket) {
-				console.error(
-					"PartyMenuScreen: Missing critical data for add item call.",
-					{
-						partyId,
-						uid: currentUserData?.uid,
-						funcExists: !!addItemToPartyBasket,
-					}
-				);
-				Alert.alert(
-					t("error"),
-					t("cannot_add_item_at_this_time_party_information_is_missing")
-				);
-				return;
-			}
+	// 🚨 UPDATED: Bulk Add now loops through BOTH arrays and sends them at once
+	const handleBulkAddSelectedItems = async () => {
+		if (!partyId || !currentUserData?.uid) return;
 
-			const {
-				menuItemDetails,
-				quantity,
-				specialInstructions,
-				partyContextData,
-			} = itemDataFromModal;
+		const quickAddItems = menuItems.filter((item) => selectedItems[item.id]);
 
-			const partyAddItemData = {
-				partyId: partyContextData.partyId,
-				orderingForUserId: partyContextData.currentUserId,
-				orderingForPipName: partyContextData.orderingForPipName, // Now correctly accessed from the nested object
-			};
+		if (quickAddItems.length === 0 && customizedItems.length === 0) return;
 
-			const itemDetailsForPartyContext = {
-				id: menuItemDetails.id,
-				name: menuItemDetails.name,
-				price: menuItemDetails.price,
-				category: menuItemDetails.category,
-				quantity,
-				specialInstructions,
-				restaurantId: menuItemDetails.restaurantId,
-			};
+		setIsAddingBulk(true);
+		try {
+			// 1. Process Quick Add (Checkboxes)
+			for (const item of quickAddItems) {
+				// 🚨 NEW: Look for fullName first, then firstName, then fallback to "Myself"
+				const myName =
+					currentUserData?.fullName ||
+					currentUserData?.firstName ||
+					t("myself", "Myself");
 
-			// Log 2: Log the data just before calling the context
-			console.log(
-				"PartyMenuScreen: About to call PartyContext.addItemToPartyBasket with partyData:",
-				JSON.stringify(partyAddItemData, null, 2)
-			);
+				const partyAddItemData = {
+					partyId: partyId,
+					orderingForUserId: currentUserData.uid,
+					orderingForPipName: myName, // 🚨 Updated
+				};
 
-			try {
+				const itemDetailsForPartyContext = {
+					id: item.id,
+					name: item.name,
+					price: item.price,
+					category: item.category,
+					quantity: 1,
+					specialInstructions: "",
+					restaurantId: item.restaurantId,
+				};
+
 				await addItemToPartyBasket(
 					partyAddItemData,
-					itemDetailsForPartyContext
-				);
-			} catch (error) {
-				// Context function should handle alerts, but we can log here
-				console.error(
-					"PartyMenuScreen: Error returned from addItemToPartyBasket context call:",
-					error
+					itemDetailsForPartyContext,
 				);
 			}
-		},
-		[
-			partyId, // The ID from the route, this is stable
-			currentUserData?.uid, // The current user's ID
-			addItemToPartyBasket, // The function from the context
-		]
-	); // Dependency array ensures function is recreated only if these values change
 
-	// Construct the list of people to order for from the current party members
+			// 2. Process Customized Items (Modal)
+			for (const customItem of customizedItems) {
+				const partyAddItemData = {
+					partyId: customItem.partyContextData.partyId,
+					orderingForUserId: customItem.partyContextData.currentUserId,
+					orderingForPipName: customItem.partyContextData.orderingForPipName,
+				};
+
+				const itemDetailsForPartyContext = {
+					id: customItem.menuItemDetails.id,
+					name: customItem.menuItemDetails.name,
+					price: customItem.menuItemDetails.price,
+					category: customItem.menuItemDetails.category,
+					quantity: customItem.quantity,
+					specialInstructions: customItem.specialInstructions,
+					restaurantId: customItem.menuItemDetails.restaurantId,
+				};
+
+				await addItemToPartyBasket(
+					partyAddItemData,
+					itemDetailsForPartyContext,
+				);
+			}
+
+			// 3. Clear State and Navigate
+			setSelectedItems({});
+			setCustomizedItems([]);
+
+			navigation.goBack();
+		} catch (error) {
+			console.error("Error bulk adding items:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t(
+					"could_not_add_all_items",
+					"Could not add all items. Please try again.",
+				),
+			);
+		} finally {
+			setIsAddingBulk(false);
+		}
+	};
+
 	const partyMembersForModal = useMemo(() => {
 		return partyDetails[partyId]?.guestPips || [];
 	}, [partyId, partyDetails]);
 
-	// Show a loading indicator if the context is loading OR if the context's party ID
-	// does not match the one this screen was opened for.
-
-	if (isLoadingParty || !partyDetails[partyId]) {
+	if (isLoadingParty || !partyDetails[partyId] || isLoadingMenu) {
 		return (
-			<SafeAreaView
-				style={[
-					styles.centeredScreen,
-					{ backgroundColor: colors.backgroundLight || "#f8f9fa" },
-				]}
-			>
+			<SafeAreaView style={styles.centeredScreen}>
 				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
-				<Text
-					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
-				>
-					{t("syncing_party_details")}...
+				<Text style={styles.loadingText}>
+					{isLoadingMenu ? t("loading_menu") : t("syncing_party_details")}...
 				</Text>
 			</SafeAreaView>
 		);
 	}
 
-	if (isLoadingMenu) {
-		return (
-			<SafeAreaView
-				style={[
-					styles.centeredScreen,
-					{ backgroundColor: colors.backgroundLight || "#f8f9fa" },
-				]}
-			>
-				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
-				<Text
-					style={[styles.loadingText, { color: colors.textMedium || "#666" }]}
-				>
-					{t("loading_menu")}...
-				</Text>
-			</SafeAreaView>
-		);
-	}
+	// 🚨 Calculate the total number of pending items
+	const selectedCount = Object.values(selectedItems).filter(Boolean).length;
+	const totalPendingCount = selectedCount + customizedItems.length;
 
 	return (
 		<SafeAreaView style={styles.screen}>
 			<MenuItemsList
-				// Data
 				menuItems={menuItems}
 				isLoading={isLoadingMenu}
-				// Header (can be simple text or a more complex component)
 				ListHeaderComponent={
 					<View style={styles.headerContainer}>
 						<Text style={styles.headerTitle}>{t("order_for_party")}</Text>
@@ -211,16 +215,42 @@ const PartyMenuScreen = () => {
 						</Text>
 					</View>
 				}
-				// Props for Functionality
 				pips={partyMembersForModal}
 				onConfirmAddItemToContext={handleConfirmAddItemToPartyContext}
-				orderingMode="party" // CRITICAL: This tells the modal how to behave
-				// This is the data the modal needs to correctly add an item to the party
+				orderingMode="party"
 				partyData={{
 					partyId: partyId,
 					currentUserId: currentUserData.uid,
 				}}
+				selectedItems={selectedItems}
+				onToggleItemSelection={toggleItemSelection}
 			/>
+
+			{/* 🚨 UPDATED BOTTOM BUTTON */}
+			{totalPendingCount > 0 && (
+				<View style={styles.bulkAddContainer}>
+					<TouchableOpacity
+						style={styles.bulkAddButton}
+						onPress={handleBulkAddSelectedItems}
+						disabled={isAddingBulk}
+					>
+						{isAddingBulk ? (
+							<ActivityIndicator size="small" color="#fff" />
+						) : (
+							<>
+								<MaterialCommunityIcons
+									name="basket-plus"
+									size={24}
+									color="#fff"
+								/>
+								<Text style={styles.bulkAddButtonText}>
+									{t("add_to_basket", "Add to Basket")} ({totalPendingCount})
+								</Text>
+							</>
+						)}
+					</TouchableOpacity>
+				</View>
+			)}
 		</SafeAreaView>
 	);
 };
@@ -252,7 +282,36 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginTop: 4,
 	},
-	// Add any other specific styles for PartyMenuScreen if needed
+	bulkAddContainer: {
+		position: "absolute",
+		bottom: 0,
+		left: 0,
+		right: 0,
+		padding: 20,
+		paddingBottom: 35,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderColor: colors.borderLight,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: -3 },
+		shadowOpacity: 0.1,
+		shadowRadius: 5,
+		elevation: 10,
+	},
+	bulkAddButton: {
+		flexDirection: "row",
+		backgroundColor: colors.primary,
+		padding: 16,
+		borderRadius: 12,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	bulkAddButtonText: {
+		color: "#fff",
+		fontSize: 18,
+		fontWeight: "bold",
+		marginLeft: 10,
+	},
 });
 
 export default PartyMenuScreen;

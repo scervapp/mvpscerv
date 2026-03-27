@@ -1,3 +1,4 @@
+// screens/restaurant/ManagePartyScreen.js
 import React, { useEffect, useState, useMemo } from "react";
 import {
 	View,
@@ -26,7 +27,7 @@ import colors from "../../utils/styles/appStyles";
 const ManagePartyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { t, i18n } = useTranslation(); // 🚨 Bring in i18n
+	const { t, i18n } = useTranslation();
 	const currentLang = i18n.language?.substring(0, 2) || "en";
 	const { partyId } = route.params;
 
@@ -43,17 +44,14 @@ const ManagePartyScreen = () => {
 		const partyRef = doc(db, "parties", partyId);
 		const basketRef = doc(db, "shared_baskets", partyId);
 
-		const unsubscribeParty = onSnapshot(partyRef, (doc) => {
-			if (doc.exists) setPartyData({ id: doc.id, ...doc.data() });
+		const unsubscribeParty = onSnapshot(partyRef, (docSnap) => {
+			if (docSnap.exists) setPartyData({ id: docSnap.id, ...docSnap.data() });
 		});
 
 		const unsubscribeBasket = onSnapshot(basketRef, (snapshot) => {
-			// Check if snapshot exists AND has data
-			if (snapshot.exists()) {
+			if (snapshot.exists) {
 				setBasketItems(snapshot.data().items || []);
 			} else {
-				// If the document is deleted (party closed), set items to empty
-				// instead of leaving it as the old data or undefined
 				setBasketItems([]);
 			}
 			setIsLoading(false);
@@ -67,13 +65,11 @@ const ManagePartyScreen = () => {
 
 	// 2. Calculate Totals
 	const officiallyOrderedItems = useMemo(() => {
-		// Add the ?. and fallback || [] here as a safety net
 		return (basketItems || []).filter(
 			(item) => item?.status && item.status !== "new",
 		);
 	}, [basketItems]);
 
-	// 🚨 THE FIX: Calculate the total ONLY using the officially ordered items
 	const tableTotal = useMemo(() => {
 		return officiallyOrderedItems.reduce((sum, item) => {
 			const itemPrice = parseFloat(item.price || 0);
@@ -90,12 +86,10 @@ const ManagePartyScreen = () => {
 			[
 				{ text: t("cancel", "Cancel"), style: "cancel" },
 				{
-					// Option 1: They paid with physical Cash
 					text: t("cash", "Paid with Cash"),
 					onPress: () => executeCloseTable("cash"),
 				},
 				{
-					// Option 2: They paid with the restaurant's physical credit card swiper
 					text: t("card_terminal", "External Card Terminal"),
 					onPress: () => executeCloseTable("external_terminal"),
 				},
@@ -103,7 +97,6 @@ const ManagePartyScreen = () => {
 		);
 	};
 
-	// Helper function that actually triggers the backend
 	const executeCloseTable = async (paymentMethod) => {
 		setIsClosing(true);
 		try {
@@ -112,11 +105,10 @@ const ManagePartyScreen = () => {
 				"closePartyTable",
 			);
 
-			// 🚨 UPDATE THIS PAYLOAD to include the receiptEmail
 			const result = await closeTableCloudFunction({
 				partyId,
 				paymentMethod,
-				receiptEmail: receiptEmail.trim(), // Pass the email to the backend!
+				receiptEmail: receiptEmail.trim(),
 			});
 
 			if (result.data.success) {
@@ -135,15 +127,19 @@ const ManagePartyScreen = () => {
 		}
 	};
 
+	// 🚨 FIXED SCOPE ERRORS HERE
 	const handleAddItemManually = () => {
+		if (!partyData) return;
 		navigation.navigate("ServerMenuScreen", {
 			partyId: partyId,
 			restaurantId: partyData.restaurantId,
-			tableName: partyData.table?.name,
-			tableId: partyData.table?.id, // <-- ADDED THIS
-			serverObj: partyData.server, // <-- ADDED THIS
+			tableName: partyData.table?.name || "Table",
+			tableId: partyData.table?.id,
+			guestName: partyData.hostName,
+			serverObj: partyData.server, // 🚨 THE FIX: Pass the assigned server down!
 		});
 	};
+
 	const handleRemoveItem = (itemToRemove) => {
 		Alert.alert(
 			t("void_item", "Void Item"),
@@ -155,11 +151,10 @@ const ManagePartyScreen = () => {
 				{ text: t("cancel", "Cancel"), style: "cancel" },
 				{
 					text: t("remove", "Remove"),
-					style: "destructive", // Makes the button red on iOS
+					style: "destructive",
 					onPress: async () => {
 						try {
 							const basketRef = doc(db, "shared_baskets", partyId);
-							// arrayRemove looks for the EXACT object match and deletes it
 							await updateDoc(basketRef, {
 								items: arrayRemove(itemToRemove),
 								lastUpdated: new Date(),
@@ -184,10 +179,9 @@ const ManagePartyScreen = () => {
 			item.status === "preparing" ||
 			item.status === "ready";
 
-		// Check if a server ordered it. If so, display the table's guest name instead.
 		const isServerOrder = item.orderedByPipName?.startsWith("Server:");
 		const displayOwner = isServerOrder
-			? partyData.hostName || t("table", "Table")
+			? partyData?.hostName || t("table", "Table")
 			: item.orderedByPipName || item.customerName || t("guest", "Guest");
 
 		return (
@@ -198,7 +192,6 @@ const ManagePartyScreen = () => {
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName || item.name}</Text>
 
-					{/* 🚨 UPDATED OWNER DISPLAY */}
 					<Text style={styles.itemOwner}>
 						{t("for", "For")}: {displayOwner}
 					</Text>
@@ -253,6 +246,7 @@ const ManagePartyScreen = () => {
 			</View>
 		);
 	};
+
 	if (isLoading || !partyData) {
 		return (
 			<SafeAreaView style={styles.centered}>
@@ -284,7 +278,6 @@ const ManagePartyScreen = () => {
 
 			{/* ORDER LIST */}
 			<FlatList
-				// 🚨 THE FIX: Feed the filtered list into the UI, not the raw basket!
 				data={officiallyOrderedItems}
 				keyExtractor={(item, index) => item.id || index.toString()}
 				renderItem={renderOrderItem}
@@ -303,7 +296,6 @@ const ManagePartyScreen = () => {
 					<Text style={styles.totalAmount}>${tableTotal.toFixed(2)}</Text>
 				</View>
 
-				{/* 🚨 ADD THE EMAIL INPUT HERE */}
 				<TextInput
 					style={styles.emailInput}
 					placeholder={t(
@@ -362,7 +354,7 @@ const styles = StyleSheet.create({
 	},
 
 	// List
-	listContent: { padding: 15, paddingBottom: 100 },
+	listContent: { padding: 15, paddingBottom: 250 }, // 🚨 Added padding so the footer doesn't block the last item
 	emptyText: {
 		textAlign: "center",
 		color: colors.textMedium,
@@ -423,6 +415,10 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "bold",
 	},
+	badgeText: {
+		fontSize: 12,
+		fontWeight: "bold",
+	},
 
 	// Footer
 	footer: {
@@ -447,47 +443,18 @@ const styles = StyleSheet.create({
 	totalLabel: { fontSize: 20, fontWeight: "bold", color: colors.textDark },
 	totalAmount: { fontSize: 24, fontWeight: "900", color: colors.primary },
 	actionRow: { flexDirection: "row", gap: 15 },
-	printBtn: {
-		flex: 1,
-		flexDirection: "row",
-		justifyContent: "center",
-		alignItems: "center",
-		backgroundColor: colors.backgroundMedium,
-		padding: 15,
-		borderRadius: 10,
-	},
-	printBtnText: {
-		marginLeft: 8,
-		fontSize: 16,
-		fontWeight: "600",
-		color: colors.textDark,
-	},
-	footer: {
-		position: "absolute",
-		bottom: 0,
-		left: 0,
-		right: 0,
-		backgroundColor: colors.surfaceWhite,
-		padding: 20,
-		borderTopWidth: 1,
-		borderTopColor: colors.borderLight,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: -3 },
-		shadowOpacity: 0.1,
-		elevation: 10,
-	},
 	emailInput: {
 		backgroundColor: colors.backgroundMedium,
 		padding: 12,
 		borderRadius: 8,
-		marginBottom: 15, // Pushes the close button down slightly
+		marginBottom: 15,
 		fontSize: 16,
 		color: colors.textDark,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
 	closeBtn: {
-		flex: 1, // Changed from 2 to 1 so it fills the whole row evenly
+		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
 		backgroundColor: colors.statusDanger,
@@ -498,14 +465,15 @@ const styles = StyleSheet.create({
 		color: colors.surfaceWhite,
 		fontSize: 16,
 		fontWeight: "bold",
-		priceAndActionRow: {
-			flexDirection: "row",
-			alignItems: "center",
-			gap: 12,
-		},
-		trashBtn: {
-			padding: 4,
-		},
+	},
+	// 🚨 FIXED NESTING ISSUE
+	priceAndActionRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 12,
+	},
+	trashBtn: {
+		padding: 4,
 	},
 });
 

@@ -106,7 +106,7 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 	useEffect(() => {
 		const loadInitialRegion = async () => {
 			try {
-				// Check local storage first
+				// Check local storage first (allows users to manually switch later)
 				const savedRegion = await AsyncStorage.getItem("@scerv_region");
 
 				if (
@@ -115,23 +115,18 @@ const CustomerDashboard = ({ route = {}, navigation }) => {
 				) {
 					setSelectedRegion(savedRegion);
 				} else {
-					// Fallback to device region
-					const deviceRegion = Localization.getLocales()[0]?.regionCode;
-					const isSupported = SUPPORTED_REGIONS.find(
-						(r) => r.code === deviceRegion,
-					);
+					// 🇵🇦 FORCED PANAMA DEFAULT
+					// Instead of checking device localization, we force 'PA'
+					const defaultRegion = "PA";
+					setSelectedRegion(defaultRegion);
+					await AsyncStorage.setItem("@scerv_region", defaultRegion);
 
-					if (isSupported) {
-						setSelectedRegion(deviceRegion);
-						// Save the auto-detected region so we don't calculate again
-						await AsyncStorage.setItem("@scerv_region", deviceRegion);
-					} else {
-						setShowRegionModal(true);
-					}
+					// We don't show the modal anymore on first signup
+					setShowRegionModal(false);
 				}
 			} catch (error) {
-				console.error("Error loading region from storage:", error);
-				setShowRegionModal(true);
+				console.error("Error loading region:", error);
+				setSelectedRegion("PA"); // Emergency fallback
 			} finally {
 				setIsRegionLoading(false);
 			}

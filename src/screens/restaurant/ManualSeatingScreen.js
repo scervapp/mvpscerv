@@ -1,3 +1,4 @@
+// screens/restaurant/ManualSeatScreen.js
 import React, { useState, useEffect, useContext } from "react";
 import {
 	View,
@@ -8,6 +9,10 @@ import {
 	SafeAreaView,
 	ActivityIndicator,
 	Alert,
+	Modal,
+	TextInput,
+	KeyboardAvoidingView,
+	Platform,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
@@ -35,11 +40,15 @@ const ManualSeatScreen = () => {
 	const [isLoading, setIsLoading] = useState(true);
 	const [isSeating, setIsSeating] = useState(false);
 
+	// 🚨 NEW: State for the Guest Name Modal
+	const [isModalVisible, setIsModalVisible] = useState(false);
+	const [selectedTable, setSelectedTable] = useState(null);
+	const [guestName, setGuestName] = useState("");
+
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;
 		if (!restaurantId) return;
 
-		// 1. Fetch ALL tables for this restaurant
 		const fetchTables = async () => {
 			try {
 				const tablesRef = collection(db, `restaurants/${restaurantId}/tables`);
@@ -49,7 +58,6 @@ const ManualSeatScreen = () => {
 					...doc.data(),
 				}));
 
-				// 🚨 NEW: True Numerical Sort (Fixes 1, 10, 11 coming before 2)
 				tableData.sort((a, b) => {
 					const numA =
 						a.tableNumber ||
@@ -70,7 +78,6 @@ const ManualSeatScreen = () => {
 			}
 		};
 
-		// 2. Listen for ACTIVE parties to see which tables are currently occupied by a session
 		const q = query(
 			collection(db, "parties"),
 			where("restaurantId", "==", restaurantId),
@@ -89,57 +96,50 @@ const ManualSeatScreen = () => {
 		return () => unsubscribe();
 	}, [currentUserData?.uid]);
 
-	// Filter out any table that is currently occupied or hasn't been bussed/cleared yet
 	const availableTables = tables.filter((table) => {
 		const isOccupiedByParty = activeTableIds.has(table.id);
 		const isStatusAvailable = !table.status || table.status === "available";
-
 		return !isOccupiedByParty && isStatusAvailable;
 	});
 
-	const handleSeatTable = async (table) => {
-		const tableName =
-			table.name || `${t("table", "Table")} ${table.tableNumber}`;
+	// 🚨 UPDATED: Open the modal instead of the Alert
+	const handleSeatTableClick = (table) => {
+		setSelectedTable(table);
+		setGuestName(""); // Reset the input field
+		setIsModalVisible(true);
+	};
 
-		Alert.alert(
-			t("seat_table", "Seat Table"),
-			`${t("open_new_tab", "Open a new tab for")} ${tableName}?`,
-			[
-				{ text: t("cancel", "Cancel"), style: "cancel" },
-				{
-					text: t("seat_table", "Seat Table"),
-					onPress: async () => {
-						setIsSeating(true);
-						try {
-							const createPartySession = httpsCallable(
-								functions,
-								"createPartySession",
-							);
-							const result = await createPartySession({
-								restaurantId: currentUserData.uid,
-								tableId: table.id,
-								existingPartyId: null,
-								isManualSeat: true,
-							});
+	// 🚨 NEW: The actual function that fires when they confirm the name
+	const confirmSeatTable = async () => {
+		if (!selectedTable) return;
 
-							if (result.data.success) {
-								navigation.replace("ManagePartyScreen", {
-									partyId: result.data.partyId,
-								});
-							}
-						} catch (error) {
-							console.error("Manual Seat Error:", error);
-							Alert.alert(
-								t("error", "Error"),
-								t("error_create_session", "Could not create party session."),
-							);
-						} finally {
-							setIsSeating(false);
-						}
-					},
-				},
-			],
-		);
+		setIsModalVisible(false); // Hide modal immediately for better UX
+		setIsSeating(true);
+
+		try {
+			const createPartySession = httpsCallable(functions, "createPartySession");
+			const result = await createPartySession({
+				restaurantId: currentUserData.uid,
+				tableId: selectedTable.id,
+				existingPartyId: null,
+				isManualSeat: true,
+				guestName: guestName.trim() || t("guest", "Guest"),
+			});
+
+			if (result.data.success) {
+				navigation.replace("ManagePartyScreen", {
+					partyId: result.data.partyId,
+				});
+			}
+		} catch (error) {
+			console.error("Manual Seat Error:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t("error_create_session", "Could not create party session."),
+			);
+		} finally {
+			setIsSeating(false);
+		}
 	};
 
 	const renderTable = ({ item }) => {
@@ -147,7 +147,7 @@ const ManualSeatScreen = () => {
 			<TouchableOpacity
 				style={[styles.tableCard, styles.availableCard]}
 				disabled={isSeating}
-				onPress={() => handleSeatTable(item)}
+				onPress={() => handleSeatTableClick(item)} // Trigger modal
 			>
 				<View style={styles.cardHeader}>
 					<Text style={styles.tableName}>
@@ -202,6 +202,66 @@ const ManualSeatScreen = () => {
 					</View>
 				}
 			/>
+
+			{/* 🚨 NEW: The Name Entry Modal */}
+			{/* 🚨 THE FULLY TRANSLATED NAME ENTRY MODAL */}
+			<Modal
+				visible={isModalVisible}
+				transparent={true}
+				animationType="fade"
+				onRequestClose={() => setIsModalVisible(false)}
+			>
+				<KeyboardAvoidingView
+					behavior={Platform.OS === "ios" ? "padding" : "height"}
+					style={styles.modalOverlay}
+				>
+					<View style={styles.modalContent}>
+						<View style={styles.modalHeader}>
+							<Text style={styles.modalTitle}>
+								{t("seat_table_title", "Seat")} {selectedTable?.name}
+							</Text>
+							<TouchableOpacity onPress={() => setIsModalVisible(false)}>
+								<Ionicons name="close" size={24} color={colors.textMedium} />
+							</TouchableOpacity>
+						</View>
+
+						<Text style={styles.modalSubtitle}>
+							{t(
+								"enter_guest_name_for_tab",
+								"Enter the guest's name for this tab.",
+							)}
+						</Text>
+
+						<TextInput
+							style={styles.textInput}
+							placeholder={t(
+								"guest_name_placeholder",
+								"e.g. Juan Perez, Familia Smith",
+							)}
+							placeholderTextColor={colors.textLight}
+							value={guestName}
+							onChangeText={setGuestName}
+							autoFocus={true}
+							returnKeyType="done"
+							onSubmitEditing={confirmSeatTable}
+						/>
+
+						<TouchableOpacity
+							style={styles.confirmButton}
+							onPress={confirmSeatTable}
+							disabled={isSeating}
+						>
+							{isSeating ? (
+								<ActivityIndicator size="small" color="#fff" />
+							) : (
+								<Text style={styles.confirmButtonText}>
+									{t("seat_table", "Seat Table")}
+								</Text>
+							)}
+						</TouchableOpacity>
+					</View>
+				</KeyboardAvoidingView>
+			</Modal>
 		</SafeAreaView>
 	);
 };
@@ -247,7 +307,6 @@ const styles = StyleSheet.create({
 		elevation: 3,
 		borderWidth: 2,
 	},
-	// 🚨 NEW: Matched the pastel palette from TableManagementScreen
 	availableCard: {
 		backgroundColor: "#D1FAE5",
 		borderColor: "#6EE7B7",
@@ -261,12 +320,68 @@ const styles = StyleSheet.create({
 	tableName: {
 		fontSize: 18,
 		fontWeight: "bold",
-		color: "#065F46", // Deep Emerald
+		color: "#065F46",
 	},
 	statusText: {
 		fontSize: 14,
-		color: "#065F46", // Deep Emerald
+		color: "#065F46",
 		fontWeight: "700",
+	},
+	// 🚨 MODAL STYLES
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.5)",
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 20,
+	},
+	modalContent: {
+		width: "100%",
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 16,
+		padding: 20,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.2,
+		shadowRadius: 10,
+		elevation: 10,
+	},
+	modalHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 10,
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		color: colors.textDark,
+	},
+	modalSubtitle: {
+		fontSize: 14,
+		color: colors.textMedium,
+		marginBottom: 20,
+	},
+	textInput: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		padding: 15,
+		fontSize: 16,
+		color: colors.textDark,
+		backgroundColor: colors.backgroundLight,
+		marginBottom: 20,
+	},
+	confirmButton: {
+		backgroundColor: colors.primary,
+		padding: 15,
+		borderRadius: 8,
+		alignItems: "center",
+	},
+	confirmButtonText: {
+		color: "#fff",
+		fontSize: 16,
+		fontWeight: "bold",
 	},
 });
 
