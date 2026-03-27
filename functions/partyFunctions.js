@@ -1279,8 +1279,10 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const uid = context.auth.uid; // Note: I changed this from hostId to uid, since it might be a restaurant
-	const { restaurantId, tableId, existingPartyId, isManualSeat } = data; // Added isManualSeat
+	const uid = context.auth.uid;
+	// 🚨 ADDED guestName here
+	const { restaurantId, tableId, existingPartyId, isManualSeat, guestName } =
+		data;
 
 	// 2. Input Validation
 	if (!restaurantId || !tableId) {
@@ -1339,11 +1341,12 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				restaurantData.name || restaurantData.restaurantName || "Restaurant";
 			const tableName = tableData.name || `Table ${tableId}`;
 
-			// If it's a manual seat, the host is just a "Walk-In"
+			// 🚨 UPDATED LOGIC HERE
 			const hostId = isManualSeat ? "walk_in_guest" : uid;
 			const hostName = isManualSeat
-				? "Walk-In Guest"
-				: `${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
+				? guestName || "Walk-In Guest"
+				: customerData.fullName || // 👈 Added this line
+					`${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
 					`User ${hostId.slice(-4)}`;
 
 			const timestamp = admin.firestore.FieldValue.serverTimestamp();
@@ -1368,7 +1371,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				type: "party",
 				partyId: partyRef.id,
 				table: { id: tableId, name: tableName },
-				server: { id: "unassigned", name: "Self-Seated" }, // You can update this later when a server is assigned
+				server: { id: "unassigned", name: "Self-Seated" },
 				createdAt: timestamp,
 				acceptedAt: timestamp,
 			};

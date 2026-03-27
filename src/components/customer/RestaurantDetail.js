@@ -1,11 +1,5 @@
 // screens/customer/RestaurantDetailScreen.js
-import React, {
-	useContext,
-	useEffect,
-	useState,
-	useMemo,
-	useCallback,
-} from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
 	View,
 	Text,
@@ -14,6 +8,7 @@ import {
 	ActivityIndicator,
 	Alert,
 	SafeAreaView,
+	ScrollView,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -24,19 +19,12 @@ import {
 	handleCancelCheckIn,
 	useCheckInStatus,
 } from "../../utils/customerUtils";
-import MenuItemsList from "./MenuItemsList";
 import { db, functions } from "../../config/firebase";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Button as PaperButton } from "react-native-paper";
 import { httpsCallable } from "@react-native-firebase/functions";
 import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
-import {
-	collection,
-	onSnapshot,
-	query,
-	where,
-} from "@react-native-firebase/firestore";
 
 const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
@@ -46,23 +34,18 @@ const RestaurantDetailScreen = () => {
 
 	const { currentUserData, logout } = useContext(AuthContext);
 
-	// 🚨 UNIFIED ARCHITECTURE: Pulling everything from PartyContext
+	// 🚨 Streamlined Party Context (No longer pulling 'addItem' functions here)
 	const {
-		createParty,
 		isLoadingParty,
 		currentPartyIds,
 		partyDetails,
 		activatePartyCheckIn,
 		sharedBaskets,
-		addItemToPartyBasket, // 👈 Correct function name
 	} = useParty();
 
 	// Local loading states
-	const [menuItems, setMenuItems] = useState([]);
-	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 	const [isProcessingCheckInAction, setIsProcessingCheckInAction] =
 		useState(false);
-	const [userPips, setUserPips] = useState([]);
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
@@ -86,42 +69,17 @@ const RestaurantDetailScreen = () => {
 			: null,
 	);
 
-	// 🚨 THE NEW BASKET COUNT: Look only at the party's shared basket
+	// Basket Count logic (Kept so the floating button still appears if they have a cart)
 	const currentPartyId =
 		restaurant?.id && currentPartyIds ? currentPartyIds[restaurant.id] : null;
-
-	// 🚨 THE FIX: Extract the .items array, and fallback to an empty array
 	const currentPartyItems =
 		currentPartyId && sharedBaskets
 			? sharedBaskets[currentPartyId]?.items || []
 			: [];
-
-	// Count only the items the current user added
 	const basketCount =
 		currentPartyItems?.filter(
 			(item) => item.orderedByUserId === currentUserData?.uid,
 		).length || 0;
-
-	// Fetch user's PIPs
-	useEffect(() => {
-		if (currentUserData?.uid && currentUserData.role !== "guest") {
-			const pipsRef = db.collection(`customers/${currentUserData.uid}/pips`);
-			const unsubscribe = pipsRef.onSnapshot(
-				(snapshot) => {
-					setUserPips(
-						snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-					);
-				},
-				(error) => {
-					console.error("RestaurantDetailScreen: Error fetching PIPs:", error);
-					setUserPips([]);
-				},
-			);
-			return () => unsubscribe();
-		} else {
-			setUserPips([]);
-		}
-	}, [currentUserData?.uid]);
 
 	// Fetch Live Restaurant Data
 	useEffect(() => {
@@ -132,7 +90,7 @@ const RestaurantDetailScreen = () => {
 		const restaurantRef = db.collection("restaurants").doc(restaurant.id);
 		const unsubscribe = restaurantRef.onSnapshot(
 			(docSnap) => {
-				if (docSnap.exists()) {
+				if (docSnap.exists) {
 					setLiveRestaurantData({ id: docSnap.id, ...docSnap.data() });
 				}
 				setIsLoadingRestaurant(false);
@@ -144,34 +102,6 @@ const RestaurantDetailScreen = () => {
 		);
 		return () => unsubscribe();
 	}, [restaurant?.id]);
-
-	// Fetch Menu
-	useEffect(() => {
-		if (!restaurant?.id) {
-			setIsLoadingMenu(false);
-			return;
-		}
-		const menuQuery = query(
-			collection(db, "menuItems"),
-			where("restaurantId", "==", restaurant.id),
-		);
-		const unsubscribe = onSnapshot(
-			menuQuery,
-			(querySnapshot) => {
-				const menuItems = querySnapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setMenuItems(menuItems);
-				setIsLoadingMenu(false);
-			},
-			(err) => {
-				console.error("Error fetching menu: ", err);
-				setIsLoadingMenu(false);
-			},
-		);
-		return () => unsubscribe();
-	}, [restaurant.id]);
 
 	// Activate Party on Check-In
 	useEffect(() => {
@@ -271,105 +201,9 @@ const RestaurantDetailScreen = () => {
 		}
 	};
 
-	// 🚨 THE NEW "ADD TO BASKET" WITH AUTO-PARTY CREATION
-	const handleAddItemToPartyBasket = useCallback(
-		async (itemDataFromModal) => {
-			if (!currentUserData?.uid) {
-				setIsAuthModalVisible(true);
-				return;
-			}
-
-			try {
-				let targetPartyId = currentPartyId;
-
-				// THE PRE-BUILD FEATURE: If no party exists, create one silently!
-				if (!targetPartyId) {
-					console.log("Pre-building cart: Creating a table-less party...");
-
-					targetPartyId = await createParty(
-						restaurant.id,
-						restaurant.restaurantName || t("restaurant", "Restaurant"),
-					);
-
-					if (!targetPartyId)
-						throw new Error(
-							t("error_initializing_order", "Could not initialize order."),
-						);
-				}
-
-				const {
-					menuItemDetails,
-					quantity,
-					individualPips,
-					specialInstructions,
-				} = itemDataFromModal;
-
-				// Format the PIP name if one is selected, otherwise default to "Myself"
-				const firstPip =
-					individualPips && individualPips.length > 0
-						? individualPips[0]
-						: null;
-				const orderingForId = firstPip ? firstPip.id : currentUserData.uid;
-				const orderingForName = firstPip
-					? firstPip.name
-					: t("myself", "Myself");
-
-				// Bundle the context data exactly how your PartyContext expects it
-				const partyContextData = {
-					partyId: targetPartyId,
-					orderingForUserId: orderingForId,
-					orderingForPipName: orderingForName,
-				};
-
-				// Bundle the menu item data exactly how your PartyContext expects it
-				const formattedMenuItemDetails = {
-					id: menuItemDetails.id,
-					name: menuItemDetails.name,
-					price: menuItemDetails.price,
-					category: menuItemDetails.category,
-					imageUri: menuItemDetails.imageUri,
-					restaurantId: restaurant.id,
-					quantity: quantity || 1,
-					specialInstructions: specialInstructions || "",
-				};
-
-				await addItemToPartyBasket(partyContextData, formattedMenuItemDetails);
-
-				console.log("Item added to shared basket successfully!");
-			} catch (error) {
-				console.error("Add to basket error:", error);
-				Alert.alert(
-					t("error_title", "Error"),
-					error.message ||
-						t("error_adding_item", "Could not add item to order."),
-				);
-			}
-		},
-		[
-			currentUserData,
-			currentPartyId,
-			restaurant,
-			createParty,
-			addItemToPartyBasket,
-			t,
-		],
-	);
-
-	const optionsForIndividualOrder = useMemo(() => {
-		if (!currentUserData) return [];
-		const myselfOption = {
-			id: currentUserData.uid,
-			name: currentUserData.firstName || t("myself", "Myself"),
-		};
-		const otherPips = (userPips || []).filter(
-			(p) => p.id !== currentUserData.uid,
-		);
-		return [myselfOption, ...otherPips];
-	}, [userPips, currentUserData, t]);
-
 	// --- DYNAMIC UI BUTTONS (QR FIRST FLOW) ---
 	const renderActionButtons = () => {
-		if (isLoadingCheckInStatus || isLoadingParty) {
+		if (isLoadingCheckInStatus || isLoadingParty || isLoadingRestaurant) {
 			return (
 				<View style={styles.actionsRow}>
 					<ActivityIndicator size="small" color={colors.primary} />
@@ -377,12 +211,11 @@ const RestaurantDetailScreen = () => {
 			);
 		}
 
-		// Check if the current party actually has a table assigned to it yet
 		const activeParty = currentPartyId ? partyDetails?.[currentPartyId] : null;
 		const hasTable =
 			checkInStatus === "ACCEPTED" || (activeParty && activeParty.table?.id);
 
-		// 1. FULLY SEATED SESSION (Has Party/Check-in AND a Table)
+		// 1. FULLY SEATED SESSION
 		if (hasTable) {
 			return (
 				<View style={styles.actionsRow}>
@@ -405,7 +238,6 @@ const RestaurantDetailScreen = () => {
 						) : null}
 					</TouchableOpacity>
 
-					{/* Only show Leave Table if they are physically checked in */}
 					{checkInStatus === "ACCEPTED" && (
 						<TouchableOpacity
 							style={styles.cancelButton}
@@ -457,7 +289,7 @@ const RestaurantDetailScreen = () => {
 			);
 		}
 
-		// 3. 🚨 THE PRE-BUILD STATE: Has a cart, but NO table yet
+		// 3. THE PRE-BUILD STATE: Has a cart, but NO table yet
 		if (currentPartyId && !hasTable) {
 			return (
 				<View style={styles.actionsRow}>
@@ -531,22 +363,19 @@ const RestaurantDetailScreen = () => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<MenuItemsList
-				menuItems={menuItems}
-				isLoading={isLoadingMenu}
-				ListHeaderComponent={
-					<RestaurantHeader
-						restaurant={restaurant}
-						initialView={initialView}
-						renderActionButtons={renderActionButtons}
-					/>
-				}
-				pips={optionsForIndividualOrder}
-				onConfirmAddItemToContext={handleAddItemToPartyBasket}
-				orderingMode="individual" // 🚨 Kept as individual so UI modal works perfectly
-			/>
+			<ScrollView
+				contentContainerStyle={{ paddingBottom: 100 }}
+				showsVerticalScrollIndicator={false}
+			>
+				{/* 🚨 Just the Header and the Action Buttons! */}
+				<RestaurantHeader
+					restaurant={liveRestaurantData || restaurant}
+					initialView={initialView}
+					renderActionButtons={renderActionButtons}
+				/>
+			</ScrollView>
 
-			{/* 🚨 UPDATED FLOATING BASKET BUTTON: Navigates to the Party Session */}
+			{/* Floating Basket Button */}
 			{currentUserData?.role === "customer" && basketCount > 0 && (
 				<TouchableOpacity style={styles.fabContainer} onPress={handleViewParty}>
 					<View style={styles.fabContent}>

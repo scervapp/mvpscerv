@@ -34,30 +34,34 @@ export const AuthProvider = ({ children }) => {
 
 			if (user) {
 				try {
-					console.log(`[AUTH] 3. User found: ${user.uid}. Fetching token...`);
-					let userRole;
-					let restId;
+					let userRole = "customer";
+					let restId = null;
 
 					if (user.isAnonymous) {
-						console.log("[AUTH] 3a. User is anonymous. Setting as guest.");
-						userRole = "guest";
-						setCurrentUserData({ uid: user.uid, role: userRole });
-						setCurrentUser(user);
-						setIsLoading(false);
-						return;
+						const customerDoc = await db
+							.collection("customers")
+							.doc(user.uid)
+							.get();
+
+						if (!customerDoc.exists) {
+							console.log("[AUTH] 3a. True anonymous user → guest");
+							userRole = "guest";
+							setCurrentUserData({ uid: user.uid, role: userRole });
+							setCurrentUser(user);
+							setIsLoading(false);
+							return;
+						}
+
+						console.log("[AUTH] 3b. Bypassed customer detected (doc exists)");
+						// ← NO early return anymore — we want the listener below
+					} else {
+						// Normal authenticated flow (phone/email)
+						const tokenResult = await user.getIdTokenResult();
+						userRole = tokenResult.claims.role || "customer";
+						restId = tokenResult.claims.restaurantId || null;
 					}
 
-					const tokenResult = await user.getIdTokenResult();
-					console.log(
-						"[AUTH] 4. Token fetched successfully. Claims:",
-						tokenResult.claims,
-					);
-
-					userRole = tokenResult.claims.role || "customer";
-					restId =
-						tokenResult.claims.restaurantId ||
-						(userRole !== "customer" ? user.uid : null);
-
+					// ← This now runs for BOTH bypassed anonymous AND real users
 					const collectionName = ["owner", "manager", "worker"].includes(
 						userRole,
 					)
@@ -65,25 +69,20 @@ export const AuthProvider = ({ children }) => {
 						: "customers";
 
 					console.log(
-						`[AUTH] 5. Attaching Firestore listener to /${collectionName}/${user.uid}...`,
+						`[AUTH] 5. Attaching listener to /${collectionName}/${user.uid}`,
 					);
-					const docRef = db.collection(collectionName).doc(user.uid);
 
+					const docRef = db.collection(collectionName).doc(user.uid);
 					const unsubDoc = docRef.onSnapshot(
 						(docSnap) => {
-							console.log(
-								"[AUTH] 6. Firestore snapshot received. Exists?",
-								docSnap.exists,
-							);
 							if (docSnap.exists) {
 								setCurrentUserData({
 									uid: user.uid,
 									role: userRole,
 									restaurantId: restId,
-									...docSnap.data(),
+									...docSnap.data(), // ← phoneNumber will be here
 								});
 							} else {
-								console.log("[AUTH] 6a. Document does not exist in Firestore.");
 								setCurrentUserData({
 									uid: user.uid,
 									role: userRole,
@@ -92,26 +91,17 @@ export const AuthProvider = ({ children }) => {
 							}
 							setIsLoading(false);
 						},
-						(firestoreError) => {
-							console.error(
-								"[AUTH] ❌ Firestore snapshot ERROR:",
-								firestoreError,
-							);
+						(err) => {
+							console.error("[AUTH] Firestore snapshot error:", err);
 							setIsLoading(false);
 						},
 					);
 
 					setCurrentUser(user);
 
-					return () => {
-						console.log("[AUTH] Cleaning up Firestore listener.");
-						unsubDoc();
-					};
+					return () => unsubDoc();
 				} catch (error) {
-					console.error(
-						"[AUTH] ❌ CRITICAL ERROR inside onAuthStateChanged:",
-						error,
-					);
+					console.error("[AUTH] CRITICAL ERROR:", error);
 					setIsLoading(false);
 				}
 			} else {
@@ -126,6 +116,71 @@ export const AuthProvider = ({ children }) => {
 			console.log("[AUTH] Cleaning up auth subscriber.");
 			subscriber();
 		};
+	}, []);
+
+	const bypassPhoneAuth = useCallback(async (phoneNumber) => {
+		setAuthError(null);
+		setIsLoading(true);
+
+		console.log("[BYPASS] 1. Received phoneNumber from screen:", phoneNumber);
+
+		if (
+			!phoneNumber ||
+			(!phoneNumber.startsWith("+507") && !phoneNumber.startsWith("+1"))
+		) {
+			console.error("[BYPASS] ❌ Invalid or missing phoneNumber passed!");
+			setAuthError("Invalid phone number");
+			return;
+		}
+
+		try {
+			const userCredential = await auth.signInAnonymously();
+			const uid = userCredential.user.uid;
+
+			console.log("[BYPASS] 2. Anonymous sign-in successful. UID:", uid);
+
+			const customerData = {
+				phoneNumber: phoneNumber, // ← this is what we want to see
+				isPhoneVerified: false,
+				role: "customer",
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+				bypassMode: true, // extra flag so we know it's bypassed
+			};
+
+			console.log("[BYPASS] 3. About to write this data:", customerData);
+
+			await db
+				.collection("customers")
+				.doc(uid)
+				.set(customerData, { merge: true });
+
+			console.log("[BYPASS] 4. Write completed successfully!");
+
+			// Double-check it actually saved
+			const verifyDoc = await db.collection("customers").doc(uid).get();
+			const verifiedData = verifyDoc.data();
+
+			console.log("[BYPASS] 5. VERIFIED doc from Firestore:", verifiedData);
+			console.log(
+				"[BYPASS] 6. phoneNumber in Firestore right now:",
+				verifiedData?.phoneNumber,
+			);
+
+			if (verifiedData?.phoneNumber === phoneNumber) {
+				console.log("[BYPASS] ✅ SUCCESS — phoneNumber was saved correctly");
+			} else {
+				console.error(
+					"[BYPASS] ❌ PhoneNumber is STILL null/missing after write!",
+				);
+			}
+		} catch (error) {
+			console.error("[BYPASS] Critical error:", error.code, error.message);
+			setAuthError("Bypass failed — check console");
+			throw error;
+		} finally {
+			// Listener will handle the rest
+		}
 	}, []);
 
 	const login = useCallback(async (email, password) => {
@@ -152,40 +207,41 @@ export const AuthProvider = ({ children }) => {
 	}, []);
 
 	const signInWithPhoneCredential = useCallback(
-		async (confirmation, verificationCode) => {
+		async (confirmation, verificationCode, formValues) => {
+			// ← added 3rd param
 			setAuthError(null);
 			setIsLoading(true);
 
-			if (!verificationCode || verificationCode.trim().length !== 6) {
-				setIsLoading(false);
-				setAuthError("Please enter a valid 6-digit verification code.");
-				return;
-			}
-
 			try {
-				console.log(
-					"Verifying code:",
-					verificationCode.substring(0, 2) + "***",
-				);
-
 				const userCredential = await confirmation.confirm(
 					verificationCode.trim(),
 				);
 				const user = userCredential.user;
+				console.log("[PHONE] ✅ Verified! uid:", user.uid);
 
-				console.log("Phone auth successful, user:", user.uid);
-
-				// DO NOTHING HERE
-				// Profile will be completed in CompleteProfileScreen
-				// onAuthStateChanged + CustomerDashboard will redirect automatically
+				// ← Create customer doc here too for REAL phone auth (prevents null phoneNumber)
+				if (formValues) {
+					await db
+						.collection("customers")
+						.doc(user.uid)
+						.set(
+							{
+								phoneNumber: `${formValues.countryCode || "+507"}${formValues.phoneNumber}`,
+								isPhoneVerified: true,
+								role: "customer",
+								createdAt: new Date().toISOString(),
+							},
+							{ merge: true },
+						);
+				}
 			} catch (error) {
 				console.error("Phone verification error:", error);
 				if (error.code === "auth/invalid-verification-code") {
-					setAuthError("Invalid code. Please try again.");
+					setAuthError("Invalid code. Try again.");
 				} else if (error.code === "auth/code-expired") {
 					setAuthError("Code expired. Request a new one.");
 				} else {
-					setAuthError(`Verification failed: ${error.message}`);
+					setAuthError(error.message);
 				}
 				throw error;
 			} finally {
@@ -235,6 +291,7 @@ export const AuthProvider = ({ children }) => {
 		currentUserData,
 		isLoading,
 		authError,
+		bypassPhoneAuth,
 		login,
 		signup,
 		logout,

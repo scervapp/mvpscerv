@@ -1,5 +1,5 @@
 // screens/restaurant/ServerMenuScreen.js
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import {
 	View,
 	Text,
@@ -9,12 +9,12 @@ import {
 	Alert,
 	TouchableOpacity,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { db } from "../../config/firebase";
 import { doc, updateDoc, arrayUnion } from "@react-native-firebase/firestore";
 import { AuthContext } from "../../context/authContext";
-import { fetchMenu } from "../../utils/customerUtils"; // Reusing your existing fetch function
+import { fetchMenu } from "../../utils/customerUtils";
 import MenuItemsList from "../../components/customer/MenuItemsList";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
@@ -26,75 +26,21 @@ const ServerMenuScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
 
-	// Get the party ID and Restaurant ID passed from the ManagePartyScreen
-	const { partyId, restaurantId, tableName } = route.params;
+	const { partyId, restaurantId, tableName, tableId, serverObj } = route.params;
 	const { currentUserData } = useContext(AuthContext);
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 
+	// 🚨 STATE: Quick-select checkbox items
+	const [selectedItems, setSelectedItems] = useState({});
+
+	// 🚨 NEW STATE: Items customized via the modal (qty, instructions)
+	const [customizedItems, setCustomizedItems] = useState([]);
+
+	const [isAddingBulk, setIsAddingBulk] = useState(false);
+
 	useEffect(() => {
-		const handleServerAddItem = async (itemDataFromModal) => {
-			const { menuItemDetails, quantity, specialInstructions } =
-				itemDataFromModal;
-			const { tableId, serverObj } = route.params; // Get the extra params we passed
-
-			const serverName =
-				`${currentUserData?.firstName || ""} ${currentUserData?.lastName || ""}`.trim() ||
-				"Server";
-
-			const basketRef = doc(db, "shared_baskets", partyId);
-
-			// 1. Structure the item EXACTLY how the Cloud Function expects it
-			const newItem = {
-				id: Math.random().toString(36).substr(2, 9),
-				menuItemId: menuItemDetails.id,
-				name: menuItemDetails.name,
-				dishName: menuItemDetails.name, // Failsafe for the CF
-				price: menuItemDetails.price,
-				category: menuItemDetails.category || "Uncategorized",
-				quantity: quantity,
-				specialInstructions: specialInstructions || "",
-				orderedByUserId: currentUserData.uid, // MUST be orderedByUserId for the CF filter!
-				orderedByPipName: `Server: ${serverName}`,
-				restaurantId: restaurantId, // MUST be here so the CF knows where to send the ticket!
-				status: "new", // MUST be "new" so the CF picks it up
-				addedAt: new Date().toISOString(),
-			};
-
-			try {
-				// 2. Add the item to the basket as "new"
-				await updateDoc(basketRef, {
-					items: arrayUnion(newItem),
-					lastUpdated: new Date(),
-				});
-
-				// 3. IMMEDIATELY call the Cloud Function to send it to the kitchen!
-				const sendOrderToKitchen = httpsCallable(
-					functions,
-					"sendOrderToKitchen",
-				);
-				await sendOrderToKitchen({
-					sourceId: partyId,
-					table: { id: tableId, name: tableName },
-					server: serverObj || { id: currentUserData.uid, name: serverName }, // Fallback to current user if table has no server yet
-					allowedUserIds: [currentUserData.uid], // Only process the item the server JUST added
-				});
-
-				Alert.alert(
-					t("success", "Success"),
-					`${quantity}x ${menuItemDetails.name} sent to kitchen!`,
-					[{ text: "OK" }],
-				);
-			} catch (error) {
-				console.error("Error adding item or sending to kitchen: ", error);
-				Alert.alert(
-					t("error", "Error"),
-					t("failed_to_add", "Failed to send item to the kitchen."),
-				);
-			}
-		};
-
 		const loadMenu = async () => {
 			if (!restaurantId) {
 				Alert.alert(
@@ -118,64 +64,114 @@ const ServerMenuScreen = () => {
 			}
 		};
 		loadMenu();
-	}, [restaurantId]);
+	}, [restaurantId, navigation, t]);
 
-	// This handles the payload coming back from your MenuItemsList modal
+	const toggleItemSelection = useCallback((itemId) => {
+		setSelectedItems((prev) => ({
+			...prev,
+			[itemId]: !prev[itemId],
+		}));
+	}, []);
+
+	// 🚨 UPDATED: This now ONLY saves to local state, just like checkboxes!
 	const handleServerAddItem = async (itemDataFromModal) => {
-		const { menuItemDetails, quantity, specialInstructions } =
-			itemDataFromModal;
-		const { tableId, serverObj } = route.params; // Get the extra params we passed
+		// Save the customized item to our local array.
+		// MenuItemsList will automatically close the modal and show a success snackbar.
+		setCustomizedItems((prev) => [...prev, itemDataFromModal]);
 
-		const serverName =
-			`${currentUserData?.firstName || ""} ${currentUserData?.lastName || ""}`.trim() ||
-			"Server";
+		// Notice we REMOVED the database write and navigation.goBack() from here!
+	};
+
+	// 🚨 UPDATED: The Bulk Add Function now processes BOTH arrays
+	const handleBulkServerAddItem = async () => {
+		const quickAddItems = menuItems.filter((item) => selectedItems[item.id]);
+
+		if (quickAddItems.length === 0 && customizedItems.length === 0) return;
+
+		setIsAddingBulk(true);
+
+		// 🚨 THE FIX: Explicitly define displayName using the guestName from route.params
+		const { guestName, serverObj } = route.params;
+		const displayName = guestName || "Server";
 
 		const basketRef = doc(db, "shared_baskets", partyId);
 
-		// 1. Structure the item EXACTLY how the Cloud Function expects it
-		const newItem = {
-			id: Math.random().toString(36).substr(2, 9),
-			menuItemId: menuItemDetails.id,
-			name: menuItemDetails.name,
-			dishName: menuItemDetails.name, // Failsafe for the CF
-			price: menuItemDetails.price,
-			category: menuItemDetails.category || "Uncategorized",
-			quantity: quantity,
-			specialInstructions: specialInstructions || "",
-			orderedByUserId: currentUserData.uid, // MUST be orderedByUserId for the CF filter!
-			orderedByPipName: `Server: ${serverName}`,
-			restaurantId: restaurantId, // MUST be here so the CF knows where to send the ticket!
-			status: "new", // MUST be "new" so the CF picks it up
-			addedAt: new Date().toISOString(),
-		};
-
 		try {
-			// 2. Add the item to the basket as "new"
+			// 1. Map the quick-select checkbox items
+			const newItemsArray = quickAddItems.map((item) => ({
+				id: Math.random().toString(36).substr(2, 9),
+				menuItemId: item.id,
+				name: item.name,
+				dishName: item.name,
+				price: item.price,
+				category: item.category || "Uncategorized",
+				quantity: 1,
+				specialInstructions: "",
+				orderedByUserId: currentUserData.uid,
+				orderedByPipName: displayName, // 🚨 Successfully uses displayName
+				restaurantId: restaurantId,
+				status: "new",
+				addedAt: new Date().toISOString(),
+			}));
+
+			// 2. Map the customized items from the modal
+			const customItemsArray = customizedItems.map((customItem) => ({
+				id: Math.random().toString(36).substr(2, 9),
+				menuItemId: customItem.menuItemDetails.id,
+				name: customItem.menuItemDetails.name,
+				dishName: customItem.menuItemDetails.name,
+				price: customItem.menuItemDetails.price,
+				category: customItem.menuItemDetails.category || "Uncategorized",
+				quantity: customItem.quantity,
+				specialInstructions: customItem.specialInstructions || "",
+				orderedByUserId: currentUserData.uid,
+				orderedByPipName: displayName, // 🚨 Successfully uses displayName
+				restaurantId: restaurantId,
+				status: "new",
+				addedAt: new Date().toISOString(),
+			}));
+
+			// 3. Combine both arrays into one giant ticket
+			const allItemsToFire = [...newItemsArray, ...customItemsArray];
+
+			// 4. Push ALL items to Firestore in one atomic operation
 			await updateDoc(basketRef, {
-				items: arrayUnion(newItem),
+				items: arrayUnion(...allItemsToFire),
 				lastUpdated: new Date(),
 			});
 
-			// 3. IMMEDIATELY call the Cloud Function to send it to the kitchen!
+			// 5. Fire the Cloud Function ONE time
+			const serverName =
+				`${currentUserData?.firstName || ""} ${currentUserData?.lastName || ""}`.trim() ||
+				"Server";
 			const sendOrderToKitchen = httpsCallable(functions, "sendOrderToKitchen");
+
 			await sendOrderToKitchen({
 				sourceId: partyId,
 				table: { id: tableId, name: tableName },
-				server: serverObj || { id: currentUserData.uid, name: serverName }, // Fallback to current user if table has no server yet
-				allowedUserIds: [currentUserData.uid], // Only process the item the server JUST added
+				server: serverObj || { id: currentUserData.uid, name: serverName },
+				allowedUserIds: [currentUserData.uid],
 			});
+
+			// Clean up state
+			setSelectedItems({});
+			setCustomizedItems([]);
 
 			Alert.alert(
 				t("success", "Success"),
-				`${quantity}x ${menuItemDetails.name} sent to kitchen!`,
+				`${allItemsToFire.length} items sent to kitchen!`,
 				[{ text: "OK" }],
 			);
+
+			navigation.goBack();
 		} catch (error) {
-			console.error("Error adding item or sending to kitchen: ", error);
+			console.error("Error batch adding items: ", error);
 			Alert.alert(
 				t("error", "Error"),
-				t("failed_to_add", "Failed to send item to the kitchen."),
+				t("failed_to_add", "Failed to send items to the kitchen."),
 			);
+		} finally {
+			setIsAddingBulk(false);
 		}
 	};
 
@@ -190,6 +186,10 @@ const ServerMenuScreen = () => {
 		);
 	}
 
+	// Combine the count of checked items AND customized modal items
+	const selectedCount = Object.values(selectedItems).filter(Boolean).length;
+	const totalPendingCount = selectedCount + customizedItems.length;
+
 	return (
 		<SafeAreaView style={styles.screen}>
 			<View style={styles.topNav}>
@@ -201,6 +201,7 @@ const ServerMenuScreen = () => {
 					<Text style={styles.closeText}>{t("done", "Done")}</Text>
 				</TouchableOpacity>
 			</View>
+
 			<MenuItemsList
 				menuItems={menuItems}
 				isLoading={isLoadingMenu}
@@ -210,8 +211,6 @@ const ServerMenuScreen = () => {
 						<Text style={styles.headerSubtitle}>{tableName}</Text>
 					</View>
 				}
-				// We fake the pips so the server can just select "Server" or "Guest"
-				// when prompted "Who is this for?" by your modal.
 				pips={[{ userId: currentUserData.uid, name: "Table Share" }]}
 				onConfirmAddItemToContext={handleServerAddItem}
 				orderingMode="party"
@@ -219,7 +218,31 @@ const ServerMenuScreen = () => {
 					partyId: partyId,
 					currentUserId: currentUserData.uid,
 				}}
+				selectedItems={selectedItems}
+				onToggleItemSelection={toggleItemSelection}
 			/>
+
+			{/* 🚨 THE BULK "FIRE TO KITCHEN" BUTTON */}
+			{totalPendingCount > 0 && (
+				<View style={styles.bulkAddContainer}>
+					<TouchableOpacity
+						style={styles.bulkAddButton}
+						onPress={handleBulkServerAddItem}
+						disabled={isAddingBulk}
+					>
+						{isAddingBulk ? (
+							<ActivityIndicator size="small" color="#fff" />
+						) : (
+							<>
+								<MaterialCommunityIcons name="fire" size={24} color="#fff" />
+								<Text style={styles.bulkAddButtonText}>
+									Fire to Kitchen ({totalPendingCount})
+								</Text>
+							</>
+						)}
+					</TouchableOpacity>
+				</View>
+			)}
 		</SafeAreaView>
 	);
 };
@@ -249,7 +272,7 @@ const styles = StyleSheet.create({
 	topNav: {
 		flexDirection: "row",
 		alignItems: "center",
-		justifyContent: "flex-end", // Puts the Done button on the right
+		justifyContent: "flex-end",
 		paddingHorizontal: 20,
 		paddingVertical: 12,
 		backgroundColor: colors.surfaceWhite,
@@ -259,7 +282,7 @@ const styles = StyleSheet.create({
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.05,
 		elevation: 2,
-		zIndex: 10, // Keeps it above the scrolling menu
+		zIndex: 10,
 	},
 	closeBtn: {
 		flexDirection: "row",
@@ -274,6 +297,36 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginLeft: 4,
 		fontWeight: "bold",
+	},
+	bulkAddContainer: {
+		position: "absolute",
+		bottom: 0,
+		left: 0,
+		right: 0,
+		padding: 20,
+		paddingBottom: 35,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderColor: colors.borderLight,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: -3 },
+		shadowOpacity: 0.1,
+		shadowRadius: 5,
+		elevation: 10,
+	},
+	bulkAddButton: {
+		flexDirection: "row",
+		backgroundColor: colors.statusDanger || "#dc3545",
+		padding: 16,
+		borderRadius: 12,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	bulkAddButtonText: {
+		color: "#fff",
+		fontSize: 18,
+		fontWeight: "bold",
+		marginLeft: 10,
 	},
 });
 

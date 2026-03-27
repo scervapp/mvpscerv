@@ -9,7 +9,7 @@ import {
 	ScrollView,
 	Alert,
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import {
 	Checkbox,
 	Button,
@@ -53,11 +53,13 @@ const PipInstructionModal = ({
 			<View style={styles.modalOverlay}>
 				<View style={styles.pipInstructionModalContent}>
 					<Text style={styles.modalTitle}>
-						{t('special_instructions_for_pip', { pipName: pipName })}
+						{t("special_instructions_for_pip", { pipName: pipName })}
 					</Text>
 					<TextInput
 						style={styles.specialInstructionsInput}
-						placeholder={t('notes_for_pip_item_placeholder', { pipName: pipName })}
+						placeholder={t("notes_for_pip_item_placeholder", {
+							pipName: pipName,
+						})}
 						value={instructions}
 						onChangeText={setInstructions}
 						multiline
@@ -70,14 +72,14 @@ const PipInstructionModal = ({
 							mode="outlined"
 							style={styles.modalButton}
 						>
-							{t('cancel_button')}
+							{t("cancel_button")}
 						</Button>
 						<Button
 							onPress={handleSave}
 							mode="contained"
 							style={[styles.modalButton, { backgroundColor: colors.primary }]}
 						>
-							{t('save_instructions_button')}
+							{t("save_instructions_button")}
 						</Button>
 					</View>
 				</View>
@@ -119,10 +121,14 @@ const SelectedItemModal = ({
 			setQuantity(1);
 			setInternallySelectedPIPs([]);
 			if (orderingMode === "party" && currentUserData) {
+				// 🚨 NEW: Grab fullName so the modal shows "Karl" instead of the UID
+				const myName =
+					currentUserData.fullName || currentUserData.firstName || t("myself");
+
 				setOrderTargets([
 					{
 						id: currentUserData.uid,
-						name: currentUserData.firstName || t('myself'),
+						name: myName, // 🚨 Updated
 						specialInstructions: "",
 					},
 				]);
@@ -152,8 +158,8 @@ const SelectedItemModal = ({
 			prevTargets.map((t) =>
 				t.id === editingTargetForInstructions.id
 					? { ...t, specialInstructions: instructions }
-					: t
-			)
+					: t,
+			),
 		);
 		setEditingTargetForInstructions(null);
 	};
@@ -161,7 +167,7 @@ const SelectedItemModal = ({
 	const toggleIndividualTargetSelection = (targetToToggle) => {
 		// targetToToggle is {id, name}
 		const isCurrentlySelected = orderTargets.some(
-			(t) => t.id === targetToToggle.id
+			(t) => t.id === targetToToggle.id,
 		);
 		if (isCurrentlySelected) {
 			setOrderTargets((prev) => prev.filter((t) => t.id !== targetToToggle.id));
@@ -186,8 +192,8 @@ const SelectedItemModal = ({
 		}
 		if (orderTargets.length === 0) {
 			Alert.alert(
-				t('order_for_whom_title'),
-				t('select_at_least_one_person_message')
+				t("order_for_whom_title"),
+				t("select_at_least_one_person_message"),
 			);
 			return;
 		}
@@ -204,7 +210,10 @@ const SelectedItemModal = ({
 		} else if (orderingMode === "party") {
 			// This part of your logic was already correct.
 			if (!partyData || !partyData.partyId) {
-				Alert.alert(t('error_title'), t('party_info_missing_cannot_add_item_message'));
+				Alert.alert(
+					t("error_title"),
+					t("party_info_missing_cannot_add_item_message"),
+				);
 				return;
 			}
 			const partyTarget = orderTargets[0] || {};
@@ -256,7 +265,7 @@ const SelectedItemModal = ({
 						<Divider style={styles.divider} />
 
 						<View style={styles.sectionContainer}>
-							<Text style={styles.sectionTitle}>{t('quantity_title')}</Text>
+							<Text style={styles.sectionTitle}>{t("quantity_title")}</Text>
 							<View style={styles.quantitySelector}>
 								<IconButton
 									icon="minus-circle"
@@ -281,7 +290,7 @@ const SelectedItemModal = ({
 						{orderingMode === "party" && (
 							<View style={styles.sectionContainer}>
 								<Text style={styles.sectionTitle}>
-									{t('order_item_for_party_title')}
+									{t("order_item_for_party_title")}
 								</Text>
 								{displayOptions.map((option) => {
 									const uniqueKey = option.userId || option.localPipId;
@@ -322,8 +331,8 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{orderTargets[0].specialInstructions
-															? t('edit_notes_button')
-															: t('add_notes_button')}
+															? t("edit_notes_button")
+															: t("add_notes_button")}
 													</Text>
 												</TouchableOpacity>
 											)}
@@ -335,7 +344,10 @@ const SelectedItemModal = ({
 									orderTargets[0] && ( // Check if target exists
 										<TextInput
 											style={styles.specialInstructionsInput}
-											placeholder={t('special_instructions_for_pip_placeholder', { pipName: orderTargets[0].name })}
+											placeholder={t(
+												"special_instructions_for_pip_placeholder",
+												{ pipName: orderTargets[0].name },
+											)}
 											value={orderTargets[0].specialInstructions}
 											onChangeText={(text) =>
 												setOrderTargets((prev) => [
@@ -354,12 +366,12 @@ const SelectedItemModal = ({
 							<View style={styles.sectionContainer}>
 								<View style={styles.sectionHeaderWithHelp}>
 									<Text style={styles.sectionTitle}>
-										{t('order_for_select_all_that_apply_title')}
+										{t("order_for_select_all_that_apply_title")}
 									</Text>
 									{/* Help icon can be added back if needed */}
 								</View>
 								<Text style={styles.managePipsHintText}>
-									{t('not_eating_alone_hint')}
+									{t("not_eating_alone_hint")}
 								</Text>
 								<Button
 									icon="account-multiple-plus-outline"
@@ -373,12 +385,12 @@ const SelectedItemModal = ({
 									style={styles.managePipsButton}
 									labelStyle={{ color: colors.primary, fontSize: 14 }}
 								>
-									{t('manage_pips_button')}
+									{t("manage_pips_button")}
 								</Button>
 
 								{displayOptions.map((target) => {
 									const currentSelection = orderTargets.find(
-										(t) => t.id === target.id
+										(t) => t.id === target.id,
 									);
 									const isSelected = !!currentSelection;
 									return (
@@ -410,8 +422,8 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{currentSelection.specialInstructions
-															? t('edit_notes_button')
-															: t('add_notes_button')}
+															? t("edit_notes_button")
+															: t("add_notes_button")}
 													</Text>
 												</TouchableOpacity>
 											)}
@@ -419,9 +431,7 @@ const SelectedItemModal = ({
 									);
 								})}
 								{displayOptions.length === 0 && (
-									<Text style={styles.noPipsText}>
-										{t('no_pips_message')}
-									</Text>
+									<Text style={styles.noPipsText}>{t("no_pips_message")}</Text>
 								)}
 							</View>
 						)}
@@ -435,7 +445,7 @@ const SelectedItemModal = ({
 							style={styles.modalActionButton}
 							labelStyle={{ color: colors.textDark, fontSize: 16 }}
 						>
-							{t('cancel_button')}
+							{t("cancel_button")}
 						</Button>
 						<Button
 							onPress={handleConfirmPress}
@@ -448,7 +458,11 @@ const SelectedItemModal = ({
 							disabled={isLoading}
 							loading={isLoading}
 						>
-							{t('add_to_basket_button', { quantity: quantity, basketType: orderingMode === "party" ? t('party_basket') : t('my_basket') })}
+							{t("add_to_basket_button", {
+								quantity: quantity,
+								basketType:
+									orderingMode === "party" ? t("party_basket") : t("my_basket"),
+							})}
 						</Button>
 					</View>
 				</View>
@@ -766,4 +780,3 @@ const styles = StyleSheet.create({
 });
 
 export default SelectedItemModal;
-

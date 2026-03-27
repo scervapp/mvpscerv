@@ -1,5 +1,5 @@
 // screens/auth/CustomerSignupScreen.js
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import {
 	View,
 	Text,
@@ -11,28 +11,69 @@ import {
 	ScrollView,
 	Platform,
 	KeyboardAvoidingView,
+	Modal, // 🚨 Added Modal
 } from "react-native";
 import { Formik } from "formik";
 import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
+import { Ionicons } from "@expo/vector-icons"; // 🚨 Added for modal checkmarks
 import colors from "../../utils/styles/appStyles";
-import { auth } from "../../config/firebase.native";
+import { auth, db } from "../../config/firebase.native"; // 🚨 Added db for Kill Switch
 import { useTranslation } from "react-i18next";
+
+// 🚨 Defined supported countries with flags
+const SUPPORTED_COUNTRIES = [
+	{
+		code: "+507",
+		name: "Panama",
+		flag: "🇵🇦",
+		placeholder: "12345678",
+		maxLength: 8,
+	},
+	{
+		code: "+1",
+		name: "United States",
+		flag: "🇺🇸",
+		placeholder: "1234567890",
+		maxLength: 10,
+	},
+];
 
 const CustomerSignupScreen = ({ navigation }) => {
 	const { t } = useTranslation();
-	const { signInWithPhoneCredential, isLoading } = useContext(AuthContext);
+
+	// 🚨 Pulled bypassPhoneAuth from context
+	const { signInWithPhoneCredential, bypassPhoneAuth, isLoading } =
+		useContext(AuthContext);
+
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [formValues, setFormValues] = useState(null);
 	const [codeError, setCodeError] = useState("");
 
-	// NEW: State for country code toggle (Defaults to Panama)
 	const [countryCode, setCountryCode] = useState("+507");
+	const [isPickerVisible, setPickerVisible] = useState(false); // 🚨 Modal State
+	const [useBypassMode, setUseBypassMode] = useState(true); // 🚨 Kill Switch State
 
-	// NEW: Dynamic Validation Schema based on country code
+	const selectedCountry = SUPPORTED_COUNTRIES.find(
+		(c) => c.code === countryCode,
+	);
+
+	// 🚨 Kill Switch Listener
+	useEffect(() => {
+		const unsubscribe = db
+			.collection("bypass")
+			.doc("config")
+			.onSnapshot((doc) => {
+				if (doc.exists) {
+					setUseBypassMode(doc.data().smsBypassEnabled === true);
+				}
+			});
+		return () => unsubscribe();
+	}, []);
+
 	const validationSchema = Yup.object().shape({
 		phoneNumber: Yup.string()
 			.test("phone-length", t("invalid_phone_number_length"), function (value) {
@@ -47,23 +88,26 @@ const CustomerSignupScreen = ({ navigation }) => {
 	const handleSendVerificationCode = async (values) => {
 		setIsSubmitting(true);
 		try {
-			// 1. Strip all non-numeric characters (spaces, dashes, parens) from the user input
 			const cleanedNumber = values.phoneNumber.replace(/\D/g, "");
-
-			// 2. Combine the selected country code with the clean number
 			const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
 
-			console.log(`[DEBUG] Cleaned SMS target: ${fullPhoneNumber}`);
+			// 🚨 Remote Bypass Logic
+			if (useBypassMode) {
+				const cleanedNumber = values.phoneNumber.replace(/\D/g, "");
+				const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
 
-			// 3. Send to Firebase
+				// Pass the number here so the context has it!
+				await bypassPhoneAuth(fullPhoneNumber);
+				return;
+			}
+
+			// Real SMS Flow
 			const confirmationResult =
 				await auth.signInWithPhoneNumber(fullPhoneNumber);
-
-			// Save the cleaned number into formValues so the rest of the app uses the correct format
 			setFormValues({ ...values, phoneNumber: cleanedNumber });
 			setConfirmation(confirmationResult);
 		} catch (error) {
-			console.error("[DEBUG] CRITICAL ERROR sending verification code:", error);
+			console.error("[DEBUG] Error sending code:", error);
 			Alert.alert(
 				t("error"),
 				t(
@@ -124,35 +168,32 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 					{!confirmation ? (
 						<Formik
-							initialValues={{ firstName: "", lastName: "", phoneNumber: "" }}
+							initialValues={{ phoneNumber: "" }}
 							validationSchema={validationSchema}
 							onSubmit={handleSendVerificationCode}
 						>
 							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
-									{/* NEW: Phone Input Container with Country Code Toggle */}
 									<View style={styles.phoneInputContainer}>
+										{/* 🚨 Opens the Modal */}
 										<TouchableOpacity
 											style={styles.countryCodeSelector}
-											onPress={() =>
-												setCountryCode(countryCode === "+507" ? "+1" : "+507")
-											}
+											onPress={() => setPickerVisible(true)}
 										>
-											<Text style={styles.countryCodeText}>{countryCode}</Text>
-											{/* Adds a simple, dependency-free dropdown arrow */}
+											<Text style={styles.countryCodeText}>
+												{selectedCountry.flag} {selectedCountry.code}
+											</Text>
 											<Text style={styles.dropdownArrow}> ▾</Text>
 										</TouchableOpacity>
 
 										<TextInput
 											style={[styles.input, styles.phoneInputFlex]}
-											placeholder={
-												countryCode === "+507" ? "12345678" : "1234567890"
-											}
+											placeholder={selectedCountry.placeholder}
 											placeholderTextColor={colors.textMedium}
 											value={values.phoneNumber}
 											onChangeText={handleChange("phoneNumber")}
 											keyboardType="phone-pad"
-											maxLength={countryCode === "+507" ? 8 : 10}
+											maxLength={selectedCountry.maxLength}
 										/>
 									</View>
 
@@ -163,12 +204,56 @@ const CustomerSignupScreen = ({ navigation }) => {
 									<Button
 										mode="contained"
 										onPress={handleSubmit}
-										disabled={isSubmitting}
-										loading={isSubmitting}
+										disabled={isSubmitting || isLoading}
+										loading={isSubmitting || isLoading}
 										style={styles.button}
 									>
-										{t("send_verification_code")}
+										{/* 🚨 Dynamic Button Text */}
+										{useBypassMode
+											? t("Continue")
+											: t("send_verification_code")}
 									</Button>
+
+									{/* 🚨 THE CLEAR SELECTION MODAL */}
+									<Modal
+										visible={isPickerVisible}
+										transparent={true}
+										animationType="slide"
+										onRequestClose={() => setPickerVisible(false)}
+									>
+										<TouchableOpacity
+											style={styles.modalOverlay}
+											activeOpacity={1}
+											onPress={() => setPickerVisible(false)}
+										>
+											<View style={styles.modalContent}>
+												<Text style={styles.modalTitle}>Select Country</Text>
+
+												{SUPPORTED_COUNTRIES.map((item) => (
+													<TouchableOpacity
+														key={item.code}
+														style={styles.modalOption}
+														onPress={() => {
+															setCountryCode(item.code);
+															handleChange("phoneNumber")(""); // Clear input when switching
+															setPickerVisible(false);
+														}}
+													>
+														<Text style={styles.modalOptionText}>
+															{item.flag} {item.name} ({item.code})
+														</Text>
+														{countryCode === item.code && (
+															<Ionicons
+																name="checkmark"
+																size={24}
+																color={colors.primary}
+															/>
+														)}
+													</TouchableOpacity>
+												))}
+											</View>
+										</TouchableOpacity>
+									</Modal>
 								</View>
 							)}
 						</Formik>
@@ -248,7 +333,6 @@ const styles = StyleSheet.create({
 	},
 	form: { width: "100%" },
 
-	// NEW STYLES FOR PHONE ROW
 	phoneInputContainer: {
 		flexDirection: "row",
 		alignItems: "center",
@@ -260,7 +344,6 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 		borderRadius: 8,
-		// Ensure items sit side-by-side
 		flexDirection: "row",
 		justifyContent: "center",
 		alignItems: "center",
@@ -275,14 +358,13 @@ const styles = StyleSheet.create({
 	dropdownArrow: {
 		fontSize: 18,
 		color: colors.textMedium,
-		marginLeft: 4, // Gives a little breathing room between the number and arrow
-		marginTop: -2, // Visually centers the arrow with the text
+		marginLeft: 4,
+		marginTop: -2,
 	},
 	phoneInputFlex: {
 		flex: 1,
-		marginBottom: 0, // Override the default marginBottom since the container handles it
+		marginBottom: 0,
 	},
-	// END NEW STYLES
 
 	input: {
 		height: 55,
@@ -318,6 +400,39 @@ const styles = StyleSheet.create({
 	},
 	footerText: { fontSize: 15, color: colors.textMedium },
 	linkTextFooter: { color: colors.primary, fontSize: 15, fontWeight: "bold" },
+
+	// 🚨 MODAL STYLES ADDED
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0, 0, 0, 0.5)",
+		justifyContent: "flex-end",
+	},
+	modalContent: {
+		backgroundColor: colors.surfaceWhite,
+		borderTopLeftRadius: 20,
+		borderTopRightRadius: 20,
+		padding: 25,
+		paddingBottom: Platform.OS === "ios" ? 40 : 25,
+	},
+	modalTitle: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginBottom: 20,
+		textAlign: "center",
+	},
+	modalOption: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 15,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	modalOptionText: {
+		fontSize: 18,
+		color: colors.textDark,
+	},
 });
 
 export default CustomerSignupScreen;
