@@ -794,7 +794,9 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 
 	try {
 		let pinHash = null;
-		if (pin && (roleToSet === "manager" || roleToSet === "owner")) {
+
+		// 🚨 THE FIX: Hash the PIN for EVERYONE, regardless of role.
+		if (pin) {
 			const salt = await bcrypt.genSalt(10);
 			pinHash = await bcrypt.hash(pin, salt);
 		}
@@ -806,7 +808,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 			lastName,
 			role: roleToSet,
 			jobTitle: roleToSet === "worker" ? jobTitle : null,
-			pinHash, // Set the hash at creation time if provided
+			pinHash, // Now every employee gets their secure hash saved!
 			restaurantId,
 			isActive: true,
 			// Assign auth uid only to the first employee (the owner)

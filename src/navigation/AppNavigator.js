@@ -3,8 +3,9 @@ import React, { useContext, useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, ActivityIndicator } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { AuthContext } from "../context/authContext";
+import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext"; // 🚨 NEW: Import the session context
 import colors from "../utils/styles/appStyles";
 
 // --- Import All Screens ---
@@ -15,21 +16,21 @@ import CustomerSignupScreen from "../screens/auth/CustomerSignupScreen";
 import RestaurantSignupScreen from "../screens/auth/RestaurantSignupScreen";
 import PasswordResetScreen from "../screens/auth/PasswordResetScreen";
 
-// Main App Navigators (These contain your Tab Navigators)
+// Main App Navigators
 import CustomerBottomNavigation from "./CustomerBottomNav";
 import RestaurantBottomNavigation from "./RestaurantBottomNav";
+import PosLockScreen from "../screens/restaurant/PosLockScreen";
 
 const Stack = createNativeStackNavigator();
 
-// --- NEW: A dedicated navigator for the Authentication Flow ---
-// This stack includes all screens a user sees before they are logged in.
+// --- Auth Stack ---
 const AuthStack = () => (
 	<Stack.Navigator
 		initialRouteName="Welcome"
 		screenOptions={{
 			headerStyle: { backgroundColor: colors.backgroundLight },
 			headerTintColor: colors.textDark,
-			headerTitle: "", // Hides title by default, can be set per screen
+			headerTitle: "",
 			headerShadowVisible: false,
 		}}
 	>
@@ -45,9 +46,20 @@ const AuthStack = () => (
 	</Stack.Navigator>
 );
 
-// --- This is now the main App Navigator ---
-// Its only job is to decide which major part of the app to show:
-// the Auth flow, the Customer app, or the Restaurant app.
+// --- 🚨 NEW: The Enterprise POS Wrapper ---
+// This acts as a physical gate in front of the Restaurant Bottom Navigation
+const RestaurantFlow = () => {
+	const { activeSession } = useEmployeeSession();
+
+	// If no one has entered a PIN, show the Lock Screen
+	if (!activeSession) {
+		return <PosLockScreen />;
+	}
+
+	// Once a PIN is verified, reveal the POS
+	return <RestaurantBottomNavigation />;
+};
+
 const AppNavigator = () => {
 	const { t } = useTranslation();
 	const { currentUserData, isLoading, clearRedirectPath, redirectPath } =
@@ -55,12 +67,10 @@ const AppNavigator = () => {
 	const navigationRef = useRef();
 
 	useEffect(() => {
-		// This effect runs when the user data changes
 		if (currentUserData?.requiresOnboarding) {
 			console.log(
-				"AppNavigator: Onboarding required. Navigating to Employee setup."
+				"AppNavigator: Onboarding required. Navigating to Employee setup.",
 			);
-			// Navigate directly to the Back Office stack, and then to the EmployeeScreen
 			navigationRef.current?.navigate("BackOfficeNavigator", {
 				screen: "EmployeeScreen",
 			});
@@ -70,18 +80,13 @@ const AppNavigator = () => {
 	useEffect(() => {
 		if (!isLoading && !currentUserData && redirectPath) {
 			console.log(
-				`AppNavigator: User logged out. Redirecting to: ${redirectPath}`
+				`AppNavigator: User logged out. Redirecting to: ${redirectPath}`,
 			);
-
-			// --- THE FIX IS HERE ---
-			// Navigate to the 'Auth' stack first, then specify the 'Login' screen within it.
 			navigationRef.current?.navigate("Auth", { screen: redirectPath });
-
-			clearRedirectPath(); // Clear the path so it doesn't run again
+			clearRedirectPath();
 		}
 	}, [isLoading, currentUserData, redirectPath, clearRedirectPath]);
 
-	// Show a loading spinner while the AuthContext is checking the user's status
 	if (isLoading) {
 		return (
 			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -91,17 +96,16 @@ const AppNavigator = () => {
 	}
 
 	return (
-		<NavigationContainer>
+		<NavigationContainer ref={navigationRef}>
 			<Stack.Navigator screenOptions={{ headerShown: false }}>
 				{currentUserData ? (
 					// --- User is LOGGED IN ---
-					// Conditionally render the correct app based on their role
 					currentUserData.role === "restaurant" ||
 					currentUserData.role === "owner" ||
 					currentUserData.role === "manager" ? (
 						<Stack.Screen
 							name="RestaurantApp"
-							component={RestaurantBottomNavigation}
+							component={RestaurantFlow} // 🚨 FIX: Replaced BottomNavigation with our new Wrapper
 						/>
 					) : (
 						<Stack.Screen
@@ -111,7 +115,6 @@ const AppNavigator = () => {
 					)
 				) : (
 					// --- User is LOGGED OUT ---
-					// Show the entire authentication stack
 					<Stack.Screen name="Auth" component={AuthStack} />
 				)}
 			</Stack.Navigator>

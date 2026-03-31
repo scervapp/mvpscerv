@@ -695,37 +695,47 @@ const PartySessionScreen = () => {
 
 							{/* If user has un-sent items */}
 							{myItems.length > 0 && hasUnsentItems && !userHasPaid && (
-								<View style={styles.stickySplitRow}>
-									<TouchableOpacity
-										style={styles.stickySecondaryBtn}
-										onPress={handleAddMyItems}
-									>
-										<Text style={styles.stickySecondaryBtnText}>
-											+ {t("add_more", "Add More")}
-										</Text>
-									</TouchableOpacity>
-									<TouchableOpacity
-										style={[
-											styles.stickyPrimaryBtn,
-											{
-												flex: 2,
-												backgroundColor: colors.brandOrange || colors.primary,
-											},
-										]}
-										onPress={handleSendMyItems}
-										disabled={isSendingItems}
-									>
-										{isSendingItems ? (
-											<ActivityIndicator
-												size="small"
-												color={colors.surfaceWhite}
-											/>
-										) : (
-											<Text style={styles.stickyPrimaryBtnText}>
-												{t("send_to_kitchen", "Send to Kitchen")}
-											</Text>
+								<View>
+									{/* INLINE DISCLAIMER */}
+									<Text style={styles.inlineDisclaimerText}>
+										{t(
+											"kitchen_commitment_disclaimer",
+											"Items sent to the kitchen are final and will be added to your bill.",
 										)}
-									</TouchableOpacity>
+									</Text>
+
+									<View style={styles.stickySplitRow}>
+										<TouchableOpacity
+											style={styles.stickySecondaryBtn}
+											onPress={handleAddMyItems}
+										>
+											<Text style={styles.stickySecondaryBtnText}>
+												+ {t("add_more", "Add More")}
+											</Text>
+										</TouchableOpacity>
+										<TouchableOpacity
+											style={[
+												styles.stickyPrimaryBtn,
+												{
+													flex: 2,
+													backgroundColor: colors.brandOrange || colors.primary,
+												},
+											]}
+											onPress={handleSendMyItems}
+											disabled={isSendingItems}
+										>
+											{isSendingItems ? (
+												<ActivityIndicator
+													size="small"
+													color={colors.surfaceWhite}
+												/>
+											) : (
+												<Text style={styles.stickyPrimaryBtnText}>
+													{t("send_to_kitchen", "Send to Kitchen")}
+												</Text>
+											)}
+										</TouchableOpacity>
+									</View>
 								</View>
 							)}
 
@@ -1073,6 +1083,14 @@ const styles = StyleSheet.create({
 		marginBottom: -4,
 		marginTop: 10,
 		zIndex: 1,
+	},
+	inlineDisclaimerText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 12,
+		fontStyle: "italic",
+		paddingHorizontal: 10,
 	},
 });
 

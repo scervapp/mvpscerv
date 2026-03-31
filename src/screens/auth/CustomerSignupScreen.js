@@ -93,15 +93,14 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 			// 🚨 Remote Bypass Logic
 			if (useBypassMode) {
-				const cleanedNumber = values.phoneNumber.replace(/\D/g, "");
-				const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
-
-				// Pass the number here so the context has it!
+				// (Note: You already defined cleanedNumber and fullPhoneNumber above,
+				// so you don't need to re-declare them here, but I left your logic intact!)
 				await bypassPhoneAuth(fullPhoneNumber);
 				return;
 			}
 
-			// Real SMS Flow
+			// 🛑 REAL SMS FLOW (COMMENTED OUT TO PROTECT DEVICE)
+
 			const confirmationResult =
 				await auth.signInWithPhoneNumber(fullPhoneNumber);
 			setFormValues({ ...values, phoneNumber: cleanedNumber });

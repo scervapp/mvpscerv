@@ -1,6 +1,12 @@
 // navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
 import React, { useState, useContext, useEffect } from "react";
-import { Platform, View, StyleSheet, Text } from "react-native";
+import {
+	Platform,
+	View,
+	StyleSheet,
+	Text,
+	TouchableOpacity,
+} from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useTranslation } from "react-i18next";
@@ -32,7 +38,7 @@ import { useRestaurantData } from "../context/restaurant/RestaurantDataContext";
 import ManagePartyScreen from "../screens/restaurant/ManagePartyScreen.js";
 import ManualSeatScreen from "../screens/restaurant/ManualSeatingScreen.js";
 import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
-import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
+import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -47,6 +53,8 @@ const defaultHeaderOptions = {
 	headerTitleStyle: {
 		fontWeight: "bold",
 	},
+	// 🚨 ADD THIS LINE:
+	headerRight: () => <GlobalHeaderLock />,
 };
 
 const TabBarBadge = ({ count }) => {
@@ -57,6 +65,18 @@ const TabBarBadge = ({ count }) => {
 		<View style={styles.badge}>
 			<Text style={styles.badgeText}>{badgeText}</Text>
 		</View>
+	);
+};
+
+const GlobalHeaderLock = () => {
+	const { endSession } = useEmployeeSession();
+	return (
+		<TouchableOpacity
+			onPress={endSession}
+			style={{ marginRight: 15, padding: 5 }}
+		>
+			<Ionicons name="lock-closed" size={24} color={colors.textDark} />
+		</TouchableOpacity>
 	);
 };
 
@@ -109,13 +129,21 @@ const BackOfficeStackNavigator = () => {
 				component={MenuManagementScreen}
 				options={{ headerTitle: t("menu_management_title") }}
 			/>
+			<Stack.Screen
+				name="Tables"
+				component={TableManagementScreen}
+				options={{ headerTitle: t("table_management", "Table Management") }}
+			/>
 		</Stack.Navigator>
 	);
 };
 const ActiveTablesStack = () => (
-	<Stack.Navigator screenOptions={{ headerShown: false }}>
-		{/* The main dashboard we just built */}
-		<Stack.Screen name="RestaurantActiveTables" component={RestaurantCheckin} />
+	<Stack.Navigator screenOptions={defaultHeaderOptions}>
+		<Stack.Screen
+			name="RestaurantActiveTables"
+			component={RestaurantCheckin}
+			options={{ headerTitle: "My Tables" }}
+		/>
 
 		<Stack.Screen
 			name="ManualSeatScreen"
@@ -146,7 +174,8 @@ const RestaurantBottomNavigation = () => {
 	return (
 		<Tab.Navigator
 			screenOptions={({ route }) => ({
-				headerShown: false, // Headers are handled by the inner stack navigators
+				...defaultHeaderOptions, // Headers are handled by the inner stack navigators
+				headerShown: false,
 				tabBarActiveTintColor: colors.primary,
 				tabBarInactiveTintColor: colors.textMedium,
 				tabBarShowLabel: true,
@@ -167,9 +196,9 @@ const RestaurantBottomNavigation = () => {
 							iconName = focused ? "view-dashboard" : "view-dashboard-outline";
 							break;
 						case "Checkins":
-							// 🚨 CHANGED: From account-clock to a server's order pad / ticket board
 							iconName = focused ? "clipboard-text" : "clipboard-text-outline";
-							badgeCount = newCheckInCount;
+							// 🚨 MOVED THE SERVICE BADGE HERE
+							badgeCount = newCheckInCount + serviceRequestCount;
 							break;
 						case "ChefsQ":
 							iconName = focused
@@ -183,9 +212,6 @@ const RestaurantBottomNavigation = () => {
 							badgeCount = serviceRequestCount;
 							break;
 
-						case "Tables":
-							iconName = focused ? "table-chair" : "table-chair";
-							break;
 						default:
 							iconName = "help-circle";
 							break;
@@ -218,9 +244,7 @@ const RestaurantBottomNavigation = () => {
 						case "ChefsQ":
 							label = t("chefs_q_tab");
 							break;
-						case "Tables":
-							label = t("tables_tab");
-							break;
+
 						case "BackOfficeNavigator":
 							label = t("back_office_tab");
 							break;
@@ -234,11 +258,9 @@ const RestaurantBottomNavigation = () => {
 			{/* Tab 2: Customers Waiting */}
 			<Tab.Screen name="Checkins" component={ActiveTablesStack} />
 
-			<Tab.Screen name="Service" component={ServiceRequestsScreen} />
 			{/* Tab 3: Chef's Queue */}
 			<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
 			{/* Tab 4: Table Management */}
-			<Tab.Screen name="Tables" component={TableManagementScreen} />
 		</Tab.Navigator>
 	);
 };

@@ -1,4 +1,3 @@
-// screens/restaurant/BackOfficeScreen.js
 import React, { useContext, useEffect, useState } from "react";
 import {
 	View,
@@ -10,124 +9,110 @@ import {
 	Alert,
 	Dimensions,
 	ActivityIndicator,
+	SafeAreaView,
 } from "react-native";
-import { db, functions } from "../../config/firebase.native";
+import { functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { StatusIndicator } from "./StatusIndicator";
 import { useTranslation } from "react-i18next";
-
-// --- 1. IMPORT i18n DIRECTLY ---
 import i18n from "../../config/i18n";
-
-const { width } = Dimensions.get("window");
-const cardMargin = 10;
-const numColumns = 2;
-const cardWidth = width / numColumns - cardMargin * (numColumns + 1);
 
 const BackOfficeScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
-	const [isLoading, setIsLoading] = useState(false);
 	const [isStripeLoading, setIsStripeLoading] = useState(false);
 	const [isLogoutLoading, setIsLogoutLoading] = useState(false);
 
 	const isTestMode = currentUserData?.isTestAccount !== false;
 
-	// --- 2. ADD TOGGLE FUNCTION ---
 	const toggleLanguage = () => {
 		const nextLanguage = i18n.language === "en" ? "es" : "en";
 		i18n.changeLanguage(nextLanguage);
 	};
 
-	const baseScreens = [
-		{
-			name: "RestaurantMenu",
-			label: t("menu"),
-			iconName: "silverware-fork-knife",
-		},
-		{
-			name: "RestaurantProfile",
-			label: t("profile"),
-			iconName: "store-settings-outline",
-		},
-		{
-			name: "EmployeeScreen",
-			label: t("employee"),
-			iconName: "account-group-outline",
-		},
-		{
-			name: "SalesReportScreen",
-			label: t("daily_sales_report"),
-			iconName: "chart-line",
-		},
-	];
+	const [screens, setScreens] = useState([]);
 
-	const [screens, setScreens] = useState(baseScreens);
-
-	// Update screens when language changes or user data changes
 	useEffect(() => {
 		let dynamicScreens = [
 			{
+				id: "1",
 				name: "RestaurantMenu",
 				label: t("menu"),
-				iconName: "silverware-fork-knife",
+				iconName: "book-open-variant",
+				color: "#6366f1",
+				desc: "Items & Pricing",
 			},
 			{
-				name: "RestaurantProfile",
-				label: t("profile"),
-				iconName: "store-settings-outline",
-			},
-			{
+				id: "2",
 				name: "EmployeeScreen",
 				label: t("employee"),
-				iconName: "account-group-outline",
+				iconName: "account-tie",
+				color: "#8b5cf6",
+				desc: "Staff & PINs",
 			},
 			{
+				id: "3",
+				name: "Tables",
+				label: t("tables"),
+				iconName: "table-furniture",
+				color: "#ec4899",
+				desc: "Floor Plan & QR Setup",
+			},
+			{
+				id: "4",
 				name: "SalesReportScreen",
-				label: t("daily_sales_report"),
-				iconName: "chart-line",
+				label: t("sales"),
+				iconName: "finance",
+				color: "#10b981",
+				desc: "Revenue & Stats",
+			},
+			{
+				id: "5",
+				name: "RestaurantProfile",
+				label: t("profile"),
+				iconName: "cog",
+				color: "#64748b",
+				desc: "Shop Settings",
 			},
 		];
 
-		// 🚨 NEW: Check if the restaurant is in Panama
 		const country =
-			currentUserData?.country ||
-			currentUserData?.countryCode ||
-			currentUserData?.restaurantCountryCode ||
-			"";
-		const isPanama = country === "PA" || country.toLowerCase() === "panama";
+			currentUserData?.country || currentUserData?.countryCode || "";
+		const isPanama =
+			country.toUpperCase() === "PA" || country.toLowerCase() === "panama";
 
-		// Only add Stripe screens if the restaurant is NOT in Panama
 		if (!isPanama) {
 			if (!currentUserData?.stripeAccountId) {
 				dynamicScreens.push({
+					id: "6",
 					name: "CreateStripeAccount",
-					label: t("setup_payouts"),
-					iconName: "credit-card-plus-outline",
+					label: t("payouts"),
+					iconName: "credit-card-plus",
+					color: "#0ea5e9",
+					desc: "Initialize Stripe Payouts",
 					action: handleCreateConnectedAccount,
 				});
 			} else {
 				dynamicScreens.push({
+					id: "6",
 					name: "ConnectAccount",
-					label: t("payouts_dashboard"),
-					iconName: "open-in-new",
+					label: t("stripe"),
+					iconName: "wallet",
+					color: "#0ea5e9",
+					desc: "View Payout Dashboard",
 					action: handleCheckOnboardingStatus,
 				});
 			}
 		}
-
 		setScreens(dynamicScreens);
-	}, [
-		currentUserData?.stripeAccountId,
-		currentUserData?.country,
-		currentUserData?.countryCode,
-		currentUserData?.restaurantCountryCode,
-		t,
-	]);
+	}, [currentUserData, t]);
+
+	/* ──────────────────────────────
+       STRIPE & LOGOUT FUNCTIONS
+    ────────────────────────────── */
 
 	const handleCreateConnectedAccount = async () => {
 		try {
@@ -143,7 +128,6 @@ const BackOfficeScreen = ({ navigation }) => {
 	const handleCheckOnboardingStatus = async () => {
 		if (isStripeLoading || !currentUserData?.stripeAccountId) return;
 		setIsStripeLoading(true);
-
 		try {
 			const checkOnboardingStatus = httpsCallable(
 				functions,
@@ -155,10 +139,8 @@ const BackOfficeScreen = ({ navigation }) => {
 			});
 
 			if (response.data.isOnboarded) {
-				console.log("Account is onboarded");
 				handleConnectAccount();
 			} else {
-				console.log("Account is not onboarded");
 				Linking.openURL(response.data.accountLinkUrl);
 			}
 		} catch (error) {
@@ -183,7 +165,7 @@ const BackOfficeScreen = ({ navigation }) => {
 			if (response.data.url) {
 				await Linking.openURL(response.data.url);
 			} else {
-				throw new Error("Login link was not returned from the server.");
+				throw new Error("Login link not returned.");
 			}
 		} catch (error) {
 			console.error("Error creating Stripe login link:", error);
@@ -191,10 +173,6 @@ const BackOfficeScreen = ({ navigation }) => {
 		} finally {
 			setIsStripeLoading(false);
 		}
-	};
-
-	const handleScreenPress = (screenName) => {
-		navigation.navigate(screenName);
 	};
 
 	const handleLogout = async () => {
@@ -208,180 +186,154 @@ const BackOfficeScreen = ({ navigation }) => {
 		}
 	};
 
-	const renderGridItem = ({ item }) => (
+	/* ──────────────────────────────
+       RENDER
+    ────────────────────────────── */
+
+	const renderItem = ({ item }) => (
 		<TouchableOpacity
-			onPress={() => {
-				if (item.action) {
-					item.action();
-				} else {
-					handleScreenPress(item.name);
-				}
-			}}
 			style={styles.card}
+			onPress={() =>
+				item.action ? item.action() : navigation.navigate(item.name)
+			}
+			activeOpacity={0.8}
 			disabled={isStripeLoading}
 		>
-			<View style={styles.iconContainer}>
+			<View style={[styles.iconBox, { backgroundColor: item.color + "15" }]}>
 				{isStripeLoading &&
 				(item.name === "CreateStripeAccount" ||
 					item.name === "ConnectAccount") ? (
-					<ActivityIndicator size="large" color={colors.primary} />
+					<ActivityIndicator size="small" color={item.color} />
 				) : (
 					<MaterialCommunityIcons
 						name={item.iconName}
-						size={40}
-						color={colors.primary}
+						size={28}
+						color={item.color}
 					/>
 				)}
 			</View>
-			<Text style={styles.cardLabel}>{item.label}</Text>
+			<View style={styles.cardInfo}>
+				<Text style={styles.cardLabel}>{item.label}</Text>
+				<Text style={styles.cardDesc}>{item.desc}</Text>
+			</View>
+			<MaterialCommunityIcons name="chevron-right" size={20} color="#CBD5E1" />
 		</TouchableOpacity>
 	);
 
 	return (
-		<View style={styles.container}>
-			{/* --- 3. LANGUAGE TOGGLE (Top Right) --- */}
-			<View
-				style={{
-					flexDirection: "row",
-					justifyContent: "flex-end",
-					marginBottom: 5,
-				}}
-			>
-				<TouchableOpacity
-					onPress={toggleLanguage}
-					style={styles.languageButton}
-				>
-					<Text
-						style={{ fontSize: 13, fontWeight: "bold", color: colors.textDark }}
-					>
+		<SafeAreaView style={styles.safeArea}>
+			<View style={styles.header}>
+				<View>
+					<Text style={styles.headerSubtitle}>{t("ADMINISTRATION")}</Text>
+					<Text style={styles.headerTitle}>{t("Back Office")}</Text>
+				</View>
+				<TouchableOpacity onPress={toggleLanguage} style={styles.langToggle}>
+					<Text style={styles.langText}>
 						{i18n.language === "en" ? "🇺🇸 EN" : "🇵🇦 ES"}
 					</Text>
 				</TouchableOpacity>
 			</View>
 
-			<Text style={styles.welcomeText}>
-				{t("welcome")}, {currentUserData?.firstName || t("admin")}!
-			</Text>
-			<Text style={styles.heading}>{t("back_office")}</Text>
+			<View style={styles.mainContainer}>
+				<View style={styles.statusRow}>
+					<StatusIndicator isTestMode={isTestMode} />
+				</View>
 
-			<View style={styles.indicatorContainer}>
-				<StatusIndicator isTestMode={isTestMode} />
-			</View>
-
-			{/* Replaced fixed isLoading logic so it actually uses the grid */}
-			{!screens || screens.length === 0 ? (
-				<ActivityIndicator size="large" color={colors.primary} />
-			) : (
 				<FlatList
 					data={screens}
-					keyExtractor={(item) => item.name}
-					numColumns={numColumns}
-					renderItem={renderGridItem}
-					contentContainerStyle={styles.listContainer}
+					renderItem={renderItem}
+					keyExtractor={(item) => item.id}
+					showsVerticalScrollIndicator={false}
+					contentContainerStyle={styles.listContent}
 				/>
-			)}
 
-			<TouchableOpacity
-				style={[styles.button, styles.logoutButton]}
-				onPress={handleLogout}
-				disabled={isLogoutLoading}
-			>
-				{isLogoutLoading ? (
-					<ActivityIndicator color="#fff" />
-				) : (
-					<Text style={styles.buttonText}>{t("logout")}</Text>
-				)}
-			</TouchableOpacity>
-		</View>
+				<TouchableOpacity
+					style={styles.logoutBtn}
+					onPress={handleLogout}
+					disabled={isLogoutLoading}
+				>
+					{isLogoutLoading ? (
+						<ActivityIndicator color="#FFF" />
+					) : (
+						<>
+							<MaterialCommunityIcons name="logout" size={20} color="#FFF" />
+							<Text style={styles.logoutText}>{t("Exit Admin Mode")}</Text>
+						</>
+					)}
+				</TouchableOpacity>
+			</View>
+		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
-	container: {
-		flex: 1,
-		padding: cardMargin,
-		backgroundColor: colors.background || "#f8f9fa",
-	},
-	languageButton: {
-		backgroundColor: "#fff",
-		paddingVertical: 6,
-		paddingHorizontal: 12,
-		borderRadius: 20,
-		borderWidth: 1,
-		borderColor: "#ddd",
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.1,
-		shadowRadius: 1,
-		elevation: 2,
-	},
-	welcomeText: {
-		fontSize: 18,
-		fontWeight: "500",
-		color: colors.textDark || "#495057",
-		marginBottom: 10,
-		textAlign: "center",
-	},
-	heading: {
-		fontSize: 28,
-		fontWeight: "bold",
-		marginBottom: 20,
-		color: colors.primary || "#007bff",
-		textAlign: "center",
-	},
-	indicatorContainer: {
-		marginBottom: 15,
-	},
-	listContainer: {
-		paddingBottom: 20,
-	},
-	card: {
-		flex: 1,
-		margin: cardMargin,
-		width: cardWidth,
-		aspectRatio: 1,
-		backgroundColor: "#ffffff",
-		borderRadius: 15,
-		padding: 15,
+	safeArea: { flex: 1, backgroundColor: "#F8FAFC" },
+	header: {
+		flexDirection: "row",
+		justifyContent: "space-between",
 		alignItems: "center",
-		justifyContent: "center",
+		paddingHorizontal: 24,
+		paddingVertical: 20,
+		backgroundColor: "#FFF",
+	},
+	headerSubtitle: {
+		fontSize: 10,
+		fontWeight: "800",
+		color: "#94A3B8",
+		letterSpacing: 1.5,
+	},
+	headerTitle: { fontSize: 24, fontWeight: "800", color: "#1E293B" },
+	langToggle: {
+		backgroundColor: "#F1F5F9",
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: 12,
+	},
+	langText: { fontSize: 13, fontWeight: "700", color: "#475569" },
+	mainContainer: { flex: 1, paddingHorizontal: 20 },
+	statusRow: { marginVertical: 15 },
+	listContent: { paddingBottom: 100 },
+	card: {
+		backgroundColor: "#FFF",
+		borderRadius: 16,
+		padding: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 12,
+		elevation: 2,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.15,
-		shadowRadius: 3.84,
+		shadowOpacity: 0.05,
+		shadowRadius: 15,
+	},
+	iconBox: {
+		width: 50,
+		height: 50,
+		borderRadius: 14,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	cardInfo: { flex: 1, marginLeft: 16 },
+	cardLabel: { fontSize: 16, fontWeight: "700", color: "#1E293B" },
+	cardDesc: { fontSize: 12, color: "#64748B", marginTop: 2 },
+	logoutBtn: {
+		position: "absolute",
+		bottom: 30,
+		left: 20,
+		right: 20,
+		backgroundColor: "#EF4444",
+		height: 56,
+		borderRadius: 16,
+		flexDirection: "row",
+		justifyContent: "center",
+		alignItems: "center",
 		elevation: 5,
 	},
-	iconContainer: {
-		width: 60,
-		height: 60,
-		marginBottom: 12,
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	cardLabel: {
-		fontSize: 15,
-		fontWeight: "600",
-		textAlign: "center",
-		color: colors.text || "#343a40",
-	},
-	button: {
-		paddingVertical: 12,
-		paddingHorizontal: 30,
-		borderRadius: 25,
-		alignItems: "center",
-		justifyContent: "center",
-		marginTop: 20,
-	},
-	logoutButton: {
-		backgroundColor: colors.danger || "#dc3545",
-		alignSelf: "center",
-		width: "80%",
-		marginBottom: 20,
-	},
-	buttonText: {
-		color: "#ffffff",
+	logoutText: {
+		color: "#FFF",
+		fontWeight: "800",
 		fontSize: 16,
-		fontWeight: "bold",
+		marginLeft: 10,
 	},
 });
 

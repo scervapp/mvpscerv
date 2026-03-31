@@ -9,6 +9,7 @@ import React, {
 import { AuthContext } from "../authContext";
 import { db } from "../../config/firebase";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { useEmployeeSession } from "./EmployeeSessionContext";
 
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
@@ -18,6 +19,7 @@ export const RestaurantDataContext = createContext({
 
 export const RestaurantDataProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 
 	const isCheckInInitialLoad = useRef(true);
 	const isKitchenInitialLoad = useRef(true);
@@ -75,27 +77,50 @@ export const RestaurantDataProvider = ({ children }) => {
 			setNewCheckInCount(0);
 			return;
 		}
+
+		// Determine if the person holding the tablet cares about the front door
+		const isHostOrManager =
+			activeSession?.role !== "worker" || activeSession?.jobTitle === "host";
+
+		// Listen to the active parties to match the cards on the Host Hub
 		const unsub = db
-			.collection("checkIns")
+			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "AWAITING_TABLE")
+			.where("status", "==", "active")
 			.onSnapshot((snap) => {
-				if (!isCheckInInitialLoad.current) {
+				// Filter down to parties that need a server assigned
+				const unassignedParties = snap.docs
+					.map((doc) => doc.data())
+					.filter((party) => !party.server || party.server.id === "unassigned");
+
+				// Play the sound ONLY if a new table needs a server, and ONLY if I am a Host/Manager
+				if (!isCheckInInitialLoad.current && isHostOrManager) {
 					snap.docChanges().forEach((change) => {
 						if (change.type === "added") {
-							checkInPlayer.current?.seekTo(0);
-							checkInPlayer.current?.play();
+							const newParty = change.doc.data();
+							const needsServer =
+								!newParty.server || newParty.server.id === "unassigned";
+
+							if (needsServer) {
+								console.log("New QR Check-in! Playing Host Bell.");
+								checkInPlayer.current?.seekTo(0);
+								checkInPlayer.current?.play();
+							}
 						}
 					});
 				}
+
 				isCheckInInitialLoad.current = false;
-				setNewCheckInCount(snap.size);
+
+				// Update the badge for Hosts/Managers. Servers see a clean '0'.
+				setNewCheckInCount(isHostOrManager ? unassignedParties.length : 0);
 			});
+
 		return () => {
 			isCheckInInitialLoad.current = true;
 			unsub();
 		};
-	}, [restaurantId]);
+	}, [restaurantId, activeSession?.role, activeSession?.jobTitle]);
 
 	// --- KITCHEN LISTENER ---
 	useEffect(() => {
@@ -132,33 +157,62 @@ export const RestaurantDataProvider = ({ children }) => {
 			return;
 		}
 
+		// We still fetch all active requests to ensure the query doesn't fail
 		const unsub = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("serviceRequested", "==", true) // Only grab tables asking for help
+			.where("serviceRequested", "==", true)
 			.onSnapshot((snap) => {
+				// 1. Convert snapshot to a normal array
+				const allRequests = snap.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+
+				// 2. Filter down to ONLY the tables this server owns
+				let myRequests = allRequests;
+				if (
+					activeSession?.role === "worker" &&
+					activeSession?.jobTitle === "server"
+				) {
+					myRequests = allRequests.filter(
+						(party) => party.server?.id === activeSession.id,
+					);
+				}
+
+				// 3. Play the bell ONLY if a table I care about was just added
 				if (!isServiceInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
-						// When the flag flips to true, it enters this query as an "added" document
 						if (change.type === "added") {
-							console.log("Service requested at a table! Playing bell.");
-							servicePlayer.current?.seekTo(0);
-							servicePlayer.current?.play();
+							const newParty = change.doc.data();
+							const isMyTable = newParty.server?.id === activeSession?.id;
+							const isManager = activeSession?.role !== "worker";
+
+							if (isMyTable || isManager) {
+								console.log("Service requested at MY table! Playing bell.");
+								servicePlayer.current?.seekTo(0);
+								servicePlayer.current?.play();
+							}
 						}
 					});
 				}
 
 				isServiceInitialLoad.current = false;
 
-				// This updates a badge showing exactly how many tables currently need help
-				setServiceRequestCount(snap.size);
+				// 4. Update the badge with the FILTERED mathematical count
+				setServiceRequestCount(myRequests.length);
 			});
 
 		return () => {
 			isServiceInitialLoad.current = true;
 			unsub();
 		};
-	}, [restaurantId]);
+	}, [
+		restaurantId,
+		activeSession?.id,
+		activeSession?.role,
+		activeSession?.jobTitle,
+	]);
 
 	/* ──────────────────────────────
      4.  Context value
