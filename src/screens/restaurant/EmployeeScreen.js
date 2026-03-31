@@ -38,9 +38,8 @@ const AddEditEmployeeModal = ({
 	isFirstEmployee,
 }) => {
 	const { t } = useTranslation();
-	console.log(
-		`AddEditEmployeeModal: Rendering. isFirstEmployee prop is: ${isFirstEmployee}`,
-	);
+
+	// 🚨 FIX 1: Make PIN required for ALL roles
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required(t("first_name_is_required")),
 		lastName: Yup.string().required(t("last_name_is_required")),
@@ -52,28 +51,16 @@ const AddEditEmployeeModal = ({
 			then: (schema) => schema.required(t("please_select_a_job_title")),
 			otherwise: (schema) => schema.nullable(),
 		}),
-		pin: Yup.string().when("role", {
-			is: (role) => role === "manager" || role === "owner",
-			then: (schema) =>
-				schema
-					.min(4, t("pin_must_be_4_6_digits"))
-					.max(6, t("pin_must_be_4_6_digits"))
-					.required(t("a_pin_is_required_for_this_role")),
-		}),
+		pin: Yup.string()
+			.min(4, t("pin_must_be_4_6_digits"))
+			.max(6, t("pin_must_be_4_6_digits"))
+			.required(
+				t(
+					"a_pin_is_required_for_pos_access",
+					"A PIN is required for POS access",
+				),
+			),
 	});
-
-	const initialFormValues = {
-		firstName: "",
-		lastName: "",
-		role: isFirstEmployee ? "owner" : "worker",
-		pin: "",
-	};
-
-	// --- LOG 3: Log the initial values for Formik ---
-	console.log(
-		"AddEditEmployeeModal: Formik initialValues are:",
-		initialFormValues,
-	);
 
 	return (
 		<Modal
@@ -190,7 +177,6 @@ const AddEditEmployeeModal = ({
 										<Text style={styles.errorText}>{errors.role}</Text>
 									)}
 
-									{/* --- NEW CONDITIONAL JOB TITLE SELECTOR --- */}
 									{values.role === "worker" && (
 										<>
 											<Text style={styles.inputLabel}>{t("job_title")}</Text>
@@ -220,24 +206,21 @@ const AddEditEmployeeModal = ({
 										</>
 									)}
 
-									{(values.role === "manager" || values.role === "owner") && (
-										<>
-											<Text style={styles.inputLabel}>
-												{t("set_4_6_digit_pin")}
-											</Text>
-											<TextInput
-												style={styles.input}
-												placeholder={t("manager_pin")}
-												value={values.pin}
-												onChangeText={handleChange("pin")}
-												keyboardType="number-pad"
-												secureTextEntry
-												maxLength={6}
-											/>
-											{touched.pin && errors.pin && (
-												<Text style={styles.errorText}>{errors.pin}</Text>
-											)}
-										</>
+									{/* 🚨 FIX 2: PIN Input is now visible for EVERYONE */}
+									<Text style={styles.inputLabel}>
+										{t("set_4_6_digit_pin", "Set 4-6 Digit POS Login PIN")}
+									</Text>
+									<TextInput
+										style={styles.input}
+										placeholder={t("pos_pin", "POS PIN")}
+										value={values.pin}
+										onChangeText={handleChange("pin")}
+										keyboardType="number-pad"
+										secureTextEntry
+										maxLength={6}
+									/>
+									{touched.pin && errors.pin && (
+										<Text style={styles.errorText}>{errors.pin}</Text>
 									)}
 
 									<View style={styles.modalActions}>
@@ -272,7 +255,6 @@ const AddEditEmployeeModal = ({
 };
 
 const EmployeeScreen = () => {
-
 	const { currentUserData } = useContext(AuthContext);
 	const [employees, setEmployees] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -282,7 +264,6 @@ const EmployeeScreen = () => {
 	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
 	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
 	const { t } = useTranslation();
-
 
 	useEffect(() => {
 		const restaurantId = currentUserData?.uid;

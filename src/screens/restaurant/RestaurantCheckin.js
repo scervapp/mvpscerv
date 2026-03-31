@@ -10,8 +10,10 @@ import {
 	RefreshControl,
 	Alert,
 } from "react-native";
+import moment from "moment";
 import { AuthContext } from "../../context/authContext";
-import { db } from "../../config/firebase";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext"; // 🚨 IMPORTED CONTEXT
+import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
@@ -23,31 +25,37 @@ import {
 	where,
 	getDocs,
 } from "@react-native-firebase/firestore";
+import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import { useNavigation } from "@react-navigation/native";
 
-// 🚨 IMPORT YOUR MODAL
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
 
 const RestaurantActiveTables = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
+
 	const { currentUserData } = useContext(AuthContext);
+	// 🚨 EXTRACTED SESSION VARIABLES HERE so they exist for the whole component
+	const { activeSession, endSession } = useEmployeeSession();
 
 	const [activeParties, setActiveParties] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [isActionLoading, setIsActionLoading] = useState(false);
 	const [error, setError] = useState(null);
 	const [isRefreshing, setIsRefreshing] = useState(false);
 
-	// --- Modal State ---
 	const [isServerModalVisible, setIsServerModalVisible] = useState(false);
 	const [selectedPartyForAssignment, setSelectedPartyForAssignment] =
 		useState(null);
 	const [restaurantServers, setRestaurantServers] = useState([]);
 
-	// 1. Listen for Active Parties
+	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
+
+	// 1. Listen for Active Parties & Filter by Role
 	useEffect(() => {
-		const restaurantId = currentUserData?.uid;
+		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+
 		if (!restaurantId) {
 			setError(
 				t(
@@ -72,84 +80,96 @@ const RestaurantActiveTables = () => {
 					id: doc.id,
 					...doc.data(),
 				}));
-				setActiveParties(partiesData);
+
+				let filteredParties = partiesData;
+
+				// 🚨 If the logged-in employee is strictly a "Server", restrict their view
+				if (
+					activeSession?.role === "worker" &&
+					activeSession?.jobTitle === "server"
+				) {
+					filteredParties = partiesData.filter((party) => {
+						const needsServer =
+							!party.server || party.server.id === "unassigned";
+						const isMyTable = party.server?.id === activeSession.id;
+						return needsServer || isMyTable;
+					});
+				}
+
+				setActiveParties(filteredParties);
 				setError(null);
 				setIsLoading(false);
 				setIsRefreshing(false);
 			},
 			(err) => {
 				console.error("RestaurantActiveTables: Snapshot error:", err);
-				if (err.message.includes("index")) {
-					console.warn("Index is building, please wait...");
-				} else {
-					setError(
-						t(
-							"failed_to_listen_for_active_tables",
-							"Failed to load active tables.",
-						),
-					);
-				}
+				setError(
+					t(
+						"failed_to_listen_for_active_tables",
+						"Failed to load active tables.",
+					),
+				);
 				setIsLoading(false);
 				setIsRefreshing(false);
 			},
 		);
 
 		return () => unsubscribe();
-	}, [currentUserData?.uid, t]);
+	}, [
+		currentUserData?.uid,
+		currentUserData?.restaurantId,
+		activeSession?.id,
+		activeSession?.role,
+		activeSession?.jobTitle,
+		t,
+	]);
 
-	// 2. Fetch the Staff/Servers List once when the screen loads
+	// 2. Fetch Servers for Assignment Modal
 	useEffect(() => {
 		const fetchServers = async () => {
-			const restaurantId = currentUserData?.uid;
+			const restaurantId =
+				currentUserData?.restaurantId || currentUserData?.uid;
 			if (!restaurantId) return;
 
 			try {
-				// 🚨 THE FIX: Point to the 'employees' subcollection and check 'jobTitle'
 				const staffQuery = query(
 					collection(db, `restaurants/${restaurantId}/employees`),
-					where("jobTitle", "==", "server"), // Note: Make sure "server" matches the exact casing in your DB (e.g., "Server" vs "server")
+					where("jobTitle", "==", "server"),
 				);
-
 				const staffSnapshot = await getDocs(staffQuery);
 				const staffList = staffSnapshot.docs.map((doc) => ({
 					id: doc.id,
 					...doc.data(),
 				}));
-
 				setRestaurantServers(staffList);
 			} catch (err) {
 				console.error("Error fetching staff:", err);
 			}
 		};
 		fetchServers();
-	}, [currentUserData?.uid]);
+	}, [currentUserData?.uid, currentUserData?.restaurantId]);
 
 	const onRefresh = useCallback(() => {
 		setIsRefreshing(true);
 		setTimeout(() => setIsRefreshing(false), 1000);
 	}, []);
 
-	// 3. Handle Card Taps (Manage vs Assign)
+	// 3. Table Tap
 	const handleTableTap = (party) => {
 		const needsServer = !party.server || party.server.id === "unassigned";
-
 		if (needsServer) {
-			// Pop open the assignment modal
 			setSelectedPartyForAssignment(party);
 			setIsServerModalVisible(true);
 		} else {
-			// 🚨 THE FIX: Uncommented this line to actually navigate!
 			navigation.navigate("ManagePartyScreen", { partyId: party.id });
 		}
 	};
 
-	// 4. Update the Firestore Document when a server is assigned
+	// 4. Assign Server
 	const executeServerAssignment = async (selectedServer) => {
 		if (!selectedPartyForAssignment || !selectedServer) return;
-
 		try {
 			const partyRef = doc(db, "parties", selectedPartyForAssignment.id);
-
 			await updateDoc(partyRef, {
 				server: {
 					id: selectedServer.id,
@@ -157,8 +177,6 @@ const RestaurantActiveTables = () => {
 				},
 				updatedAt: new Date(),
 			});
-
-			// The onSnapshot listener will automatically flip the card back to white!
 			setIsServerModalVisible(false);
 			setSelectedPartyForAssignment(null);
 		} catch (err) {
@@ -167,14 +185,69 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
-	// --- Inline Component for the Active Table Card ---
+	// 5. Acknowledge Service
+	const handleAcknowledge = async (partyId) => {
+		try {
+			await db.collection("parties").doc(partyId).update({
+				serviceRequested: false,
+			});
+		} catch (error) {
+			console.error("Error clearing service request:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_clear_request", "Could not clear request."),
+			);
+		}
+	};
+
+	// 6. Clear Table
+	const handleClearTableAction = (party) => {
+		Alert.alert(
+			t("clear_table", "Clear Table"),
+			`${t("this_will_clear_all_data_for", "This will close out and clear")} ${party.table?.name || "this table"}. ${t("are_you_sure", "Are you sure?")}`,
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("confirm_clear", "Clear Table"),
+					style: "destructive",
+					onPress: async () => {
+						setIsActionLoading(true);
+						try {
+							const restaurantId =
+								currentUserData?.restaurantId || currentUserData?.uid;
+							await forceClearTableFunction({
+								restaurantId: restaurantId,
+								tableId: party.table?.id || party.tableId,
+								checkInId: party.id,
+								customerId: party.hostUserId || party.currentCustomerId,
+							});
+							Alert.alert(
+								t("success", "Success"),
+								t("has_been_cleared", "Table cleared successfully."),
+							);
+						} catch (error) {
+							console.error("Error force-clearing table:", error);
+							Alert.alert(
+								t("error", "Error"),
+								`${t("could_not_clear_the_table", "Could not clear table")}: ${error.message}`,
+							);
+						} finally {
+							setIsActionLoading(false);
+						}
+					},
+				},
+			],
+		);
+	};
+
 	const renderPartyCard = ({ item }) => {
 		const partySize = item.guestPips ? item.guestPips.length : 1;
 		const tableName = item.table?.name || t("unknown_table", "Unknown Table");
 		const hostName = item.hostName || t("guest", "Guest");
 
-		// Is it self-seated without a server?
 		const needsServer = !item.server || item.server.id === "unassigned";
+		const needsService = item.serviceRequested === true;
+		const isCheckoutRequest = item.customerStatus === "ready_to_pay";
 
 		const seatedTime = item.createdAt?.toDate
 			? item.createdAt
@@ -182,10 +255,19 @@ const RestaurantActiveTables = () => {
 					.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 			: t("just_now", "Just now");
 
+		const timeWaiting = item.serviceRequestedAt
+			? moment(item.serviceRequestedAt).fromNow()
+			: "";
+
 		return (
 			<TouchableOpacity
-				style={[styles.cardContainer, needsServer && styles.cardNeedsAttention]}
-				activeOpacity={0.8}
+				style={[
+					styles.cardContainer,
+					needsServer && styles.cardNeedsAttention,
+					needsService && styles.cardNeedsService,
+					isCheckoutRequest && styles.cardNeedsCheckout,
+				]}
+				activeOpacity={0.9}
 				onPress={() => handleTableTap(item)}
 			>
 				<View
@@ -220,9 +302,6 @@ const RestaurantActiveTables = () => {
 						>
 							{hostName}
 						</Text>
-						<Text style={[styles.hostLabel, needsServer && styles.textWhite70]}>
-							({t("host", "Host")})
-						</Text>
 					</View>
 
 					<View
@@ -244,12 +323,59 @@ const RestaurantActiveTables = () => {
 					</View>
 				</View>
 
+				{(needsService || isCheckoutRequest) && (
+					<View
+						style={[
+							styles.serviceBanner,
+							isCheckoutRequest ? styles.bgSuccessLight : styles.bgDangerLight,
+						]}
+					>
+						<View style={styles.serviceBannerLeft}>
+							<MaterialCommunityIcons
+								name={isCheckoutRequest ? "cash-register" : "bell-ring"}
+								size={20}
+								color={
+									isCheckoutRequest ? colors.statusSuccess : colors.statusDanger
+								}
+							/>
+							<View style={{ marginLeft: 8 }}>
+								<Text
+									style={[
+										styles.serviceBannerTitle,
+										{
+											color: isCheckoutRequest
+												? colors.statusSuccess
+												: colors.statusDanger,
+										},
+									]}
+								>
+									{isCheckoutRequest
+										? t("ready_to_pay", "Ready to Pay")
+										: t("service_requested", "Service Requested")}
+								</Text>
+								<Text style={styles.serviceBannerTime}>{timeWaiting}</Text>
+							</View>
+						</View>
+						<TouchableOpacity
+							style={[
+								styles.acknowledgeBtn,
+								isCheckoutRequest
+									? { backgroundColor: colors.statusSuccess }
+									: { backgroundColor: colors.statusDanger },
+							]}
+							onPress={() => handleAcknowledge(item.id)}
+						>
+							<Text style={styles.acknowledgeBtnText}>
+								{t("acknowledge", "Ack")}
+							</Text>
+						</TouchableOpacity>
+					</View>
+				)}
+
 				<View style={styles.cardFooter}>
-					{/* 🚨 THE FIX: Wrapped the server text in its own TouchableOpacity */}
 					<TouchableOpacity
 						style={styles.serverEditContainer}
 						onPress={() => {
-							// Instantly pop the modal to reassign, even if already assigned!
 							setSelectedPartyForAssignment(item);
 							setIsServerModalVisible(true);
 						}}
@@ -269,8 +395,6 @@ const RestaurantActiveTables = () => {
 								? t("needs_server", "ACTION: ASSIGN SERVER")
 								: item.server?.name}
 						</Text>
-
-						{/* Show a little edit pencil if it's already assigned */}
 						{!needsServer && (
 							<MaterialCommunityIcons
 								name="pencil-outline"
@@ -281,18 +405,23 @@ const RestaurantActiveTables = () => {
 						)}
 					</TouchableOpacity>
 
-					<Ionicons
-						name="chevron-forward"
-						size={20}
-						color={needsServer ? colors.surfaceWhite : colors.textMedium}
-					/>
+					{!needsServer && (
+						<TouchableOpacity
+							style={styles.clearTableBtn}
+							onPress={() => handleClearTableAction(item)}
+						>
+							<Text style={styles.clearTableBtnText}>
+								{t("clear_table", "Clear")}
+							</Text>
+						</TouchableOpacity>
+					)}
 				</View>
 			</TouchableOpacity>
 		);
 	};
 
 	const renderContent = () => {
-		if (isLoading) {
+		if (isLoading || isActionLoading) {
 			return (
 				<ActivityIndicator
 					size="large"
@@ -312,12 +441,15 @@ const RestaurantActiveTables = () => {
 			return (
 				<View style={styles.infoContainer}>
 					<Ionicons
-						name="restaurant-outline"
-						size={60}
+						name="checkmark-done-circle-outline"
+						size={64}
 						color={colors.borderLight}
 					/>
 					<Text style={styles.noCheckinsText}>
-						{t("no_active_tables", "No tables are currently seated.")}
+						{t(
+							"no_active_tables_assigned",
+							"You have no active tables assigned to you right now.",
+						)}
 					</Text>
 				</View>
 			);
@@ -344,29 +476,47 @@ const RestaurantActiveTables = () => {
 		<SafeAreaView style={styles.safeArea}>
 			<View style={styles.container}>
 				<View style={styles.titleContainer}>
-					<View style={{ flexDirection: "row", alignItems: "center" }}>
-						<Text style={styles.title}>
-							{t("active_tables", "Active Tables")}
-						</Text>
-						<View style={styles.countBadge}>
-							<Text style={styles.countBadgeText}>{activeParties.length}</Text>
+					<View>
+						<View style={{ flexDirection: "row", alignItems: "center" }}>
+							<Text style={styles.title}>{t("my_tables", "My Tables")}</Text>
+							<View style={styles.countBadge}>
+								<Text style={styles.countBadgeText}>
+									{activeParties.length}
+								</Text>
+							</View>
 						</View>
+						<Text
+							style={{
+								color: colors.textMedium,
+								fontSize: 14,
+								marginTop: 4,
+								fontStyle: "italic",
+							}}
+						>
+							{t("logged_in_as", "Server:")}{" "}
+							{activeSession?.name || activeSession?.firstName}
+						</Text>
 					</View>
 
-					<TouchableOpacity
-						style={styles.manualSeatBtn}
-						onPress={() => navigation.navigate("ManualSeatScreen")}
-					>
-						<Ionicons name="add-circle" size={20} color={colors.surfaceWhite} />
-						<Text style={styles.manualSeatBtnText}>
-							{t("seat_table", "Seat Table")}
-						</Text>
-					</TouchableOpacity>
+					<View style={{ flexDirection: "row", gap: 10 }}>
+						<TouchableOpacity
+							style={styles.manualSeatBtn}
+							onPress={() => navigation.navigate("ManualSeatScreen")}
+						>
+							<Ionicons
+								name="add-circle"
+								size={20}
+								color={colors.surfaceWhite}
+							/>
+							<Text style={styles.manualSeatBtnText}>
+								{t("seat_table", "Seat")}
+							</Text>
+						</TouchableOpacity>
+					</View>
 				</View>
 
 				{renderContent()}
 
-				{/* 🚨 THE MODAL RENDERS HERE */}
 				<ServerAssignmentModal
 					visible={isServerModalVisible}
 					onClose={() => {
@@ -405,8 +555,8 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		backgroundColor: colors.primary,
-		paddingHorizontal: 12,
-		paddingVertical: 8,
+		paddingHorizontal: 14,
+		paddingVertical: 10,
 		borderRadius: 8,
 	},
 	manualSeatBtnText: {
@@ -447,6 +597,15 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.brandOrange || "#E67E22",
 		borderColor: colors.brandOrange || "#E67E22",
 	},
+	cardNeedsService: {
+		borderLeftWidth: 6,
+		borderLeftColor: colors.statusDanger,
+	},
+	cardNeedsCheckout: {
+		borderLeftWidth: 6,
+		borderLeftColor: colors.statusSuccess,
+	},
+
 	cardHeader: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -484,12 +643,6 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginLeft: 8,
 	},
-	hostLabel: {
-		fontSize: 14,
-		color: colors.textMedium,
-		marginLeft: 4,
-		fontStyle: "italic",
-	},
 
 	partySizeBadge: {
 		flexDirection: "row",
@@ -507,24 +660,64 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 	},
 
+	// Service Banner
+	serviceBanner: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		padding: 10,
+		borderRadius: 8,
+		marginBottom: 12,
+	},
+	bgDangerLight: { backgroundColor: colors.statusDanger + "15" },
+	bgSuccessLight: { backgroundColor: colors.statusSuccess + "15" },
+	serviceBannerLeft: { flexDirection: "row", alignItems: "center" },
+	serviceBannerTitle: { fontSize: 14, fontWeight: "bold" },
+	serviceBannerTime: { fontSize: 12, color: colors.textMedium },
+	acknowledgeBtn: {
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+		borderRadius: 6,
+	},
+	acknowledgeBtnText: {
+		color: colors.surfaceWhite,
+		fontWeight: "bold",
+		fontSize: 12,
+	},
+
 	cardFooter: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
 		paddingTop: 10,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
 	},
 	serverText: { color: colors.textMedium, fontSize: 14, fontWeight: "500" },
-
-	// Inverted Text Utilities
-	textWhite: { color: colors.surfaceWhite },
-	textWhite70: { color: "rgba(255,255,255,0.7)" },
-	textWhiteBold: { color: colors.surfaceWhite, fontWeight: "bold" },
-	textDark: { color: colors.textDark },
 	serverEditContainer: {
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 4,
 	},
+
+	clearTableBtn: {
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+		borderRadius: 6,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	clearTableBtnText: {
+		color: colors.textDark,
+		fontWeight: "600",
+		fontSize: 12,
+	},
+
+	// Utilities
+	textWhite: { color: colors.surfaceWhite },
+	textWhiteBold: { color: colors.surfaceWhite, fontWeight: "bold" },
+	textDark: { color: colors.textDark },
 });
 
 export default RestaurantActiveTables;

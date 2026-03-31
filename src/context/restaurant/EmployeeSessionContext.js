@@ -1,53 +1,48 @@
 // src/context/restaurant/EmployeeSessionContext.js
 import React, { createContext, useState, useContext, useMemo } from "react";
-import { AuthContext } from "../authContext"; // Adjust path
+import { AuthContext } from "../authContext";
 
 export const EmployeeSessionContext = createContext({
-	activeSession: null, // Will hold { name, role } of the active user
-	startSession: (employee) => {}, // Function to enter Manager Mode
-	endSession: () => {}, // Function to return to Regular Mode
+	activeSession: null,
+	startSession: (employee) => {},
+	endSession: () => {},
 });
 
 export const EmployeeSessionProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+
+	// Starts as null. This means the POS is LOCKED by default.
 	const [activeEmployee, setActiveEmployee] = useState(null);
 
-	// The activeSession memo determines the current operational mode.
 	const activeSession = useMemo(() => {
 		if (!currentUserData) return null;
 
-		// If a manager has verified with a PIN, their session is active.
+		// Return the verified employee (Server, Manager, or Owner)
 		if (activeEmployee) {
 			return activeEmployee;
 		}
 
-		// Otherwise, default to a 'worker' session based on the main logged-in account.
-		// This ensures the app is always in a limited state by default.
-		return {
-			name: currentUserData.firstName || "Staff",
-			role: "worker", // Default to the most restrictive role
-			uid: currentUserData.uid,
-		};
+		// 🚨 CRITICAL CHANGE: We no longer default to a "worker".
+		// If activeEmployee is null, the screen is locked.
+		return null;
 	}, [currentUserData, activeEmployee]);
 
 	const startSession = (employeeProfile) => {
-		console.log(`Starting manager/owner session for: ${employeeProfile.name}`);
+		console.log(
+			`[POS] Session started for: ${employeeProfile.name} (${employeeProfile.role})`,
+		);
 		setActiveEmployee(employeeProfile);
 	};
 
 	const endSession = () => {
-		console.log("Ending manager/owner session. Reverting to regular mode.");
+		console.log("[POS] Session ended. Device Locked.");
 		setActiveEmployee(null);
 	};
 
-	const value = {
-		activeSession,
-		startSession,
-		endSession,
-	};
-
 	return (
-		<EmployeeSessionContext.Provider value={value}>
+		<EmployeeSessionContext.Provider
+			value={{ activeSession, startSession, endSession }}
+		>
 			{children}
 		</EmployeeSessionContext.Provider>
 	);
