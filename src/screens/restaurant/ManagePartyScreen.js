@@ -1,4 +1,3 @@
-// screens/restaurant/ManagePartyScreen.js
 import React, { useEffect, useState, useMemo } from "react";
 import {
 	View,
@@ -6,20 +5,15 @@ import {
 	StyleSheet,
 	SafeAreaView,
 	TouchableOpacity,
-	FlatList,
+	SectionList,
 	ActivityIndicator,
 	Alert,
 	TextInput,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { db, functions } from "../../config/firebase";
-import {
-	doc,
-	onSnapshot,
-	updateDoc,
-	arrayRemove,
-} from "@react-native-firebase/firestore";
+import { doc, onSnapshot } from "@react-native-firebase/firestore";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
@@ -63,20 +57,34 @@ const ManagePartyScreen = () => {
 		};
 	}, [partyId]);
 
-	// 2. Calculate Totals
+	// 2. Filter & Group Items
 	const officiallyOrderedItems = useMemo(() => {
 		return (basketItems || []).filter(
 			(item) => item?.status && item.status !== "new",
 		);
 	}, [basketItems]);
 
+	const groupedOrders = useMemo(() => {
+		const groups = {};
+		officiallyOrderedItems.forEach((item) => {
+			const isServerOrder = item.orderedByPipName?.startsWith("Server:");
+			const ownerName = isServerOrder
+				? partyData?.hostName || t("table", "Table")
+				: item.orderedByPipName || item.customerName || t("guest", "Guest");
+
+			if (!groups[ownerName]) {
+				groups[ownerName] = { title: ownerName, data: [], subtotal: 0 };
+			}
+			groups[ownerName].data.push(item);
+			groups[ownerName].subtotal +=
+				parseFloat(item.price || 0) * parseInt(item.quantity || 1, 10);
+		});
+		return Object.values(groups);
+	}, [officiallyOrderedItems, partyData, t]);
+
 	const tableTotal = useMemo(() => {
-		return officiallyOrderedItems.reduce((sum, item) => {
-			const itemPrice = parseFloat(item.price || 0);
-			const quantity = parseInt(item.quantity || 1, 10);
-			return sum + itemPrice * quantity;
-		}, 0);
-	}, [officiallyOrderedItems]);
+		return groupedOrders.reduce((sum, group) => sum + group.subtotal, 0);
+	}, [groupedOrders]);
 
 	// 3. Handlers
 	const handleCloseTable = () => {
@@ -104,7 +112,6 @@ const ManagePartyScreen = () => {
 				functions,
 				"closePartyTable",
 			);
-
 			const result = await closeTableCloudFunction({
 				partyId,
 				paymentMethod,
@@ -112,7 +119,7 @@ const ManagePartyScreen = () => {
 			});
 
 			if (result.data.success) {
-				navigation.goBack();
+				navigation.goBack(); // 🚨 REVERTED: Go straight back to the floor map
 			} else {
 				throw new Error("Failed to close table.");
 			}
@@ -127,7 +134,6 @@ const ManagePartyScreen = () => {
 		}
 	};
 
-	// 🚨 FIXED SCOPE ERRORS HERE
 	const handleAddItemManually = () => {
 		if (!partyData) return;
 		navigation.navigate("ServerMenuScreen", {
@@ -136,54 +142,30 @@ const ManagePartyScreen = () => {
 			tableName: partyData.table?.name || "Table",
 			tableId: partyData.table?.id,
 			guestName: partyData.hostName,
-			serverObj: partyData.server, // 🚨 THE FIX: Pass the assigned server down!
+			serverObj: partyData.server,
 		});
 	};
 
-	const handleRemoveItem = (itemToRemove) => {
-		Alert.alert(
-			t("void_item", "Void Item"),
-			t(
-				"confirm_void",
-				`Are you sure you want to remove ${itemToRemove.dishName || itemToRemove.name} from the bill?`,
-			),
-			[
-				{ text: t("cancel", "Cancel"), style: "cancel" },
-				{
-					text: t("remove", "Remove"),
-					style: "destructive",
-					onPress: async () => {
-						try {
-							const basketRef = doc(db, "shared_baskets", partyId);
-							await updateDoc(basketRef, {
-								items: arrayRemove(itemToRemove),
-								lastUpdated: new Date(),
-							});
-						} catch (error) {
-							console.error("Error removing item:", error);
-							Alert.alert(
-								t("error", "Error"),
-								t("could_not_remove", "Could not remove the item."),
-							);
-						}
-					},
-				},
-			],
-		);
-	};
+	// 4. Render Layouts
+	const renderSectionHeader = ({ section }) => (
+		<View style={styles.sectionHeader}>
+			<View style={styles.sectionHeaderRow}>
+				<Ionicons
+					name="person-circle-outline"
+					size={20}
+					color={colors.primary}
+				/>
+				<Text style={styles.sectionTitle}>{section.title}</Text>
+			</View>
+			<Text style={styles.sectionSubtotal}>${section.subtotal.toFixed(2)}</Text>
+		</View>
+	);
 
-	// 4. Render Individual Items
 	const renderOrderItem = ({ item }) => {
 		const isSent =
 			item.status === "sent" ||
 			item.status === "preparing" ||
 			item.status === "ready";
-
-		const isServerOrder = item.orderedByPipName?.startsWith("Server:");
-		const displayOwner = isServerOrder
-			? partyData?.hostName || t("table", "Table")
-			: item.orderedByPipName || item.customerName || t("guest", "Guest");
-
 		return (
 			<View style={styles.itemRow}>
 				<View style={styles.itemQtyBox}>
@@ -191,11 +173,6 @@ const ManagePartyScreen = () => {
 				</View>
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName || item.name}</Text>
-
-					<Text style={styles.itemOwner}>
-						{t("for", "For")}: {displayOwner}
-					</Text>
-
 					{item.specialInstructions ? (
 						<Text style={styles.itemInstructions}>
 							"
@@ -209,24 +186,10 @@ const ManagePartyScreen = () => {
 						</Text>
 					) : null}
 				</View>
-
 				<View style={styles.itemTrailing}>
-					<View style={styles.priceAndActionRow}>
-						<Text style={styles.itemPrice}>
-							${(item.price * item.quantity).toFixed(2)}
-						</Text>
-						<TouchableOpacity
-							onPress={() => handleRemoveItem(item)}
-							style={styles.trashBtn}
-						>
-							<Ionicons
-								name="trash-outline"
-								size={22}
-								color={colors.statusDanger}
-							/>
-						</TouchableOpacity>
-					</View>
-
+					<Text style={styles.itemPrice}>
+						${(item.price * item.quantity).toFixed(2)}
+					</Text>
 					<View
 						style={[
 							styles.statusBadge,
@@ -277,11 +240,13 @@ const ManagePartyScreen = () => {
 			</View>
 
 			{/* ORDER LIST */}
-			<FlatList
-				data={officiallyOrderedItems}
+			<SectionList
+				sections={groupedOrders}
 				keyExtractor={(item, index) => item.id || index.toString()}
 				renderItem={renderOrderItem}
+				renderSectionHeader={renderSectionHeader}
 				contentContainerStyle={styles.listContent}
+				stickySectionHeadersEnabled={false}
 				ListEmptyComponent={
 					<Text style={styles.emptyText}>
 						{t("no_items_ordered_yet", "No items ordered yet.")}
@@ -292,7 +257,9 @@ const ManagePartyScreen = () => {
 			{/* FOOTER ACTION BAR */}
 			<View style={styles.footer}>
 				<View style={styles.totalsRow}>
-					<Text style={styles.totalLabel}>{t("total", "Total")}:</Text>
+					<Text style={styles.totalLabel}>
+						{t("table_total", "Table Total")}:
+					</Text>
 					<Text style={styles.totalAmount}>${tableTotal.toFixed(2)}</Text>
 				</View>
 
@@ -309,7 +276,6 @@ const ManagePartyScreen = () => {
 					autoCapitalize="none"
 					autoCorrect={false}
 				/>
-
 				<View style={styles.actionRow}>
 					<TouchableOpacity
 						style={[styles.closeBtn, isClosing && { opacity: 0.7 }]}
@@ -353,14 +319,28 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 	},
 
-	// List
-	listContent: { padding: 15, paddingBottom: 250 }, // 🚨 Added padding so the footer doesn't block the last item
+	// List & Sections
+	listContent: { padding: 15, paddingBottom: 250 },
 	emptyText: {
 		textAlign: "center",
 		color: colors.textMedium,
 		marginTop: 40,
 		fontSize: 16,
 	},
+	sectionHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 10,
+		paddingHorizontal: 5,
+		marginTop: 15,
+		marginBottom: 5,
+		borderBottomWidth: 2,
+		borderBottomColor: colors.borderLight,
+	},
+	sectionHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+	sectionTitle: { fontSize: 18, fontWeight: "bold", color: colors.textDark },
+	sectionSubtotal: { fontSize: 18, fontWeight: "900", color: colors.primary },
 
 	// Item Row
 	itemRow: {
@@ -368,7 +348,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		padding: 12,
 		borderRadius: 10,
-		marginBottom: 10,
+		marginBottom: 8,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 1 },
 		shadowOpacity: 0.05,
@@ -391,10 +371,14 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginBottom: 2,
 	},
-	itemOwner: { fontSize: 13, color: colors.textMedium, fontStyle: "italic" },
 	itemInstructions: { fontSize: 13, color: colors.statusDanger, marginTop: 4 },
 	itemTrailing: { alignItems: "flex-end", justifyContent: "space-between" },
-	itemPrice: { fontSize: 16, fontWeight: "bold", color: colors.textDark },
+	itemPrice: {
+		fontSize: 16,
+		fontWeight: "bold",
+		color: colors.textDark,
+		marginTop: 4,
+	},
 
 	// Badges
 	statusBadge: {
@@ -412,10 +396,6 @@ const styles = StyleSheet.create({
 	badgeSent: { backgroundColor: colors.statusSuccess + "20" },
 	badgeTextSent: {
 		color: colors.statusSuccess,
-		fontSize: 12,
-		fontWeight: "bold",
-	},
-	badgeText: {
 		fontSize: 12,
 		fontWeight: "bold",
 	},
@@ -453,6 +433,8 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
+
+	// Buttons
 	closeBtn: {
 		flex: 1,
 		justifyContent: "center",
@@ -465,15 +447,6 @@ const styles = StyleSheet.create({
 		color: colors.surfaceWhite,
 		fontSize: 16,
 		fontWeight: "bold",
-	},
-	// 🚨 FIXED NESTING ISSUE
-	priceAndActionRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		gap: 12,
-	},
-	trashBtn: {
-		padding: 4,
 	},
 });
 

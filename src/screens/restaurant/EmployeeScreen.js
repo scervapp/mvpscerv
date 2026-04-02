@@ -1,5 +1,5 @@
 // screens/restaurant/EmployeeScreen.js
-import React, { useState, useContext, useEffect, useCallback } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import {
 	View,
 	Text,
@@ -12,10 +12,8 @@ import {
 	Modal,
 	TextInput,
 	ScrollView,
-	Platform,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-
 import { db, functions } from "../../config/firebase";
 
 import { Button, Card, Avatar, IconButton } from "react-native-paper";
@@ -27,7 +25,6 @@ import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
-MaterialCommunityIcons;
 
 // --- Reusable Add/Edit Employee Modal ---
 const AddEditEmployeeModal = ({
@@ -36,10 +33,12 @@ const AddEditEmployeeModal = ({
 	onSubmit,
 	isLoading,
 	isFirstEmployee,
+	initialData, // 🚨 NEW: Pass existing employee data if editing
 }) => {
 	const { t } = useTranslation();
+	const isEditing = !!initialData;
 
-	// 🚨 FIX 1: Make PIN required for ALL roles
+	// 🚨 Dynamic Validation: PIN is required for NEW employees, optional for EDITS
 	const validationSchema = Yup.object().shape({
 		firstName: Yup.string().required(t("first_name_is_required")),
 		lastName: Yup.string().required(t("last_name_is_required")),
@@ -54,11 +53,10 @@ const AddEditEmployeeModal = ({
 		pin: Yup.string()
 			.min(4, t("pin_must_be_4_6_digits"))
 			.max(6, t("pin_must_be_4_6_digits"))
-			.required(
-				t(
-					"a_pin_is_required_for_pos_access",
-					"A PIN is required for POS access",
-				),
+			.concat(
+				isEditing
+					? Yup.string() // Optional if editing
+					: Yup.string().required(t("a_pin_is_required_for_pos_access")),
 			),
 	});
 
@@ -75,18 +73,22 @@ const AddEditEmployeeModal = ({
 				onPressOut={onClose}
 			>
 				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
-					<ScrollView>
+					<ScrollView showsVerticalScrollIndicator={false}>
 						<Text style={styles.modalTitle}>
-							{isFirstEmployee
-								? t("create_owner_account")
-								: t("add_new_employee")}
+							{isEditing
+								? t("edit_employee", "Edit Employee")
+								: isFirstEmployee
+									? t("create_owner_account")
+									: t("add_new_employee")}
 						</Text>
 						<Formik
 							initialValues={{
-								firstName: "",
-								lastName: "",
-								role: isFirstEmployee ? "owner" : "worker",
-								pin: "",
+								firstName: initialData?.firstName || "",
+								lastName: initialData?.lastName || "",
+								role:
+									initialData?.role || (isFirstEmployee ? "owner" : "worker"),
+								jobTitle: initialData?.jobTitle || "",
+								pin: "", // Always start empty for security
 							}}
 							enableReinitialize
 							validationSchema={validationSchema}
@@ -94,7 +96,6 @@ const AddEditEmployeeModal = ({
 						>
 							{({
 								handleChange,
-								handleBlur,
 								handleSubmit,
 								values,
 								errors,
@@ -188,14 +189,23 @@ const AddEditEmployeeModal = ({
 													}
 													style={styles.picker}
 												>
-													<Picker.Item label={t("server")} value="server" />
-													<Picker.Item label={t("host_hostess")} value="host" />
 													<Picker.Item
-														label={t("chef_kitchen_staff")}
+														label={t("server", "Server")}
+														value="server"
+													/>
+													<Picker.Item
+														label={t("host_hostess", "Host / Hostess")}
+														value="host"
+													/>
+													<Picker.Item
+														label={t(
+															"chef_kitchen_staff",
+															"Chef / Kitchen Staff",
+														)}
 														value="chef"
 													/>
 													<Picker.Item
-														label={t("busser_support")}
+														label={t("busser_support", "Busser / Support")}
 														value="support"
 													/>
 												</Picker>
@@ -206,13 +216,19 @@ const AddEditEmployeeModal = ({
 										</>
 									)}
 
-									{/* 🚨 FIX 2: PIN Input is now visible for EVERYONE */}
 									<Text style={styles.inputLabel}>
 										{t("set_4_6_digit_pin", "Set 4-6 Digit POS Login PIN")}
 									</Text>
 									<TextInput
 										style={styles.input}
-										placeholder={t("pos_pin", "POS PIN")}
+										placeholder={
+											isEditing
+												? t(
+														"leave_blank_to_keep_current_pin",
+														"Leave blank to keep current PIN",
+													)
+												: t("pos_pin", "POS PIN")
+										}
 										value={values.pin}
 										onChangeText={handleChange("pin")}
 										keyboardType="number-pad"
@@ -241,7 +257,9 @@ const AddEditEmployeeModal = ({
 												{ backgroundColor: colors.primary },
 											]}
 										>
-											{t("add_employee")}
+											{isEditing
+												? t("save_changes", "Save Changes")
+												: t("add_employee")}
 										</Button>
 									</View>
 								</>
@@ -259,9 +277,13 @@ const EmployeeScreen = () => {
 	const [employees, setEmployees] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
+
+	// 🚨 NEW: Modal & Selected Employee State
 	const [isModalVisible, setIsModalVisible] = useState(false);
+	const [selectedEmployee, setSelectedEmployee] = useState(null);
 
 	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
+	const updateEmployeeFunction = httpsCallable(functions, "updateEmployee"); // 🚨 Assume this exists in your backend
 	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
 	const { t } = useTranslation();
 
@@ -272,8 +294,6 @@ const EmployeeScreen = () => {
 			return;
 		}
 
-		// --- REFACTORED FIRESTORE QUERY ---
-		// Use the native SDK's collection().where().orderBy().onSnapshot() chain
 		const employeesQuery = db
 			.collection("restaurants")
 			.doc(restaurantId)
@@ -298,7 +318,8 @@ const EmployeeScreen = () => {
 		return () => unsubscribe();
 	}, [currentUserData?.uid]);
 
-	const handleAddEmployee = async (values) => {
+	// 🚨 NEW: Unified Save Handler (Add vs Edit)
+	const handleSaveEmployee = async (values) => {
 		setIsActionLoading(true);
 		const restaurantId = currentUserData?.uid;
 
@@ -310,23 +331,46 @@ const EmployeeScreen = () => {
 			setIsActionLoading(false);
 			return;
 		}
-		try {
-			const result = await addEmployeeFunction({
-				restaurantId: currentUserData.uid,
-				...values,
-			});
 
-			if (employees.length === 0 && result.data.success) {
-				// --- REFACTORED FIRESTORE UPDATE ---
-				const restaurantDocRef = db.collection("restaurants").doc(restaurantId);
-				await restaurantDocRef.update({
-					hasSetupEmployees: true,
-				});
+		try {
+			if (selectedEmployee) {
+				// --- UPDATE EXISTING EMPLOYEE ---
+				const payload = {
+					restaurantId,
+					employeeId: selectedEmployee.id,
+					...values,
+				};
+
+				// Don't send an empty PIN to the backend so we don't wipe their current one
+				if (!payload.pin || payload.pin.trim() === "") {
+					delete payload.pin;
+				}
+
+				await updateEmployeeFunction(payload);
+				Alert.alert(
+					t("success"),
+					t("employee_updated_successfully", "Employee updated successfully."),
+				);
+			} else {
+				// --- ADD NEW EMPLOYEE ---
+				const result = await addEmployeeFunction({ restaurantId, ...values });
+
+				if (employees.length === 0 && result.data.success) {
+					await db.collection("restaurants").doc(restaurantId).update({
+						hasSetupEmployees: true,
+					});
+				}
+				Alert.alert(t("success"), t("employee_added_successfully"));
 			}
-			Alert.alert(t("success"), t("employee_added_successfully"));
+
 			setIsModalVisible(false);
+			setSelectedEmployee(null); // Reset after saving
 		} catch (error) {
-			Alert.alert(t("error"), error.message || t("could_not_add_employee"));
+			Alert.alert(
+				t("error"),
+				error.message ||
+					t("could_not_save_employee", "Could not save employee."),
+			);
 		} finally {
 			setIsActionLoading(false);
 		}
@@ -335,9 +379,7 @@ const EmployeeScreen = () => {
 	const handleDelete = (employee) => {
 		Alert.alert(
 			t("confirm_delete"),
-			`${t("are_you_sure_you_want_to_delete")} ${employee.firstName} ${
-				employee.lastName
-			}? ${t("this_will_also_delete_their_login")}.`,
+			`${t("are_you_sure_you_want_to_delete")} ${employee.firstName} ${employee.lastName}? ${t("this_will_also_delete_their_login")}.`,
 			[
 				{ text: t("cancel"), style: "cancel" },
 				{
@@ -389,12 +431,25 @@ const EmployeeScreen = () => {
 					/>
 				)}
 				right={(props) => (
-					<IconButton
-						{...props}
-						icon="trash-can-outline"
-						color={colors.statusDanger}
-						onPress={() => handleDelete(item)}
-					/>
+					<View style={styles.cardActionRow}>
+						{/* 🚨 NEW: Edit Button */}
+						<IconButton
+							{...props}
+							icon="pencil-outline"
+							color={colors.primary}
+							onPress={() => {
+								setSelectedEmployee(item);
+								setIsModalVisible(true);
+							}}
+						/>
+						{/* Original Delete Button */}
+						<IconButton
+							{...props}
+							icon="trash-can-outline"
+							color={colors.statusDanger}
+							onPress={() => handleDelete(item)}
+						/>
+					</View>
 				)}
 			/>
 		</Card>
@@ -407,11 +462,8 @@ const EmployeeScreen = () => {
 			</View>
 		);
 	}
+
 	const isFirstEmployee = employees.length === 0;
-	// --- LOG 1: Check the flag in the parent screen ---
-	console.log(
-		`EmployeeScreen: Rendering modal. isFirstEmployee is: ${isFirstEmployee}`,
-	);
 
 	return (
 		<SafeAreaView style={styles.container}>
@@ -439,18 +491,26 @@ const EmployeeScreen = () => {
 			<Button
 				icon="plus"
 				mode="contained"
-				onPress={() => setIsModalVisible(true)}
+				onPress={() => {
+					setSelectedEmployee(null); // Clear selected user for a fresh form
+					setIsModalVisible(true);
+				}}
 				style={styles.fab}
 			>
 				{t("add_employee")}
 			</Button>
+
 			{isModalVisible && (
 				<AddEditEmployeeModal
 					isVisible={isModalVisible}
-					onClose={() => setIsModalVisible(false)}
-					onSubmit={handleAddEmployee}
+					onClose={() => {
+						setIsModalVisible(false);
+						setSelectedEmployee(null);
+					}}
+					onSubmit={handleSaveEmployee} // 🚨 Uses unified save handler
 					isLoading={isActionLoading}
 					isFirstEmployee={employees.length === 0}
+					initialData={selectedEmployee} // 🚨 Passes down the data if editing
 				/>
 			)}
 		</SafeAreaView>
@@ -489,7 +549,10 @@ const styles = StyleSheet.create({
 	employeeName: { fontWeight: "bold" },
 	employeeRole: { textTransform: "capitalize", color: colors.textMedium },
 	managerRole: { color: colors.primary, fontWeight: "600" },
-	cardActions: { justifyContent: "flex-end" },
+
+	// 🚨 NEW: Row styling for right-side card icons
+	cardActionRow: { flexDirection: "row", alignItems: "center" },
+
 	fab: {
 		position: "absolute",
 		margin: 16,
@@ -498,7 +561,6 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.primary,
 		borderRadius: 28,
 	},
-	// Modal Styles
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0,0,0,0.6)",
@@ -531,8 +593,8 @@ const styles = StyleSheet.create({
 		marginBottom: 15,
 		fontSize: 16,
 		backgroundColor: colors.backgroundLight,
-		color: colors.textMedium,
-	},
+		color: colors.textDark,
+	}, // Updated color for better visibility
 	inputLabel: {
 		fontSize: 14,
 		color: colors.textMedium,
@@ -562,13 +624,6 @@ const styles = StyleSheet.create({
 		marginTop: 20,
 	},
 	modalButton: { flex: 1, marginHorizontal: 5, paddingVertical: 5 },
-	inputLabel: {
-		fontSize: 14,
-		color: colors.textMedium,
-		fontWeight: "500",
-		marginBottom: 8,
-		marginLeft: 5,
-	},
 	roleSelectorContainer: {
 		borderWidth: 1,
 		borderColor: colors.borderLight,
@@ -581,17 +636,9 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 12,
-		color: colors.textMedium,
 	},
-	roleLabel: {
-		fontSize: 16,
-		marginLeft: 15,
-		color: colors.textDark,
-	},
-	roleLabelSelected: {
-		fontWeight: "bold",
-		color: colors.primary,
-	},
+	roleLabel: { fontSize: 16, marginLeft: 15, color: colors.textDark },
+	roleLabelSelected: { fontWeight: "bold", color: colors.primary },
 });
 
 export default EmployeeScreen;

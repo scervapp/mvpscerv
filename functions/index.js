@@ -114,6 +114,7 @@ exports.endWorkDay = restaurantFunctions.endWorkDay;
 exports.setManagerPin = restaurantFunctions.setManagerPin;
 exports.verifyEmployeePin = restaurantFunctions.verifyEmployeePin;
 exports.addEmployee = restaurantFunctions.addEmployee;
+exports.updateEmployee = restaurantFunctions.updateEmployee;
 exports.deleteEmployee = restaurantFunctions.deleteEmployee;
 exports.setEmployeeRole = restaurantFunctions.setEmployeeRole;
 exports.forceClearTable = restaurantFunctions.forceClearTable;
@@ -143,5 +144,4 @@ exports.chargeSavedDlocalCard = dLocalFunctions.chargeSavedDlocalCard;
 exports.translateInstruction = partyFunctions.translateInstruction;
 
 //
-exports.seedMenuOnce = paymentFunctions.seedMenuOnce
-
+exports.seedMenuOnce = paymentFunctions.seedMenuOnce;
