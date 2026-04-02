@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import moment from "moment";
 import { AuthContext } from "../../context/authContext";
-import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext"; // 🚨 IMPORTED CONTEXT
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -30,13 +30,13 @@ import { useTranslation } from "react-i18next";
 import { useNavigation } from "@react-navigation/native";
 
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
+import { clearTable } from "../../utils/firebaseUtils";
 
 const RestaurantActiveTables = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
 
 	const { currentUserData } = useContext(AuthContext);
-	// 🚨 EXTRACTED SESSION VARIABLES HERE so they exist for the whole component
 	const { activeSession, endSession } = useEmployeeSession();
 
 	const [activeParties, setActiveParties] = useState([]);
@@ -52,7 +52,7 @@ const RestaurantActiveTables = () => {
 
 	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
 
-	// 1. Listen for Active Parties & Filter by Role
+	// 1. Listen for Active & Checked-Out Parties
 	useEffect(() => {
 		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
@@ -67,10 +67,11 @@ const RestaurantActiveTables = () => {
 			return;
 		}
 
+		// 🚨 UPGRADED QUERY: Now fetches both "active" and "checkedOut" (Dirty) tables
 		const q = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "active")
+			.where("status", "in", ["active", "checkedOut"])
 			.orderBy("createdAt", "desc");
 
 		const unsubscribe = onSnapshot(
@@ -83,7 +84,7 @@ const RestaurantActiveTables = () => {
 
 				let filteredParties = partiesData;
 
-				// 🚨 If the logged-in employee is strictly a "Server", restrict their view
+				// Restrict view if strictly a server
 				if (
 					activeSession?.role === "worker" &&
 					activeSession?.jobTitle === "server"
@@ -156,6 +157,14 @@ const RestaurantActiveTables = () => {
 
 	// 3. Table Tap
 	const handleTableTap = (party) => {
+		const isDirty = party.status === "checkedOut";
+
+		// If it's dirty, don't open the POS menu, prompt to clean it
+		if (isDirty) {
+			handleClearTableAction(party);
+			return;
+		}
+
 		const needsServer = !party.server || party.server.id === "unassigned";
 		if (needsServer) {
 			setSelectedPartyForAssignment(party);
@@ -200,54 +209,82 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
-	// 6. Clear Table
+	// 6. Clear / Clean Table (Smart Handler)
 	const handleClearTableAction = (party) => {
-		Alert.alert(
-			t("clear_table", "Clear Table"),
-			`${t("this_will_clear_all_data_for", "This will close out and clear")} ${party.table?.name || "this table"}. ${t("are_you_sure", "Are you sure?")}`,
-			[
-				{ text: t("cancel", "Cancel"), style: "cancel" },
-				{
-					text: t("confirm_clear", "Clear Table"),
-					style: "destructive",
-					onPress: async () => {
-						setIsActionLoading(true);
-						try {
-							const restaurantId =
-								currentUserData?.restaurantId || currentUserData?.uid;
-							await forceClearTableFunction({
-								restaurantId: restaurantId,
-								tableId: party.table?.id || party.tableId,
-								checkInId: party.id,
-								customerId: party.hostUserId || party.currentCustomerId,
-							});
-							Alert.alert(
-								t("success", "Success"),
-								t("has_been_cleared", "Table cleared successfully."),
-							);
-						} catch (error) {
-							console.error("Error force-clearing table:", error);
-							Alert.alert(
-								t("error", "Error"),
-								`${t("could_not_clear_the_table", "Could not clear table")}: ${error.message}`,
-							);
-						} finally {
-							setIsActionLoading(false);
+		const isDirty = party.status === "checkedOut";
+		const title = isDirty
+			? t("clean_table", "Clean Table")
+			: t("clear_table", "Clear Table");
+		const message = isDirty
+			? t("confirm_clean", "Mark this table as clean and ready for new guests?")
+			: `${t("this_will_clear_all_data_for", "This will close out and clear")} ${party.table?.name || "this table"}. ${t("are_you_sure", "Are you sure?")}`;
+
+		Alert.alert(title, message, [
+			{ text: t("cancel", "Cancel"), style: "cancel" },
+			{
+				text: isDirty
+					? t("mark_clean", "Mark Clean")
+					: t("confirm_clear", "Clear Table"),
+				style: isDirty ? "default" : "destructive",
+				onPress: async () => {
+					setIsActionLoading(true);
+					try {
+						const restaurantId =
+							currentUserData?.restaurantId || currentUserData?.uid;
+						const tableId = party.table?.id || party.tableId;
+						const customerId = party.hostUserId || party.currentCustomerId;
+
+						// 🚨 1. Use YOUR utility to free up the physical table on the floor plan
+						if (tableId) {
+							await clearTable(tableId, restaurantId);
 						}
-					},
+
+						// 🚨 2. Mark the Party as "completed" so it disappears from this screen
+						const partyRef = doc(db, "parties", party.id);
+						await updateDoc(partyRef, {
+							status: "completed",
+							clearedAt: new Date(),
+						});
+
+						// 🚨 3. Free the customer's app (if they aren't a walk-in)
+						if (
+							customerId &&
+							customerId !== "walk_in_guest" &&
+							customerId !== "walk_in"
+						) {
+							const customerRef = doc(db, "customers", customerId);
+							await updateDoc(customerRef, {
+								activePartyId: null,
+								activeRestaurantId: null,
+							});
+						}
+					} catch (error) {
+						console.error("Error clearing table:", error);
+						Alert.alert(
+							t("error", "Error"),
+							`${t("could_not_clear_the_table", "Could not clear table")}: ${error.message}`,
+						);
+					} finally {
+						setIsActionLoading(false);
+					}
 				},
-			],
-		);
+			},
+		]);
 	};
 
 	const renderPartyCard = ({ item }) => {
+		// 🚨 NEW: Core Logic for Dirty State
+		const isDirty = item.status === "checkedOut";
+
 		const partySize = item.guestPips ? item.guestPips.length : 1;
 		const tableName = item.table?.name || t("unknown_table", "Unknown Table");
 		const hostName = item.hostName || t("guest", "Guest");
 
-		const needsServer = !item.server || item.server.id === "unassigned";
-		const needsService = item.serviceRequested === true;
-		const isCheckoutRequest = item.customerStatus === "ready_to_pay";
+		const needsServer =
+			(!item.server || item.server.id === "unassigned") && !isDirty;
+		const needsService = item.serviceRequested === true && !isDirty;
+		const isCheckoutRequest =
+			item.customerStatus === "ready_to_pay" && !isDirty;
 
 		const seatedTime = item.createdAt?.toDate
 			? item.createdAt
@@ -259,6 +296,9 @@ const RestaurantActiveTables = () => {
 			? moment(item.serviceRequestedAt).fromNow()
 			: "";
 
+		// UI Logic: If dirty or needs server, we use inverted white text
+		const useWhiteText = isDirty || needsServer;
+
 		return (
 			<TouchableOpacity
 				style={[
@@ -266,27 +306,33 @@ const RestaurantActiveTables = () => {
 					needsServer && styles.cardNeedsAttention,
 					needsService && styles.cardNeedsService,
 					isCheckoutRequest && styles.cardNeedsCheckout,
+					isDirty && styles.cardNeedsCleaning, // 🚨 Apply Dirty Slate Style
 				]}
 				activeOpacity={0.9}
 				onPress={() => handleTableTap(item)}
 			>
 				<View
-					style={[styles.cardHeader, needsServer && styles.borderLightInverted]}
+					style={[
+						styles.cardHeader,
+						useWhiteText && styles.borderLightInverted,
+					]}
 				>
 					<View
 						style={[
 							styles.tableBadge,
-							needsServer && styles.tableBadgeInverted,
+							useWhiteText && styles.tableBadgeInverted,
 						]}
 					>
 						<Text
-							style={[styles.tableBadgeText, needsServer && styles.textDark]}
+							style={[styles.tableBadgeText, useWhiteText && styles.textDark]}
 						>
 							{tableName}
 						</Text>
 					</View>
-					<Text style={needsServer ? styles.textWhite : styles.timeText}>
-						{t("seated_at", "Seated:")} {seatedTime}
+					<Text style={useWhiteText ? styles.textWhite : styles.timeText}>
+						{isDirty
+							? t("bill_settled", "Bill Settled")
+							: `${t("seated_at", "Seated:")} ${seatedTime}`}
 					</Text>
 				</View>
 
@@ -295,10 +341,10 @@ const RestaurantActiveTables = () => {
 						<Ionicons
 							name="person-circle"
 							size={24}
-							color={needsServer ? colors.surfaceWhite : colors.primary}
+							color={useWhiteText ? colors.surfaceWhite : colors.primary}
 						/>
 						<Text
-							style={[styles.hostNameText, needsServer && styles.textWhite]}
+							style={[styles.hostNameText, useWhiteText && styles.textWhite]}
 						>
 							{hostName}
 						</Text>
@@ -307,23 +353,23 @@ const RestaurantActiveTables = () => {
 					<View
 						style={[
 							styles.partySizeBadge,
-							needsServer && styles.partySizeBadgeInverted,
+							useWhiteText && styles.partySizeBadgeInverted,
 						]}
 					>
 						<Ionicons
 							name="people"
 							size={16}
-							color={needsServer ? colors.surfaceWhite : colors.textDark}
+							color={useWhiteText ? colors.surfaceWhite : colors.textDark}
 						/>
 						<Text
-							style={[styles.partySizeText, needsServer && styles.textWhite]}
+							style={[styles.partySizeText, useWhiteText && styles.textWhite]}
 						>
 							{partySize}
 						</Text>
 					</View>
 				</View>
 
-				{(needsService || isCheckoutRequest) && (
+				{(needsService || isCheckoutRequest) && !isDirty && (
 					<View
 						style={[
 							styles.serviceBanner,
@@ -372,50 +418,69 @@ const RestaurantActiveTables = () => {
 					</View>
 				)}
 
-				<View style={styles.cardFooter}>
-					<TouchableOpacity
-						style={styles.serverEditContainer}
-						onPress={() => {
-							setSelectedPartyForAssignment(item);
-							setIsServerModalVisible(true);
-						}}
-					>
-						<MaterialCommunityIcons
-							name={
-								needsServer ? "alert-circle-outline" : "room-service-outline"
-							}
-							size={18}
-							color={needsServer ? colors.surfaceWhite : colors.textMedium}
-						/>
-						<Text
-							style={[styles.serverText, needsServer && styles.textWhiteBold]}
-						>
-							{" "}
-							{needsServer
-								? t("needs_server", "ACTION: ASSIGN SERVER")
-								: item.server?.name}
-						</Text>
-						{!needsServer && (
-							<MaterialCommunityIcons
-								name="pencil-outline"
-								size={16}
-								color={colors.textMedium}
-								style={{ marginLeft: 6 }}
-							/>
-						)}
-					</TouchableOpacity>
-
-					{!needsServer && (
+				{/* 🚨 DYNAMIC FOOTER: Dirty vs Active */}
+				{isDirty ? (
+					<View style={styles.dirtyFooter}>
 						<TouchableOpacity
-							style={styles.clearTableBtn}
+							style={styles.cleanActionBtn}
 							onPress={() => handleClearTableAction(item)}
 						>
-							<Text style={styles.clearTableBtnText}>
-								{t("clear_table", "Clear")}
+							<MaterialCommunityIcons
+								name="spray-bottle"
+								size={20}
+								color={colors.surfaceWhite}
+							/>
+							<Text style={styles.cleanActionBtnText}>
+								{t("mark_clean", "Mark Clean & Release")}
 							</Text>
 						</TouchableOpacity>
-					)}
-				</View>
+					</View>
+				) : (
+					<View style={styles.cardFooter}>
+						<TouchableOpacity
+							style={styles.serverEditContainer}
+							onPress={() => {
+								setSelectedPartyForAssignment(item);
+								setIsServerModalVisible(true);
+							}}
+						>
+							<MaterialCommunityIcons
+								name={
+									needsServer ? "alert-circle-outline" : "room-service-outline"
+								}
+								size={18}
+								color={needsServer ? colors.surfaceWhite : colors.textMedium}
+							/>
+							<Text
+								style={[styles.serverText, needsServer && styles.textWhiteBold]}
+							>
+								{" "}
+								{needsServer
+									? t("needs_server", "ACTION: ASSIGN SERVER")
+									: item.server?.name}
+							</Text>
+							{!needsServer && (
+								<MaterialCommunityIcons
+									name="pencil-outline"
+									size={16}
+									color={colors.textMedium}
+									style={{ marginLeft: 6 }}
+								/>
+							)}
+						</TouchableOpacity>
+
+						{!needsServer && (
+							<TouchableOpacity
+								style={styles.clearTableBtn}
+								onPress={() => handleClearTableAction(item)}
+							>
+								<Text style={styles.clearTableBtnText}>
+									{t("clear_table", "Clear")}
+								</Text>
+							</TouchableOpacity>
+						)}
+					</View>
+				)}
 			</TouchableOpacity>
 		);
 	};
@@ -593,6 +658,7 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
+
 	cardNeedsAttention: {
 		backgroundColor: colors.brandOrange || "#E67E22",
 		borderColor: colors.brandOrange || "#E67E22",
@@ -605,6 +671,9 @@ const styles = StyleSheet.create({
 		borderLeftWidth: 6,
 		borderLeftColor: colors.statusSuccess,
 	},
+
+	// 🚨 NEW: Dirty Slate Styling
+	cardNeedsCleaning: { backgroundColor: "#334155", borderColor: "#1E293B" }, // Dark Slate Grey
 
 	cardHeader: {
 		flexDirection: "row",
@@ -699,7 +768,6 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		paddingVertical: 4,
 	},
-
 	clearTableBtn: {
 		backgroundColor: colors.backgroundLight,
 		paddingHorizontal: 12,
@@ -712,6 +780,27 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		fontWeight: "600",
 		fontSize: 12,
+	},
+
+	// 🚨 NEW: Dirty Footer Styles
+	dirtyFooter: {
+		paddingTop: 10,
+		borderTopWidth: 1,
+		borderTopColor: "rgba(255,255,255,0.2)",
+	},
+	cleanActionBtn: {
+		flexDirection: "row",
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: colors.statusSuccess,
+		paddingVertical: 12,
+		borderRadius: 8,
+	},
+	cleanActionBtnText: {
+		color: colors.surfaceWhite,
+		fontWeight: "bold",
+		fontSize: 15,
+		marginLeft: 8,
 	},
 
 	// Utilities

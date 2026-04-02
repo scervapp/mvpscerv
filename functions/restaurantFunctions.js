@@ -15,21 +15,30 @@ const generateTableId = (name) => {
 };
 
 /**
+ * Helper function to process Firestore operations in chunks of 500
+ * (Enterprise standard to prevent batch limit crashes)
+ */
+const commitBatches = async (operations) => {
+	const CHUNK_SIZE = 500;
+	for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+		const chunk = operations.slice(i, i + CHUNK_SIZE);
+		const batch = db.batch();
+		chunk.forEach((op) => batch[op.type](op.ref, op.data));
+		await batch.commit();
+	}
+};
+
+/**
  * Starts a new work day for a restaurant.
- * - Cleans up tables and old kitchen orders from the previous day.
- * - Creates a new work_day document with status 'OPEN'.
- * - Sets an 'isOpen: true' flag on the main restaurant document for easy client-side access.
- *
- * @param {object} data - The data object from the client.
- * @param {string} data.restaurantId - The ID of the restaurant.
  */
 exports.startWorkDay = functions.https.onCall(async (data, context) => {
-	if (!context.auth || !context.auth.uid) {
+	if (!context.auth) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
 			"User must be authorized.",
 		);
 	}
+
 	const { restaurantId } = data;
 	if (!restaurantId) {
 		throw new functions.https.HttpsError(
@@ -42,9 +51,11 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 	const workDaysRef = restaurantRef.collection("work_days");
 
 	try {
-		// First, check for an already open work day
-		const openDaysQuery = workDaysRef.where("status", "==", "OPEN").limit(1);
-		const openDaysSnapshot = await openDaysQuery.get();
+		// 1. Prevent overlapping work days
+		const openDaysSnapshot = await workDaysRef
+			.where("status", "==", "OPEN")
+			.limit(1)
+			.get();
 		if (!openDaysSnapshot.empty) {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
@@ -52,54 +63,55 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// --- Cleanup Routine ---
 		console.log(
-			`startWorkDay: Running cleanup routine for restaurant ${restaurantId}...`,
+			`[Enterprise] Starting Day for ${restaurantId}. Running fallback cleanup...`,
 		);
-		const cleanupBatch = db.batch();
+		const batchOperations = [];
 
-		// 1. Reset all tables that are not 'available'.
-		const tablesToResetQuery = restaurantRef
+		// 2. Failsafe: Reset lingering tables (if the app crashed the night before)
+		const tablesSnapshot = await restaurantRef
 			.collection("tables")
-			.where("status", "!=", "available");
-		const tablesSnapshot = await tablesToResetQuery.get();
+			.where("status", "!=", "available")
+			.get();
 		tablesSnapshot.docs.forEach((doc) => {
-			console.log(
-				`... Resetting table ${doc.id} from status '${
-					doc.data().status
-				}' to 'available'.`,
-			);
-			cleanupBatch.update(doc.ref, {
-				status: "available",
-				currentCheckInId: null,
-				currentCustomerId: null,
-				seatedAt: null,
+			batchOperations.push({
+				type: "update",
+				ref: doc.ref,
+				data: {
+					status: "available",
+					currentCheckInId: null,
+					currentCustomerId: null,
+					seatedAt: null,
+				},
 			});
 		});
 
-		// 2. Archive any lingering orders from the Chef's Q.
-		const kitchenOrdersRef = db.collection("kitchen_orders");
-		const activeOrdersQuery = kitchenOrdersRef
+		// 3. Failsafe: Archive stale kitchen orders
+		const activeOrdersSnapshot = await db
+			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", ["new", "preparing", "ready"]);
-		const activeOrdersSnapshot = await activeOrdersQuery.get();
+			.where("overallStatus", "==", "active")
+			.get();
+
 		activeOrdersSnapshot.docs.forEach((doc) => {
-			console.log(
-				`... Archiving stale kitchen order ${doc.id} from previous day.`,
-			);
-			cleanupBatch.update(doc.ref, { status: "archived_stale" });
+			batchOperations.push({
+				type: "update",
+				ref: doc.ref,
+				data: {
+					overallStatus: "archived_stale",
+					archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+			});
 		});
 
-		await cleanupBatch.commit();
-		console.log(
-			`startWorkDay: Cleanup complete. Reset ${tablesSnapshot.size} tables and archived ${activeOrdersSnapshot.size} kitchen orders.`,
-		);
+		// Execute cleanup safely
+		if (batchOperations.length > 0) await commitBatches(batchOperations);
 
-		// --- Create New Work Day ---
-		const newWorkDayRef = workDaysRef.doc(); // Auto-generate ID
-		const finalBatch = db.batch();
+		// 4. Create New Work Day
+		const newWorkDayRef = workDaysRef.doc();
+		const startBatch = db.batch();
 
-		finalBatch.set(newWorkDayRef, {
+		startBatch.set(newWorkDayRef, {
 			status: "OPEN",
 			startTime: admin.firestore.FieldValue.serverTimestamp(),
 			endTime: null,
@@ -107,43 +119,31 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 				uid: context.auth.uid,
 				name: context.auth.token.name || "Manager",
 			},
-			managerWhoClosed: null,
 		});
 
-		// Set the public-facing status on the main restaurant document.
-		finalBatch.update(restaurantRef, { isOpen: true });
+		// 5. Update main restaurant doc with the current work day ID
+		startBatch.update(restaurantRef, {
+			isOpen: true,
+			currentWorkDayId: newWorkDayRef.id,
+		});
 
-		await finalBatch.commit();
+		await startBatch.commit();
 
-		console.log(
-			`Successfully started new work day ${newWorkDayRef.id} and set restaurant to OPEN.`,
-		);
 		return { success: true, workDayId: newWorkDayRef.id };
 	} catch (error) {
-		console.error(
-			`Error starting work day for restaurant ${restaurantId}:`,
-			error,
-		);
-		if (error instanceof functions.https.HttpsError) throw error;
+		console.error(`Start Day Error (${restaurantId}):`, error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not start the work day.",
+			error.message || "Could not start day.",
 		);
 	}
 });
 
 /**
  * Ends the current open work day for a restaurant.
- * - Validates that no tables are currently occupied or need cleaning.
- * - Updates the work_day document status to 'CLOSED'.
- * - Sets an 'isOpen: false' flag on the main restaurant document.
- *
- * @param {object} data - The data object from the client.
- * @param {string} data.restaurantId - The ID of the restaurant.
- * @param {string} data.workDayId - The ID of the work day document to close.
  */
 exports.endWorkDay = functions.https.onCall(async (data, context) => {
-	if (!context.auth || !context.auth.uid) {
+	if (!context.auth) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
 			"User must be authorized.",
@@ -160,20 +160,18 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 
 	const restaurantRef = db.collection("restaurants").doc(restaurantId);
 	const workDayRef = restaurantRef.collection("work_days").doc(workDayId);
-	const tablesRef = restaurantRef.collection("tables");
-	const kitchenOrdersRef = db.collection("kitchen_orders"); // Reference to the Chef's Queue
 
 	try {
-		// --- Pre-close Validation Step ---
-		const unresolvedTablesQuery = tablesRef
+		// 1. Strict Enterprise Validation: No tables can be occupied
+		const unresolvedTables = await restaurantRef
+			.collection("tables")
 			.where("status", "!=", "available")
-			.limit(1);
-		const unresolvedSnapshot = await unresolvedTablesQuery.get();
-
-		if (!unresolvedSnapshot.empty) {
+			.limit(1)
+			.get();
+		if (!unresolvedTables.empty) {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"Cannot end the day while tables are still occupied. Please clear all tables first.",
+				"Cannot close the day. All tables must be settled and cleared first.",
 			);
 		}
 
@@ -181,20 +179,38 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		if (!workDayDoc.exists || workDayDoc.data().status !== "OPEN") {
 			throw new functions.https.HttpsError(
 				"failed-precondition",
-				"There is no open work day to end.",
+				"Work day is not open.",
 			);
 		}
 
-		// --- Fetch Kitchen Orders to Clear ---
-		const activeKitchenOrders = await kitchenOrdersRef
+		// 2. Fetch active kitchen orders to ARCHIVE (Never delete)
+		const activeKitchenOrders = await db
+			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
 			.get();
 
-		// --- Proceed with Closing ---
-		const batch = db.batch();
+		const batchOperations = [];
 
-		// 1. Close the work day document
-		batch.update(workDayRef, {
+		activeKitchenOrders.forEach((doc) => {
+			batchOperations.push({
+				type: "update",
+				ref: doc.ref,
+				data: {
+					overallStatus: "archived_eod",
+					archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByWorkDay: workDayId,
+				},
+			});
+		});
+
+		// Execute archiving safely
+		if (batchOperations.length > 0) await commitBatches(batchOperations);
+
+		// 3. Finalize the Work Day
+		const endBatch = db.batch();
+
+		endBatch.update(workDayRef, {
 			status: "CLOSED",
 			endTime: admin.firestore.FieldValue.serverTimestamp(),
 			managerWhoClosed: {
@@ -203,26 +219,20 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			},
 		});
 
-		// 2. Set the public-facing status to CLOSED
-		batch.update(restaurantRef, { isOpen: false });
-
-		// 3. Clear the Chef's Queue (Kitchen Orders)
-		activeKitchenOrders.forEach((doc) => {
-			batch.delete(doc.ref);
+		// 4. Wipe the active workday pointer on the restaurant
+		endBatch.update(restaurantRef, {
+			isOpen: false,
+			currentWorkDayId: null,
 		});
 
-		await batch.commit();
+		await endBatch.commit();
 
-		console.log(
-			`Successfully ended work day ${workDayId} and cleared ${activeKitchenOrders.size} kitchen orders.`,
-		);
-		return { success: true, ordersCleared: activeKitchenOrders.size };
+		return { success: true, ordersArchived: activeKitchenOrders.size };
 	} catch (error) {
-		console.error(`Error ending work day ${workDayId}:`, error);
-		if (error instanceof functions.https.HttpsError) throw error;
+		console.error(`End Day Error (${workDayId}):`, error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not end the work day.",
+			error.message || "Could not end day.",
 		);
 	}
 });
@@ -830,6 +840,59 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 	}
 });
 
+exports.updateEmployee = functions.https.onCall(async (data, context) => {
+	// 1. Security Check
+	if (!context.auth) {
+		throw new functions.https.HttpsError("unauthenticated", "Not logged in.");
+	}
+
+	const { restaurantId, employeeId, firstName, lastName, role, jobTitle, pin } =
+		data;
+
+	if (!restaurantId || !employeeId) {
+		throw new functions.https.HttpsError("invalid-argument", "Missing IDs.");
+	}
+
+	try {
+		const updateData = {
+			firstName,
+			lastName,
+			role,
+			jobTitle: jobTitle || null,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			// Clean up legacy fields
+			isManager: admin.firestore.FieldValue.delete(),
+			position: admin.firestore.FieldValue.delete(),
+		};
+
+		// 🚨 BCRYPT HASHING LOGIC
+		if (pin && pin.trim() !== "") {
+			const rawPin = String(pin).trim();
+			const saltRounds = 10; // Standard security factor for bcrypt
+
+			// Generate the secure hash
+			const hashedPin = await bcrypt.hash(rawPin, saltRounds);
+
+			updateData.pin = rawPin; // Save raw pin if your app still requires it
+			updateData.pinHash = hashedPin; // Save the bcrypt hash for the login screen
+		}
+
+		// Execute Firestore Update
+		await admin
+			.firestore()
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(employeeId)
+			.update(updateData);
+
+		return { success: true };
+	} catch (error) {
+		console.error("Update Error:", error);
+		throw new functions.https.HttpsError("internal", "Failed to update.");
+	}
+});
+
 /**
  * Deletes an employee's Firestore document and their Firebase Auth account.
  */
@@ -1229,7 +1292,7 @@ exports.closePartyTable = functions
 				// 3. WRITES
 				// ==========================================
 				transaction.update(partyRef, {
-					status: "completed",
+					status: "checkedOut", // 🚨 CHANGED: This keeps it on the screen so the server can clean it
 					paymentStatus: "paid",
 					paymentMethod: paymentMethod,
 					closedAt: admin.firestore.FieldValue.serverTimestamp(),

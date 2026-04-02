@@ -128,22 +128,37 @@ export const RestaurantDataProvider = ({ children }) => {
 			setNewKitchenOrderCount(0);
 			return;
 		}
+
 		const unsub = db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "new")
+			.where("overallStatus", "==", "active") // 🚨 THE FIX: Ignore archived tickets!
 			.onSnapshot((snap) => {
+				let newTicketsCount = 0;
+
+				snap.docs.forEach((doc) => {
+					const ticket = doc.data();
+					// Count it for the badge if it's genuinely new
+					if (ticket.status === "new") {
+						newTicketsCount++;
+					}
+				});
+
 				if (!isKitchenInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
-						if (change.type === "added") {
+						const ticket = change.doc.data();
+						// Play the bell ONLY if a fresh, active, new ticket drops in
+						if (change.type === "added" && ticket.status === "new") {
 							kitchenPlayer.current?.seekTo(0);
 							kitchenPlayer.current?.play();
 						}
 					});
 				}
+
 				isKitchenInitialLoad.current = false;
-				setNewKitchenOrderCount(snap.size);
+				setNewKitchenOrderCount(newTicketsCount); // 🚨 Update the badge with the correct math
 			});
+
 		return () => {
 			isKitchenInitialLoad.current = true;
 			unsub();
