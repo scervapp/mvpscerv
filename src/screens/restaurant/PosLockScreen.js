@@ -101,17 +101,8 @@ const PosLockScreen = () => {
 	return (
 		<SafeAreaView style={styles.container}>
 			<View style={styles.header}>
-				<TouchableOpacity
-					onPress={() =>
-						startSession({
-							name: "Admin",
-							role: "owner",
-							id: currentUserData.uid,
-						})
-					}
-				>
-					<Text style={styles.title}>Scerv POS</Text>
-				</TouchableOpacity>
+				<Text style={styles.title}>Scerv POS</Text>
+
 				<Text style={styles.subtitle}>{t("select_your_name_to_unlock")}</Text>
 			</View>
 

@@ -1,4 +1,3 @@
-// screens/customer/PartyCheckoutScreen.js
 import React, { useState, useEffect, useContext, useMemo, useRef } from "react";
 import {
 	View,
@@ -54,15 +53,11 @@ const PartyCheckoutScreen = () => {
 
 	// --- State Management ---
 	const [isPreparing, setIsPreparing] = useState(false);
-	const [isPaying, setIsPaying] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 
-	const [fees, setFees] = useState(0.05);
+	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
-
-	const [finalTotal, setFinalTotal] = useState(0);
-	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
 	// --- SMART FIELDS STATE VARIABLES ---
 	const [dlocalPublicKey, setDlocalPublicKey] = useState(null);
@@ -70,7 +65,7 @@ const PartyCheckoutScreen = () => {
 	const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
 	const [isLiveMode, setIsLiveMode] = useState(null);
 
-	// 🚨 NEW: State to hold the pre-filled user details
+	// State to hold the pre-filled user details
 	const [savedName, setSavedName] = useState("");
 	const [savedDocument, setSavedDocument] = useState("");
 	const [restaurantData, setRestaurantData] = useState(null);
@@ -140,9 +135,33 @@ const PartyCheckoutScreen = () => {
 		const gratuityInCents = Math.round(
 			discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100),
 		);
-		const platformFeeInCents = Math.round(discountedSubtotalInCents * fees);
+
+		// --- DYNAMIC TIER CALCULATION ---
+		const restaurantTier = restaurantData?.pricingTier || "basic";
+
+		// Safely extract the payout percentage (default to 0.97 if missing)
+		let rawPayout = pricingTiers?.[restaurantTier]?.payoutPercentage ?? 0.97;
+		let payoutVal = Number(rawPayout);
+		if (isNaN(payoutVal)) payoutVal = 0.97;
+
+		// If the DB has it as a whole number (e.g., 97), convert to decimal (0.97)
+		if (payoutVal > 1) {
+			payoutVal = payoutVal / 100;
+		}
+
+		// Calculate fee percentage safely. Math.round prevents JS floating point bugs.
+		const calculatedPlatformFeePercentage = Math.max(
+			0,
+			Math.round((1 - payoutVal) * 10000) / 10000,
+		);
+
+		const platformFeeInCents = Math.round(
+			discountedSubtotalInCents * calculatedPlatformFeePercentage,
+		);
+
 		const finalTotalInCents =
 			discountedSubtotalInCents + gratuityInCents + platformFeeInCents;
+
 		const totalDiscountInCents =
 			originalSubtotalInCents - discountedSubtotalInCents;
 
@@ -163,7 +182,17 @@ const PartyCheckoutScreen = () => {
 			myFinalTotal: finalTotalInCents,
 			myTotalDiscount: totalDiscountInCents,
 		};
-	}, [sharedBasketItems, currentUserData?.uid, gratuityPercentage, fees]);
+	}, [
+		sharedBasketItems,
+		currentUserData?.uid,
+		gratuityPercentage,
+		pricingTiers,
+		restaurantData?.pricingTier,
+	]);
+
+	// INSTANT EVALUATION (Removes state lag for payment APIs)
+	const isReadyToPay =
+		myFinalTotal > 0 && party?.id && currentUserData?.uid && party?.checkInId;
 
 	const slideAnim = useRef(new Animated.Value(800)).current;
 
@@ -194,14 +223,7 @@ const PartyCheckoutScreen = () => {
 		}
 	}, [isPaymentModalVisible, slideAnim]);
 
-	useEffect(() => {
-		setFinalTotal(myFinalTotal);
-		const canPay =
-			myFinalTotal > 0 && party?.id && currentUserData?.uid && party?.checkInId;
-		setIsReadyToPay(canPay);
-	}, [myFinalTotal, party, currentUserData]);
-
-	// 🚨 NEW: Fetch saved user details when component mounts
+	// Fetch saved user details when component mounts
 	useEffect(() => {
 		if (!currentUserData?.uid) return;
 
@@ -231,11 +253,14 @@ const PartyCheckoutScreen = () => {
 		const fetchInitialData = async () => {
 			if (!party?.restaurantId) return;
 
-			const feesSnap = await db.collection("appConfig").doc("general").get();
-			if (feesSnap.exists() && isMounted) {
-				setFees(feesSnap.data().fees);
-			} else if (isMounted) {
-				setFees(0.03);
+			const tiersSnap = await db
+				.collection("appConfig")
+				.doc("pricingTiers")
+				.get();
+
+			if (tiersSnap.exists && isMounted) {
+				const data = tiersSnap.data();
+				setPricingTiers(data.pricingTiers || data);
 			}
 
 			if (!isPanama) {
@@ -258,7 +283,7 @@ const PartyCheckoutScreen = () => {
 				}
 			}
 
-			if (isPanama && finalTotal > 0 && isMounted) {
+			if (isPanama && myFinalTotal > 0 && isMounted) {
 				try {
 					const getPublicKey = httpsCallable(functions, "getDlocalPublicKey");
 					const keyResponse = await getPublicKey({
@@ -271,7 +296,7 @@ const PartyCheckoutScreen = () => {
 
 					const createPayment = httpsCallable(functions, "createDlocalPayment");
 					const paymentResponse = await createPayment({
-						amount: finalTotal,
+						amount: myFinalTotal, // STRICT TOTAL USED HERE
 						currency: "USD",
 						country: "PA",
 						restaurantId: party.restaurantId,
@@ -296,7 +321,7 @@ const PartyCheckoutScreen = () => {
 		return () => {
 			isMounted = false;
 		};
-	}, [party?.restaurantId, finalTotal, isPanama]);
+	}, [party?.restaurantId, myFinalTotal, isPanama]);
 
 	useEffect(() => {
 		// If the table is officially closed by the restaurant...
@@ -304,9 +329,6 @@ const PartyCheckoutScreen = () => {
 			console.log(
 				"Restaurant closed the table. Auto-routing to Order Confirmation...",
 			);
-
-			// ...instantly navigate the user to rate their dishes.
-			// We pass the party.id as the appOrderId because that's what the CF uses to save the final receipt!
 			navigation.dispatch(
 				CommonActions.reset({
 					index: 0,
@@ -315,10 +337,10 @@ const PartyCheckoutScreen = () => {
 							name: "OrderConfirmation",
 							params: {
 								initialStatus: "completed",
-								itemsToRate: myItemsInBasket, // Pass their specific items so they can rate them
+								itemsToRate: myItemsInBasket,
 								isIndividual: false,
 								origin: "party",
-								appOrderId: party.id, // The final order uses the party ID
+								appOrderId: party.id,
 							},
 						},
 					],
@@ -336,7 +358,6 @@ const PartyCheckoutScreen = () => {
 		setIsPreparing(true);
 		setPaymentError(null);
 
-		// 🚨 Unpack the saveDetails flag
 		const {
 			token: cardToken,
 			name: cardholderName,
@@ -347,7 +368,7 @@ const PartyCheckoutScreen = () => {
 		try {
 			const uid = currentUserData?.uid;
 
-			// 🚨 NEW: Save details to Firestore if the user checked the box
+			// Save details to Firestore if the user checked the box
 			if (saveDetails && uid) {
 				await db.collection("customers").doc(uid).set(
 					{
@@ -454,7 +475,6 @@ const PartyCheckoutScreen = () => {
 				.update({
 					customerStatus: "ready_to_pay",
 					checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
-					// 🚨 NEW: Trigger the service request system simultaneously
 					serviceRequested: true,
 					serviceRequestedAt: new Date().toISOString(),
 					serviceTableName: party?.table?.name || "A table",
@@ -473,6 +493,7 @@ const PartyCheckoutScreen = () => {
 			setIsPreparing(false);
 		}
 	};
+
 	// --- Stripe Payment Action (USA) ---
 	const handlePayment = async () => {
 		if (!isReadyToPay || isPreparing) return;
@@ -489,6 +510,7 @@ const PartyCheckoutScreen = () => {
 				partyId: party.id,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
+				platformFee: myPlatformFee, // SENDS EXPLICIT FEE TO CF
 				checkInId: party.checkInId,
 				table: party.table || null,
 				server: party.server || null,
@@ -565,16 +587,43 @@ const PartyCheckoutScreen = () => {
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
 						{myItemsInBasket.length > 0 ? (
-							myItemsInBasket.map((item) => (
-								<View key={item.id} style={styles.itemRow}>
-									<Text style={styles.itemName}>
-										{item.quantity}x {item.name}
-									</Text>
-									<Text style={styles.itemPrice}>
-										{formatCurrency((item.price || 0) * item.quantity * 100)}
-									</Text>
-								</View>
-							))
+							myItemsInBasket.map((item) => {
+								// Check if a valid discount exists
+								const hasDiscount =
+									item.discountedPrice !== null &&
+									item.discountedPrice !== undefined &&
+									item.discountedPrice < item.price;
+
+								// Calculate values in cents for the formatter
+								const originalTotalInCents =
+									Math.round((item.price || 0) * 100) * item.quantity;
+								const finalTotalInCents = hasDiscount
+									? Math.round(item.discountedPrice * 100) * item.quantity
+									: originalTotalInCents;
+
+								return (
+									<View key={item.id} style={styles.itemRow}>
+										<Text style={styles.itemName}>
+											{item.quantity}x {item.name}
+										</Text>
+										<View style={styles.priceContainer}>
+											{hasDiscount && (
+												<Text style={styles.originalPriceText}>
+													{formatCurrency(originalTotalInCents)}
+												</Text>
+											)}
+											<Text
+												style={[
+													styles.itemPrice,
+													hasDiscount && styles.discountText,
+												]}
+											>
+												{formatCurrency(finalTotalInCents)}
+											</Text>
+										</View>
+									</View>
+								);
+							})
 						) : (
 							<Text style={styles.noItemsText}>
 								{t("you_have_no_items_in_this_order")}
@@ -582,7 +631,7 @@ const PartyCheckoutScreen = () => {
 						)}
 					</View>
 
-					{/* Conditional Gratuity: Only shown if restaurant accepts in-app payments */}
+					{/* Conditional Gratuity */}
 					{canAcceptPayments && (
 						<View style={styles.section}>
 							<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
@@ -605,11 +654,41 @@ const PartyCheckoutScreen = () => {
 					{/* Bill Summary */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
-						<View style={styles.summaryRow}>
-							<Text style={styles.label}>{t("subtotal")}:</Text>
-							<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
-						</View>
 
+						{/* 1. Items Total & Discount (Only shown if there is a discount) */}
+						{myTotalDiscount > 0 ? (
+							<>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>
+										{t("items_total", "Items Total")}:
+									</Text>
+									<Text style={styles.amount}>
+										{formatCurrency(myOriginalSubtotal)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={styles.label}>{t("discount", "Discount")}:</Text>
+									<Text style={[styles.amount, styles.discountText]}>
+										-{formatCurrency(myTotalDiscount)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={[styles.label, { fontWeight: "bold" }]}>
+										{t("subtotal")}:
+									</Text>
+									<Text style={[styles.amount, { fontWeight: "bold" }]}>
+										{formatCurrency(mySubtotal)}
+									</Text>
+								</View>
+							</>
+						) : (
+							<View style={styles.summaryRow}>
+								<Text style={styles.label}>{t("subtotal")}:</Text>
+								<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
+							</View>
+						)}
+
+						{/* 2. Gratuity & Service Fee */}
 						{canAcceptPayments && (
 							<>
 								<View style={styles.summaryRow}>
@@ -619,7 +698,10 @@ const PartyCheckoutScreen = () => {
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>{t("service_fee")}:</Text>
+									<Text style={styles.label}>
+										{t("service_fee")} ({restaurantData?.pricingTier || "basic"}
+										):
+									</Text>
 									<Text style={styles.amount}>
 										{formatCurrency(myPlatformFee)}
 									</Text>
@@ -629,10 +711,11 @@ const PartyCheckoutScreen = () => {
 
 						<Divider style={styles.divider} />
 
+						{/* 3. Ultimate Final Total */}
 						<View style={styles.summaryRow}>
 							<Text style={styles.totalLabel}>{t("your_total")}:</Text>
 							<Text style={styles.totalAmount}>
-								{formatCurrency(canAcceptPayments ? finalTotal : mySubtotal)}
+								{formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}
 							</Text>
 						</View>
 					</View>
@@ -643,9 +726,7 @@ const PartyCheckoutScreen = () => {
 				{/* Footer Action Button */}
 				<View style={styles.footer}>
 					{canAcceptPayments ? (
-						/* SCENARIO A: Restaurant accepts payments. Give them the choice between Cash or Card. */
 						<View style={{ flexDirection: "row", gap: 10 }}>
-							{/* Secondary Action: Pay Cash / Request Check */}
 							<Button
 								mode="outlined"
 								onPress={handleManualCheckout}
@@ -671,7 +752,6 @@ const PartyCheckoutScreen = () => {
 									: t("pay_cash", "Pay Cash")}
 							</Button>
 
-							{/* Primary Action: Pay Digitally */}
 							<Button
 								mode="contained"
 								onPress={() => {
@@ -694,11 +774,10 @@ const PartyCheckoutScreen = () => {
 									? t("preparing")
 									: party?.customerStatus === "ready_to_pay"
 										? t("server_notified", "Server Notified")
-										: `${t("pay")} ${formatCurrency(finalTotal)}`}
+										: `${t("pay")} ${formatCurrency(myFinalTotal)}`}
 							</Button>
 						</View>
 					) : (
-						/* SCENARIO B: No in-app payments. Show "Request Check" AND a disabled "Pay" button. */
 						<View style={{ flexDirection: "row", gap: 10 }}>
 							<Button
 								mode="contained"
@@ -768,7 +847,7 @@ const PartyCheckoutScreen = () => {
 								<DlocalNativeCheckout
 									publicKey={dlocalPublicKey}
 									checkoutToken={dlocalCheckoutToken}
-									amountFormatted={formatCurrency(finalTotal)}
+									amountFormatted={formatCurrency(myFinalTotal)}
 									locale={i18n.language || "es"}
 									isLive={isLiveMode}
 									initialName={savedName}
@@ -874,9 +953,10 @@ const styles = StyleSheet.create({
 	},
 	payButtonText: { fontSize: 16, fontWeight: "bold", color: "#fff" },
 	originalPriceText: {
-		fontSize: 16,
+		fontSize: 14,
 		color: colors.textLight,
 		textDecorationLine: "line-through",
+		marginBottom: 2,
 	},
 	discountText: {
 		fontSize: 16,
@@ -931,6 +1011,10 @@ const styles = StyleSheet.create({
 		marginTop: 15,
 		fontSize: 16,
 		color: colors.textMedium,
+	},
+	priceContainer: {
+		alignItems: "flex-end",
+		justifyContent: "center",
 	},
 });
 

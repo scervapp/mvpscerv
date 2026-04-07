@@ -4,7 +4,9 @@ const admin = require("firebase-admin");
 const { defineSecret } = require("firebase-functions/params");
 const stripe = require("stripe");
 const { getStripeKeys } = require("./stripeUtils");
+const twilio = require("twilio");
 const db = admin.firestore();
+const crypto = require("crypto");
 
 // Define the secret
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
@@ -14,6 +16,221 @@ const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
 const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
+// TODO: Replace these with your actual Twilio credentials from the console
+const TWILIO_ACCOUNT_SID = "TWILIO_ACCOUNT_SID_REMOVED";
+const TWILIO_AUTH_TOKEN = "c3935a626b638abcd8e249a29c0d55f7";
+const TWILIO_VERIFY_SERVICE_SID = "VA648e8c5da5ad84e802fed74f39ed9854";
+
+const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+/**
+ * 1. Sends the 6-digit OTP via WhatsApp
+ */
+exports.sendWhatsAppOTP = functions.https.onCall(async (data, context) => {
+	const { phoneNumber } = data; // Must be E.164 format (e.g., +50761234567)
+
+	if (!phoneNumber) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Phone number required.",
+		);
+	}
+
+	try {
+		console.log("This is the phone number being sent", phoneNumber);
+		const verification = await twilioClient.verify.v2
+			.services(TWILIO_VERIFY_SERVICE_SID)
+			.verifications.create({
+				to: phoneNumber,
+				channel: "whatsapp", // 🚨 Forces Twilio to route via WhatsApp
+			});
+
+		console.log(
+			"TWILIO RAW JSON RESPONSE:\n",
+			JSON.stringify(verification, null, 2),
+		);
+
+		return { success: true, status: verification.status };
+	} catch (error) {
+		console.error("Twilio Send Error:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not send WhatsApp code.",
+		);
+	}
+});
+
+exports.sendWhatsAppCode = functions.https.onCall(async (data, context) => {
+	const phoneNumber = data.phoneNumber; // Ensure the frontend sends this in E.164 format (e.g., "+507...")
+
+	if (!phoneNumber) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Phone number is required.",
+		);
+	}
+
+	// 1. Generate a cryptographically secure 6-digit code
+	const otpCode = crypto.randomInt(100000, 999999).toString();
+
+	// 2. Set an expiration time (10 minutes from now)
+	const expiresAt = admin.firestore.Timestamp.fromDate(
+		new Date(Date.now() + 10 * 60 * 1000),
+	);
+
+	try {
+		// 3. Save the code and expiration to Firestore
+		await admin.firestore().collection("otps").doc(phoneNumber).set({
+			code: otpCode,
+			expiresAt: expiresAt,
+		});
+
+		// 4. Fire the approved WhatsApp template via Twilio Programmable Messaging
+		await twilioClient.messages.create({
+			from: "whatsapp:+16812756693",
+			to: `whatsapp:${phoneNumber}`,
+			contentSid: "HX7e3c52b2b488126767456d41e4786d1c",
+			contentVariables: JSON.stringify({ 1: otpCode }),
+		});
+
+		return { success: true, message: "WhatsApp OTP sent successfully." };
+	} catch (error) {
+		console.error("Error sending WhatsApp OTP:", error);
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to send verification code.",
+		);
+	}
+});
+
+/**
+ * 2. Checks the OTP and generates a Firebase Custom Token
+ */
+exports.verifyWhatsAppOTP = functions.https.onCall(async (data, context) => {
+	const { phoneNumber, code } = data;
+
+	if (!phoneNumber || !code) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Phone number and code required.",
+		);
+	}
+
+	try {
+		// A. Check if the code matches what Twilio sent
+		const verificationCheck = await twilioClient.verify.v2
+			.services(TWILIO_VERIFY_SERVICE_SID)
+			.verificationChecks.create({ to: phoneNumber, code: code });
+
+		if (verificationCheck.status === "approved") {
+			// B. Find the Firebase User, or create one if they are brand new
+			let uid;
+			try {
+				const userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
+				uid = userRecord.uid;
+			} catch (e) {
+				if (e.code === "auth/user-not-found") {
+					const newUser = await admin
+						.auth()
+						.createUser({ phoneNumber: phoneNumber });
+					uid = newUser.uid;
+				} else {
+					throw e;
+				}
+			}
+
+			// C. Generate the golden ticket: The Custom Token
+			const customToken = await admin.auth().createCustomToken(uid);
+
+			return { success: true, customToken: customToken };
+		} else {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Invalid or expired OTP code.",
+			);
+		}
+	} catch (error) {
+		console.error("Twilio Verify Error:", error);
+		throw new functions.https.HttpsError("internal", "Verification failed.");
+	}
+});
+
+exports.verifyWhatsAppCode = functions.https.onCall(async (data, context) => {
+	const phoneNumber = data.phoneNumber;
+	const userCode = data.code; // The 6 digits the user typed into the app
+
+	if (!phoneNumber || !userCode) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Phone number and code are required.",
+		);
+	}
+
+	const otpRef = admin.firestore().collection("otps").doc(phoneNumber);
+	const doc = await otpRef.get();
+
+	// 1. Check if an OTP exists for this number
+	if (!doc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"No OTP request found for this number.",
+		);
+	}
+
+	const otpData = doc.data();
+
+	// 2. Check if the 10-minute timer has expired
+	if (otpData.expiresAt.toDate() < new Date()) {
+		await otpRef.delete(); // Delete the expired document
+		throw new functions.https.HttpsError(
+			"deadline-exceeded",
+			"This code has expired. Please request a new one.",
+		);
+	}
+
+	// 3. Check if the code matches
+	if (otpData.code !== userCode) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Incorrect verification code.",
+		);
+	}
+
+	// 4. Success! Delete the OTP document so it cannot be reused
+	await otpRef.delete();
+
+	// 5. 🚨 THE FIX: Create a native Firebase user FIRST
+	let uid;
+	try {
+		// Check if this phone number already has a Firebase account
+		const userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
+		uid = userRecord.uid; // Grab their existing random UID
+	} catch (error) {
+		if (error.code === "auth/user-not-found") {
+			// If they are brand new, create a native Firebase Auth user.
+			// Firebase will automatically generate a standard alphanumeric UID!
+			const newUser = await admin.auth().createUser({
+				phoneNumber: phoneNumber,
+			});
+			uid = newUser.uid;
+		} else {
+			console.error("Error fetching user:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Error looking up user.",
+			);
+		}
+	}
+
+	// 6. Mint the Firebase Custom Token using the standard UID (not the phone number)
+	try {
+		const customToken = await admin.auth().createCustomToken(uid);
+		return { success: true, token: customToken };
+	} catch (error) {
+		console.error("Error creating custom token:", error);
+		throw new functions.https.HttpsError("internal", "Failed to log in user.");
+	}
+});
 /**
  * An internal helper function to generate a new, unique, sequential restaurant number.
  * It uses a distributed counter to handle potential race conditions.
@@ -35,7 +252,7 @@ async function generateUniqueRestaurantNumber() {
 			transaction.set(
 				counterRef,
 				{ currentNumber: nextNumber },
-				{ merge: true }
+				{ merge: true },
 			);
 			return nextNumber;
 		});
@@ -65,14 +282,14 @@ exports.createStripeCustomer = functions
 		) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
-				"User not authenticated."
+				"User not authenticated.",
 			);
 		}
 		const { userId, restaurantId } = data;
 		if (!userId || !restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"User ID and Restaurant ID are required."
+				"User ID and Restaurant ID are required.",
 			);
 		}
 
@@ -86,7 +303,7 @@ exports.createStripeCustomer = functions
 			if (!userDoc.exists) {
 				throw new functions.https.HttpsError(
 					"not-found",
-					"Customer profile not found."
+					"Customer profile not found.",
 				);
 			}
 			const userData = userDoc.data();
@@ -96,7 +313,7 @@ exports.createStripeCustomer = functions
 			if (!phoneNumber) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"User profile is missing a phone number."
+					"User profile is missing a phone number.",
 				);
 			}
 
@@ -109,7 +326,7 @@ exports.createStripeCustomer = functions
 			console.log(
 				`Successfully created new ${
 					isLiveMode ? "LIVE" : "TEST"
-				} Stripe customer: ${customer.id}`
+				} Stripe customer: ${customer.id}`,
 			);
 
 			// 4. Store the new Stripe Customer ID back into the user's document
@@ -139,7 +356,7 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
 	if (!email || !password || !role || !additionalData) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Missing required fields."
+			"Missing required fields.",
 		);
 	}
 
@@ -187,7 +404,7 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
 		} else {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Invalid role for signup."
+				"Invalid role for signup.",
 			);
 		}
 
@@ -217,12 +434,12 @@ exports.createUserAccount = functions.https.onCall(async (data, context) => {
  */
 exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
 	const isEmailProvider = user.providerData.some(
-		(provider) => provider.providerId === "password"
+		(provider) => provider.providerId === "password",
 	);
 
 	if (isEmailProvider) {
 		console.log(
-			`onUserCreate: Email/password user ${user.uid} was handled by createUserAccount. No action needed.`
+			`onUserCreate: Email/password user ${user.uid} was handled by createUserAccount. No action needed.`,
 		);
 		return null;
 	}
@@ -230,7 +447,7 @@ exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
 	// --- THIS IS THE FIX ---
 	// This logic now correctly handles users from any non-password provider (Phone, Google, etc.).
 	console.log(
-		`onUserCreate: New non-email user created: ${user.uid}. Assigning 'customer' role.`
+		`onUserCreate: New non-email user created: ${user.uid}. Assigning 'customer' role.`,
 	);
 
 	// 1. Set the custom role claim for the user.
@@ -270,14 +487,14 @@ exports.setUserRole = functions.https.onCall(async (data, context) => {
 	) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
-			"You must be an owner or manager to change roles."
+			"You must be an owner or manager to change roles.",
 		);
 	}
 	const { targetUserId, role, restaurantId } = data;
 	if (!targetUserId || !role || !restaurantId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"Target user, role, and restaurantId are required."
+			"Target user, role, and restaurantId are required.",
 		);
 	}
 
@@ -301,7 +518,7 @@ exports.setUserRole = functions.https.onCall(async (data, context) => {
 		console.error("Error setting user role:", error);
 		throw new functions.https.HttpsError(
 			"internal",
-			"Could not set user role."
+			"Could not set user role.",
 		);
 	}
 });

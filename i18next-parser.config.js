@@ -4,4 +4,5 @@ module.exports = {
 	input: ["src/**/*.{js,jsx,ts,tsx}"],
 	keySeparator: false,
 	namespaceSeparator: false,
+	keepRemoved: true,
 };

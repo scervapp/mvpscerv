@@ -6,6 +6,7 @@ import React, {
 	useContext,
 	useCallback,
 } from "react";
+import { Alert } from "react-native";
 
 import { auth, db, functions } from "../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -20,16 +21,8 @@ export const AuthProvider = ({ children }) => {
 	const [authError, setAuthError] = useState(null);
 	const [redirectPath, setRedirectPath] = useState(null);
 
-	console.log(
-		"INITIAL MOUNT CHECK. auth.currentUser is:",
-		auth.currentUser ? auth.currentUser.uid : "NULL",
-	);
-
 	useEffect(() => {
-		console.log("[AUTH] 1. Setting up onAuthStateChanged listener...");
-
 		const subscriber = auth.onAuthStateChanged(async (user) => {
-			console.log("[AUTH] 2. onAuthStateChanged fired. User exists?", !!user);
 			setIsLoading(true);
 
 			if (user) {
@@ -37,40 +30,24 @@ export const AuthProvider = ({ children }) => {
 					let userRole = "customer";
 					let restId = null;
 
+					// 🚨 CLEANED UP: Any anonymous user is strictly just a guest
 					if (user.isAnonymous) {
-						const customerDoc = await db
-							.collection("customers")
-							.doc(user.uid)
-							.get();
-
-						if (!customerDoc.exists) {
-							console.log("[AUTH] 3a. True anonymous user → guest");
-							userRole = "guest";
-							setCurrentUserData({ uid: user.uid, role: userRole });
-							setCurrentUser(user);
-							setIsLoading(false);
-							return;
-						}
-
-						console.log("[AUTH] 3b. Bypassed customer detected (doc exists)");
-						// ← NO early return anymore — we want the listener below
+						userRole = "guest";
+						setCurrentUserData({ uid: user.uid, role: userRole });
+						setCurrentUser(user);
+						setIsLoading(false);
+						return;
 					} else {
-						// Normal authenticated flow (phone/email)
 						const tokenResult = await user.getIdTokenResult();
 						userRole = tokenResult.claims.role || "customer";
 						restId = tokenResult.claims.restaurantId || null;
 					}
 
-					// ← This now runs for BOTH bypassed anonymous AND real users
 					const collectionName = ["owner", "manager", "worker"].includes(
 						userRole,
 					)
 						? "restaurants"
 						: "customers";
-
-					console.log(
-						`[AUTH] 5. Attaching listener to /${collectionName}/${user.uid}`,
-					);
 
 					const docRef = db.collection(collectionName).doc(user.uid);
 					const unsubDoc = docRef.onSnapshot(
@@ -80,7 +57,7 @@ export const AuthProvider = ({ children }) => {
 									uid: user.uid,
 									role: userRole,
 									restaurantId: restId,
-									...docSnap.data(), // ← phoneNumber will be here
+									...docSnap.data(),
 								});
 							} else {
 								setCurrentUserData({
@@ -98,89 +75,19 @@ export const AuthProvider = ({ children }) => {
 					);
 
 					setCurrentUser(user);
-
 					return () => unsubDoc();
 				} catch (error) {
 					console.error("[AUTH] CRITICAL ERROR:", error);
 					setIsLoading(false);
 				}
 			} else {
-				console.log("[AUTH] No user logged in. Clearing state.");
 				setCurrentUser(null);
 				setCurrentUserData(null);
 				setIsLoading(false);
 			}
 		});
 
-		return () => {
-			console.log("[AUTH] Cleaning up auth subscriber.");
-			subscriber();
-		};
-	}, []);
-
-	const bypassPhoneAuth = useCallback(async (phoneNumber) => {
-		setAuthError(null);
-		setIsLoading(true);
-
-		console.log("[BYPASS] 1. Received phoneNumber from screen:", phoneNumber);
-
-		if (
-			!phoneNumber ||
-			(!phoneNumber.startsWith("+507") && !phoneNumber.startsWith("+1"))
-		) {
-			console.error("[BYPASS] ❌ Invalid or missing phoneNumber passed!");
-			setAuthError("Invalid phone number");
-			return;
-		}
-
-		try {
-			const userCredential = await auth.signInAnonymously();
-			const uid = userCredential.user.uid;
-
-			console.log("[BYPASS] 2. Anonymous sign-in successful. UID:", uid);
-
-			const customerData = {
-				phoneNumber: phoneNumber, // ← this is what we want to see
-				isPhoneVerified: false,
-				role: "customer",
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				bypassMode: true, // extra flag so we know it's bypassed
-			};
-
-			console.log("[BYPASS] 3. About to write this data:", customerData);
-
-			await db
-				.collection("customers")
-				.doc(uid)
-				.set(customerData, { merge: true });
-
-			console.log("[BYPASS] 4. Write completed successfully!");
-
-			// Double-check it actually saved
-			const verifyDoc = await db.collection("customers").doc(uid).get();
-			const verifiedData = verifyDoc.data();
-
-			console.log("[BYPASS] 5. VERIFIED doc from Firestore:", verifiedData);
-			console.log(
-				"[BYPASS] 6. phoneNumber in Firestore right now:",
-				verifiedData?.phoneNumber,
-			);
-
-			if (verifiedData?.phoneNumber === phoneNumber) {
-				console.log("[BYPASS] ✅ SUCCESS — phoneNumber was saved correctly");
-			} else {
-				console.error(
-					"[BYPASS] ❌ PhoneNumber is STILL null/missing after write!",
-				);
-			}
-		} catch (error) {
-			console.error("[BYPASS] Critical error:", error.code, error.message);
-			setAuthError("Bypass failed — check console");
-			throw error;
-		} finally {
-			// Listener will handle the rest
-		}
+		return () => subscriber();
 	}, []);
 
 	const login = useCallback(async (email, password) => {
@@ -196,7 +103,6 @@ export const AuthProvider = ({ children }) => {
 	const signup = useCallback(async (email, password, role, additionalData) => {
 		setAuthError(null);
 		try {
-			// Use the native 'funcs' object to call the cloud function
 			const createUserAccount = httpsCallable(functions, "createUserAccount");
 			await createUserAccount({ email, password, role, additionalData });
 			await auth.signInWithEmailAndPassword(email, password);
@@ -206,9 +112,9 @@ export const AuthProvider = ({ children }) => {
 		}
 	}, []);
 
+	// 🚨 Standard Firebase SMS Check (US Route)
 	const signInWithPhoneCredential = useCallback(
 		async (confirmation, verificationCode, formValues) => {
-			// ← added 3rd param
 			setAuthError(null);
 			setIsLoading(true);
 
@@ -217,22 +123,17 @@ export const AuthProvider = ({ children }) => {
 					verificationCode.trim(),
 				);
 				const user = userCredential.user;
-				console.log("[PHONE] ✅ Verified! uid:", user.uid);
 
-				// ← Create customer doc here too for REAL phone auth (prevents null phoneNumber)
 				if (formValues) {
-					await db
-						.collection("customers")
-						.doc(user.uid)
-						.set(
-							{
-								phoneNumber: `${formValues.countryCode || "+507"}${formValues.phoneNumber}`,
-								isPhoneVerified: true,
-								role: "customer",
-								createdAt: new Date().toISOString(),
-							},
-							{ merge: true },
-						);
+					await db.collection("customers").doc(user.uid).set(
+						{
+							phoneNumber: formValues.fullPhoneNumber,
+							isPhoneVerified: true,
+							role: "customer",
+							createdAt: new Date().toISOString(),
+						},
+						{ merge: true },
+					);
 				}
 			} catch (error) {
 				console.error("Phone verification error:", error);
@@ -243,6 +144,36 @@ export const AuthProvider = ({ children }) => {
 				} else {
 					setAuthError(error.message);
 				}
+				throw error;
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[],
+	);
+
+	// 🚨 Twilio WhatsApp Custom Token Check (Panama Route)
+	const signInWithTwilioCustomToken = useCallback(
+		async (customToken, fullPhoneNumber) => {
+			setAuthError(null);
+			setIsLoading(true);
+
+			try {
+				const userCredential = await auth.signInWithCustomToken(customToken);
+				const user = userCredential.user;
+
+				await db.collection("customers").doc(user.uid).set(
+					{
+						phoneNumber: fullPhoneNumber,
+						isPhoneVerified: true,
+						role: "customer",
+						createdAt: new Date().toISOString(),
+					},
+					{ merge: true },
+				);
+			} catch (error) {
+				console.error("Twilio Custom Token verification error:", error);
+				setAuthError("Invalid WhatsApp code or token expired.");
 				throw error;
 			} finally {
 				setIsLoading(false);
@@ -291,7 +222,6 @@ export const AuthProvider = ({ children }) => {
 		currentUserData,
 		isLoading,
 		authError,
-		bypassPhoneAuth,
 		login,
 		signup,
 		logout,
@@ -300,6 +230,7 @@ export const AuthProvider = ({ children }) => {
 		clearRedirectPath,
 		sendPasswordResetEmail,
 		signInWithPhoneCredential,
+		signInWithTwilioCustomToken,
 	};
 
 	return (

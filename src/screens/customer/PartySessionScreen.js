@@ -418,6 +418,13 @@ const PartySessionScreen = () => {
 		);
 	}
 
+	const getInitials = (name) => {
+		if (!name) return "GU";
+		const parts = name.split(" ");
+		if (parts.length > 1) return (parts[0][0] + parts[1][0]).toUpperCase();
+		return name.substring(0, 2).toUpperCase();
+	};
+
 	const partyIsPending = currentParty.status === "pending";
 	const partyIsActive = currentParty.status === "active";
 	const userHasPaid = myPartyStatus?.paymentStatus === "paid";
@@ -533,13 +540,34 @@ const PartySessionScreen = () => {
 				keyExtractor={(group) => group.userId || group.userName}
 				contentContainerStyle={styles.flatListContentContainer}
 				ListEmptyComponent={<PartyBasketGuide isHost={isHost} />}
-				renderItem={({ item: group }) => {
+				renderItem={({ item: group, index }) => {
 					const isMyGroup = group.userId === currentUserData?.uid;
+					// Highlight the current user's basket with your primary color, guests get a neutral/secondary color
+					const accentColor = isMyGroup ? colors.primary : colors.textMedium;
 
 					return (
-						<View style={styles.userBasketSection}>
+						<View
+							style={[
+								styles.userBasketSection,
+								{ borderLeftColor: accentColor },
+							]}
+						>
 							<View style={styles.chameleonHeader}>
-								<Text style={styles.userNameHeader}>{group.userName}</Text>
+								<View style={styles.userInfoWrapper}>
+									{/* New Avatar Icon */}
+									<View
+										style={[
+											styles.avatarCircle,
+											{ backgroundColor: accentColor + "20" },
+										]}
+									>
+										<Text style={[styles.avatarText, { color: accentColor }]}>
+											{getInitials(group.userName)}
+										</Text>
+									</View>
+									<Text style={styles.userNameHeader}>{group.userName}</Text>
+								</View>
+
 								{currentParty?.guestPips?.find((p) => p.userId === group.userId)
 									?.paymentStatus === "paid" && (
 									<View style={styles.paidBadge}>
@@ -551,41 +579,56 @@ const PartySessionScreen = () => {
 							</View>
 
 							{group.items.length > 0 ? (
-								group.items.map((basketItem, index) => {
-									const isForPip =
-										basketItem.orderedByPipName &&
-										basketItem.orderedByPipName !== "Myself";
+								<View style={styles.itemsWrapper}>
+									{group.items.map((basketItem, itemIndex) => {
+										const isForPip =
+											basketItem.orderedByPipName &&
+											basketItem.orderedByPipName !== "Myself";
+										const isLastItem = itemIndex === group.items.length - 1;
 
-									return (
-										<View key={basketItem.id || `basket-item-${index}`}>
-											{isForPip && (
-												<Text style={styles.pipLabelText}>
-													{t("for", "For")}: {basketItem.orderedByPipName}
-												</Text>
-											)}
+										return (
+											<View
+												key={basketItem.id || `basket-item-${itemIndex}`}
+												style={[
+													styles.itemContainer,
+													!isLastItem && styles.itemSeparator,
+												]}
+											>
+												{isForPip && (
+													<View style={styles.pipLabelPill}>
+														<Text style={styles.pipLabelText}>
+															{t("for", "For")}: {basketItem.orderedByPipName}
+														</Text>
+													</View>
+												)}
 
-											<OrderItemCard
-												item={{
-													...basketItem,
-													status:
-														getItemLiveStatus(basketItem) || basketItem.status,
-												}}
-												onQuantityChange={onItemQuantityChangeCallbackForParty}
-												liveTrackerStatus={getItemLiveStatus(basketItem)}
-												isSentToKitchen={
-													getItemLiveStatus(basketItem) !== "new" &&
-													getItemLiveStatus(basketItem) !== null
-												}
-												allowEdit={
-													isMyGroup &&
-													(basketItem.status === "new" || !basketItem.status) &&
-													!userHasPaid
-												}
-												isUpdating={updatingItemId === basketItem.id}
-											/>
-										</View>
-									);
-								})
+												<OrderItemCard
+													item={{
+														...basketItem,
+														status:
+															getItemLiveStatus(basketItem) ||
+															basketItem.status,
+													}}
+													onQuantityChange={
+														onItemQuantityChangeCallbackForParty
+													}
+													liveTrackerStatus={getItemLiveStatus(basketItem)}
+													isSentToKitchen={
+														getItemLiveStatus(basketItem) !== "new" &&
+														getItemLiveStatus(basketItem) !== null
+													}
+													allowEdit={
+														isMyGroup &&
+														(basketItem.status === "new" ||
+															!basketItem.status) &&
+														!userHasPaid
+													}
+													isUpdating={updatingItemId === basketItem.id}
+												/>
+											</View>
+										);
+									})}
+								</View>
 							) : (
 								<Text style={styles.emptyUserBasketText}>
 									{t("no_items_added_yet", "No items added yet.")}
@@ -932,26 +975,46 @@ const styles = StyleSheet.create({
 		fontStyle: "italic",
 	},
 
+	// --- GROUPED BASKET VISUAL STYLES ---
 	userBasketSection: {
-		marginVertical: 8,
-		marginHorizontal: 12,
-		padding: 12,
+		marginVertical: 10,
+		marginHorizontal: 15,
+		paddingTop: 12,
+		paddingBottom: 4,
+		paddingHorizontal: 12,
 		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
+		borderRadius: 14,
+		borderLeftWidth: 6,
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.05,
-		shadowRadius: 3,
-		elevation: 2,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.08,
+		shadowRadius: 4,
+		elevation: 3,
 	},
 	chameleonHeader: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		marginBottom: 10,
-		paddingBottom: 6,
+		marginBottom: 12,
+		paddingBottom: 10,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
+	},
+	userInfoWrapper: {
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	avatarCircle: {
+		width: 32,
+		height: 32,
+		borderRadius: 16,
+		justifyContent: "center",
+		alignItems: "center",
+		marginRight: 10,
+	},
+	avatarText: {
+		fontSize: 12,
+		fontWeight: "bold",
 	},
 	userNameHeader: { fontSize: 16, fontWeight: "700", color: colors.textDark },
 	paidBadge: {
@@ -972,7 +1035,37 @@ const styles = StyleSheet.create({
 		color: colors.textLight,
 		fontStyle: "italic",
 	},
+	itemsWrapper: {
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 10,
+		padding: 8,
+		marginBottom: 8,
+	},
+	itemContainer: {
+		paddingVertical: 4,
+	},
+	itemSeparator: {
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+		marginBottom: 8,
+		paddingBottom: 8,
+	},
+	pipLabelPill: {
+		alignSelf: "flex-start",
+		backgroundColor: colors.primary + "15",
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+		borderRadius: 6,
+		marginBottom: 6,
+	},
+	pipLabelText: {
+		fontSize: 11,
+		fontWeight: "bold",
+		color: colors.primary,
+		textTransform: "uppercase",
+	},
 
+	// --- STICKY BOTTOM BAR & ACTIONS ---
 	stickyBottomBar: {
 		position: "absolute",
 		bottom: 0,
@@ -1022,7 +1115,16 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "600",
 	},
+	inlineDisclaimerText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 12,
+		fontStyle: "italic",
+		paddingHorizontal: 10,
+	},
 
+	// --- MODAL STYLES ---
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -1074,23 +1176,6 @@ const styles = StyleSheet.create({
 		color: colors.surfaceWhite,
 		fontSize: 16,
 		fontWeight: "bold",
-	},
-	pipLabelText: {
-		fontSize: 13,
-		fontWeight: "bold",
-		color: colors.primary,
-		marginLeft: 12,
-		marginBottom: -4,
-		marginTop: 10,
-		zIndex: 1,
-	},
-	inlineDisclaimerText: {
-		fontSize: 12,
-		color: colors.textMedium,
-		textAlign: "center",
-		marginBottom: 12,
-		fontStyle: "italic",
-		paddingHorizontal: 10,
 	},
 });
 

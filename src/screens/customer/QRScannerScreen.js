@@ -212,12 +212,15 @@ const QRScannerScreen = () => {
 
 	return (
 		<View style={styles.container}>
-			<CameraView
-				style={StyleSheet.absoluteFillObject}
-				facing="back"
-				onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-				barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-			/>
+			{/* 🚨 THE FIX: Unmount the camera immediately on scan to free the iOS thread */}
+			{!isProcessing && (
+				<CameraView
+					style={StyleSheet.absoluteFillObject}
+					facing="back"
+					onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+					barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+				/>
+			)}
 
 			<View style={styles.overlay}>
 				<TouchableOpacity
