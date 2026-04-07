@@ -31,6 +31,8 @@ const ManagePartyScreen = () => {
 	const [isClosing, setIsClosing] = useState(false);
 	const [receiptEmail, setReceiptEmail] = useState("");
 
+	const hasServer = !!partyData?.server && !!partyData?.server?.name;
+
 	// 1. Listen to the Party and the Shared Basket simultaneously
 	useEffect(() => {
 		if (!partyId) return;
@@ -76,8 +78,15 @@ const ManagePartyScreen = () => {
 				groups[ownerName] = { title: ownerName, data: [], subtotal: 0 };
 			}
 			groups[ownerName].data.push(item);
+
+			// Check for discount when calculating subtotal
+			const effectivePrice =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? parseFloat(item.discountedPrice)
+					: parseFloat(item.price || 0);
+
 			groups[ownerName].subtotal +=
-				parseFloat(item.price || 0) * parseInt(item.quantity || 1, 10);
+				effectivePrice * parseInt(item.quantity || 1, 10);
 		});
 		return Object.values(groups);
 	}, [officiallyOrderedItems, partyData, t]);
@@ -166,6 +175,19 @@ const ManagePartyScreen = () => {
 			item.status === "sent" ||
 			item.status === "preparing" ||
 			item.status === "ready";
+
+		// Logic to detect a discount
+		const hasDiscount =
+			item.discountedPrice !== null &&
+			item.discountedPrice !== undefined &&
+			item.discountedPrice < item.price;
+
+		const quantity = parseInt(item.quantity || 1, 10);
+		const originalTotal = parseFloat(item.price || 0) * quantity;
+		const finalTotal = hasDiscount
+			? parseFloat(item.discountedPrice) * quantity
+			: originalTotal;
+
 		return (
 			<View style={styles.itemRow}>
 				<View style={styles.itemQtyBox}>
@@ -187,9 +209,18 @@ const ManagePartyScreen = () => {
 					) : null}
 				</View>
 				<View style={styles.itemTrailing}>
-					<Text style={styles.itemPrice}>
-						${(item.price * item.quantity).toFixed(2)}
-					</Text>
+					<View style={styles.priceContainer}>
+						{hasDiscount && (
+							<Text style={styles.originalPriceText}>
+								${originalTotal.toFixed(2)}
+							</Text>
+						)}
+						<Text
+							style={[styles.itemPrice, hasDiscount && styles.discountText]}
+						>
+							${finalTotal.toFixed(2)}
+						</Text>
+					</View>
 					<View
 						style={[
 							styles.statusBadge,
@@ -276,11 +307,26 @@ const ManagePartyScreen = () => {
 					autoCapitalize="none"
 					autoCorrect={false}
 				/>
+
+				{/* NEW: Server Warning Message */}
+				{!hasServer && (
+					<Text style={styles.noServerWarning}>
+						{t(
+							"assign_server_to_close",
+							"A server needs to be assigned to close out the table.",
+						)}
+					</Text>
+				)}
+
 				<View style={styles.actionRow}>
 					<TouchableOpacity
-						style={[styles.closeBtn, isClosing && { opacity: 0.7 }]}
+						style={[
+							styles.closeBtn,
+							isClosing && { opacity: 0.7 },
+							!hasServer && { backgroundColor: colors.textMedium }, // Grays out the button
+						]}
 						onPress={handleCloseTable}
-						disabled={isClosing}
+						disabled={isClosing || !hasServer} // Disables the press action
 					>
 						{isClosing ? (
 							<ActivityIndicator size="small" color={colors.surfaceWhite} />
@@ -447,6 +493,26 @@ const styles = StyleSheet.create({
 		color: colors.surfaceWhite,
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+	priceContainer: {
+		alignItems: "flex-end",
+		justifyContent: "center",
+	},
+	originalPriceText: {
+		fontSize: 14,
+		color: colors.textLight,
+		textDecorationLine: "line-through",
+		marginBottom: 2,
+	},
+	discountText: {
+		color: colors.statusSuccess,
+	},
+	noServerWarning: {
+		color: colors.statusDanger,
+		textAlign: "center",
+		fontSize: 14,
+		fontWeight: "600",
+		marginBottom: 12,
 	},
 });
 

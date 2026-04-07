@@ -66,6 +66,12 @@ exports.handleStripeEvent = paymentFunctions.handleStripeEvent;
 exports.createStripeCustomer = userFunctions.createStripeCustomer;
 exports.onUserCreate = userFunctions.onUserCreate;
 exports.createUserAccount = userFunctions.createUserAccount;
+
+exports.sendWhatsAppOTP = userFunctions.sendWhatsAppOTP;
+exports.verifyWhatsAppOTP = userFunctions.verifyWhatsAppOTP;
+exports.sendWhatsAppCode = userFunctions.sendWhatsAppCode;
+exports.verifyWhatsAppCode = userFunctions.verifyWhatsAppCode;
+
 exports.setUserRole = userFunctions.setUserRole;
 exports.createConnectedAccount =
 	stripeOnboardingFunctions.createConnectedAccount;

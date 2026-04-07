@@ -11,18 +11,19 @@ import {
 	ScrollView,
 	Platform,
 	KeyboardAvoidingView,
-	Modal, // 🚨 Added Modal
+	Modal,
 } from "react-native";
 import { Formik } from "formik";
 import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
-import { Ionicons } from "@expo/vector-icons"; // 🚨 Added for modal checkmarks
+import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { auth, db } from "../../config/firebase.native"; // 🚨 Added db for Kill Switch
+// 🚨 Ensure functions is imported from your config
+import { auth, db, functions } from "../../config/firebase.native";
+import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 
-// 🚨 Defined supported countries with flags
 const SUPPORTED_COUNTRIES = [
 	{
 		code: "+507",
@@ -40,28 +41,39 @@ const SUPPORTED_COUNTRIES = [
 	},
 ];
 
+// Helper to know which countries use WhatsApp via Twilio
+const isWhatsAppSupported = (code) => ["+1", "+507"].includes(code);
+
 const CustomerSignupScreen = ({ navigation }) => {
 	const { t } = useTranslation();
-
-	// 🚨 Pulled bypassPhoneAuth from context
-	const { signInWithPhoneCredential, bypassPhoneAuth, isLoading } =
-		useContext(AuthContext);
+	// 🚨 Pulled the new signInWithTwilioCustomToken from Context
+	const {
+		signInWithPhoneCredential,
+		signInWithTwilioCustomToken,
+		bypassPhoneAuth,
+		isLoading,
+	} = useContext(AuthContext);
 
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [confirmation, setConfirmation] = useState(null);
 	const [verificationCode, setVerificationCode] = useState("");
 	const [formValues, setFormValues] = useState(null);
 	const [codeError, setCodeError] = useState("");
-
 	const [countryCode, setCountryCode] = useState("+507");
-	const [isPickerVisible, setPickerVisible] = useState(false); // 🚨 Modal State
-	const [useBypassMode, setUseBypassMode] = useState(true); // 🚨 Kill Switch State
+	const [isPickerVisible, setPickerVisible] = useState(false);
+	const [useBypassMode, setUseBypassMode] = useState(true);
+
+	// 🚨 Track which auth method we are actively using
+	const [authRoute, setAuthRoute] = useState(null); // 'firebase' or 'twilio'
+
+	// 🚨 Init Callables
+	const sendWhatsAppOTP = httpsCallable(functions, "sendWhatsAppCode");
+	const verifyWhatsAppOTP = httpsCallable(functions, "verifyWhatsAppCode");
 
 	const selectedCountry = SUPPORTED_COUNTRIES.find(
 		(c) => c.code === countryCode,
 	);
 
-	// 🚨 Kill Switch Listener
 	useEffect(() => {
 		const unsubscribe = db
 			.collection("bypass")
@@ -91,27 +103,32 @@ const CustomerSignupScreen = ({ navigation }) => {
 			const cleanedNumber = values.phoneNumber.replace(/\D/g, "");
 			const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
 
-			// 🚨 Remote Bypass Logic
 			if (useBypassMode) {
-				// (Note: You already defined cleanedNumber and fullPhoneNumber above,
-				// so you don't need to re-declare them here, but I left your logic intact!)
 				await bypassPhoneAuth(fullPhoneNumber);
 				return;
 			}
 
-			// 🛑 REAL SMS FLOW (COMMENTED OUT TO PROTECT DEVICE)
+			// 🔥 UPDATED LOGIC: US (+1) now also uses Twilio WhatsApp (same as Panama)
+			if (isWhatsAppSupported(countryCode)) {
+				await sendWhatsAppOTP({ phoneNumber: fullPhoneNumber });
+				setAuthRoute("twilio");
+				setConfirmation({ isTwilio: true }); // Mock confirmation to advance UI
+			} else {
+				// Fallback for any future countries (Firebase SMS)
+				const confirmationResult =
+					await auth.signInWithPhoneNumber(fullPhoneNumber);
+				setAuthRoute("firebase");
+				setConfirmation(confirmationResult);
+			}
 
-			const confirmationResult =
-				await auth.signInWithPhoneNumber(fullPhoneNumber);
-			setFormValues({ ...values, phoneNumber: cleanedNumber });
-			setConfirmation(confirmationResult);
+			setFormValues({ ...values, phoneNumber: cleanedNumber, fullPhoneNumber });
 		} catch (error) {
 			console.error("[DEBUG] Error sending code:", error);
 			Alert.alert(
 				t("error"),
 				t(
 					"could_not_send_verification_code_please_check_the_console_for_details_code",
-					{ code: error.code },
+					{ code: error.code || error.message },
 				),
 			);
 		} finally {
@@ -121,23 +138,41 @@ const CustomerSignupScreen = ({ navigation }) => {
 
 	const handleConfirmCode = async () => {
 		if (isLoading || !confirmation) return;
-
 		if (!verificationCode || verificationCode.trim().length !== 6) {
 			setCodeError(t("please_enter_a_valid_6_digit_code"));
 			return;
 		}
-
 		setCodeError("");
 		setIsSubmitting(true);
-
 		try {
-			await signInWithPhoneCredential(
-				confirmation,
-				verificationCode,
-				formValues,
-			);
+			// 🚨 VERIFY BASED ON THE ACTIVE ROUTE
+			if (authRoute === "firebase") {
+				// Standard SMS Verify (only used for future countries)
+				await signInWithPhoneCredential(
+					confirmation,
+					verificationCode,
+					formValues,
+				);
+			} else if (authRoute === "twilio") {
+				// Twilio WhatsApp Verify (now used for both US +1 and Panama +507)
+				const result = await verifyWhatsAppOTP({
+					phoneNumber: formValues.fullPhoneNumber,
+					code: verificationCode,
+				});
+				if (result.data && result.data.success && result.data.token) {
+					await signInWithTwilioCustomToken(
+						result.data.token,
+						formValues.fullPhoneNumber,
+					);
+				} else {
+					throw new Error("Invalid WhatsApp code.");
+				}
+			}
 		} catch (error) {
 			console.error("Verification failed:", error);
+			setCodeError(
+				t("invalid_code_try_again", "Invalid code. Please try again."),
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -160,7 +195,7 @@ const CustomerSignupScreen = ({ navigation }) => {
 							{!confirmation
 								? t("enter_your_phone_number_to_begin")
 								: t("enter_the_6_digit_code_sent_to_1", {
-										phoneNumber: formValues?.phoneNumber,
+										phoneNumber: formValues?.fullPhoneNumber,
 									})}
 						</Text>
 					</View>
@@ -174,7 +209,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 							{({ handleChange, handleSubmit, values, errors, touched }) => (
 								<View style={styles.form}>
 									<View style={styles.phoneInputContainer}>
-										{/* 🚨 Opens the Modal */}
 										<TouchableOpacity
 											style={styles.countryCodeSelector}
 											onPress={() => setPickerVisible(true)}
@@ -184,7 +218,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 											</Text>
 											<Text style={styles.dropdownArrow}> ▾</Text>
 										</TouchableOpacity>
-
 										<TextInput
 											style={[styles.input, styles.phoneInputFlex]}
 											placeholder={selectedCountry.placeholder}
@@ -195,7 +228,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 											maxLength={selectedCountry.maxLength}
 										/>
 									</View>
-
 									{touched.phoneNumber && errors.phoneNumber && (
 										<Text style={styles.errorText}>{errors.phoneNumber}</Text>
 									)}
@@ -207,13 +239,13 @@ const CustomerSignupScreen = ({ navigation }) => {
 										loading={isSubmitting || isLoading}
 										style={styles.button}
 									>
-										{/* 🚨 Dynamic Button Text */}
 										{useBypassMode
 											? t("Continue")
-											: t("send_verification_code")}
+											: isWhatsAppSupported(countryCode)
+												? t("send_whatsapp_code", "Send WhatsApp Code")
+												: t("send_verification_code")}
 									</Button>
 
-									{/* 🚨 THE CLEAR SELECTION MODAL */}
 									<Modal
 										visible={isPickerVisible}
 										transparent={true}
@@ -227,14 +259,13 @@ const CustomerSignupScreen = ({ navigation }) => {
 										>
 											<View style={styles.modalContent}>
 												<Text style={styles.modalTitle}>Select Country</Text>
-
 												{SUPPORTED_COUNTRIES.map((item) => (
 													<TouchableOpacity
 														key={item.code}
 														style={styles.modalOption}
 														onPress={() => {
 															setCountryCode(item.code);
-															handleChange("phoneNumber")(""); // Clear input when switching
+															handleChange("phoneNumber")("");
 															setPickerVisible(false);
 														}}
 													>
@@ -271,7 +302,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 								textAlign="center"
 							/>
 							{codeError && <Text style={styles.errorText}>{codeError}</Text>}
-
 							<Button
 								mode="contained"
 								onPress={handleConfirmCode}
@@ -283,7 +313,6 @@ const CustomerSignupScreen = ({ navigation }) => {
 							>
 								{t("verify_and_continue")}
 							</Button>
-
 							<Button
 								mode="text"
 								onPress={() => setConfirmation(null)}
@@ -331,7 +360,6 @@ const styles = StyleSheet.create({
 		marginBottom: 20,
 	},
 	form: { width: "100%" },
-
 	phoneInputContainer: {
 		flexDirection: "row",
 		alignItems: "center",
@@ -364,7 +392,6 @@ const styles = StyleSheet.create({
 		flex: 1,
 		marginBottom: 0,
 	},
-
 	input: {
 		height: 55,
 		borderWidth: 1,
@@ -399,8 +426,6 @@ const styles = StyleSheet.create({
 	},
 	footerText: { fontSize: 15, color: colors.textMedium },
 	linkTextFooter: { color: colors.primary, fontSize: 15, fontWeight: "bold" },
-
-	// 🚨 MODAL STYLES ADDED
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0, 0, 0, 0.5)",
