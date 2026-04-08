@@ -1,15 +1,6 @@
-import React, { useState, useEffect, useContext, useRef } from "react";
-import {
-	View,
-	Text,
-	Modal,
-	Button,
-	StyleSheet,
-	TouchableOpacity,
-} from "react-native";
-import { useTranslation } from 'react-i18next';
-import { db } from "../../config/firebase";
-import { AuthContext } from "../../context/authContext";
+import React, { useState } from "react";
+import { View, Text, Modal, StyleSheet, TouchableOpacity } from "react-native";
+import { useTranslation } from "react-i18next";
 import { Picker } from "@react-native-picker/picker";
 import colors from "../../utils/styles/appStyles";
 
@@ -27,7 +18,7 @@ const ServerAssignmentModal = ({
 			onAssignServer(selectedServer);
 			onClose();
 		} else {
-			alert(t('please_select_server_alert'));
+			alert(t("please_select_server_alert"));
 		}
 	};
 
@@ -35,16 +26,24 @@ const ServerAssignmentModal = ({
 		<Modal visible={visible} animationType="slide" transparent={true}>
 			<View style={styles.modalContainer}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>{t('assign_server_title')}</Text>
+					<Text style={styles.modalTitle}>{t("assign_server_title")}</Text>
 
 					{/* Server Picker */}
 					<View style={styles.pickerContainer}>
 						<Picker
 							selectedValue={selectedServer}
 							onValueChange={(itemValue) => setSelectedServer(itemValue)}
-							style={styles.picker}
+							// 1. THIS fixes the "Closed" state on Android (forces the visible selected text to be dark)
+							style={{ width: "100%", height: 70, color: colors.textDark }}
+							dropdownIconColor={colors.textDark}
+							// 2. THIS fixes iOS (forces the scrolling wheel text to be dark)
+							itemStyle={{ color: colors.textDark, fontSize: 16 }}
 						>
-							<Picker.Item label={t('select_server_label')} value={null} />
+							{/* 3. NO COLOR PROPS HERE. Android's native popup will auto-adjust for Dark/Light mode! */}
+							<Picker.Item
+								label={t("select_server_label", "Select Server")}
+								value={null}
+							/>
 							{servers &&
 								servers.map((server) => (
 									<Picker.Item
@@ -59,7 +58,7 @@ const ServerAssignmentModal = ({
 					{/* Buttons */}
 					<View style={styles.buttonContainer}>
 						<TouchableOpacity onPress={onClose} style={styles.cancelButton}>
-							<Text style={styles.cancelButtonText}>{t('cancel_button')}</Text>
+							<Text style={styles.cancelButtonText}>{t("cancel_button")}</Text>
 						</TouchableOpacity>
 						<TouchableOpacity
 							onPress={handleAssign}
@@ -69,7 +68,7 @@ const ServerAssignmentModal = ({
 								!selectedServer && styles.disabledButton,
 							]}
 						>
-							<Text style={styles.assignButtonText}>{t('assign_button')}</Text>
+							<Text style={styles.assignButtonText}>{t("assign_button")}</Text>
 						</TouchableOpacity>
 					</View>
 				</View>
@@ -92,21 +91,28 @@ const styles = StyleSheet.create({
 		width: "80%",
 	},
 	modalTitle: {
-		fontSize: 24, // Increased font size
+		fontSize: 24,
 		fontWeight: "bold",
-		marginBottom: 20, // Increased margin
+		marginBottom: 20,
 		textAlign: "center",
+		color: colors.textDark,
 	},
 	pickerContainer: {
 		borderWidth: 1,
-		borderColor: "#ced4da", // Add a border to the picker container
+		borderColor: colors.borderLight, // Updated
 		borderRadius: 8,
 		paddingHorizontal: 10,
 		marginBottom: 20,
+		backgroundColor: colors.surfaceWhite, // Updated
 	},
 	picker: {
 		width: "100%",
-		height: 70, // Adjust height as needed
+		height: 70,
+		color: colors.textDark, // Updated
+	},
+	pickerItem: {
+		color: colors.textDark, // Updated
+		fontSize: 16,
 	},
 	buttonContainer: {
 		flexDirection: "row",
@@ -114,7 +120,7 @@ const styles = StyleSheet.create({
 		marginTop: 10,
 	},
 	cancelButton: {
-		backgroundColor: "#ccc",
+		backgroundColor: colors.borderLight, // Updated from #ccc
 		padding: 10,
 		borderRadius: 8,
 		flex: 1,
@@ -122,8 +128,12 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 	},
 	cancelButtonText: {
-		color: "#333",
+		color: colors.textDark, // Updated from #333
 		fontSize: 16,
+	},
+	disabledButton: {
+		opacity: 0.6,
+		backgroundColor: colors.textMedium, // Updated fallback
 	},
 	assignButton: {
 		backgroundColor: colors.primary,
@@ -138,10 +148,6 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "bold",
 	},
-	disabledButton: {
-		// Style for the disabled state
-		opacity: 0.6,
-		backgroundColor: colors.disabledButtonBackground, // Example color
-	},
 });
+
 export default ServerAssignmentModal;

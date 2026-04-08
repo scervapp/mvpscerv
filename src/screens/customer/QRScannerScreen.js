@@ -11,6 +11,7 @@ import {
 	TouchableOpacity,
 	Alert,
 	ActivityIndicator,
+	Platform,
 } from "react-native";
 import { functions, db } from "../../config/firebase.native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -73,6 +74,23 @@ const QRScannerScreen = () => {
 		}
 	};
 
+	// 🚨 THE FIX: Helper function to safely dismiss the iOS modal BEFORE routing
+	const navigateToParty = (targetPartyId) => {
+		// 1. Dismiss the scanner modal explicitly
+		navigation.goBack();
+
+		// 2. Add a tiny delay so iOS finishes the modal close animation before switching tabs
+		setTimeout(() => {
+			navigation.navigate("PartyTab", {
+				screen: "PartySession",
+				params: {
+					partyId: targetPartyId,
+					restaurantId: restaurantId,
+				},
+			});
+		}, 100);
+	};
+
 	const handleBarCodeScanned = async ({ type, data }) => {
 		if (scanned || isProcessing) return;
 		setScanned(true);
@@ -119,18 +137,12 @@ const QRScannerScreen = () => {
 					const result = await createPartySession({
 						restaurantId: restaurantId,
 						tableId: tableData.tableId,
-						existingPartyId: existingPartyId || null, // 🚨 THE FIX: Send the pending party to the backend!
+						existingPartyId: existingPartyId || null,
 					});
 
 					if (result.data.success) {
-						navigation.navigate("PartyTab", {
-							screen: "PartySession",
-							params: {
-								// Use the existing party ID if we had one, otherwise use the brand new one
-								partyId: existingPartyId || result.data.partyId,
-								restaurantId: restaurantId,
-							},
-						});
+						// Use our new helper function
+						navigateToParty(existingPartyId || result.data.partyId);
 					}
 				} catch (error) {
 					console.error("Create/Link Session Error:", error);
@@ -156,17 +168,11 @@ const QRScannerScreen = () => {
 							onPress: async () => {
 								setStatusText("Joining Table...");
 								try {
-									// We use the guaranteed inviteCode from the backend
 									const joined = await joinParty({ inviteCode: inviteCode });
 
 									if (joined) {
-										navigation.navigate("PartyTab", {
-											screen: "PartySession",
-											params: {
-												partyId: partyId,
-												restaurantId: restaurantId,
-											},
-										});
+										// Use our new helper function
+										navigateToParty(partyId);
 									} else {
 										Alert.alert("Error", "Could not join the table.");
 										resetScanner();
@@ -187,13 +193,8 @@ const QRScannerScreen = () => {
 			// =================================================================
 			else if (action === "already_joined") {
 				setStatusText("Loading Your Table...");
-				navigation.navigate("PartyTab", {
-					screen: "PartySession",
-					params: {
-						partyId: partyId,
-						restaurantId: restaurantId,
-					},
-				});
+				// Use our new helper function
+				navigateToParty(partyId);
 			}
 		} catch (error) {
 			console.error("QR Scan Flow Error:", error);
@@ -212,7 +213,6 @@ const QRScannerScreen = () => {
 
 	return (
 		<View style={styles.container}>
-			{/* 🚨 THE FIX: Unmount the camera immediately on scan to free the iOS thread */}
 			{!isProcessing && (
 				<CameraView
 					style={StyleSheet.absoluteFillObject}

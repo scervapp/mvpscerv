@@ -132,14 +132,28 @@ export const RestaurantDataProvider = ({ children }) => {
 		const unsub = db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
-			.where("overallStatus", "==", "active") // 🚨 THE FIX: Ignore archived tickets!
+			.where("overallStatus", "==", "active") // Ignores voided/archived tickets
 			.onSnapshot((snap) => {
 				let newTicketsCount = 0;
 
 				snap.docs.forEach((doc) => {
 					const ticket = doc.data();
-					// Count it for the badge if it's genuinely new
-					if (ticket.status === "new") {
+
+					// 🚨 THE FIX: Smart Badge Math
+					let isNewTicket = false;
+
+					if (ticket.stationStatuses) {
+						// Enterprise Way: Only count it if a specific station is explicitly "new"
+						isNewTicket =
+							ticket.stationStatuses.kitchen === "new" ||
+							ticket.stationStatuses.bar === "new";
+					} else {
+						// Legacy Fallback (so older test tickets don't break the app)
+						isNewTicket = ticket.status === "new";
+					}
+
+					// Increment the badge ONLY for genuinely untouched tickets
+					if (isNewTicket) {
 						newTicketsCount++;
 					}
 				});
@@ -147,8 +161,19 @@ export const RestaurantDataProvider = ({ children }) => {
 				if (!isKitchenInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
 						const ticket = change.doc.data();
-						// Play the bell ONLY if a fresh, active, new ticket drops in
-						if (change.type === "added" && ticket.status === "new") {
+
+						let isNewTicket = false;
+						if (ticket.stationStatuses) {
+							isNewTicket =
+								ticket.stationStatuses.kitchen === "new" ||
+								ticket.stationStatuses.bar === "new";
+						} else {
+							isNewTicket = ticket.status === "new";
+						}
+
+						// Play the bell ONLY if a fresh ticket drops into the queue
+						if (change.type === "added" && isNewTicket) {
+							console.log("New Kitchen/Bar Order! Playing Bell.");
 							kitchenPlayer.current?.seekTo(0);
 							kitchenPlayer.current?.play();
 						}
@@ -156,7 +181,9 @@ export const RestaurantDataProvider = ({ children }) => {
 				}
 
 				isKitchenInitialLoad.current = false;
-				setNewKitchenOrderCount(newTicketsCount); // 🚨 Update the badge with the correct math
+
+				// 🚨 Update the badge with the true count of unstarted tickets
+				setNewKitchenOrderCount(newTicketsCount);
 			});
 
 		return () => {
