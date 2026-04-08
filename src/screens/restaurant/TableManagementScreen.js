@@ -190,6 +190,7 @@ const TableManagementScreen = () => {
 	const updateTableFunction = httpsCallable(functions, "updateTable");
 	const deleteTableFunction = httpsCallable(functions, "deleteTable");
 	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
+	const [activePartyMap, setActivePartyMap] = useState({});
 
 	useEffect(() => {
 		if (!currentUserData?.uid) {
@@ -212,13 +213,26 @@ const TableManagementScreen = () => {
 		const q = query(
 			collection(db, "parties"),
 			where("restaurantId", "==", currentUserData.uid),
-			where("status", "==", "active"),
+			where("status", "in", ["active", "checkedOut"]), // 🚨 CATCHES DIRTY TABLES TOO
 		);
+
 		const unsubscribeParties = onSnapshot(q, (snapshot) => {
-			const occupiedIds = new Set(
-				snapshot.docs.map((doc) => doc.data().tableId),
-			);
+			const occupiedIds = new Set();
+			const partyMapping = {};
+
+			snapshot.docs.forEach((doc) => {
+				const data = doc.data();
+				// 🚨 CATCHES BOTH WAYS THE TABLE ID MIGHT BE STORED
+				const tId = data.tableId || data.table?.id;
+
+				if (tId) {
+					occupiedIds.add(tId);
+					partyMapping[tId] = doc.id;
+				}
+			});
+
 			setActiveTableIds(occupiedIds);
+			setActivePartyMap(partyMapping);
 		});
 
 		return () => {
@@ -318,21 +332,30 @@ const TableManagementScreen = () => {
 	};
 
 	const forceClearAction = async (tableToClear) => {
-		if (!tableToClear?.currentCheckInId || !tableToClear?.currentCustomerId) {
+		// Relaxing the strict check slightly, because walk-ins might not have a checkInId
+		// but we still need to be able to force clear them.
+		if (!tableToClear?.id) {
 			Alert.alert(
 				t("error"),
 				t("missing_information_needed_to_clear_this_table"),
 			);
 			return;
 		}
+
 		setIsActionLoading(true);
 		try {
+			// 🚨 Grab the active party ID from our map
+			const targetPartyId = activePartyMap[tableToClear.id] || null;
+
+			// 🚨 Send the complete payload to the Cloud Function
 			await forceClearTableFunction({
 				restaurantId: currentUserData.uid,
 				tableId: tableToClear.id,
-				checkInId: tableToClear.currentCheckInId,
-				customerId: tableToClear.currentCustomerId,
+				partyId: targetPartyId,
+				checkInId: tableToClear.currentCheckInId || "legacy_skip",
+				customerId: tableToClear.currentCustomerId || "walk_in",
 			});
+
 			Alert.alert(
 				t("success"),
 				`${tableToClear.name} ${t("has_been_cleared")}`,
@@ -349,24 +372,22 @@ const TableManagementScreen = () => {
 	};
 
 	const handleTableLongPress = (table) => {
-		if (table.status === "OCCUPIED" || table.status === "occupied") {
-			Alert.alert(
-				t("force_clear_table"),
-				`${t("this_will_clear_all_data_for")} ${
-					table.name
-				} ${t("and_check_out_the_current_customer_this_action_cannot_be_undone")}`,
-				[
-					{ text: t("cancel"), style: "cancel" },
-					{
-						text: t("confirm_clear"),
-						style: "destructive",
-						onPress: () => forceClearAction(table),
-					},
-				],
-			);
-		} else {
-			Alert.alert(t("info"), t("only_occupied_tables_can_be_force_cleared"));
-		}
+		// 🚨 ULTIMATE OVERRIDE: If a manager long-presses, let them clear it.
+		// This is the failsafe for syncing ghost tickets or fixing corrupted table states.
+		Alert.alert(
+			t("force_clear_table", "Force Clear Table"),
+			`${t("this_will_clear_all_data_for", "This will clear all data for")} ${
+				table.name
+			} ${t("and_check_out_the_current_customer_this_action_cannot_be_undone", "and check out the current customer. This action cannot be undone.")}`,
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("confirm_clear", "Confirm Clear"),
+					style: "destructive",
+					onPress: () => forceClearAction(table),
+				},
+			],
+		);
 	};
 
 	const closeModal = () => {
