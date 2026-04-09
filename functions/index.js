@@ -71,6 +71,8 @@ exports.sendWhatsAppOTP = userFunctions.sendWhatsAppOTP;
 exports.verifyWhatsAppOTP = userFunctions.verifyWhatsAppOTP;
 exports.sendWhatsAppCode = userFunctions.sendWhatsAppCode;
 exports.verifyWhatsAppCode = userFunctions.verifyWhatsAppCode;
+exports.sendEmailOtp = userFunctions.sendEmailOtp;
+exports.verifyEmailOtp = userFunctions.verifyEmailOtp;
 
 exports.setUserRole = userFunctions.setUserRole;
 exports.createConnectedAccount =

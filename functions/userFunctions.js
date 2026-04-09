@@ -8,6 +8,10 @@ const twilio = require("twilio");
 const db = admin.firestore();
 const crypto = require("crypto");
 
+const { Resend } = require("resend");
+
+const resend = new Resend("re_c5VCacmN_N1Ynx623z8htk2jxjHR8qSJp");
+
 // Define the secret
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -22,6 +26,116 @@ const TWILIO_AUTH_TOKEN = "c3935a626b638abcd8e249a29c0d55f7";
 const TWILIO_VERIFY_SERVICE_SID = "VA648e8c5da5ad84e802fed74f39ed9854";
 
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+exports.sendEmailOtp = functions.https.onCall(async (data, context) => {
+	const email = data.email;
+
+	if (!email) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Email is required",
+		);
+	}
+
+	// Generate a random 6-digit code
+	const verificationCode = Math.floor(
+		100000 + Math.random() * 900000,
+	).toString();
+
+	try {
+		// Save it to Firestore (Use this collection to verify it on the next step)
+		await admin.firestore().collection("otp_codes").doc(email).set({
+			code: verificationCode,
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+
+		// Fire the email via Resend
+		const { data: emailData, error } = await resend.emails.send({
+			// 🚨 CRITICAL: The "from" email MUST end in the domain you verified in Phase 1
+			from: "Scerv Verification <noreply@scerv.com>",
+			to: email,
+			subject: "Your Scerv Login Code",
+			html: `<div style="font-family: sans-serif; text-align: center; padding: 20px;">
+                    <h2>Welcome to Scerv</h2>
+                    <p>Your verification code is:</p>
+                    <h1 style="letter-spacing: 5px; color: #1a73e8;">${verificationCode}</h1>
+                   </div>`,
+		});
+
+		if (error) {
+			console.error("Resend API Error:", error);
+			throw new Error(error.message);
+		}
+
+		return { success: true, message: "Email sent successfully" };
+	} catch (error) {
+		console.error("Email OTP Error:", error);
+		throw new functions.https.HttpsError("internal", "Could not send email.");
+	}
+});
+
+exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
+	const { email, code } = data;
+
+	if (!email || !code) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Email and code are required.",
+		);
+	}
+
+	try {
+		// 1. Fetch the saved code from the vault
+		const doc = await admin
+			.firestore()
+			.collection("otp_codes")
+			.doc(email)
+			.get();
+
+		if (!doc.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"No verification code found for this email. Please request a new one.",
+			);
+		}
+
+		const storedData = doc.data();
+
+		// 2. Check if the code matches
+		if (storedData.code !== code.trim()) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"Invalid verification code.",
+			);
+		}
+
+		// 3. Find or Create the Firebase Auth User
+		let userRecord;
+		try {
+			userRecord = await admin.auth().getUserByEmail(email);
+		} catch (error) {
+			if (error.code === "auth/user-not-found") {
+				// First time user? Create them an account under the hood
+				userRecord = await admin.auth().createUser({ email: email });
+			} else {
+				throw error;
+			}
+		}
+
+		// 4. Mint the Firebase Custom Auth Token
+		const customToken = await admin.auth().createCustomToken(userRecord.uid);
+
+		// 5. Burn the OTP code so it cannot be reused
+		await admin.firestore().collection("otp_codes").doc(email).delete();
+
+		// 6. Send the token back to the frontend to log them in
+		return { token: customToken };
+	} catch (error) {
+		console.error("Verification Error:", error);
+		// Do not throw raw errors to the frontend, wrap them in HttpsError
+		throw new functions.https.HttpsError("internal", error.message);
+	}
+});
 
 /**
  * 1. Sends the 6-digit OTP via WhatsApp
