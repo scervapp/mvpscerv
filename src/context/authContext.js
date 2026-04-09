@@ -10,7 +10,8 @@ import { Alert } from "react-native";
 
 import { auth, db, functions } from "../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
-import { doc, getDoc, setDoc } from "@react-native-firebase/firestore";
+// 🚨 NEW: Import Google Sign-In
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 
 export const AuthContext = createContext();
 
@@ -30,7 +31,6 @@ export const AuthProvider = ({ children }) => {
 					let userRole = "customer";
 					let restId = null;
 
-					// 🚨 CLEANED UP: Any anonymous user is strictly just a guest
 					if (user.isAnonymous) {
 						userRole = "guest";
 						setCurrentUserData({ uid: user.uid, role: userRole });
@@ -112,7 +112,49 @@ export const AuthProvider = ({ children }) => {
 		}
 	}, []);
 
-	// 🚨 Standard Firebase SMS Check (US Route)
+	// 🚨 NEW: Google Sign-In Integration
+	const signInWithGoogle = useCallback(async () => {
+		setAuthError(null);
+		setIsLoading(true);
+
+		try {
+			// Check for Google Play Services (Android mainly)
+			await GoogleSignin.hasPlayServices({
+				showPlayServicesUpdateDialog: true,
+			});
+
+			// Get the ID token from Google
+			const { idToken, user: googleUser } = await GoogleSignin.signIn();
+
+			// Create a Firebase credential
+			const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+
+			// Sign in to Firebase
+			const userCredential = await auth.signInWithCredential(googleCredential);
+			const user = userCredential.user;
+
+			// Sync user to Firestore if they are new
+			const userDoc = await db.collection("customers").doc(user.uid).get();
+			if (!userDoc.exists) {
+				await db
+					.collection("customers")
+					.doc(user.uid)
+					.set({
+						email: user.email,
+						displayName: user.displayName || googleUser.name,
+						role: "customer",
+						createdAt: new Date().toISOString(),
+					});
+			}
+		} catch (error) {
+			console.error("Google Sign-In error:", error);
+			setAuthError("Google Sign-In failed or was canceled.");
+			throw error;
+		} finally {
+			setIsLoading(false);
+		}
+	}, []);
+
 	const signInWithPhoneCredential = useCallback(
 		async (confirmation, verificationCode, formValues) => {
 			setAuthError(null);
@@ -152,7 +194,6 @@ export const AuthProvider = ({ children }) => {
 		[],
 	);
 
-	// 🚨 Twilio WhatsApp Custom Token Check (Panama Route)
 	const signInWithTwilioCustomToken = useCallback(
 		async (customToken, fullPhoneNumber) => {
 			setAuthError(null);
@@ -231,6 +272,7 @@ export const AuthProvider = ({ children }) => {
 		sendPasswordResetEmail,
 		signInWithPhoneCredential,
 		signInWithTwilioCustomToken,
+		signInWithGoogle, // 🚨 NEW: Exported to UI
 	};
 
 	return (
