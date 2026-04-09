@@ -11,164 +11,109 @@ import {
 	ScrollView,
 	Platform,
 	KeyboardAvoidingView,
-	Modal,
 } from "react-native";
 import { Formik } from "formik";
 import * as Yup from "yup";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
-// Ensure path is correct
-import { httpsCallable } from "@react-native-firebase/functions";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
-import { auth, functions } from "../config/firebase.native";
 
-const SUPPORTED_COUNTRIES = [
-	{
-		code: "+507",
-		name: "Panama",
-		flag: "🇵🇦",
-		placeholder: "12345678",
-		maxLength: 8,
-	},
-	{
-		code: "+1",
-		name: "United States",
-		flag: "🇺🇸",
-		placeholder: "1234567890",
-		maxLength: 10,
-	},
-];
-
-// Helper to know which countries use WhatsApp via Twilio
-const isWhatsAppSupported = (code) => ["+1", "+507"].includes(code);
-
+// 🚨 NEW: Clean, Two-Step Email OTP Form for Customers
 const CustomerLoginForm = ({
-	confirmation,
-	setConfirmation,
-	phoneNumber,
-	setPhoneNumber,
-	handleSendCode,
+	email,
+	setEmail,
+	isCodeSent,
+	setIsCodeSent,
+	handleSendEmailCode,
 	verificationCode,
 	setVerificationCode,
-	handleConfirmCode,
+	handleConfirmOtp,
 	isSubmitting,
 	isLoading,
-	countryCode,
-	setCountryCode,
 }) => {
 	const { t } = useTranslation();
-	const [isPickerVisible, setPickerVisible] = useState(false);
-	const selectedCountry = SUPPORTED_COUNTRIES.find(
-		(c) => c.code === countryCode,
-	);
+	const [emailError, setEmailError] = useState("");
+
+	const onSend = () => {
+		// Basic email validation before hitting the server
+		if (!email || !email.includes("@") || !email.includes(".")) {
+			setEmailError(t("invalid_email", "Please enter a valid email address."));
+			return;
+		}
+		setEmailError("");
+		handleSendEmailCode(email);
+	};
 
 	return (
 		<View style={styles.form}>
-			{!confirmation ? (
+			{!isCodeSent ? (
+				/* Step 1: Request Code */
 				<>
-					<View style={styles.phoneInputContainer}>
-						<TouchableOpacity
-							style={styles.countryCodeSelector}
-							onPress={() => setPickerVisible(true)}
-						>
-							<Text style={styles.countryCodeText}>
-								{selectedCountry.flag} {selectedCountry.code}
-							</Text>
-							<Text style={styles.dropdownArrow}> ▾</Text>
-						</TouchableOpacity>
-						<TextInput
-							style={[styles.input, styles.phoneInputFlex]}
-							placeholder={selectedCountry.placeholder}
-							placeholderTextColor={colors.textMedium}
-							value={phoneNumber}
-							onChangeText={setPhoneNumber}
-							keyboardType="phone-pad"
-							maxLength={selectedCountry.maxLength}
-						/>
-					</View>
+					<TextInput
+						style={[styles.input, emailError && styles.inputError]}
+						placeholder={t("email_address_placeholder", "name@example.com")}
+						placeholderTextColor={colors.textMedium}
+						value={email}
+						onChangeText={(text) => {
+							setEmail(text);
+							if (emailError) setEmailError("");
+						}}
+						keyboardType="email-address"
+						autoCapitalize="none"
+						autoCorrect={false}
+					/>
+					{emailError ? (
+						<Text style={styles.errorText}>{emailError}</Text>
+					) : null}
 
 					<Button
 						mode="contained"
-						onPress={handleSendCode}
-						disabled={isSubmitting}
-						loading={isSubmitting}
+						onPress={onSend}
+						disabled={isSubmitting || isLoading}
+						loading={isSubmitting || isLoading}
 						style={styles.button}
 					>
-						{isWhatsAppSupported(countryCode)
-							? t("send_whatsapp_code", "Send WhatsApp Code")
-							: t("send_verification_code")}
+						{t("send_login_code", "Send Login Code")}
 					</Button>
-
-					<Modal
-						visible={isPickerVisible}
-						transparent={true}
-						animationType="slide"
-						onRequestClose={() => setPickerVisible(false)}
-					>
-						<TouchableOpacity
-							style={styles.modalOverlay}
-							activeOpacity={1}
-							onPress={() => setPickerVisible(false)}
-						>
-							<View style={styles.modalContent}>
-								<Text style={styles.modalTitle}>Select Country</Text>
-								{SUPPORTED_COUNTRIES.map((item) => (
-									<TouchableOpacity
-										key={item.code}
-										style={styles.modalOption}
-										onPress={() => {
-											setCountryCode(item.code);
-											setPhoneNumber("");
-											setPickerVisible(false);
-										}}
-									>
-										<Text style={styles.modalOptionText}>
-											{item.flag} {item.name} ({item.code})
-										</Text>
-										{countryCode === item.code && (
-											<Ionicons
-												name="checkmark"
-												size={24}
-												color={colors.primary}
-											/>
-										)}
-									</TouchableOpacity>
-								))}
-							</View>
-						</TouchableOpacity>
-					</Modal>
 				</>
 			) : (
+				/* Step 2: Verify Code */
 				<>
 					<TextInput
 						style={styles.input}
-						placeholder={t("6_digit_code")}
+						placeholder={t("6_digit_code", "6-Digit Code")}
 						placeholderTextColor={colors.textMedium}
 						value={verificationCode}
 						onChangeText={setVerificationCode}
 						keyboardType="number-pad"
 						maxLength={6}
 						textAlign="center"
+						autoFocus={true}
 					/>
 					<Button
 						mode="contained"
-						onPress={handleConfirmCode}
-						disabled={isLoading || isSubmitting || verificationCode.length < 6}
+						onPress={handleConfirmOtp}
+						disabled={
+							isLoading || isSubmitting || verificationCode.length !== 6
+						}
 						loading={isLoading || isSubmitting}
 						style={styles.button}
 					>
-						{t("sign_in")}
+						{t("sign_in_button", "Sign In")}
 					</Button>
 					<Button
 						mode="text"
 						onPress={() => {
-							setConfirmation(null);
+							setIsCodeSent(false);
 							setVerificationCode("");
+							setEmailError("");
 						}}
+						disabled={isSubmitting}
+						textColor={colors.primary}
 					>
-						{t("use_a_different_number")}
+						{t("use_a_different_email", "Use a different email")}
 					</Button>
 				</>
 			)}
@@ -176,6 +121,7 @@ const CustomerLoginForm = ({
 	);
 };
 
+// 🚨 UNTOUCHED: Restaurant standard email/password login
 const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => {
 	const { t } = useTranslation();
 	const emailValidationSchema = Yup.object().shape({
@@ -201,7 +147,10 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => {
 			}) => (
 				<View style={styles.form}>
 					<TextInput
-						style={styles.input}
+						style={[
+							styles.input,
+							touched.email && errors.email && styles.inputError,
+						]}
 						placeholder={t("email_address_placeholder")}
 						value={values.email}
 						onChangeText={handleChange("email")}
@@ -214,7 +163,10 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => {
 						<Text style={styles.errorText}>{errors.email}</Text>
 					)}
 					<TextInput
-						style={styles.input}
+						style={[
+							styles.input,
+							touched.password && errors.password && styles.inputError,
+						]}
 						placeholder={t("password_placeholder")}
 						value={values.password}
 						onChangeText={handleChange("password")}
@@ -243,103 +195,71 @@ const RestaurantLoginForm = ({ handleEmailLogin, isSubmitting, isLoading }) => {
 const LoginScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const {
-		login,
+		login, // Handles Restaurant Login
+		requestEmailOtp, // NEW: Handles Customer Email OTP request
+		verifyEmailOtpAndSignIn, // NEW: Handles Customer Email OTP verification
 		isLoading,
 		authError,
-		signInWithPhoneCredential,
-		signInWithTwilioCustomToken,
 	} = useContext(AuthContext);
 
 	const [activeTab, setActiveTab] = useState("customer");
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [confirmation, setConfirmation] = useState(null);
+
+	// Customer Auth State
+	const [isCodeSent, setIsCodeSent] = useState(false);
+	const [email, setEmail] = useState("");
 	const [verificationCode, setVerificationCode] = useState("");
-	const [phoneNumber, setPhoneNumber] = useState("");
-	const [countryCode, setCountryCode] = useState("+507");
-	const [authRoute, setAuthRoute] = useState(null);
 
-	// Cloud Functions
-	const sendWhatsAppOTP = httpsCallable(functions, "sendWhatsAppCode");
-	const verifyWhatsAppOTP = httpsCallable(functions, "verifyWhatsAppCode");
-
-	const handleSendCode = async () => {
-		const cleanedNumber = phoneNumber.replace(/\D/g, "");
-		const isValidLength =
-			countryCode === "+507"
-				? cleanedNumber.length === 8
-				: cleanedNumber.length === 10;
-
-		if (!isValidLength) {
-			Alert.alert(
-				t("alert.invalid_number_title"),
-				t("invalid_phone_number_length") ||
-					"Please enter a valid phone number length.",
-			);
-			return;
-		}
-
+	// Step 1: Fire the Email API
+	const handleSendEmailCode = async (emailToUse) => {
 		setIsSubmitting(true);
 		try {
-			const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
-
-			// 🔥 UPDATED LOGIC: Both US (+1) and Panama (+507) now use Twilio WhatsApp
-			if (isWhatsAppSupported(countryCode)) {
-				await sendWhatsAppOTP({ phoneNumber: fullPhoneNumber });
-				setAuthRoute("twilio");
-				setConfirmation({ isTwilio: true });
-			} else {
-				// Fallback for any future countries (Firebase SMS)
-				const confirmationResult =
-					await auth.signInWithPhoneNumber(fullPhoneNumber);
-				setAuthRoute("firebase");
-				setConfirmation(confirmationResult);
+			const success = await requestEmailOtp(emailToUse.toLowerCase().trim());
+			if (success) {
+				setIsCodeSent(true);
 			}
 		} catch (error) {
 			Alert.alert(
-				t("alert.error_title"),
-				`${t("alert.could_not_send_code_message")}: ${error.message}`,
+				t("alert.error_title", "Error"),
+				t(
+					"alert.could_not_send_code_message",
+					"Could not send verification code.",
+				),
 			);
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
 
-	const handleConfirmCode = async () => {
-		if (isLoading || !confirmation) return;
+	// Step 2: Verify the Code
+	const handleConfirmOtp = async () => {
 		setIsSubmitting(true);
 		try {
-			const cleanedNumber = phoneNumber.replace(/\D/g, "");
-			const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
-
-			if (authRoute === "firebase") {
-				await signInWithPhoneCredential(confirmation, verificationCode, null);
-			} else if (authRoute === "twilio") {
-				const result = await verifyWhatsAppOTP({
-					phoneNumber: fullPhoneNumber,
-					code: verificationCode,
-				});
-				if (result.data && result.data.success && result.data.token) {
-					await signInWithTwilioCustomToken(result.data.token, fullPhoneNumber);
-				} else {
-					throw new Error("Invalid WhatsApp code.");
-				}
-			}
+			await verifyEmailOtpAndSignIn(
+				email.toLowerCase().trim(),
+				verificationCode,
+			);
+			// AuthContext automatically updates the user state and redirects
 		} catch (error) {
 			Alert.alert(
-				t("alert.login_failed_title"),
-				`${t("alert.could_not_verify_code_message")}: ${error.message}`,
+				t("alert.login_failed_title", "Login Failed"),
+				t(
+					"alert.could_not_verify_code_message",
+					"Invalid code. Please try again.",
+				),
 			);
 		} finally {
 			setIsSubmitting(false);
 		}
 	};
 
+	// Restaurant Standard Login
 	const handleEmailLogin = async (values) => {
 		setIsSubmitting(true);
 		try {
-			await login(values.email, values.password);
+			await login(values.email.toLowerCase().trim(), values.password);
 		} catch (error) {
-			// Error handled in context
+			// Error handled visually by authError from Context
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -370,7 +290,12 @@ const LoginScreen = ({ navigation }) => {
 					<View style={styles.tabContainer}>
 						<TouchableOpacity
 							style={[styles.tab, activeTab === "customer" && styles.activeTab]}
-							onPress={() => setActiveTab("customer")}
+							onPress={() => {
+								setActiveTab("customer");
+								// Reset customer state if they switch back and forth
+								setIsCodeSent(false);
+								setVerificationCode("");
+							}}
 						>
 							<Text
 								style={[
@@ -399,22 +324,22 @@ const LoginScreen = ({ navigation }) => {
 						</TouchableOpacity>
 					</View>
 
-					{authError && <Text style={styles.errorText}>{authError}</Text>}
+					{authError ? (
+						<Text style={styles.errorTextContext}>{authError}</Text>
+					) : null}
 
 					{activeTab === "customer" ? (
 						<CustomerLoginForm
-							confirmation={confirmation}
-							setConfirmation={setConfirmation}
-							phoneNumber={phoneNumber}
-							setPhoneNumber={setPhoneNumber}
-							handleSendCode={handleSendCode}
+							email={email}
+							setEmail={setEmail}
+							isCodeSent={isCodeSent}
+							setIsCodeSent={setIsCodeSent}
+							handleSendEmailCode={handleSendEmailCode}
 							verificationCode={verificationCode}
 							setVerificationCode={setVerificationCode}
-							handleConfirmCode={handleConfirmCode}
+							handleConfirmOtp={handleConfirmOtp}
 							isSubmitting={isSubmitting}
 							isLoading={isLoading}
-							countryCode={countryCode}
-							setCountryCode={setCountryCode}
 						/>
 					) : (
 						<RestaurantLoginForm
@@ -424,11 +349,13 @@ const LoginScreen = ({ navigation }) => {
 						/>
 					)}
 
-					<TouchableOpacity
-						onPress={() => navigation.navigate("PasswordReset")}
-					>
-						<Text style={styles.linkText}>{t("forgot_password_link")}</Text>
-					</TouchableOpacity>
+					{activeTab === "restaurant" && (
+						<TouchableOpacity
+							onPress={() => navigation.navigate("PasswordReset")}
+						>
+							<Text style={styles.linkText}>{t("forgot_password_link")}</Text>
+						</TouchableOpacity>
+					)}
 
 					<View style={styles.footer}>
 						<Text style={styles.footerText}>{t("dont_have_account_text")}</Text>
@@ -451,7 +378,6 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-	// ... (all your existing styles remain unchanged)
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	keyboardAvoidingContainer: { flex: 1 },
 	scrollContentContainer: {
@@ -481,38 +407,6 @@ const styles = StyleSheet.create({
 	tabText: { textAlign: "center", fontWeight: "600", color: colors.textMedium },
 	activeTabText: { color: colors.surfaceWhite },
 	form: { width: "100%" },
-	phoneInputContainer: {
-		flexDirection: "row",
-		alignItems: "center",
-		marginBottom: 15,
-	},
-	countryCodeSelector: {
-		height: 55,
-		backgroundColor: colors.surfaceWhite,
-		borderWidth: 1,
-		borderColor: colors.borderLight,
-		borderRadius: 8,
-		flexDirection: "row",
-		justifyContent: "center",
-		alignItems: "center",
-		paddingHorizontal: 15,
-		marginRight: 10,
-	},
-	countryCodeText: {
-		fontSize: 16,
-		fontWeight: "bold",
-		color: colors.textDark,
-	},
-	dropdownArrow: {
-		fontSize: 18,
-		color: colors.textMedium,
-		marginLeft: 4,
-		marginTop: -2,
-	},
-	phoneInputFlex: {
-		flex: 1,
-		marginBottom: 0,
-	},
 	input: {
 		height: 55,
 		borderWidth: 1,
@@ -524,12 +418,23 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		color: colors.textDark,
 	},
+	inputError: {
+		borderColor: colors.statusDanger,
+	},
 	button: { paddingVertical: 8, borderRadius: 8, marginTop: 10 },
 	errorText: {
 		color: colors.statusDanger,
 		marginBottom: 10,
-		textAlign: "center",
+		textAlign: "left",
 		fontWeight: "500",
+		marginTop: -10,
+		paddingLeft: 5,
+	},
+	errorTextContext: {
+		color: colors.statusDanger,
+		marginBottom: 15,
+		textAlign: "center",
+		fontWeight: "bold",
 	},
 	linkText: {
 		color: colors.primary,
@@ -545,37 +450,6 @@ const styles = StyleSheet.create({
 	},
 	footerText: { fontSize: 15, color: colors.textMedium },
 	linkTextFooter: { color: colors.primary, fontSize: 15, fontWeight: "bold" },
-	modalOverlay: {
-		flex: 1,
-		backgroundColor: "rgba(0, 0, 0, 0.5)",
-		justifyContent: "flex-end",
-	},
-	modalContent: {
-		backgroundColor: colors.surfaceWhite,
-		borderTopLeftRadius: 20,
-		borderTopRightRadius: 20,
-		padding: 25,
-		paddingBottom: Platform.OS === "ios" ? 40 : 25,
-	},
-	modalTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		color: colors.textDark,
-		marginBottom: 20,
-		textAlign: "center",
-	},
-	modalOption: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
-		paddingVertical: 15,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
-	},
-	modalOptionText: {
-		fontSize: 18,
-		color: colors.textDark,
-	},
 });
 
 export default LoginScreen;

@@ -92,8 +92,8 @@ android {
         applicationId 'com.scerv.eat'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 23
-        versionName "0.0.34"
+        versionCode 24
+        versionName "0.0.35"
     }
     signingConfigs {
         debug {

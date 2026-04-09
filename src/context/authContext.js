@@ -10,8 +10,6 @@ import { Alert } from "react-native";
 
 import { auth, db, functions } from "../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
-// 🚨 NEW: Import Google Sign-In
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
 
 export const AuthContext = createContext();
 
@@ -90,6 +88,48 @@ export const AuthProvider = ({ children }) => {
 		return () => subscriber();
 	}, []);
 
+	const requestEmailOtp = async (email) => {
+		try {
+			const sendOtp = httpsCallable(functions, "sendEmailOtp");
+			const response = await sendOtp({ email: email.toLowerCase().trim() });
+
+			if (response.data.success) {
+				console.log("Email sent successfully!");
+				return true;
+			}
+		} catch (error) {
+			console.error("Error requesting Email OTP:", error);
+			throw error;
+		}
+	};
+
+	// 2. Function to verify the code the user types in
+	const verifyEmailOtpAndSignIn = async (email, code) => {
+		try {
+			// You'll need a backend function named 'verifyEmailOtp'
+			// that checks the code and returns a Custom Token
+			const verifyOtp = httpsCallable(functions, "verifyEmailOtp");
+			const response = await verifyOtp({
+				email: email.toLowerCase().trim(),
+				code: code.trim(),
+			});
+
+			if (response.data.token) {
+				// Log the user into Firebase using the custom token your backend minted
+				const userCredential = await auth.signInWithCustomToken(
+					response.data.token,
+				);
+				console.log("User successfully signed in:", userCredential.user.uid);
+				return userCredential.user;
+			} else {
+				throw new Error("Invalid verification code");
+			}
+		} catch (error) {
+			console.error("Error verifying OTP:", error);
+			throw error;
+		}
+	};
+
 	const login = useCallback(async (email, password) => {
 		setAuthError(null);
 		try {
@@ -109,49 +149,6 @@ export const AuthProvider = ({ children }) => {
 		} catch (error) {
 			setAuthError(error.message);
 			throw error;
-		}
-	}, []);
-
-	// 🚨 NEW: Google Sign-In Integration
-	const signInWithGoogle = useCallback(async () => {
-		setAuthError(null);
-		setIsLoading(true);
-
-		try {
-			// Check for Google Play Services (Android mainly)
-			await GoogleSignin.hasPlayServices({
-				showPlayServicesUpdateDialog: true,
-			});
-
-			// Get the ID token from Google
-			const { idToken, user: googleUser } = await GoogleSignin.signIn();
-
-			// Create a Firebase credential
-			const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-
-			// Sign in to Firebase
-			const userCredential = await auth.signInWithCredential(googleCredential);
-			const user = userCredential.user;
-
-			// Sync user to Firestore if they are new
-			const userDoc = await db.collection("customers").doc(user.uid).get();
-			if (!userDoc.exists) {
-				await db
-					.collection("customers")
-					.doc(user.uid)
-					.set({
-						email: user.email,
-						displayName: user.displayName || googleUser.name,
-						role: "customer",
-						createdAt: new Date().toISOString(),
-					});
-			}
-		} catch (error) {
-			console.error("Google Sign-In error:", error);
-			setAuthError("Google Sign-In failed or was canceled.");
-			throw error;
-		} finally {
-			setIsLoading(false);
 		}
 	}, []);
 
@@ -272,7 +269,8 @@ export const AuthProvider = ({ children }) => {
 		sendPasswordResetEmail,
 		signInWithPhoneCredential,
 		signInWithTwilioCustomToken,
-		signInWithGoogle, // 🚨 NEW: Exported to UI
+		requestEmailOtp,
+		verifyEmailOtpAndSignIn,
 	};
 
 	return (
