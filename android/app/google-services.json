@@ -12,7 +12,36 @@
           "package_name": "com.scerv.eat"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "606076519772-228iitaonaohqrtlul8ukau6lqdqm50i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.scerv.eat",
+            "certificate_hash": "6d76b1b4d3506a7abbf1012c65da8de442dc206b"
+          }
+        },
+        {
+          "client_id": "606076519772-71173brgvrnrddde4ug3pi31dm5kn9uo.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.scerv.eat",
+            "certificate_hash": "851b2d7cf7123bab2862366a491173424cbee583"
+          }
+        },
+        {
+          "client_id": "606076519772-kv5pir3876glu28ue24qkto3gnca2rk3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.scerv.eat",
+            "certificate_hash": "51a00c995ab5428c4011d3be354b4b98f7e73408"
+          }
+        },
+        {
+          "client_id": "606076519772-9idppgeu7mdjsi07hcquaf4frp1dln5g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAxG2GRnN7DNYmh_FYRw8iM1Uq4t41LeMo"
@@ -21,6 +50,10 @@
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
+            {
+              "client_id": "606076519772-9idppgeu7mdjsi07hcquaf4frp1dln5g.apps.googleusercontent.com",
+              "client_type": 3
+            },
             {
               "client_id": "606076519772-c0ni4tus25c2sdi456gtoo5tp6c5bo08.apps.googleusercontent.com",
               "client_type": 2,

@@ -70,7 +70,8 @@
           "cameraPermission": "Allow Scerv to access your camera to scan table QR codes."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {

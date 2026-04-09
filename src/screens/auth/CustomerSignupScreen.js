@@ -19,7 +19,6 @@ import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-// 🚨 Ensure functions is imported from your config
 import { auth, db, functions } from "../../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
@@ -41,16 +40,15 @@ const SUPPORTED_COUNTRIES = [
 	},
 ];
 
-// Helper to know which countries use WhatsApp via Twilio
 const isWhatsAppSupported = (code) => ["+1", "+507"].includes(code);
 
 const CustomerSignupScreen = ({ navigation }) => {
 	const { t } = useTranslation();
-	// 🚨 Pulled the new signInWithTwilioCustomToken from Context
 	const {
 		signInWithPhoneCredential,
 		signInWithTwilioCustomToken,
 		bypassPhoneAuth,
+		signInWithGoogle, // 🚨 NEW: Pulled from Context
 		isLoading,
 	} = useContext(AuthContext);
 
@@ -62,11 +60,8 @@ const CustomerSignupScreen = ({ navigation }) => {
 	const [countryCode, setCountryCode] = useState("+507");
 	const [isPickerVisible, setPickerVisible] = useState(false);
 	const [useBypassMode, setUseBypassMode] = useState(true);
+	const [authRoute, setAuthRoute] = useState(null);
 
-	// 🚨 Track which auth method we are actively using
-	const [authRoute, setAuthRoute] = useState(null); // 'firebase' or 'twilio'
-
-	// 🚨 Init Callables
 	const sendWhatsAppOTP = httpsCallable(functions, "sendWhatsAppCode");
 	const verifyWhatsAppOTP = httpsCallable(functions, "verifyWhatsAppCode");
 
@@ -108,13 +103,11 @@ const CustomerSignupScreen = ({ navigation }) => {
 				return;
 			}
 
-			// 🔥 UPDATED LOGIC: US (+1) now also uses Twilio WhatsApp (same as Panama)
 			if (isWhatsAppSupported(countryCode)) {
 				await sendWhatsAppOTP({ phoneNumber: fullPhoneNumber });
 				setAuthRoute("twilio");
-				setConfirmation({ isTwilio: true }); // Mock confirmation to advance UI
+				setConfirmation({ isTwilio: true });
 			} else {
-				// Fallback for any future countries (Firebase SMS)
 				const confirmationResult =
 					await auth.signInWithPhoneNumber(fullPhoneNumber);
 				setAuthRoute("firebase");
@@ -145,16 +138,13 @@ const CustomerSignupScreen = ({ navigation }) => {
 		setCodeError("");
 		setIsSubmitting(true);
 		try {
-			// 🚨 VERIFY BASED ON THE ACTIVE ROUTE
 			if (authRoute === "firebase") {
-				// Standard SMS Verify (only used for future countries)
 				await signInWithPhoneCredential(
 					confirmation,
 					verificationCode,
 					formValues,
 				);
 			} else if (authRoute === "twilio") {
-				// Twilio WhatsApp Verify (now used for both US +1 and Panama +507)
 				const result = await verifyWhatsAppOTP({
 					phoneNumber: formValues.fullPhoneNumber,
 					code: verificationCode,
@@ -201,92 +191,112 @@ const CustomerSignupScreen = ({ navigation }) => {
 					</View>
 
 					{!confirmation ? (
-						<Formik
-							initialValues={{ phoneNumber: "" }}
-							validationSchema={validationSchema}
-							onSubmit={handleSendVerificationCode}
-						>
-							{({ handleChange, handleSubmit, values, errors, touched }) => (
-								<View style={styles.form}>
-									<View style={styles.phoneInputContainer}>
-										<TouchableOpacity
-											style={styles.countryCodeSelector}
-											onPress={() => setPickerVisible(true)}
+						<>
+							<Formik
+								initialValues={{ phoneNumber: "" }}
+								validationSchema={validationSchema}
+								onSubmit={handleSendVerificationCode}
+							>
+								{({ handleChange, handleSubmit, values, errors, touched }) => (
+									<View style={styles.form}>
+										<View style={styles.phoneInputContainer}>
+											<TouchableOpacity
+												style={styles.countryCodeSelector}
+												onPress={() => setPickerVisible(true)}
+											>
+												<Text style={styles.countryCodeText}>
+													{selectedCountry.flag} {selectedCountry.code}
+												</Text>
+												<Text style={styles.dropdownArrow}> ▾</Text>
+											</TouchableOpacity>
+											<TextInput
+												style={[styles.input, styles.phoneInputFlex]}
+												placeholder={selectedCountry.placeholder}
+												placeholderTextColor={colors.textMedium}
+												value={values.phoneNumber}
+												onChangeText={handleChange("phoneNumber")}
+												keyboardType="phone-pad"
+												maxLength={selectedCountry.maxLength}
+											/>
+										</View>
+										{touched.phoneNumber && errors.phoneNumber && (
+											<Text style={styles.errorText}>{errors.phoneNumber}</Text>
+										)}
+
+										<Button
+											mode="contained"
+											onPress={handleSubmit}
+											disabled={isSubmitting || isLoading}
+											loading={isSubmitting || isLoading}
+											style={styles.button}
 										>
-											<Text style={styles.countryCodeText}>
-												{selectedCountry.flag} {selectedCountry.code}
-											</Text>
-											<Text style={styles.dropdownArrow}> ▾</Text>
-										</TouchableOpacity>
-										<TextInput
-											style={[styles.input, styles.phoneInputFlex]}
-											placeholder={selectedCountry.placeholder}
-											placeholderTextColor={colors.textMedium}
-											value={values.phoneNumber}
-											onChangeText={handleChange("phoneNumber")}
-											keyboardType="phone-pad"
-											maxLength={selectedCountry.maxLength}
-										/>
+											{useBypassMode
+												? t("Continue")
+												: isWhatsAppSupported(countryCode)
+													? t("send_whatsapp_code", "Send WhatsApp Code")
+													: t("send_verification_code")}
+										</Button>
+
+										<Modal
+											visible={isPickerVisible}
+											transparent={true}
+											animationType="slide"
+											onRequestClose={() => setPickerVisible(false)}
+										>
+											<TouchableOpacity
+												style={styles.modalOverlay}
+												activeOpacity={1}
+												onPress={() => setPickerVisible(false)}
+											>
+												<View style={styles.modalContent}>
+													<Text style={styles.modalTitle}>Select Country</Text>
+													{SUPPORTED_COUNTRIES.map((item) => (
+														<TouchableOpacity
+															key={item.code}
+															style={styles.modalOption}
+															onPress={() => {
+																setCountryCode(item.code);
+																handleChange("phoneNumber")("");
+																setPickerVisible(false);
+															}}
+														>
+															<Text style={styles.modalOptionText}>
+																{item.flag} {item.name} ({item.code})
+															</Text>
+															{countryCode === item.code && (
+																<Ionicons
+																	name="checkmark"
+																	size={24}
+																	color={colors.primary}
+																/>
+															)}
+														</TouchableOpacity>
+													))}
+												</View>
+											</TouchableOpacity>
+										</Modal>
 									</View>
-									{touched.phoneNumber && errors.phoneNumber && (
-										<Text style={styles.errorText}>{errors.phoneNumber}</Text>
-									)}
+								)}
+							</Formik>
 
-									<Button
-										mode="contained"
-										onPress={handleSubmit}
-										disabled={isSubmitting || isLoading}
-										loading={isSubmitting || isLoading}
-										style={styles.button}
-									>
-										{useBypassMode
-											? t("Continue")
-											: isWhatsAppSupported(countryCode)
-												? t("send_whatsapp_code", "Send WhatsApp Code")
-												: t("send_verification_code")}
-									</Button>
+							{/* 🚨 NEW: Google Sign-In Section */}
+							<View style={styles.dividerContainer}>
+								<View style={styles.dividerLine} />
+								<Text style={styles.dividerText}>{t("or", "OR")}</Text>
+								<View style={styles.dividerLine} />
+							</View>
 
-									<Modal
-										visible={isPickerVisible}
-										transparent={true}
-										animationType="slide"
-										onRequestClose={() => setPickerVisible(false)}
-									>
-										<TouchableOpacity
-											style={styles.modalOverlay}
-											activeOpacity={1}
-											onPress={() => setPickerVisible(false)}
-										>
-											<View style={styles.modalContent}>
-												<Text style={styles.modalTitle}>Select Country</Text>
-												{SUPPORTED_COUNTRIES.map((item) => (
-													<TouchableOpacity
-														key={item.code}
-														style={styles.modalOption}
-														onPress={() => {
-															setCountryCode(item.code);
-															handleChange("phoneNumber")("");
-															setPickerVisible(false);
-														}}
-													>
-														<Text style={styles.modalOptionText}>
-															{item.flag} {item.name} ({item.code})
-														</Text>
-														{countryCode === item.code && (
-															<Ionicons
-																name="checkmark"
-																size={24}
-																color={colors.primary}
-															/>
-														)}
-													</TouchableOpacity>
-												))}
-											</View>
-										</TouchableOpacity>
-									</Modal>
-								</View>
-							)}
-						</Formik>
+							<Button
+								mode="outlined"
+								icon="google"
+								onPress={signInWithGoogle}
+								disabled={isSubmitting || isLoading}
+								style={styles.googleButton}
+								textColor={colors.textDark}
+							>
+								{t("continue_with_google", "Continue with Google")}
+							</Button>
+						</>
 					) : (
 						<View style={styles.form}>
 							<TextInput
@@ -417,6 +427,28 @@ const styles = StyleSheet.create({
 		marginBottom: 10,
 		textAlign: "center",
 		fontWeight: "500",
+	},
+	// 🚨 NEW STYLES FOR GOOGLE BUTTON & DIVIDER
+	dividerContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginVertical: 20,
+	},
+	dividerLine: {
+		flex: 1,
+		height: 1,
+		backgroundColor: colors.borderLight,
+	},
+	dividerText: {
+		marginHorizontal: 10,
+		color: colors.textMedium,
+		fontWeight: "bold",
+	},
+	googleButton: {
+		paddingVertical: 8,
+		borderRadius: 8,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
 	},
 	footer: {
 		flexDirection: "row",
