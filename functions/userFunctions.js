@@ -30,6 +30,11 @@ const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 exports.sendEmailOtp = functions.https.onCall(async (data, context) => {
 	const email = data.email;
 
+	if (email === "apple@scerv.com") {
+		console.log("Apple Test Account requested OTP. Bypassing email send.");
+		return { success: true, message: "Apple bypass active." };
+	}
+
 	if (!email) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
@@ -82,6 +87,27 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 			"invalid-argument",
 			"Email and code are required.",
 		);
+	}
+
+	const cleanEmail = email.toLowerCase().trim();
+	const cleanCode = code.trim();
+
+	if (cleanEmail === "apple@scerv.com" && cleanCode === "123456") {
+		console.log("Apple Test Account logging in.");
+		let userRecord;
+		try {
+			userRecord = await admin.auth().getUserByEmail(cleanEmail);
+		} catch (error) {
+			// Create the Apple user in Firebase Auth the very first time they log in
+			if (error.code === "auth/user-not-found") {
+				userRecord = await admin.auth().createUser({ email: cleanEmail });
+			} else {
+				throw error;
+			}
+		}
+
+		const customToken = await admin.auth().createCustomToken(userRecord.uid);
+		return { token: customToken };
 	}
 
 	try {
