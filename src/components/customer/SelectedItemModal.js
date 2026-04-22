@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useMemo } from "react";
 import { useNavigation } from "@react-navigation/native";
 import {
 	View,
@@ -10,15 +10,8 @@ import {
 	Alert,
 } from "react-native";
 import { useTranslation } from "react-i18next";
-import {
-	Checkbox,
-	Button,
-	Divider,
-	IconButton,
-	TextInput,
-} from "react-native-paper";
+import { Button, Divider, IconButton, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import { Tooltip } from "react-native-elements";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
 
@@ -53,12 +46,16 @@ const PipInstructionModal = ({
 			<View style={styles.modalOverlay}>
 				<View style={styles.pipInstructionModalContent}>
 					<Text style={styles.modalTitle}>
-						{t("special_instructions_for_pip", { pipName: pipName })}
+						{t("special_instructions_for_pip", {
+							pipName: pipName,
+							defaultValue: `Special instructions for ${pipName}`,
+						})}
 					</Text>
 					<TextInput
 						style={styles.specialInstructionsInput}
 						placeholder={t("notes_for_pip_item_placeholder", {
 							pipName: pipName,
+							defaultValue: `Add notes for ${pipName}`,
 						})}
 						value={instructions}
 						onChangeText={setInstructions}
@@ -72,14 +69,14 @@ const PipInstructionModal = ({
 							mode="outlined"
 							style={styles.modalButton}
 						>
-							{t("cancel_button")}
+							{t("cancel_button", "Cancel")}
 						</Button>
 						<Button
 							onPress={handleSave}
 							mode="contained"
 							style={[styles.modalButton, { backgroundColor: colors.primary }]}
 						>
-							{t("save_instructions_button")}
+							{t("save_instructions_button", "Save")}
 						</Button>
 					</View>
 				</View>
@@ -92,54 +89,70 @@ const SelectedItemModal = ({
 	visible,
 	selectedItem,
 	onClose,
-	pips, // Current user's local PIP list
+	pips,
 	onConfirm,
 	orderingMode = "individual",
 	isLoading = false,
 	partyData,
 }) => {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 
 	const [quantity, setQuantity] = useState(1);
-	// This state now stores { id, name, specialInstructions } for each selected PIP in individual mode
-	const [internallySelectedPIPs, setInternallySelectedPIPs] = useState([]);
-	// For party mode, who the item is for (currentUser or one of their local PIPs)
-	const [partyModeTarget, setPartyModeTarget] = useState(null); // { id, name, specialInstructions (for this item instance) }
-
+	const [partyModeTarget, setPartyModeTarget] = useState(null);
 	const [orderTargets, setOrderTargets] = useState([]);
 
-	// State for the PIP instruction modal
 	const [isPipInstructionModalVisible, setIsPipInstructionModalVisible] =
 		useState(false);
 	const [editingTargetForInstructions, setEditingTargetForInstructions] =
-		useState(null); // Stores { id, name, currentInstructions }
+		useState(null);
+
+	const [selectedModifiers, setSelectedModifiers] = useState([]);
+
+	const getLocalizedText = (value) => {
+		if (!value) return "";
+		if (typeof value === "string") return value;
+
+		const language = (i18n.language || "en").toLowerCase();
+		if (language.startsWith("es")) {
+			return value.es || value.en || value.original || "";
+		}
+		return value.en || value.es || value.original || "";
+	};
+
+	const modifierGroups = useMemo(() => {
+		if (!selectedItem || !Array.isArray(selectedItem.modifierGroups)) return [];
+		return selectedItem.modifierGroups;
+	}, [selectedItem]);
 
 	useEffect(() => {
 		if (visible && selectedItem) {
 			setQuantity(1);
-			setInternallySelectedPIPs([]);
-			if (orderingMode === "party" && currentUserData) {
-				// 🚨 NEW: Grab fullName so the modal shows "Karl" instead of the UID
-				const myName =
-					currentUserData.fullName || currentUserData.firstName || t("myself");
+			setSelectedModifiers([]);
 
-				setOrderTargets([
-					{
-						id: currentUserData.uid,
-						name: myName, // 🚨 Updated
-						specialInstructions: "",
-					},
-				]);
+			if (orderingMode === "party" && currentUserData) {
+				const myName =
+					currentUserData.fullName ||
+					currentUserData.firstName ||
+					t("myself", "Myself");
+
+				const initialTarget = {
+					id: currentUserData.uid,
+					name: myName,
+					specialInstructions: "",
+				};
+
+				setPartyModeTarget(initialTarget);
+				setOrderTargets([initialTarget]);
 			} else {
+				setPartyModeTarget(null);
 				setOrderTargets([]);
 			}
 		}
-	}, [visible, selectedItem, orderingMode, currentUserData]);
+	}, [visible, selectedItem, orderingMode, currentUserData, t]);
 
 	const openInstructionModalForTarget = (target) => {
-		// target is {id, name}
 		const existingTarget = orderTargets.find((t) => t.id === target.id);
 		setEditingTargetForInstructions({
 			id: target.id,
@@ -161,61 +174,190 @@ const SelectedItemModal = ({
 					: t,
 			),
 		);
+
+		if (
+			partyModeTarget &&
+			partyModeTarget.id === editingTargetForInstructions.id
+		) {
+			setPartyModeTarget((prev) =>
+				prev ? { ...prev, specialInstructions: instructions } : prev,
+			);
+		}
+
 		setEditingTargetForInstructions(null);
 	};
 
 	const toggleIndividualTargetSelection = (targetToToggle) => {
-		// targetToToggle is {id, name}
 		const isCurrentlySelected = orderTargets.some(
 			(t) => t.id === targetToToggle.id,
 		);
+
 		if (isCurrentlySelected) {
 			setOrderTargets((prev) => prev.filter((t) => t.id !== targetToToggle.id));
 		} else {
-			// Add and then open instruction modal
 			const newTarget = { ...targetToToggle, specialInstructions: "" };
 			setOrderTargets((prev) => [...prev, newTarget]);
-			openInstructionModalForTarget(newTarget); // Open for newly added target
+			openInstructionModalForTarget(newTarget);
 		}
 	};
 
 	const handlePartyModeTargetSelection = (targetOption) => {
-		// targetOption is {id, name}
-		// In party mode, only one target is selected. Instructions are edited directly.
-		setOrderTargets([{ ...targetOption, specialInstructions: "" }]); // Reset instructions when target changes
+		const newTarget = { ...targetOption, specialInstructions: "" };
+		setPartyModeTarget(newTarget);
+		setOrderTargets([newTarget]);
 	};
+
+	const getSelectionsForGroup = (groupId) =>
+		selectedModifiers.filter((modifier) => modifier.groupId === groupId);
+
+	const isOptionSelected = (groupId, optionId) =>
+		selectedModifiers.some(
+			(modifier) =>
+				modifier.groupId === groupId && modifier.optionId === optionId,
+		);
+
+	const toggleModifierOption = (group, option) => {
+		const currentSelections = getSelectionsForGroup(group.id);
+		const maxSelect =
+			group.maxSelect !== undefined && group.maxSelect !== null
+				? Number(group.maxSelect)
+				: 1;
+
+		const isSelected = isOptionSelected(group.id, option.id);
+
+		if (isSelected) {
+			setSelectedModifiers((prev) =>
+				prev.filter(
+					(modifier) =>
+						!(modifier.groupId === group.id && modifier.optionId === option.id),
+				),
+			);
+			return;
+		}
+
+		const newModifier = {
+			groupId: group.id,
+			groupName: getLocalizedText(group.name) || group.name || "",
+			optionId: option.id,
+			name: getLocalizedText(option.name) || option.name || "",
+			price:
+				option.price !== undefined && option.price !== null
+					? Number(option.price)
+					: 0,
+			category: option.category || "Extras",
+		};
+
+		if (maxSelect <= 1) {
+			setSelectedModifiers((prev) => [
+				...prev.filter((modifier) => modifier.groupId !== group.id),
+				newModifier,
+			]);
+			return;
+		}
+
+		if (currentSelections.length >= maxSelect) {
+			Alert.alert(
+				t("modifier_limit_reached_title", "Selection limit reached"),
+				t("modifier_limit_reached_message", {
+					groupName: getLocalizedText(group.name) || group.name || "",
+					maxSelect: maxSelect,
+					defaultValue: `You can only choose ${maxSelect} option(s) for ${getLocalizedText(group.name) || group.name || "this group"}.`,
+				}),
+			);
+			return;
+		}
+
+		setSelectedModifiers((prev) => [...prev, newModifier]);
+	};
+
+	const validateModifierGroups = () => {
+		for (let i = 0; i < modifierGroups.length; i += 1) {
+			const group = modifierGroups[i];
+			const required = !!group.required;
+			const minSelect =
+				group.minSelect !== undefined && group.minSelect !== null
+					? Number(group.minSelect)
+					: required
+						? 1
+						: 0;
+
+			const selections = getSelectionsForGroup(group.id);
+
+			if (required && selections.length < minSelect) {
+				Alert.alert(
+					t("required_selection_title", "Required selection"),
+					t("required_selection_message", {
+						groupName: getLocalizedText(group.name) || group.name || "",
+						minSelect: minSelect,
+						defaultValue: `Please choose at least ${minSelect} option(s) for ${getLocalizedText(group.name) || group.name || "this group"}.`,
+					}),
+				);
+				return false;
+			}
+		}
+
+		return true;
+	};
+
+	const modifiersTotal = useMemo(() => {
+		return selectedModifiers.reduce(
+			(sum, modifier) => sum + Number(modifier.price || 0),
+			0,
+		);
+	}, [selectedModifiers]);
+
+	const basePrice = Number(
+		selectedItem && selectedItem.price ? selectedItem.price : 0,
+	);
+	const unitPriceWithModifiers = basePrice + modifiersTotal;
+	const finalPrice = unitPriceWithModifiers * quantity;
 
 	const handleConfirmPress = () => {
 		if (!selectedItem) {
 			console.error("handleConfirmPress: Aborted, selectedItem is missing.");
 			return;
 		}
+
 		if (orderTargets.length === 0) {
 			Alert.alert(
-				t("order_for_whom_title"),
-				t("select_at_least_one_person_message"),
+				t("order_for_whom_title", "Who is this for?"),
+				t(
+					"select_at_least_one_person_message",
+					"Please select at least one person.",
+				),
 			);
 			return;
 		}
 
-		// 1. Rename `selectedItem` to `menuItemDetails` to match what the parent expects.
+		if (!validateModifierGroups()) {
+			return;
+		}
+
 		const dataToConfirm = {
-			menuItemDetails: { ...selectedItem },
+			menuItemDetails: {
+				...selectedItem,
+				selectedModifiers,
+				modifiersTotal,
+				basePrice,
+				finalUnitPrice: unitPriceWithModifiers,
+			},
 			quantity,
 		};
 
 		if (orderingMode === "individual") {
-			// 2. Rename `individualTargets` to `individualPips`.
 			dataToConfirm.individualPips = orderTargets;
 		} else if (orderingMode === "party") {
-			// This part of your logic was already correct.
 			if (!partyData || !partyData.partyId) {
 				Alert.alert(
-					t("error_title"),
-					t("party_info_missing_cannot_add_item_message"),
+					t("error_title", "Error"),
+					t(
+						"party_info_missing_cannot_add_item_message",
+						"Party info is missing. Cannot add this item.",
+					),
 				);
 				return;
 			}
+
 			const partyTarget = orderTargets[0] || {};
 			dataToConfirm.partyContextData = {
 				partyId: partyData.partyId,
@@ -225,16 +367,125 @@ const SelectedItemModal = ({
 			dataToConfirm.specialInstructions = partyTarget.specialInstructions;
 		}
 
-		// Call the parent's onConfirm function with the correctly structured data.
 		onConfirm(dataToConfirm);
 	};
 
-	// Options for "Order For" in individual mode (Myself + PIPs)
-
-	// Options for "Order For" in party mode (Myself + User's local PIPs)
-	// This assumes 'pips' prop contains the current user's local PIPs
-
 	const displayOptions = pips || [];
+
+	const renderModifierGroup = (group) => {
+		const groupTitle = getLocalizedText(group.name) || group.name || "";
+		const groupDescription =
+			getLocalizedText(group.description) || group.description || "";
+
+		const maxSelect =
+			group.maxSelect !== undefined && group.maxSelect !== null
+				? Number(group.maxSelect)
+				: 1;
+
+		const currentSelections = getSelectionsForGroup(group.id);
+
+		return (
+			<View key={group.id} style={styles.sectionContainer}>
+				<Text style={styles.sectionTitle}>{groupTitle}</Text>
+
+				{!!groupDescription && (
+					<Text style={styles.groupDescription}>{groupDescription}</Text>
+				)}
+
+				<Text style={styles.groupMetaText}>
+					{group.required
+						? t("required_modifier_group", {
+								defaultValue: "Required",
+							})
+						: t("optional_modifier_group", {
+								defaultValue: "Optional",
+							})}
+					{" • "}
+					{maxSelect <= 1
+						? t("choose_one_modifier", {
+								defaultValue: "Choose 1",
+							})
+						: t("choose_up_to_modifier", {
+								max: maxSelect,
+								defaultValue: `Choose up to ${maxSelect}`,
+							})}
+				</Text>
+
+				{Array.isArray(group.options) &&
+					group.options
+						.filter((option) => option.isAvailable !== false)
+						.map((option) => {
+							const selected = isOptionSelected(group.id, option.id);
+							const optionName =
+								getLocalizedText(option.name) || option.name || "";
+							const optionPrice =
+								option.price !== undefined && option.price !== null
+									? Number(option.price)
+									: 0;
+
+							return (
+								<TouchableOpacity
+									key={option.id}
+									style={[
+										styles.modifierOptionRow,
+										selected && styles.modifierOptionRowSelected,
+									]}
+									onPress={() => toggleModifierOption(group, option)}
+									activeOpacity={0.85}
+								>
+									<View style={styles.modifierOptionLeft}>
+										<MaterialCommunityIcons
+											name={
+												maxSelect <= 1
+													? selected
+														? "radiobox-marked"
+														: "radiobox-blank"
+													: selected
+														? "checkbox-marked-circle"
+														: "checkbox-blank-circle-outline"
+											}
+											size={22}
+											color={colors.primary}
+										/>
+										<View style={styles.modifierOptionTextWrap}>
+											<Text style={styles.modifierOptionName}>
+												{optionName}
+											</Text>
+											{!!option.category && (
+												<Text style={styles.modifierOptionCategory}>
+													{option.category}
+												</Text>
+											)}
+										</View>
+									</View>
+
+									<Text style={styles.modifierOptionPrice}>
+										{optionPrice > 0
+											? `+$${optionPrice.toFixed(2)}`
+											: t("included_label", "Included")}
+									</Text>
+								</TouchableOpacity>
+							);
+						})}
+
+				{currentSelections.length > 0 && (
+					<View style={styles.groupSelectionSummary}>
+						<Text style={styles.groupSelectionSummaryText}>
+							{t("selected_count_label", {
+								count: currentSelections.length,
+								defaultValue:
+									currentSelections.length === 1
+										? "1 selected"
+										: `${currentSelections.length} selected`,
+							})}
+						</Text>
+					</View>
+				)}
+
+				<Divider style={styles.divider} />
+			</View>
+		);
+	};
 
 	return (
 		<Modal
@@ -256,16 +507,43 @@ const SelectedItemModal = ({
 							style={styles.closeButton}
 							color={colors.textMedium}
 						/>
+
 						<View style={styles.itemDetailsContainer}>
-							<Text style={styles.itemName}>{selectedItem.name}</Text>
-							<Text style={styles.itemPrice}>
-								${selectedItem.price.toFixed(2)}
+							<Text style={styles.itemName}>
+								{getLocalizedText(selectedItem && selectedItem.name)}
 							</Text>
+
+							{!!(
+								selectedItem &&
+								(getLocalizedText(selectedItem.description) ||
+									selectedItem.description)
+							) && (
+								<Text style={styles.itemDescription}>
+									{getLocalizedText(selectedItem.description) ||
+										selectedItem.description}
+								</Text>
+							)}
+
+							<Text style={styles.itemPrice}>
+								${unitPriceWithModifiers.toFixed(2)}
+							</Text>
+
+							{modifiersTotal > 0 && (
+								<Text style={styles.modifiersTotalText}>
+									{t("includes_modifiers_total", {
+										total: modifiersTotal.toFixed(2),
+										defaultValue: `Includes $${modifiersTotal.toFixed(2)} in selected add-ons`,
+									})}
+								</Text>
+							)}
 						</View>
+
 						<Divider style={styles.divider} />
 
 						<View style={styles.sectionContainer}>
-							<Text style={styles.sectionTitle}>{t("quantity_title")}</Text>
+							<Text style={styles.sectionTitle}>
+								{t("quantity_title", "Quantity")}
+							</Text>
 							<View style={styles.quantitySelector}>
 								<IconButton
 									icon="minus-circle"
@@ -283,22 +561,51 @@ const SelectedItemModal = ({
 									disabled={quantity >= 10}
 								/>
 							</View>
+
+							<View style={styles.totalPreviewBox}>
+								<Text style={styles.totalPreviewLabel}>
+									{t("item_total_label", "Item Total")}
+								</Text>
+								<Text style={styles.totalPreviewValue}>
+									${finalPrice.toFixed(2)}
+								</Text>
+							</View>
 						</View>
+
 						<Divider style={styles.divider} />
 
-						{/* "Order For" selection - behavior depends on mode */}
+						{modifierGroups.length > 0 && (
+							<View style={styles.sectionContainer}>
+								<Text style={styles.sectionTitle}>
+									{t("customize_item_title", "Customize Item")}
+								</Text>
+								<Text style={styles.helpText}>
+									{t(
+										"customize_item_help_text",
+										"Choose your options below. Required groups must be completed before adding to basket.",
+									)}
+								</Text>
+							</View>
+						)}
+
+						{modifierGroups.map(renderModifierGroup)}
+
 						{orderingMode === "party" && (
 							<View style={styles.sectionContainer}>
 								<Text style={styles.sectionTitle}>
-									{t("order_item_for_party_title")}
+									{t("order_item_for_party_title", "Order this item for")}
 								</Text>
+
 								{displayOptions.map((option) => {
 									const uniqueKey = option.userId || option.localPipId;
-									const isSelected = orderTargets[0]?.id === uniqueKey; // In party mode, orderTargets has one item
-									const targetObject = { id: uniqueKey, name: option.name };
+									const isSelected = orderTargets[0]?.id === uniqueKey;
+									const targetObject = {
+										id: uniqueKey,
+										name: option.name,
+									};
+
 									return (
 										<View key={uniqueKey} style={styles.pipEntryContainer}>
-											{/* Step 1: Tapping here selects the person by calling handlePartyModeTargetSelection */}
 											<TouchableOpacity
 												style={styles.pipCheckboxItem}
 												onPress={() =>
@@ -315,9 +622,7 @@ const SelectedItemModal = ({
 												<Text style={styles.pipNameText}>{option.name}</Text>
 											</TouchableOpacity>
 
-											{/* Step 2: This button appears only if the person is selected */}
 											{isSelected && (
-												// Tapping THIS button calls openInstructionModalForTarget
 												<TouchableOpacity
 													onPress={() =>
 														openInstructionModalForTarget(orderTargets[0])
@@ -331,34 +636,33 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{orderTargets[0].specialInstructions
-															? t("edit_notes_button")
-															: t("add_notes_button")}
+															? t("edit_notes_button", "Edit notes")
+															: t("add_notes_button", "Add notes")}
 													</Text>
 												</TouchableOpacity>
 											)}
 										</View>
 									);
 								})}
-								{/* Input for party mode target's special instructions */}
-								{orderTargets.length > 0 &&
-									orderTargets[0] && ( // Check if target exists
-										<TextInput
-											style={styles.specialInstructionsInput}
-											placeholder={t(
-												"special_instructions_for_pip_placeholder",
-												{ pipName: orderTargets[0].name },
-											)}
-											value={orderTargets[0].specialInstructions}
-											onChangeText={(text) =>
-												setOrderTargets((prev) => [
-													{ ...prev[0], specialInstructions: text },
-												])
-											}
-											multiline
-											numberOfLines={3}
-											placeholderTextColor={colors.textLight}
-										/>
-									)}
+
+								{orderTargets.length > 0 && orderTargets[0] && (
+									<TextInput
+										style={styles.specialInstructionsInput}
+										placeholder={t("special_instructions_for_pip_placeholder", {
+											pipName: orderTargets[0].name,
+											defaultValue: `Special instructions for ${orderTargets[0].name}`,
+										})}
+										value={orderTargets[0].specialInstructions}
+										onChangeText={(text) =>
+											setOrderTargets((prev) => [
+												{ ...prev[0], specialInstructions: text },
+											])
+										}
+										multiline
+										numberOfLines={3}
+										placeholderTextColor={colors.textLight}
+									/>
+								)}
 							</View>
 						)}
 
@@ -366,13 +670,20 @@ const SelectedItemModal = ({
 							<View style={styles.sectionContainer}>
 								<View style={styles.sectionHeaderWithHelp}>
 									<Text style={styles.sectionTitle}>
-										{t("order_for_select_all_that_apply_title")}
+										{t(
+											"order_for_select_all_that_apply_title",
+											"Who is this for?",
+										)}
 									</Text>
-									{/* Help icon can be added back if needed */}
 								</View>
+
 								<Text style={styles.managePipsHintText}>
-									{t("not_eating_alone_hint")}
+									{t(
+										"not_eating_alone_hint",
+										"Select one or more people for this item.",
+									)}
 								</Text>
+
 								<Button
 									icon="account-multiple-plus-outline"
 									mode="text"
@@ -385,7 +696,7 @@ const SelectedItemModal = ({
 									style={styles.managePipsButton}
 									labelStyle={{ color: colors.primary, fontSize: 14 }}
 								>
-									{t("manage_pips_button")}
+									{t("manage_pips_button", "Manage PIPs")}
 								</Button>
 
 								{displayOptions.map((target) => {
@@ -393,6 +704,7 @@ const SelectedItemModal = ({
 										(t) => t.id === target.id,
 									);
 									const isSelected = !!currentSelection;
+
 									return (
 										<View key={target.id} style={styles.pipEntryContainer}>
 											<TouchableOpacity
@@ -410,6 +722,7 @@ const SelectedItemModal = ({
 												/>
 												<Text style={styles.pipNameText}>{target.name}</Text>
 											</TouchableOpacity>
+
 											{isSelected && (
 												<TouchableOpacity
 													onPress={() => openInstructionModalForTarget(target)}
@@ -422,20 +735,25 @@ const SelectedItemModal = ({
 													/>
 													<Text style={styles.editInstructionsText}>
 														{currentSelection.specialInstructions
-															? t("edit_notes_button")
-															: t("add_notes_button")}
+															? t("edit_notes_button", "Edit notes")
+															: t("add_notes_button", "Add notes")}
 													</Text>
 												</TouchableOpacity>
 											)}
 										</View>
 									);
 								})}
+
 								{displayOptions.length === 0 && (
-									<Text style={styles.noPipsText}>{t("no_pips_message")}</Text>
+									<Text style={styles.noPipsText}>
+										{t(
+											"no_pips_message",
+											"No PIPs available yet. Add one from your account screen.",
+										)}
+									</Text>
 								)}
 							</View>
 						)}
-						{/* Removed general special instructions input, now per-target */}
 					</ScrollView>
 
 					<View style={styles.modalActionButtonsContainer}>
@@ -445,8 +763,9 @@ const SelectedItemModal = ({
 							style={styles.modalActionButton}
 							labelStyle={{ color: colors.textDark, fontSize: 16 }}
 						>
-							{t("cancel_button")}
+							{t("cancel_button", "Cancel")}
 						</Button>
+
 						<Button
 							onPress={handleConfirmPress}
 							mode="contained"
@@ -461,7 +780,13 @@ const SelectedItemModal = ({
 							{t("add_to_basket_button", {
 								quantity: quantity,
 								basketType:
-									orderingMode === "party" ? t("party_basket") : t("my_basket"),
+									orderingMode === "party"
+										? t("party_basket", "party basket")
+										: t("my_basket", "my basket"),
+								defaultValue:
+									orderingMode === "party"
+										? `Add ${quantity} to party basket`
+										: `Add ${quantity} to my basket`,
 							})}
 						</Button>
 					</View>
@@ -482,140 +807,6 @@ const SelectedItemModal = ({
 };
 
 const styles = StyleSheet.create({
-	scrollContainer: {
-		paddingBottom: 20, // Prevent content from getting too close to the bottom
-	},
-	modalContainer: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center", // This was causing the issue
-		backgroundColor: "rgba(0, 0, 0, 0.5)",
-	},
-	modalContent: {
-		backgroundColor: "white",
-		padding: 20,
-		borderRadius: 10,
-		width: "90%", // Or maxWidth: 400, as discussed earlier
-		maxHeight: "80%",
-	},
-	itemDetailsContainer: {
-		alignItems: "center",
-		marginBottom: 20,
-	},
-	itemName: {
-		fontSize: 24,
-		fontWeight: "bold",
-		marginBottom: 5,
-	},
-	itemDescription: {
-		fontSize: 16,
-		marginBottom: 10,
-		textAlign: "center",
-		color: "#666",
-	},
-	itemPrice: {
-		fontSize: 20,
-		fontWeight: "bold",
-		color: colors.primary,
-	},
-	divider: {
-		marginVertical: 20,
-	},
-	pipSelectionContainer: {
-		marginBottom: 20,
-		overflow: "visible",
-	},
-	sectionTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		marginBottom: 10,
-		textAlign: "center",
-	},
-	pipCheckbox: {
-		flexDirection: "row",
-		alignItems: "center",
-		marginBottom: 8,
-	},
-	pipName: {
-		fontSize: 16,
-		marginLeft: 10,
-	},
-	noPipsText: {
-		fontSize: 16,
-		textAlign: "center",
-		color: "#999",
-	},
-	buttonContainer: {
-		flexDirection: "row",
-		justifyContent: "space-around",
-		marginTop: 20,
-	},
-	addButton: {
-		backgroundColor: colors.primary,
-		padding: 12,
-		borderRadius: 8,
-		alignItems: "center",
-		flex: 1,
-		marginRight: 10,
-	},
-	addButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	confirmButton: {
-		// Styles for the Confirm button
-		backgroundColor: colors.primary, // Or any color you prefer
-		padding: 12,
-		borderRadius: 8,
-		alignItems: "center",
-		flex: 1,
-		marginRight: 10,
-	},
-	confirmButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	cancelButton: {
-		// Styles for the Cancel button
-		backgroundColor: "#ccc", // Or any color you prefer
-		padding: 12,
-		borderRadius: 8,
-		alignItems: "center",
-		flex: 1,
-		marginRight: 10,
-	},
-	cancelButtonText: {
-		color: "#333",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	addPipButton: {
-		backgroundColor: colors.primary,
-		padding: 12,
-		borderRadius: 8,
-		alignItems: "center",
-		marginTop: 15,
-	},
-	addPipButtonText: {
-		color: "white",
-		fontSize: 16,
-		fontWeight: "bold",
-	},
-	sectionHeader: {
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "center",
-		marginBottom: 10,
-	},
-	helpText: {
-		fontSize: 14,
-		color: "#666", // Slightly muted color for help text
-		textAlign: "center",
-		marginBottom: 15,
-	},
-
 	modalOverlay: {
 		flex: 1,
 		justifyContent: "center",
@@ -634,21 +825,21 @@ const styles = StyleSheet.create({
 		shadowRadius: 4,
 		elevation: 5,
 	},
-	pipInstructionModalContent: {
-		backgroundColor: colors.surfaceWhite,
-		padding: 20,
-		borderRadius: 10,
-		width: "85%",
-		alignItems: "center",
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
+	scrollContainer: {
+		paddingHorizontal: 20,
+		paddingTop: 45,
+		paddingBottom: 20,
 	},
-	scrollContainer: { paddingHorizontal: 20, paddingTop: 45, paddingBottom: 20 },
-	closeButton: { position: "absolute", top: 10, right: 10, zIndex: 1 },
-	itemDetailsContainer: { alignItems: "center", marginBottom: 15 },
+	closeButton: {
+		position: "absolute",
+		top: 10,
+		right: 10,
+		zIndex: 1,
+	},
+	itemDetailsContainer: {
+		alignItems: "center",
+		marginBottom: 15,
+	},
 	itemName: {
 		fontSize: 22,
 		fontWeight: "bold",
@@ -656,9 +847,30 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginBottom: 6,
 	},
-	itemPrice: { fontSize: 18, fontWeight: "bold", color: colors.primary },
-	divider: { marginVertical: 15, backgroundColor: colors.borderLight },
-	sectionContainer: { marginBottom: 15 },
+	itemDescription: {
+		fontSize: 14,
+		color: colors.textMedium,
+		textAlign: "center",
+		marginBottom: 8,
+	},
+	itemPrice: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.primary,
+	},
+	modifiersTotalText: {
+		marginTop: 6,
+		fontSize: 13,
+		color: colors.textMedium,
+		textAlign: "center",
+	},
+	divider: {
+		marginVertical: 15,
+		backgroundColor: colors.borderLight,
+	},
+	sectionContainer: {
+		marginBottom: 15,
+	},
 	sectionHeaderWithHelp: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -669,6 +881,16 @@ const styles = StyleSheet.create({
 		fontSize: 17,
 		fontWeight: "600",
 		color: colors.textDark,
+		marginBottom: 10,
+	},
+	groupDescription: {
+		fontSize: 13,
+		color: colors.textMedium,
+		marginBottom: 6,
+	},
+	groupMetaText: {
+		fontSize: 12,
+		color: colors.textMedium,
 		marginBottom: 10,
 	},
 	quantitySelector: {
@@ -685,68 +907,63 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginHorizontal: 15,
 	},
-	pipInstructionModalContent: {
-		backgroundColor: colors.surfaceWhite,
-		padding: 20,
+	totalPreviewBox: {
+		marginTop: 10,
+		padding: 12,
 		borderRadius: 10,
-		width: "90%", // Use a percentage for better responsiveness
-		alignItems: "center",
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.25,
-		shadowRadius: 4,
-		elevation: 5,
-	},
-	specialInstructionsInput: {
-		width: "100%", // Take full width of its container
+		backgroundColor: colors.backgroundLight,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
-		backgroundColor: colors.backgroundLight,
-		borderRadius: 8,
-		paddingHorizontal: 12,
-		paddingVertical: 10,
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+	},
+	totalPreviewLabel: {
 		fontSize: 15,
+		fontWeight: "600",
 		color: colors.textDark,
-		marginTop: 5,
-		// --- THE FIX ---
-		height: 100, // Give the input a fixed height instead of minHeight
-		textAlignVertical: "top", // Ensure text starts from the top in multiline input
+	},
+	totalPreviewValue: {
+		fontSize: 18,
+		fontWeight: "bold",
+		color: colors.primary,
 	},
 	helpText: {
 		fontSize: 13,
 		color: colors.textMedium,
 		fontStyle: "italic",
-		textAlign: "center",
+		textAlign: "left",
 		marginBottom: 10,
-		paddingHorizontal: 5,
 	},
-	managePipsButton: { alignSelf: "center", marginVertical: 8 },
+	managePipsButton: {
+		alignSelf: "center",
+		marginVertical: 8,
+	},
 	managePipsHintText: {
 		fontSize: 12,
 		color: colors.textMedium,
 		textAlign: "center",
 		marginBottom: 10,
 	},
-	pipEntryContainer: { marginBottom: 5 },
+	pipEntryContainer: {
+		marginBottom: 5,
+	},
 	pipCheckboxItem: {
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 8,
 	},
-	pipNameText: { fontSize: 16, color: colors.textDark, marginLeft: 10 },
+	pipNameText: {
+		fontSize: 16,
+		color: colors.textDark,
+		marginLeft: 10,
+	},
 	editInstructionsButton: {
 		flexDirection: "row",
 		alignItems: "center",
 		paddingVertical: 4,
 		paddingLeft: 34,
 		marginTop: -5,
-	},
-	modalTitle: {
-		fontSize: 20,
-		fontWeight: "bold",
-		marginBottom: 10,
-		textAlign: "center",
-		color: colors.textDark,
 	},
 	editInstructionsText: {
 		fontSize: 13,
@@ -770,12 +987,103 @@ const styles = StyleSheet.create({
 		borderTopColor: colors.borderLight,
 		backgroundColor: colors.backgroundLight,
 	},
-	modalButton: { flex: 1, marginHorizontal: 8, borderRadius: 8 },
+	modalActionButton: {
+		flex: 1,
+		marginHorizontal: 8,
+		borderRadius: 8,
+	},
+	modalButton: {
+		flex: 1,
+		marginHorizontal: 8,
+		borderRadius: 8,
+	},
 	modalButtonRow: {
 		flexDirection: "row",
 		justifyContent: "space-around",
 		width: "100%",
 		marginTop: 20,
+	},
+	pipInstructionModalContent: {
+		backgroundColor: colors.surfaceWhite,
+		padding: 20,
+		borderRadius: 10,
+		width: "90%",
+		alignItems: "center",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.25,
+		shadowRadius: 4,
+		elevation: 5,
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "bold",
+		marginBottom: 10,
+		textAlign: "center",
+		color: colors.textDark,
+	},
+	specialInstructionsInput: {
+		width: "100%",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+		fontSize: 15,
+		color: colors.textDark,
+		marginTop: 5,
+		height: 100,
+		textAlignVertical: "top",
+	},
+	modifierOptionRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 12,
+		paddingHorizontal: 12,
+		borderRadius: 10,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		marginBottom: 8,
+	},
+	modifierOptionRowSelected: {
+		borderColor: colors.primary,
+		backgroundColor: colors.primary + "10",
+	},
+	modifierOptionLeft: {
+		flexDirection: "row",
+		alignItems: "center",
+		flex: 1,
+		marginRight: 10,
+	},
+	modifierOptionTextWrap: {
+		marginLeft: 10,
+		flex: 1,
+	},
+	modifierOptionName: {
+		fontSize: 15,
+		fontWeight: "600",
+		color: colors.textDark,
+	},
+	modifierOptionCategory: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	modifierOptionPrice: {
+		fontSize: 14,
+		fontWeight: "700",
+		color: colors.primary,
+	},
+	groupSelectionSummary: {
+		marginTop: 2,
+		marginBottom: 4,
+	},
+	groupSelectionSummaryText: {
+		fontSize: 12,
+		color: colors.textMedium,
 	},
 });
 

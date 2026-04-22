@@ -584,32 +584,34 @@ exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
 		return null;
 	}
 
-	// --- THIS IS THE FIX ---
-	// This logic now correctly handles users from any non-password provider (Phone, Google, etc.).
 	console.log(
 		`onUserCreate: New non-email user created: ${user.uid}. Assigning 'customer' role.`,
 	);
 
-	// 1. Set the custom role claim for the user.
 	await admin.auth().setCustomUserClaims(user.uid, { role: "customer" });
 
-	// 2. Prepare the data for the new customer document.
 	const userDocRef = db.collection("customers").doc(user.uid);
+
+	const normalizedEmail =
+		user.email && typeof user.email === "string"
+			? user.email.toLowerCase().trim()
+			: null;
+
 	const userData = {
 		uid: user.uid,
 		role: "customer",
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
-		// Safely handle different user properties from different providers.
-		phoneNumber: user.phoneNumber || null, // Will exist for phone users
+		updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+
+		email: normalizedEmail,
+		phoneNumber: user.phoneNumber || null,
 
 		canViewHiddenRestaurants: false,
 		stripeCustomerId_test: null,
 		stripeCustomerId_live: null,
 	};
 
-	// 3. Create the document in Firestore.
 	await userDocRef.set(userData, { merge: true });
-	// --- END OF FIX ---
 
 	console.log(`Successfully created customer document for user ${user.uid}`);
 	return null;

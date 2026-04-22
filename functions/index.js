@@ -129,8 +129,13 @@ exports.forceClearTable = restaurantFunctions.forceClearTable;
 exports.autoCloseStaleWorkDays = restaurantFunctions.autoCloseStaleWorkDays;
 //exports.updateEmployee = restaurantFunctions.updateEmployee;
 
-// Table functions
-exports.addTable = restaurantFunctions.addTable;
+exports.emitDgiInvoice = restaurantFunctions.emitDgiInvoice;
+
+((exports.getReportingDashboard = reportingFunctions.getReportingDashboard),
+	(exports.getOrdersLedger = reportingFunctions.getOrdersLedger),
+	(exports.getOrderDetail = reportingFunctions.getOrderDetail),
+	// Table functions
+	(exports.addTable = restaurantFunctions.addTable));
 exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
 

@@ -6,20 +6,16 @@ import {
 	StyleSheet,
 	ScrollView,
 	TouchableOpacity,
-	Dimensions,
 	SafeAreaView,
 	ActivityIndicator,
 } from "react-native";
-
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
 import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
-const { width } = Dimensions.get("window");
 
 // --- Reusable Helper Components ---
 const KPICard = ({ title, value, iconName, isDeduction = false }) => (
@@ -36,11 +32,14 @@ const KPICard = ({ title, value, iconName, isDeduction = false }) => (
 	</View>
 );
 
-const DetailedReportCard = ({ title, children, iconName }) => (
+const DetailedReportCard = ({ title, children, iconName, action }) => (
 	<View style={styles.detailCard}>
 		<View style={styles.cardHeader}>
-			<Ionicons name={iconName} size={20} color={colors.primary} />
-			<Text style={styles.cardTitle}>{title}</Text>
+			<View style={styles.cardHeaderLeft}>
+				<Ionicons name={iconName} size={20} color={colors.primary} />
+				<Text style={styles.cardTitle}>{title}</Text>
+			</View>
+			{action}
 		</View>
 		<View style={styles.cardContent}>{children}</View>
 	</View>
@@ -53,40 +52,9 @@ const DetailRow = ({ label, value }) => (
 	</View>
 );
 
-const ItemsSoldList = ({ items, formatCurrency }) => {
-	const { t } = useTranslation();
-	return (
-		<View>
-			<View style={styles.tableHeader}>
-				<Text style={[styles.tableHeaderText, { flex: 3 }]}>
-					{t("item", "Item")}
-				</Text>
-				<Text
-					style={[styles.tableHeaderText, { flex: 1, textAlign: "center" }]}
-				>
-					{t("qty", "Qty")}
-				</Text>
-				<Text style={[styles.tableHeaderText, { flex: 2, textAlign: "right" }]}>
-					{t("revenue", "Revenue")}
-				</Text>
-			</View>
-			{(items || []).map((item, index) => (
-				<View key={index} style={styles.tableRow}>
-					<Text style={[styles.tableCell, { flex: 3 }]}>{item.name}</Text>
-					<Text style={[styles.tableCell, { flex: 1, textAlign: "center" }]}>
-						{item.quantity}
-					</Text>
-					<Text style={[styles.tableCell, { flex: 2, textAlign: "right" }]}>
-						{formatCurrency(item.totalRevenue)}
-					</Text>
-				</View>
-			))}
-		</View>
-	);
-};
-
 const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => {
 	const { t } = useTranslation();
+
 	return (
 		<View style={styles.periodSelectorContainer}>
 			{["Today", "Week", "Month"].map((period) => (
@@ -129,27 +97,31 @@ const SalesReportScreen = ({ navigation }) => {
 		navigation.setOptions({
 			headerRight: () => (
 				<TouchableOpacity
-					onPress={() => navigation.navigate("HistoricalReports")}
+					onPress={() =>
+						navigation.navigate("OrdersLedgerScreen", {
+							initialPeriod: selectedPeriod.toLowerCase(),
+						})
+					}
 					style={{ marginRight: 15 }}
 				>
-					<Ionicons name="archive-outline" size={26} color={colors.primary} />
+					<Ionicons name="receipt-outline" size={26} color={colors.primary} />
 				</TouchableOpacity>
 			),
 		});
-	}, [navigation]);
+	}, [navigation, selectedPeriod]);
 
 	useEffect(() => {
 		if (isAuthLoading || !currentUserData?.uid) return;
+
 		const fetchReport = async () => {
 			setIsFetching(true);
 			try {
-				const getReport = httpsCallable(functions, "getSalesReport");
+				const getReport = httpsCallable(functions, "getReportingDashboard");
 				const response = await getReport({
 					restaurantId: currentUserData.uid,
 					period: selectedPeriod.toLowerCase(),
 				});
 				setReportData(response.data);
-				console.log("This is the data", response.data);
 			} catch (error) {
 				console.error("Error fetching dashboard report:", error);
 				setReportData(null);
@@ -157,11 +129,12 @@ const SalesReportScreen = ({ navigation }) => {
 				setIsFetching(false);
 			}
 		};
+
 		fetchReport();
 	}, [selectedPeriod, currentUserData?.uid, isAuthLoading]);
 
 	const renderContent = () => {
-		if (isFetching)
+		if (isFetching) {
 			return (
 				<ActivityIndicator
 					size="large"
@@ -169,7 +142,9 @@ const SalesReportScreen = ({ navigation }) => {
 					style={{ flex: 1 }}
 				/>
 			);
-		if (!reportData)
+		}
+
+		if (!reportData) {
 			return (
 				<Text style={styles.noDataText}>
 					{t(
@@ -178,10 +153,10 @@ const SalesReportScreen = ({ navigation }) => {
 					)}
 				</Text>
 			);
+		}
 
 		return (
 			<ScrollView contentContainerStyle={styles.scrollContent}>
-				{/* 🚨 UPDATED KPI GRID */}
 				<View style={styles.kpiContainer}>
 					<KPICard
 						title={t("gross_sales", "Gross Sales")}
@@ -189,15 +164,14 @@ const SalesReportScreen = ({ navigation }) => {
 						iconName="cash-outline"
 					/>
 					<KPICard
+						title={t("tax_collected", "Tax Collected")}
+						value={formatCurrency(reportData.totalTax)}
+						iconName="calculator-outline"
+					/>
+					<KPICard
 						title={t("tips_collected", "Tips Collected")}
 						value={formatCurrency(reportData.totalGratuity)}
 						iconName="gift-outline"
-					/>
-					<KPICard
-						title={t("total_fees", "Total Fees")}
-						value={`-${formatCurrency(reportData.totalFees)}`}
-						iconName="trending-down-outline"
-						isDeduction={true}
 					/>
 					<KPICard
 						title={t("net_payout", "Net Payout")}
@@ -205,7 +179,6 @@ const SalesReportScreen = ({ navigation }) => {
 						iconName="wallet-outline"
 					/>
 
-					{/* 5th KPI for Discounts (Centered full width wrap) */}
 					<View style={styles.fullWidthKpiWrapper}>
 						<View style={styles.centeredKpi}>
 							<KPICard
@@ -218,10 +191,22 @@ const SalesReportScreen = ({ navigation }) => {
 					</View>
 				</View>
 
-				{/* 🚨 UPDATED OPERATIONAL METRICS */}
 				<DetailedReportCard
 					title={t("operational_metrics", "Operational Metrics")}
 					iconName="stats-chart-outline"
+					action={
+						<TouchableOpacity
+							onPress={() =>
+								navigation.navigate("OrdersLedgerScreen", {
+									initialPeriod: selectedPeriod.toLowerCase(),
+								})
+							}
+						>
+							<Text style={styles.viewAllText}>
+								{t("view_orders", "View Orders")}
+							</Text>
+						</TouchableOpacity>
+					}
 				>
 					<DetailRow
 						label={t("total_orders", "Total Orders")}
@@ -229,7 +214,7 @@ const SalesReportScreen = ({ navigation }) => {
 					/>
 					<DetailRow
 						label={t("avg_order_value", "Average Order Value")}
-						value={formatCurrency(reportData.averageOrderValue)} // 🚨 NEW
+						value={formatCurrency(reportData.averageOrderValue)}
 					/>
 					<DetailRow
 						label={t("avg_table_turnover", "Avg Table Turnover")}
@@ -249,9 +234,12 @@ const SalesReportScreen = ({ navigation }) => {
 						label={t("payment_processing", "Payment Processing")}
 						value={`-${formatCurrency(reportData.totalProcessorFees)}`}
 					/>
+					<DetailRow
+						label={t("total_fees", "Total Fees")}
+						value={`-${formatCurrency(reportData.totalFees)}`}
+					/>
 				</DetailedReportCard>
 
-				{/* 🚨 NEW REVENUE BREAKDOWN CARD */}
 				<DetailedReportCard
 					title={t("revenue_breakdown", "Revenue Breakdown")}
 					iconName="pie-chart-outline"
@@ -261,17 +249,17 @@ const SalesReportScreen = ({ navigation }) => {
 						value={formatCurrency(reportData.digitalSales)}
 					/>
 					<DetailRow
-						label={t("cash_external", "Cash / External Terminal")}
-						value={formatCurrency(reportData.cashSales)}
+						label={t("manual_sales", "Cash / External Terminal")}
+						value={formatCurrency(reportData.manualSales)}
 					/>
 					<View style={styles.divider} />
 					<DetailRow
 						label={t("food_sales", "Food Sales")}
-						value={formatCurrency(reportData.salesByCategory?.Food)}
+						value={formatCurrency(reportData.salesByCategory?.Food || 0)}
 					/>
 					<DetailRow
 						label={t("bar_sales", "Bar / Beverage Sales")}
-						value={formatCurrency(reportData.salesByCategory?.Bar)}
+						value={formatCurrency(reportData.salesByCategory?.Bar || 0)}
 					/>
 				</DetailedReportCard>
 			</ScrollView>
@@ -334,7 +322,6 @@ const styles = StyleSheet.create({
 	periodButtonTextActive: { color: colors.primary },
 	scrollContent: { padding: 15, paddingBottom: 30 },
 
-	// 🚨 UPDATED KPI GRID STYLES
 	kpiContainer: {
 		flexDirection: "row",
 		flexWrap: "wrap",
@@ -393,9 +380,14 @@ const styles = StyleSheet.create({
 	cardHeader: {
 		flexDirection: "row",
 		alignItems: "center",
+		justifyContent: "space-between",
 		padding: 15,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
+	},
+	cardHeaderLeft: {
+		flexDirection: "row",
+		alignItems: "center",
 	},
 	cardTitle: {
 		fontSize: 18,
@@ -411,8 +403,6 @@ const styles = StyleSheet.create({
 	},
 	summaryLabel: { fontSize: 16, color: colors.textMedium },
 	summaryValue: { fontSize: 16, fontWeight: "500", color: colors.textDark },
-
-	// 🚨 NEW STYLES FOR METRICS DIVIDER
 	divider: {
 		height: 1,
 		backgroundColor: colors.borderLight,
@@ -425,27 +415,11 @@ const styles = StyleSheet.create({
 		marginBottom: 5,
 		marginTop: 5,
 	},
-
-	tableHeader: {
-		flexDirection: "row",
-		borderBottomWidth: 2,
-		borderBottomColor: colors.borderLight,
-		paddingBottom: 10,
-		marginBottom: 5,
+	viewAllText: {
+		color: colors.primary,
+		fontWeight: "700",
+		fontSize: 14,
 	},
-	tableHeaderText: {
-		fontWeight: "bold",
-		color: colors.textMedium,
-		fontSize: 12,
-	},
-	tableRow: {
-		flexDirection: "row",
-		paddingVertical: 10,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
-		alignItems: "center",
-	},
-	tableCell: { color: colors.textDark, fontSize: 14 },
 });
 
 export default SalesReportScreen;

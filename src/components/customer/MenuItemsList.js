@@ -45,6 +45,20 @@ const StarRatingDisplay = ({ rating = 0, size = 16 }) => {
 	);
 };
 
+const itemRequiresCustomization = (item) => {
+	if (!item || !Array.isArray(item.modifierGroups)) return false;
+
+	return item.modifierGroups.some((group) => {
+		const required = !!group.required;
+		const minSelect =
+			group && group.minSelect !== undefined && group.minSelect !== null
+				? Number(group.minSelect)
+				: 0;
+
+		return required || minSelect > 0;
+	});
+};
+
 // 🚨 UPDATED: MenuItemRow now accepts selection props
 const MenuItemRow = ({
 	item,
@@ -57,6 +71,7 @@ const MenuItemRow = ({
 
 	const displayName = getLocalizedValue(item, "name");
 	const displayDescription = getLocalizedValue(item, "description");
+	const requiresCustomization = itemRequiresCustomization(item);
 
 	const safeFormatCurrency = (price) => {
 		if (typeof price !== "number" || isNaN(price))
@@ -68,7 +83,7 @@ const MenuItemRow = ({
 	return (
 		<View style={styles.menuItemWrapper}>
 			{/* 🚨 THE QUICK-SELECT CHECKBOX (Only shows in Party Mode) */}
-			{showCheckbox && (
+			{showCheckbox && !requiresCustomization && (
 				<TouchableOpacity
 					style={styles.checkboxContainer}
 					onPress={onToggleSelect}
@@ -92,6 +107,13 @@ const MenuItemRow = ({
 							{displayDescription}
 						</Text>
 					) : null}
+					{requiresCustomization && (
+						<View style={styles.customizeBadge}>
+							<Text style={styles.customizeBadgeText}>
+								{t("customize_badge", "Customize")}
+							</Text>
+						</View>
+					)}
 
 					{averageRating > 0 && (
 						<View style={styles.ratingRow}>
@@ -369,6 +391,19 @@ const styles = StyleSheet.create({
 		marginTop: 20,
 		fontSize: 16,
 		color: "#666",
+	},
+	customizeBadge: {
+		alignSelf: "flex-start",
+		backgroundColor: colors.primary + "15",
+		paddingHorizontal: 10,
+		paddingVertical: 4,
+		borderRadius: 999,
+		marginBottom: 6,
+	},
+	customizeBadgeText: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "700",
 	},
 });
 

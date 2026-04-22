@@ -5,4 +5,7 @@ module.exports = {
 	keySeparator: false,
 	namespaceSeparator: false,
 	keepRemoved: true,
+	sort: true,
+	verbose: true,
+	defaultValue: (lng, ns, key) => key,
 };

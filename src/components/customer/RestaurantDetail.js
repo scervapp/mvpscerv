@@ -1,5 +1,5 @@
 // screens/customer/RestaurantDetailScreen.js
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
 	View,
 	Text,
@@ -12,6 +12,10 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Button as PaperButton } from "react-native-paper";
+import { httpsCallable } from "@react-native-firebase/functions";
+
 import { AuthContext } from "../../context/authContext";
 import { useParty } from "../../context/customer/PartyContext";
 import colors from "../../utils/styles/appStyles";
@@ -20,9 +24,6 @@ import {
 	useCheckInStatus,
 } from "../../utils/customerUtils";
 import { db, functions } from "../../config/firebase";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Button as PaperButton } from "react-native-paper";
-import { httpsCallable } from "@react-native-firebase/functions";
 import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
 
@@ -30,32 +31,35 @@ const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { restaurant, initialView } = route.params;
+
+	const restaurant = route.params?.restaurant ?? null;
+	const initialView = route.params?.initialView;
 
 	const { currentUserData, logout } = useContext(AuthContext);
 
-	// 🚨 Streamlined Party Context (No longer pulling 'addItem' functions here)
 	const {
 		isLoadingParty,
 		currentPartyIds,
 		partyDetails,
 		activatePartyCheckIn,
 		sharedBaskets,
+		getOrCreatePickupParty,
 	} = useParty();
 
-	// Local loading states
 	const [isProcessingCheckInAction, setIsProcessingCheckInAction] =
 		useState(false);
+	const [isStartingPickup, setIsStartingPickup] = useState(false);
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
+
+	const hasAttemptedAutoActivateRef = useRef(false);
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
 		"customerCancelSeatedCheckIn",
 	);
 
-	// --- Check-In Status ---
 	const {
 		checkInStatus,
 		isLoading: isLoadingCheckInStatus,
@@ -69,24 +73,75 @@ const RestaurantDetailScreen = () => {
 			: null,
 	);
 
-	// Basket Count logic (Kept so the floating button still appears if they have a cart)
-	const currentPartyId =
-		restaurant?.id && currentPartyIds ? currentPartyIds[restaurant.id] : null;
-	const currentPartyItems =
-		currentPartyId && sharedBaskets
-			? sharedBaskets[currentPartyId]?.items || []
-			: [];
-	const basketCount =
-		currentPartyItems?.filter(
-			(item) => item.orderedByUserId === currentUserData?.uid,
-		).length || 0;
+	// --- NEW: dual session shape from PartyContext ---
+	const restaurantSessions = useMemo(() => {
+		if (!restaurant?.id) {
+			return { dineIn: null, pickup: null };
+		}
+		return currentPartyIds?.[restaurant.id] || { dineIn: null, pickup: null };
+	}, [restaurant?.id, currentPartyIds]);
 
-	// Fetch Live Restaurant Data
+	const dineInPartyId = restaurantSessions?.dineIn || null;
+	const pickupPartyId = restaurantSessions?.pickup || null;
+
+	const dineInParty = useMemo(() => {
+		return dineInPartyId ? partyDetails?.[dineInPartyId] || null : null;
+	}, [dineInPartyId, partyDetails]);
+
+	const pickupParty = useMemo(() => {
+		return pickupPartyId ? partyDetails?.[pickupPartyId] || null : null;
+	}, [pickupPartyId, partyDetails]);
+
+	const dineInItems = useMemo(() => {
+		if (!dineInPartyId) return [];
+		return sharedBaskets?.[dineInPartyId]?.items || [];
+	}, [dineInPartyId, sharedBaskets]);
+
+	const pickupItems = useMemo(() => {
+		if (!pickupPartyId) return [];
+		return sharedBaskets?.[pickupPartyId]?.items || [];
+	}, [pickupPartyId, sharedBaskets]);
+
+	const dineInBasketCount = useMemo(() => {
+		if (!currentUserData?.uid) return 0;
+		return (
+			dineInItems?.filter(
+				(item) => item.orderedByUserId === currentUserData.uid,
+			).length || 0
+		);
+	}, [dineInItems, currentUserData?.uid]);
+
+	const pickupBasketCount = useMemo(() => {
+		if (!currentUserData?.uid) return 0;
+
+		return (
+			pickupItems?.filter(
+				(item) =>
+					item && !item.deleted && item.orderedByUserId === currentUserData.uid,
+			).length || 0
+		);
+	}, [pickupItems, currentUserData?.uid]);
+
+	// Prefer showing the basket FAB for whichever flow currently has items
+	const basketCount =
+		pickupBasketCount > 0 ? pickupBasketCount : dineInBasketCount;
+	const hasDineInTable =
+		checkInStatus === "ACCEPTED" || Boolean(dineInParty?.table?.id);
+
+	const basketTargetMode = hasDineInTable
+		? "dineIn"
+		: pickupBasketCount > 0
+			? "pickup"
+			: "dineIn";
+
 	useEffect(() => {
 		if (!restaurant?.id) {
 			setIsLoadingRestaurant(false);
 			return;
 		}
+
+		setIsLoadingRestaurant(true);
+
 		const restaurantRef = db.collection("restaurants").doc(restaurant.id);
 		const unsubscribe = restaurantRef.onSnapshot(
 			(docSnap) => {
@@ -100,39 +155,183 @@ const RestaurantDetailScreen = () => {
 				setIsLoadingRestaurant(false);
 			},
 		);
+
 		return () => unsubscribe();
 	}, [restaurant?.id]);
 
-	// Activate Party on Check-In
 	useEffect(() => {
-		if (
-			checkInStatus === "ACCEPTED" &&
-			checkInObj?.id &&
-			currentPartyId &&
-			partyDetails?.id === currentPartyId &&
-			partyDetails?.status === "pending" &&
-			partyDetails?.restaurantId === restaurant?.id &&
-			partyDetails?.hostUserId === currentUserData?.uid
-		) {
-			activatePartyCheckIn(checkInObj.id);
+		hasAttemptedAutoActivateRef.current = false;
+	}, [dineInPartyId]);
+
+	// Only auto-activate dine-in parties
+	useEffect(() => {
+		if (!dineInPartyId || !dineInParty || hasAttemptedAutoActivateRef.current) {
+			return;
 		}
+
+		const shouldAutoActivate =
+			checkInStatus === "ACCEPTED" &&
+			!!checkInObj?.id &&
+			dineInParty?.id === dineInPartyId &&
+			dineInParty?.status === "pending" &&
+			dineInParty?.restaurantId === restaurant?.id &&
+			dineInParty?.hostUserId === currentUserData?.uid;
+
+		if (!shouldAutoActivate) return;
+
+		hasAttemptedAutoActivateRef.current = true;
+
+		(async () => {
+			try {
+				await activatePartyCheckIn(checkInObj.id, dineInPartyId);
+			} catch (error) {
+				console.error("Failed to auto-activate party check-in:", error);
+				hasAttemptedAutoActivateRef.current = false;
+			}
+		})();
 	}, [
 		checkInStatus,
 		checkInObj?.id,
-		currentPartyId,
-		partyDetails,
+		dineInPartyId,
+		dineInParty,
 		restaurant?.id,
 		currentUserData?.uid,
 		activatePartyCheckIn,
 	]);
 
-	// --- Actions ---
-	const handleViewParty = () => {
-		if (currentPartyId) {
+	const handleRequireAuth = () => {
+		setIsAuthModalVisible(true);
+	};
+
+	const handleStartDineIn = () => {
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			return;
+		}
+
+		navigation.navigate("QRScannerScreen", {
+			restaurantId: restaurant.id,
+		});
+	};
+
+	const handleViewDineInParty = () => {
+		if (!dineInPartyId) return;
+
+		navigation.navigate("PartyTab", {
+			screen: "PartySession",
+			params: {
+				partyId: dineInPartyId,
+			},
+		});
+	};
+
+	const handleOpenPickupFlow = async () => {
+		if (!restaurant?.id) {
+			Alert.alert(
+				t("error_title", "Error"),
+				t("restaurant_data_not_found", "Restaurant not found"),
+			);
+			return;
+		}
+
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			return;
+		}
+
+		// Existing pickup with items -> go to cart
+		if (pickupPartyId && pickupBasketCount > 0) {
+			navigation.navigate("PartyTab", {
+				screen: "PickupCart",
+				params: {
+					partyId: pickupPartyId,
+					restaurantId: restaurant.id,
+				},
+			});
+			return;
+		}
+
+		// Existing pickup without items -> go to menu
+		if (pickupPartyId) {
+			navigation.navigate("PartyTab", {
+				screen: "PartyMenu",
+				params: {
+					partyId: pickupPartyId,
+					restaurantId: restaurant.id,
+				},
+			});
+			return;
+		}
+
+		// No pickup yet -> create/reuse one
+		if (isStartingPickup) return;
+
+		setIsStartingPickup(true);
+		try {
+			const resolvedPickupPartyId = await getOrCreatePickupParty(
+				restaurant.id,
+				liveRestaurantData?.restaurantName ||
+					liveRestaurantData?.name ||
+					restaurant?.restaurantName ||
+					restaurant?.name ||
+					"Restaurant",
+			);
+
+			if (!resolvedPickupPartyId) {
+				Alert.alert(
+					t("error_title", "Error"),
+					t("could_not_start_pickup_order", "Could not start pickup order."),
+				);
+				return;
+			}
+
+			navigation.navigate("PartyTab", {
+				screen: "PartyMenu",
+				params: {
+					partyId: resolvedPickupPartyId,
+					restaurantId: restaurant.id,
+				},
+			});
+		} catch (error) {
+			console.error("Error starting pickup:", error);
+			Alert.alert(
+				t("error_title", "Error"),
+				error?.message ||
+					t("could_not_start_pickup_order", "Could not start pickup order."),
+			);
+		} finally {
+			setIsStartingPickup(false);
+		}
+	};
+
+	const handlePrimaryFabPress = () => {
+		if (basketTargetMode === "pickup" && pickupPartyId) {
+			navigation.navigate("PartyTab", {
+				screen: "PickupCart",
+				params: {
+					partyId: pickupPartyId,
+					restaurantId: restaurant?.id,
+				},
+			});
+			return;
+		}
+
+		if (dineInPartyId) {
 			navigation.navigate("PartyTab", {
 				screen: "PartySession",
 				params: {
-					partyId: currentPartyId,
+					partyId: dineInPartyId,
+				},
+			});
+			return;
+		}
+
+		if (pickupPartyId) {
+			navigation.navigate("PartyTab", {
+				screen: "PickupCart",
+				params: {
+					partyId: pickupPartyId,
+					restaurantId: restaurant?.id,
 				},
 			});
 		}
@@ -156,7 +355,7 @@ const RestaurantDetailScreen = () => {
 						} catch (error) {
 							Alert.alert(
 								t("error_title", "Error"),
-								error.message ||
+								error?.message ||
 									t("could_not_leave_table_message", "Could not leave table."),
 							);
 						} finally {
@@ -169,7 +368,8 @@ const RestaurantDetailScreen = () => {
 	};
 
 	const handleCancelIndividualCheckIn = async () => {
-		if (!checkInObj?.id || isProcessingCheckInAction) return;
+		if (!checkInObj?.id || isProcessingCheckInAction || !restaurant?.id) return;
+
 		setIsProcessingCheckInAction(true);
 		try {
 			const success = await handleCancelCheckIn(
@@ -177,6 +377,7 @@ const RestaurantDetailScreen = () => {
 				currentUserData.uid,
 				checkInObj.id,
 			);
+
 			if (success) {
 				Alert.alert(
 					t("success_title", "Success"),
@@ -191,17 +392,17 @@ const RestaurantDetailScreen = () => {
 		} catch (error) {
 			Alert.alert(
 				t("error_title", "Error"),
-				t(
-					"an_error_occurred_while_cancelling_check_in_message",
-					"An error occurred while cancelling.",
-				),
+				error?.message ||
+					t(
+						"an_error_occurred_while_cancelling_check_in_message",
+						"An error occurred while cancelling.",
+					),
 			);
 		} finally {
 			setIsProcessingCheckInAction(false);
 		}
 	};
 
-	// --- DYNAMIC UI BUTTONS (QR FIRST FLOW) ---
 	const renderActionButtons = () => {
 		if (isLoadingCheckInStatus || isLoadingParty || isLoadingRestaurant) {
 			return (
@@ -211,17 +412,17 @@ const RestaurantDetailScreen = () => {
 			);
 		}
 
-		const activeParty = currentPartyId ? partyDetails?.[currentPartyId] : null;
-		const hasTable =
-			checkInStatus === "ACCEPTED" || (activeParty && activeParty.table?.id);
+		const hasDineInTable =
+			checkInStatus === "ACCEPTED" || Boolean(dineInParty?.table?.id);
 
-		// 1. FULLY SEATED SESSION
-		if (hasTable) {
+		// 1. FULLY SEATED DINE-IN SESSION
+		if (hasDineInTable) {
 			return (
 				<View style={styles.actionsRow}>
 					<TouchableOpacity
 						style={styles.actionButtonCheckedIn}
-						onPress={handleViewParty}
+						onPress={handleViewDineInParty}
+						activeOpacity={0.85}
 					>
 						<MaterialCommunityIcons
 							name="silverware-fork-knife"
@@ -233,9 +434,26 @@ const RestaurantDetailScreen = () => {
 						</Text>
 						{checkInObj?.table?.name ? (
 							<Text style={styles.tableText}>{checkInObj.table.name}</Text>
-						) : activeParty?.table?.name ? (
-							<Text style={styles.tableText}>{activeParty.table.name}</Text>
+						) : dineInParty?.table?.name ? (
+							<Text style={styles.tableText}>{dineInParty.table.name}</Text>
 						) : null}
+					</TouchableOpacity>
+
+					<TouchableOpacity
+						style={styles.secondaryActionButton}
+						onPress={handleOpenPickupFlow}
+						activeOpacity={0.85}
+					>
+						<MaterialCommunityIcons
+							name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+							size={20}
+							color={colors.primary}
+						/>
+						<Text style={styles.secondaryActionButtonText}>
+							{pickupBasketCount > 0
+								? t("continue_pickup_order", "Continue Pickup")
+								: t("pickup", "Pickup")}
+						</Text>
 					</TouchableOpacity>
 
 					{checkInStatus === "ACCEPTED" && (
@@ -243,26 +461,29 @@ const RestaurantDetailScreen = () => {
 							style={styles.cancelButton}
 							onPress={handleLeaveTable}
 							disabled={isProcessingCheckInAction}
+							activeOpacity={0.85}
 						>
 							{isProcessingCheckInAction ? (
 								<ActivityIndicator size="small" color="#fff" />
 							) : (
-								<MaterialCommunityIcons
-									name="exit-run"
-									size={24}
-									color="#fff"
-								/>
+								<>
+									<MaterialCommunityIcons
+										name="exit-run"
+										size={24}
+										color="#fff"
+									/>
+									<Text style={styles.cancelButtonText}>
+										{t("leave_table_button", "Leave Table")}
+									</Text>
+								</>
 							)}
-							<Text style={styles.cancelButtonText}>
-								{t("leave_table_button", "Leave Table")}
-							</Text>
 						</TouchableOpacity>
 					)}
 				</View>
 			);
 		}
 
-		// 2. WAITING STATE
+		// 2. WAITING TO BE SEATED
 		if (checkInStatus === "REQUESTED") {
 			return (
 				<View style={styles.actionsRow}>
@@ -276,74 +497,174 @@ const RestaurantDetailScreen = () => {
 							{t("waiting_to_be_seated", "Waiting...")}
 						</Text>
 					</View>
+
+					<TouchableOpacity
+						style={styles.secondaryActionButton}
+						onPress={handleOpenPickupFlow}
+						activeOpacity={0.85}
+					>
+						<MaterialCommunityIcons
+							name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+							size={20}
+							color={colors.primary}
+						/>
+						<Text style={styles.secondaryActionButtonText}>
+							{pickupBasketCount > 0
+								? t("continue_pickup_order", "Continue Pickup")
+								: t("pickup", "Pickup")}
+						</Text>
+					</TouchableOpacity>
+
 					<TouchableOpacity
 						style={styles.cancelButton}
 						onPress={handleCancelIndividualCheckIn}
+						disabled={isProcessingCheckInAction}
+						activeOpacity={0.85}
 					>
-						<MaterialCommunityIcons name="cancel" size={24} color="#fff" />
-						<Text style={styles.cancelButtonText}>
-							{t("cancel_button", "Cancel")}
-						</Text>
+						{isProcessingCheckInAction ? (
+							<ActivityIndicator size="small" color="#fff" />
+						) : (
+							<>
+								<MaterialCommunityIcons name="cancel" size={24} color="#fff" />
+								<Text style={styles.cancelButtonText}>
+									{t("cancel_button", "Cancel")}
+								</Text>
+							</>
+						)}
 					</TouchableOpacity>
 				</View>
 			);
 		}
 
-		// 3. THE PRE-BUILD STATE: Has a cart, but NO table yet
-		if (currentPartyId && !hasTable) {
+		// 3. DINE-IN PRE-BUILD + PICKUP ALWAYS AVAILABLE
+		if (dineInPartyId && !hasDineInTable) {
 			return (
 				<View style={styles.actionsRow}>
-					<TouchableOpacity
-						style={[styles.actionButtonCheckedIn, { marginRight: 10 }]}
-						onPress={handleViewParty}
-					>
-						<MaterialCommunityIcons
-							name="basket"
-							size={24}
-							color={colors.statusSuccess}
-						/>
-						<Text style={styles.actionButtonTextCheckedIn}>
-							{t("view_cart", "View Basket")}
-						</Text>
-					</TouchableOpacity>
+					<View style={styles.splitActionsRow}>
+						<TouchableOpacity
+							style={[styles.primaryScanButton, styles.splitActionButton]}
+							onPress={handleViewDineInParty}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons name="basket" size={20} color="#fff" />
+							<Text
+								style={[styles.primaryScanText, styles.splitActionButtonText]}
+								numberOfLines={1}
+							>
+								{t("view_cart", "View Basket")}
+							</Text>
+						</TouchableOpacity>
 
-					<TouchableOpacity
-						style={styles.primaryScanButton}
-						onPress={() =>
-							navigation.navigate("QRScannerScreen", {
-								restaurantId: restaurant.id,
-							})
-						}
-					>
-						<MaterialCommunityIcons name="qrcode-scan" size={24} color="#fff" />
-						<Text style={styles.primaryScanText}>
-							{t("scan_to_dine", "Scan to Order")}
-						</Text>
-					</TouchableOpacity>
+						<TouchableOpacity
+							style={[styles.primaryScanButton, styles.splitActionButton]}
+							onPress={handleStartDineIn}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons
+								name="qrcode-scan"
+								size={20}
+								color="#fff"
+							/>
+							<Text
+								style={[styles.primaryScanText, styles.splitActionButtonText]}
+								numberOfLines={1}
+							>
+								{t("scan_to_order", "Scan to Order")}
+							</Text>
+						</TouchableOpacity>
+
+						<TouchableOpacity
+							style={[
+								styles.primaryScanButton,
+								styles.splitActionButton,
+								styles.secondaryPickupButton,
+							]}
+							onPress={handleOpenPickupFlow}
+							disabled={isStartingPickup}
+							activeOpacity={0.85}
+						>
+							{isStartingPickup ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<>
+									<MaterialCommunityIcons
+										name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+										size={20}
+										color={colors.primary}
+									/>
+									<Text
+										style={[
+											styles.primaryScanText,
+											styles.splitActionButtonText,
+											styles.secondaryPickupText,
+										]}
+										numberOfLines={1}
+									>
+										{pickupBasketCount > 0
+											? t("continue_pickup_order", "Continue Pickup")
+											: t("start_pickup_order", "Start Pickup")}
+									</Text>
+								</>
+							)}
+						</TouchableOpacity>
+					</View>
 				</View>
 			);
 		}
 
-		// 4. DEFAULT STATE: Empty cart, no check-in
+		// 4. DEFAULT STATE: always show both
 		return (
 			<View style={styles.actionsRow}>
-				<TouchableOpacity
-					style={styles.primaryScanButton}
-					onPress={() => {
-						if (currentUserData?.role === "guest") {
-							setIsAuthModalVisible(true);
-						} else {
-							navigation.navigate("QRScannerScreen", {
-								restaurantId: restaurant.id,
-							});
-						}
-					}}
-				>
-					<MaterialCommunityIcons name="qrcode-scan" size={24} color="#fff" />
-					<Text style={styles.primaryScanText}>
-						{t("scan_table_qr_order", "Scan Table QR to Order")}
-					</Text>
-				</TouchableOpacity>
+				<View style={styles.splitActionsRow}>
+					<TouchableOpacity
+						style={[styles.primaryScanButton, styles.splitActionButton]}
+						onPress={handleStartDineIn}
+						activeOpacity={0.85}
+					>
+						<MaterialCommunityIcons name="qrcode-scan" size={20} color="#fff" />
+						<Text
+							style={[styles.primaryScanText, styles.splitActionButtonText]}
+							numberOfLines={1}
+						>
+							{t("dine_in", "Dine In")}
+						</Text>
+					</TouchableOpacity>
+
+					<TouchableOpacity
+						style={[
+							styles.primaryScanButton,
+							styles.splitActionButton,
+							styles.secondaryPickupButton,
+						]}
+						onPress={handleOpenPickupFlow}
+						disabled={isStartingPickup}
+						activeOpacity={0.85}
+					>
+						{isStartingPickup ? (
+							<ActivityIndicator size="small" color={colors.primary} />
+						) : (
+							<>
+								<MaterialCommunityIcons
+									name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+									size={20}
+									color={colors.primary}
+								/>
+								<Text
+									style={[
+										styles.primaryScanText,
+										styles.splitActionButtonText,
+										styles.secondaryPickupText,
+									]}
+									numberOfLines={1}
+								>
+									{pickupBasketCount > 0
+										? t("continue_pickup_order", "Continue Pickup")
+										: t("pickup", "Pickup")}
+								</Text>
+							</>
+						)}
+					</TouchableOpacity>
+				</View>
 			</View>
 		);
 	};
@@ -364,10 +685,9 @@ const RestaurantDetailScreen = () => {
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<ScrollView
-				contentContainerStyle={{ paddingBottom: 100 }}
+				contentContainerStyle={styles.scrollContent}
 				showsVerticalScrollIndicator={false}
 			>
-				{/* 🚨 Just the Header and the Action Buttons! */}
 				<RestaurantHeader
 					restaurant={liveRestaurantData || restaurant}
 					initialView={initialView}
@@ -375,9 +695,12 @@ const RestaurantDetailScreen = () => {
 				/>
 			</ScrollView>
 
-			{/* Floating Basket Button */}
 			{currentUserData?.role === "customer" && basketCount > 0 && (
-				<TouchableOpacity style={styles.fabContainer} onPress={handleViewParty}>
+				<TouchableOpacity
+					style={styles.fabContainer}
+					onPress={handlePrimaryFabPress}
+					activeOpacity={0.9}
+				>
 					<View style={styles.fabContent}>
 						<MaterialCommunityIcons name="basket" size={32} color="white" />
 						<View style={styles.badge}>
@@ -403,9 +726,14 @@ const RestaurantDetailScreen = () => {
 	);
 };
 
-// --- Styles ---
 const styles = StyleSheet.create({
-	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	safeArea: {
+		flex: 1,
+		backgroundColor: colors.backgroundLight,
+	},
+	scrollContent: {
+		paddingBottom: 100,
+	},
 	centered: {
 		flex: 1,
 		justifyContent: "center",
@@ -413,9 +741,6 @@ const styles = StyleSheet.create({
 		padding: 20,
 	},
 	actionsRow: {
-		flexDirection: "row",
-		justifyContent: "space-around",
-		alignItems: "center",
 		paddingVertical: 15,
 		paddingHorizontal: 15,
 		backgroundColor: colors.surfaceWhite,
@@ -424,8 +749,19 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		marginBottom: 10,
 	},
-	primaryScanButton: {
+	splitActionsRow: {
+		flexDirection: "row",
+		alignItems: "stretch",
+		columnGap: 10,
+	},
+	splitActionButton: {
 		flex: 1,
+	},
+	splitActionButtonText: {
+		fontSize: 14,
+		marginLeft: 6,
+	},
+	primaryScanButton: {
 		flexDirection: "row",
 		backgroundColor: colors.primary,
 		paddingVertical: 14,
@@ -444,6 +780,16 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginLeft: 10,
 	},
+	secondaryPickupButton: {
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		shadowColor: "transparent",
+		elevation: 0,
+	},
+	secondaryPickupText: {
+		color: colors.primary,
+	},
 	actionButtonCheckedIn: {
 		flex: 1,
 		alignItems: "center",
@@ -459,12 +805,31 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 		color: colors.statusSuccess,
 		fontWeight: "bold",
+		textAlign: "center",
 	},
 	tableText: {
 		fontSize: 12,
 		color: colors.statusSuccess,
 		fontWeight: "600",
 		marginTop: 2,
+	},
+	secondaryActionButton: {
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		paddingHorizontal: 14,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		marginRight: 10,
+	},
+	secondaryActionButtonText: {
+		marginTop: 4,
+		fontSize: 12,
+		color: colors.primary,
+		fontWeight: "bold",
+		textAlign: "center",
 	},
 	cancelButton: {
 		flex: 0.4,
@@ -473,12 +838,14 @@ const styles = StyleSheet.create({
 		paddingVertical: 12,
 		backgroundColor: colors.danger || "#dc3545",
 		borderRadius: 8,
+		minWidth: 90,
 	},
 	cancelButtonText: {
 		marginTop: 4,
 		fontSize: 12,
 		color: "#ffffff",
 		fontWeight: "bold",
+		textAlign: "center",
 	},
 	actionButtonDisabled: {
 		flex: 1,
@@ -508,7 +875,10 @@ const styles = StyleSheet.create({
 		shadowOpacity: 0.3,
 		shadowRadius: 4,
 	},
-	fabContent: { justifyContent: "center", alignItems: "center" },
+	fabContent: {
+		justifyContent: "center",
+		alignItems: "center",
+	},
 	badge: {
 		position: "absolute",
 		right: -5,
@@ -522,7 +892,11 @@ const styles = StyleSheet.create({
 		borderWidth: 2,
 		borderColor: colors.surfaceWhite,
 	},
-	badgeText: { color: "#fff", fontSize: 11, fontWeight: "bold" },
+	badgeText: {
+		color: "#fff",
+		fontSize: 11,
+		fontWeight: "bold",
+	},
 });
 
 export default RestaurantDetailScreen;

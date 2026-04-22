@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo, useRef } from "react";
+import React, { useState, useEffect, useContext, useMemo } from "react";
 import {
 	View,
 	Text,
@@ -10,7 +10,8 @@ import {
 	ActivityIndicator,
 	Platform,
 	Modal,
-	Animated,
+	KeyboardAvoidingView,
+	TextInput,
 } from "react-native";
 import {
 	useRoute,
@@ -30,8 +31,20 @@ import formatCurrency from "../../utils/currencyFormatter";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
 import firestore from "@react-native-firebase/firestore";
-
 import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
+
+const DRINK_CATEGORIES = [
+	"Beer",
+	"Wine",
+	"Cocktails",
+	"Spirits",
+	"Sodas",
+	"Drinks",
+	"Juices",
+	"Non-Alcoholic Drinks",
+	"Alcoholic Drinks",
+	"Beverages",
+];
 
 const PartyCheckoutScreen = () => {
 	const { t, i18n } = useTranslation();
@@ -44,14 +57,17 @@ const PartyCheckoutScreen = () => {
 	const { partyId } = route.params;
 
 	const sharedBasketItems = sharedBaskets[partyId]?.items || [];
-	const party = partyDetails[partyId] || [];
+	const party = partyDetails[partyId] || {};
+
+	const isPickupMode = party?.orderMode === "pickup";
+	const fulfillmentType =
+		party?.fulfillmentType || (isPickupMode ? "hotel_pickup" : "table");
 
 	const { checkInObj } = useCheckInStatus(
 		party?.restaurantId,
 		currentUserData?.uid,
 	);
 
-	// --- State Management ---
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
@@ -59,40 +75,45 @@ const PartyCheckoutScreen = () => {
 	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
 
-	// --- SMART FIELDS STATE VARIABLES ---
 	const [dlocalPublicKey, setDlocalPublicKey] = useState(null);
 	const [dlocalCheckoutToken, setDlocalCheckoutToken] = useState(null);
 	const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
 	const [isLiveMode, setIsLiveMode] = useState(null);
 
-	// State to hold the pre-filled user details
 	const [savedName, setSavedName] = useState("");
 	const [savedDocument, setSavedDocument] = useState("");
+	const [savedEmail, setSavedEmail] = useState("");
 	const [restaurantData, setRestaurantData] = useState(null);
+
 	const canAcceptPayments = restaurantData?.canAcceptPayments !== false;
 
-	// Determine region
+	const [pickupSpecialInstructions, setPickupSpecialInstructions] =
+		useState("");
+	const [isEditingPickupInstructions, setIsEditingPickupInstructions] =
+		useState(false);
+
 	const country = party?.restaurantCountryCode || "PA";
 	const isPanama =
 		country === "PA" || country === "Panama" || country === "panama";
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
-	// --- Data Filtering & Calculations (useMemo for performance) ---
 	const {
 		myItemsInBasket,
 		mySubtotal,
 		myOriginalSubtotal,
+		myTax,
 		myGratuity,
 		myPlatformFee,
 		myFinalTotal,
 		myTotalDiscount,
 	} = useMemo(() => {
-		if (!sharedBasketItems || !currentUserData?.uid) {
+		if (!sharedBasketItems || !currentUserData || !currentUserData.uid) {
 			return {
 				myItemsInBasket: [],
 				mySubtotal: 0,
 				myOriginalSubtotal: 0,
+				myTax: 0,
 				myGratuity: 0,
 				myPlatformFee: 0,
 				myFinalTotal: 0,
@@ -109,6 +130,7 @@ const PartyCheckoutScreen = () => {
 				myItemsInBasket: [],
 				mySubtotal: 0,
 				myOriginalSubtotal: 0,
+				myTax: 0,
 				myGratuity: 0,
 				myPlatformFee: 0,
 				myFinalTotal: 0,
@@ -118,6 +140,7 @@ const PartyCheckoutScreen = () => {
 
 		let originalSubtotalInCents = 0;
 		let discountedSubtotalInCents = 0;
+		let taxInCents = 0;
 
 		items.forEach((item) => {
 			const priceInCents = Math.round((item.price || 0) * 100);
@@ -130,53 +153,122 @@ const PartyCheckoutScreen = () => {
 					: priceInCents;
 
 			discountedSubtotalInCents += finalPriceInCents * quantity;
+
+			const effectiveUnitPriceInCents =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? Math.round(item.discountedPrice * 100)
+					: Math.round((item.price || 0) * 100);
+
+			const rawTaxRate =
+				item.itbmsRate !== undefined && item.itbmsRate !== null
+					? Number(item.itbmsRate)
+					: item.taxRate !== undefined && item.taxRate !== null
+						? Number(item.taxRate)
+						: 0;
+
+			if (!isNaN(rawTaxRate) && rawTaxRate > 0) {
+				taxInCents += Math.round(
+					effectiveUnitPriceInCents * quantity * (rawTaxRate / 100),
+				);
+			}
 		});
 
-		const gratuityInCents = Math.round(
-			discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100),
-		);
+		const gratuityInCents = canAcceptPayments
+			? Math.round(
+					discountedSubtotalInCents * (parseFloat(gratuityPercentage) / 100),
+				)
+			: 0;
 
-		// --- DYNAMIC TIER CALCULATION ---
-		const restaurantTier = restaurantData?.pricingTier || "basic";
+		const restaurantTier =
+			restaurantData && restaurantData.pricingTier
+				? restaurantData.pricingTier
+				: "basic";
 
-		// Safely extract the payout percentage (default to 0.97 if missing)
-		let rawPayout = pricingTiers?.[restaurantTier]?.payoutPercentage ?? 0.97;
+		let rawPayout =
+			pricingTiers &&
+			pricingTiers[restaurantTier] &&
+			pricingTiers[restaurantTier].payoutPercentage !== undefined &&
+			pricingTiers[restaurantTier].payoutPercentage !== null
+				? pricingTiers[restaurantTier].payoutPercentage
+				: 0.97;
+
 		let payoutVal = Number(rawPayout);
 		if (isNaN(payoutVal)) payoutVal = 0.97;
+		if (payoutVal > 1) payoutVal = payoutVal / 100;
 
-		// If the DB has it as a whole number (e.g., 97), convert to decimal (0.97)
-		if (payoutVal > 1) {
-			payoutVal = payoutVal / 100;
-		}
-
-		// Calculate fee percentage safely. Math.round prevents JS floating point bugs.
-		const calculatedPlatformFeePercentage = Math.max(
-			0,
-			Math.round((1 - payoutVal) * 10000) / 10000,
-		);
+		const calculatedPlatformFeePercentage = canAcceptPayments
+			? Math.max(0, Math.round((1 - payoutVal) * 10000) / 10000)
+			: 0;
 
 		const platformFeeInCents = Math.round(
 			discountedSubtotalInCents * calculatedPlatformFeePercentage,
 		);
 
 		const finalTotalInCents =
-			discountedSubtotalInCents + gratuityInCents + platformFeeInCents;
+			discountedSubtotalInCents +
+			taxInCents +
+			gratuityInCents +
+			platformFeeInCents;
 
 		const totalDiscountInCents =
 			originalSubtotalInCents - discountedSubtotalInCents;
 
+		console.log(
+			"[CHECKOUT TAX ITEMS]",
+			items.map((item) => ({
+				name: item.dishName || item.name,
+				category: item.category,
+				price: item.price,
+				quantity: item.quantity,
+				itbmsRate: item.itbmsRate,
+				taxRate: item.taxRate,
+			})),
+		);
+
 		return {
 			myItemsInBasket: items.map((item) => ({
 				id: item.id || "",
-				name: item.dishName || "Item",
+				name: item.dishName || item.name || "Item",
 				menuItemId: item.menuItemId || "",
 				restaurantId: item.restaurantId || "",
+
+				// final unit price
 				price: item.price || 0,
+
+				// original item price before modifiers
+				basePrice:
+					item.basePrice !== undefined && item.basePrice !== null
+						? item.basePrice
+						: item.price || 0,
+
+				// per-unit modifier total
+				modifiersTotal:
+					item.modifiersTotal !== undefined && item.modifiersTotal !== null
+						? item.modifiersTotal
+						: 0,
+
+				// structured selected modifiers
+				selectedModifiers: Array.isArray(item.selectedModifiers)
+					? item.selectedModifiers
+					: [],
+
 				quantity: item.quantity || 1,
-				discountedPrice: item.discountedPrice ?? null,
+				discountedPrice:
+					item.discountedPrice !== undefined && item.discountedPrice !== null
+						? item.discountedPrice
+						: null,
+				category: item.category || "",
+				specialInstructions: item.specialInstructions || "",
+				itbmsRate:
+					item.itbmsRate !== undefined && item.itbmsRate !== null
+						? item.itbmsRate
+						: item.taxRate !== undefined && item.taxRate !== null
+							? item.taxRate
+							: 0,
 			})),
 			myOriginalSubtotal: originalSubtotalInCents,
 			mySubtotal: discountedSubtotalInCents,
+			myTax: taxInCents,
 			myGratuity: gratuityInCents,
 			myPlatformFee: platformFeeInCents,
 			myFinalTotal: finalTotalInCents,
@@ -184,46 +276,34 @@ const PartyCheckoutScreen = () => {
 		};
 	}, [
 		sharedBasketItems,
-		currentUserData?.uid,
+		currentUserData && currentUserData.uid,
 		gratuityPercentage,
 		pricingTiers,
-		restaurantData?.pricingTier,
+		restaurantData && restaurantData.pricingTier,
+		canAcceptPayments,
 	]);
 
-	// INSTANT EVALUATION (Removes state lag for payment APIs)
-	const isReadyToPay =
-		myFinalTotal > 0 && party?.id && currentUserData?.uid && party?.checkInId;
+	const resolvedRestaurantId =
+		party?.restaurantId || myItemsInBasket[0]?.restaurantId || null;
 
-	const slideAnim = useRef(new Animated.Value(800)).current;
+	const isReadyToPay =
+		myFinalTotal > 0 &&
+		currentUserData?.uid &&
+		(isPickupMode || (party?.id && party?.checkInId));
 
 	useEffect(() => {
-		if (!party?.restaurantId) return;
+		if (!resolvedRestaurantId) return;
+
 		const unsubscribe = db
 			.collection("restaurants")
-			.doc(party.restaurantId)
+			.doc(resolvedRestaurantId)
 			.onSnapshot((doc) => {
 				if (doc.exists) setRestaurantData(doc.data());
 			});
+
 		return () => unsubscribe();
-	}, [party?.restaurantId]);
+	}, [resolvedRestaurantId]);
 
-	useEffect(() => {
-		if (isPaymentModalVisible) {
-			Animated.timing(slideAnim, {
-				toValue: 0,
-				duration: 300,
-				useNativeDriver: true,
-			}).start();
-		} else {
-			Animated.timing(slideAnim, {
-				toValue: 800,
-				duration: 250,
-				useNativeDriver: true,
-			}).start();
-		}
-	}, [isPaymentModalVisible, slideAnim]);
-
-	// Fetch saved user details when component mounts
 	useEffect(() => {
 		if (!currentUserData?.uid) return;
 
@@ -233,25 +313,35 @@ const PartyCheckoutScreen = () => {
 					.collection("customers")
 					.doc(currentUserData.uid)
 					.get();
+
 				if (userDoc.exists) {
 					const data = userDoc.data();
 					if (data.dlocalName) setSavedName(data.dlocalName);
 					if (data.dlocalDocument) setSavedDocument(data.dlocalDocument);
+					if (data.email) {
+						setSavedEmail(data.email);
+					} else if (currentUserData?.email) {
+						setSavedEmail(currentUserData.email);
+					}
+				} else if (currentUserData?.email) {
+					setSavedEmail(currentUserData.email);
 				}
 			} catch (error) {
 				console.error("Error fetching user details:", error);
+				if (currentUserData?.email) {
+					setSavedEmail(currentUserData.email);
+				}
 			}
 		};
 
 		fetchSavedDetails();
-	}, [currentUserData?.uid]);
+	}, [currentUserData?.uid, currentUserData?.email]);
 
-	// --- Fetch Configs & INITIALIZE DLOCAL ---
 	useEffect(() => {
 		let isMounted = true;
 
 		const fetchInitialData = async () => {
-			if (!party?.restaurantId) return;
+			if (!resolvedRestaurantId) return;
 
 			const tiersSnap = await db
 				.collection("appConfig")
@@ -263,23 +353,31 @@ const PartyCheckoutScreen = () => {
 				setPricingTiers(data.pricingTiers || data);
 			}
 
+			if (!canAcceptPayments) return;
+
 			if (!isPanama) {
 				try {
 					const getStripePublishableKeyFunction = httpsCallable(
 						functions,
 						"getStripePublishableKey",
 					);
+
 					const { data } = await getStripePublishableKeyFunction({
-						restaurantId: party.restaurantId,
+						restaurantId: resolvedRestaurantId,
 					});
+
 					if (isMounted && data.stripePublishableKey) {
 						setStripePublishableKey(data.stripePublishableKey);
 					}
 				} catch (error) {
-					if (isMounted)
+					if (isMounted) {
 						setPaymentError(
-							t("could_not_load_payment_configuration_for_this_restaurant"),
+							t(
+								"could_not_load_payment_configuration_for_this_restaurant",
+								"Could not load payment configuration for this restaurant.",
+							),
 						);
+					}
 				}
 			}
 
@@ -287,19 +385,22 @@ const PartyCheckoutScreen = () => {
 				try {
 					const getPublicKey = httpsCallable(functions, "getDlocalPublicKey");
 					const keyResponse = await getPublicKey({
-						restaurantId: party.restaurantId,
+						restaurantId: resolvedRestaurantId,
 					});
-					setIsLiveMode(keyResponse.data.isLive);
-					if (isMounted && keyResponse.data.publicKey) {
-						setDlocalPublicKey(keyResponse.data.publicKey);
+
+					if (isMounted) {
+						setIsLiveMode(keyResponse.data.isLive);
+						if (keyResponse.data.publicKey) {
+							setDlocalPublicKey(keyResponse.data.publicKey);
+						}
 					}
 
 					const createPayment = httpsCallable(functions, "createDlocalPayment");
 					const paymentResponse = await createPayment({
-						amount: myFinalTotal, // STRICT TOTAL USED HERE
+						amount: myFinalTotal,
 						currency: "USD",
 						country: "PA",
-						restaurantId: party.restaurantId,
+						restaurantId: resolvedRestaurantId,
 					});
 
 					if (isMounted && paymentResponse.data.merchant_checkout_token) {
@@ -309,26 +410,27 @@ const PartyCheckoutScreen = () => {
 					}
 				} catch (error) {
 					console.error("Smart Fields Initialization Error:", error);
-					if (isMounted)
+					if (isMounted) {
 						setPaymentError(
 							"Failed to initialize secure checkout. Please try again later.",
 						);
+					}
 				}
 			}
 		};
 
 		fetchInitialData();
+
 		return () => {
 			isMounted = false;
 		};
-	}, [party?.restaurantId, myFinalTotal, isPanama]);
+	}, [resolvedRestaurantId, myFinalTotal, isPanama, canAcceptPayments, t]);
 
 	useEffect(() => {
-		// If the table is officially closed by the restaurant...
+		// 🚨 HARD STOP for pickup — NEVER go to confirmation
+		if (isPickupMode) return;
+
 		if (party?.status === "completed") {
-			console.log(
-				"Restaurant closed the table. Auto-routing to Order Confirmation...",
-			);
 			navigation.dispatch(
 				CommonActions.reset({
 					index: 0,
@@ -347,11 +449,8 @@ const PartyCheckoutScreen = () => {
 				}),
 			);
 		}
-	}, [party?.status, navigation, myItemsInBasket, party?.id]);
+	}, [party?.status, navigation, myItemsInBasket, party?.id, isPickupMode]);
 
-	// =========================================================
-	// SMART FIELD TOKEN HANDLER (DLOCAL BYPASS)
-	// =========================================================
 	const handleSmartFieldToken = async (cardData) => {
 		if (!isReadyToPay || myFinalTotal <= 0) return;
 
@@ -362,18 +461,42 @@ const PartyCheckoutScreen = () => {
 			token: cardToken,
 			name: cardholderName,
 			document,
+			email,
 			saveDetails,
 		} = cardData;
 
 		try {
 			const uid = currentUserData?.uid;
+			const safeRestId = resolvedRestaurantId;
 
-			// Save details to Firestore if the user checked the box
+			if (!safeRestId) {
+				throw new Error("Restaurant information is missing.");
+			}
+
+			const normalizedEmail =
+				typeof email === "string" && email.trim()
+					? email.trim().toLowerCase()
+					: savedEmail || currentUserData?.email || "customer@scerv.com";
+
+			// ✅ Real customer identity name (for orders, pickup, QR, reports)
+			const resolvedProfileName =
+				`${currentUserData?.firstName || ""} ${currentUserData?.lastName || ""}`.trim() ||
+				currentUserData?.fullName ||
+				currentUserData?.name ||
+				"Guest";
+
+			// ✅ Billing/cardholder name stays separate
+			const resolvedCardholderName =
+				typeof cardholderName === "string" && cardholderName.trim()
+					? cardholderName.trim()
+					: savedName || resolvedProfileName;
+
 			if (saveDetails && uid) {
 				await db.collection("customers").doc(uid).set(
 					{
-						dlocalName: cardholderName,
+						dlocalName: resolvedCardholderName,
 						dlocalDocument: document,
+						email: normalizedEmail,
 					},
 					{ merge: true },
 				);
@@ -383,23 +506,47 @@ const PartyCheckoutScreen = () => {
 				? document.replace(/\s+/g, "")
 				: "8-888-8888";
 
+			const formattedItems = myItemsInBasket.map((item) => ({
+				...item,
+				status: "new",
+				destination: DRINK_CATEGORIES.includes(item.category || "")
+					? "bar"
+					: "kitchen",
+			}));
+
 			const pendingOrderData = {
-				restaurantId:
-					myItemsInBasket[0]?.restaurantId || party?.restaurantId || "",
+				restaurantId: safeRestId,
 				customerId: uid || "anonymous",
+				customerEmail: normalizedEmail,
+
+				// ✅ Use real profile/customer identity for the order
+				customerName: resolvedProfileName,
+
+				// ✅ Keep billing/cardholder separately for audit/payment context
+				cardholderName: resolvedCardholderName,
+
 				subtotal: mySubtotal || 0,
+				tax: myTax || 0,
 				gratuity: myGratuity || 0,
 				platformFee: myPlatformFee || 0,
 				totalPrice: myFinalTotal || 0,
-				items: myItemsInBasket,
-				table: party?.table || null,
-				checkInId: party?.checkInId || null,
+				items: formattedItems,
+				table: isPickupMode ? { name: "Pickup Window" } : party?.table || null,
+				server: isPickupMode ? { name: "Pickup Queue" } : party?.server || null,
+				checkInId: isPickupMode ? null : party?.checkInId || null,
 				checkInTimestamp:
 					checkInObj?.createdAt || firestore.FieldValue.serverTimestamp(),
-				server: party?.server || null,
 				status: "pending",
-				type: "party",
-				partyId: party.id || "",
+				type: isPickupMode ? "pickup" : "party",
+				partyId: partyId || "",
+				orderMode: isPickupMode ? "pickup" : "dineIn",
+				fulfillmentType,
+
+				// keep this if you’ve added pickup-level notes
+				pickupSpecialInstructions: isPickupMode
+					? pickupSpecialInstructions?.trim?.() || ""
+					: "",
+
 				createdAt: firestore.FieldValue.serverTimestamp(),
 			};
 
@@ -409,19 +556,18 @@ const PartyCheckoutScreen = () => {
 
 			const pendingOrderId = pendingOrderRef.id;
 
-			console.log("🚀 Firing Payment to CF with CIP:", cleanDocument);
-
 			const result = await confirmDlocalPayment({
-				pendingOrderId: pendingOrderId,
+				pendingOrderId,
 				checkoutToken: dlocalCheckoutToken,
-				cardToken: cardToken,
-				clientFirstName: cardholderName.split(" ")[0] || "Guest",
-				clientLastName: cardholderName.split(" ").slice(1).join(" ") || "User",
+				cardToken,
+				clientFirstName: resolvedCardholderName.split(" ")[0] || "Guest",
+				clientLastName:
+					resolvedCardholderName.split(" ").slice(1).join(" ") || "User",
 				clientDocument: cleanDocument,
 				clientDocumentType: "CIP",
-				clientEmail: currentUserData?.email || "customer@scerv.com",
+				clientEmail: normalizedEmail,
 				country: "PA",
-				restaurantId: party?.restaurantId,
+				restaurantId: safeRestId,
 			});
 
 			const isSuccessful =
@@ -429,9 +575,41 @@ const PartyCheckoutScreen = () => {
 				result.data?.data?.success === true ||
 				result.data?.status === "SUCCESS";
 
-			if (isSuccessful) {
-				console.log("✅ Party Charge Verified! Navigating...");
+			if (!isSuccessful) {
+				const backendError =
+					result.data?.error ||
+					result.data?.message ||
+					result.data?.data?.message ||
+					"Payment rejected by the gateway.";
+				throw new Error(backendError);
+			}
 
+			// ✅ persist active pickup order so status screen can recover it
+			if (isPickupMode && uid) {
+				await db.collection("customers").doc(uid).set(
+					{
+						activePickupOrderId: pendingOrderId,
+					},
+					{ merge: true },
+				);
+			}
+
+			if (isPickupMode) {
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 0,
+						routes: [
+							{
+								name: "PickupOrderStatus",
+								params: {
+									orderId: pendingOrderId,
+									partyId,
+								},
+							},
+						],
+					}),
+				);
+			} else {
 				navigation.dispatch(
 					CommonActions.reset({
 						index: 0,
@@ -449,16 +627,9 @@ const PartyCheckoutScreen = () => {
 						],
 					}),
 				);
-			} else {
-				const backendError =
-					result.data?.error ||
-					result.data?.message ||
-					result.data?.data?.message ||
-					"Payment rejected by the gateway.";
-				throw new Error(backendError);
 			}
 		} catch (error) {
-			console.error("❌ Smart Field Bypass Error:", error);
+			console.error("Smart Field Payment Error:", error);
 			setPaymentError(error.message);
 			Alert.alert("Payment Error", error.message);
 		} finally {
@@ -468,61 +639,88 @@ const PartyCheckoutScreen = () => {
 
 	const handleManualCheckout = async () => {
 		setIsPreparing(true);
+
 		try {
-			await db
-				.collection("parties")
-				.doc(partyId)
-				.update({
+			if (isPickupMode) {
+				await db.collection("parties").doc(partyId).update({
 					customerStatus: "ready_to_pay",
 					checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
-					serviceRequested: true,
-					serviceRequestedAt: new Date().toISOString(),
-					serviceTableName: party?.table?.name || "A table",
+					fulfillmentType,
+					pickupSpecialInstructions: pickupSpecialInstructions.trim(),
 				});
 
-			Alert.alert(
-				t("check_requested", "Check Requested"),
-				t(
-					"server_notified_message",
-					"Your server has been notified and will bring the bill to your table shortly.",
-				),
-			);
+				Alert.alert(
+					t("pickup_order_ready_for_payment", "Pickup Order Ready"),
+					t(
+						"pickup_order_marked_ready_for_payment",
+						"Your pickup order has been marked ready for payment handling.",
+					),
+				);
+			} else {
+				await db
+					.collection("parties")
+					.doc(partyId)
+					.update({
+						customerStatus: "ready_to_pay",
+						checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
+						serviceRequested: true,
+						serviceRequestedAt: new Date().toISOString(),
+						serviceTableName: party?.table?.name || "A table",
+					});
+
+				Alert.alert(
+					t("check_requested", "Check Requested"),
+					t(
+						"server_notified_message",
+						"Your server has been notified and will bring the bill to your table shortly.",
+					),
+				);
+			}
 		} catch (error) {
-			Alert.alert("Error", "Could not request checkout.");
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_request_checkout", "Could not request checkout."),
+			);
 		} finally {
 			setIsPreparing(false);
 		}
 	};
 
-	// --- Stripe Payment Action (USA) ---
 	const handlePayment = async () => {
 		if (!isReadyToPay || isPreparing) return;
+
 		setIsPreparing(true);
 		setPaymentError(null);
 
 		try {
-			console.log("Party Checkout: Calling 'preparePayment' function...");
 			const preparePayment = httpsCallable(functions, "preparePayment");
 
 			const { data: prepData } = await preparePayment({
-				paymentType: "party",
+				paymentType: isPickupMode ? "pickup" : "party",
 				restaurantId: party.restaurantId,
 				partyId: party.id,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
-				platformFee: myPlatformFee, // SENDS EXPLICIT FEE TO CF
-				checkInId: party.checkInId,
-				table: party.table || null,
-				server: party.server || null,
+				platformFee: myPlatformFee,
+				checkInId: isPickupMode ? null : party.checkInId,
+				table: isPickupMode ? null : party.table || null,
+				server: isPickupMode ? null : party.server || null,
 				checkInTimestamp: null,
+				orderMode: isPickupMode ? "pickup" : "dineIn",
+				fulfillmentType,
 			});
 
 			if (!prepData?.paymentIntentClientSecret) {
-				throw new Error(t("failed_to_get_payment_details_from_server"));
+				throw new Error(
+					t(
+						"failed_to_get_payment_details_from_server",
+						"Failed to get payment details from server.",
+					),
+				);
 			}
 
 			const { error: initError } = await initPaymentSheet({
-				merchantDisplayName: `Scerv Inc. - ${party.restaurantName}`,
+				merchantDisplayName: `Scerv Inc. - ${party.restaurantName || "Restaurant"}`,
 				paymentIntentClientSecret: prepData.paymentIntentClientSecret,
 				customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 				customerId: prepData.customerId,
@@ -530,46 +728,72 @@ const PartyCheckoutScreen = () => {
 				returnURL: "scerv://stripe-redirect",
 			});
 
-			if (initError)
+			if (initError) {
 				throw new Error(
-					`${t("failed_to_initialize_payment_sheet")}: ${initError.message}`,
+					`${t("failed_to_initialize_payment_sheet", "Failed to initialize payment sheet")}: ${initError.message}`,
 				);
+			}
 
 			const { error: presentError } = await presentPaymentSheet();
 
 			if (presentError) {
 				if (presentError.code !== "Canceled") {
-					throw new Error(`${t("payment_failed")}: ${presentError.message}`);
+					throw new Error(
+						`${t("payment_failed", "Payment failed")}: ${presentError.message}`,
+					);
 				}
-			} else {
-				navigation.dispatch(
-					CommonActions.reset({
-						index: 0,
-						routes: [
-							{
-								name: "OrderConfirmation",
-								params: {
-									initialStatus: "processing",
-									itemsToRate: myItemsInBasket,
-									basketId: party.id,
-									origin: "party",
-									isIndividual: false,
-								},
-							},
-						],
-					}),
-				);
+				return;
 			}
+
+			navigation.dispatch(
+				CommonActions.reset({
+					index: 0,
+					routes: [
+						{
+							name: "OrderConfirmation",
+							params: {
+								initialStatus: "processing",
+								itemsToRate: myItemsInBasket,
+								basketId: party.id,
+								origin: isPickupMode ? "pickup" : "party",
+								isIndividual: false,
+							},
+						},
+					],
+				}),
+			);
 		} catch (error) {
 			console.error("Party payment process failed:", error);
 			setPaymentError(error.message);
-			Alert.alert(t("payment_error"), error.message);
+			Alert.alert(t("payment_error", "Payment Error"), error.message);
 		} finally {
 			setIsPreparing(false);
 		}
 	};
 
-	// --- Render Logic ---
+	const primaryTitle = isPickupMode
+		? t("complete_your_pickup_order", "Complete Your Pickup Order")
+		: t("checkout_your_portion", "Checkout Your Portion");
+
+	const secondaryTitle = party?.restaurantName || "";
+
+	const manualButtonLabel = canAcceptPayments
+		? isPickupMode
+			? "" // ❌ no label, we won’t show this button
+			: party?.customerStatus === "ready_to_pay"
+				? t("server_notified", "Server Notified")
+				: t("pay_cash", "Pay Cash")
+		: isPickupMode
+			? "" // ❌ no label
+			: party?.customerStatus === "ready_to_pay"
+				? t("server_notified", "Server Notified")
+				: t("request_check", "Request Check");
+
+	const cardButtonLabel =
+		party?.customerStatus === "ready_to_pay"
+			? t("server_notified", "Server Notified")
+			: `${t("pay", "Pay")} ${formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}`;
+
 	return (
 		<StripeProvider publishableKey={stripePublishableKey || ""}>
 			<SafeAreaView style={styles.safeArea}>
@@ -577,35 +801,73 @@ const PartyCheckoutScreen = () => {
 					style={styles.container}
 					contentContainerStyle={styles.scrollContentContainer}
 				>
-					{/* Header Section */}
 					<View style={styles.header}>
-						<Text style={styles.title}>{t("checkout_your_portion")}</Text>
-						<Text style={styles.restaurantName}>{party?.restaurantName}</Text>
+						<Text style={styles.title}>{primaryTitle}</Text>
+						{!!secondaryTitle && (
+							<Text style={styles.restaurantName}>{secondaryTitle}</Text>
+						)}
+						{isPickupMode && (
+							<Text style={styles.modePill}>
+								{t("hotel_pickup", "Pickup Window")}
+							</Text>
+						)}
 					</View>
 
-					{/* Items List Section */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>{t("your_items")}</Text>
+						<Text style={styles.sectionTitle}>
+							{isPickupMode
+								? t("your_order", "Your Order")
+								: t("your_items", "Your Items")}
+						</Text>
+
 						{myItemsInBasket.length > 0 ? (
 							myItemsInBasket.map((item) => {
-								// Check if a valid discount exists
 								const hasDiscount =
 									item.discountedPrice !== null &&
 									item.discountedPrice !== undefined &&
 									item.discountedPrice < item.price;
 
-								// Calculate values in cents for the formatter
 								const originalTotalInCents =
 									Math.round((item.price || 0) * 100) * item.quantity;
+
 								const finalTotalInCents = hasDiscount
 									? Math.round(item.discountedPrice * 100) * item.quantity
 									: originalTotalInCents;
 
 								return (
-									<View key={item.id} style={styles.itemRow}>
-										<Text style={styles.itemName}>
-											{item.quantity}x {item.name}
-										</Text>
+									<View key={item.id} style={styles.itemRowBlock}>
+										<View style={styles.itemInfoBlock}>
+											<Text style={styles.itemName}>
+												{item.quantity}x {item.name}
+											</Text>
+
+											{Array.isArray(item.selectedModifiers) &&
+												item.selectedModifiers.length > 0 && (
+													<View style={styles.modifiersContainer}>
+														{item.selectedModifiers.map((modifier, index) => (
+															<Text
+																key={`${modifier.optionId || modifier.name || "modifier"}-${index}`}
+																style={styles.modifierText}
+															>
+																•{" "}
+																{typeof modifier.name === "string"
+																	? modifier.name
+																	: modifier.name?.[
+																			i18n.language?.substring(0, 2)
+																		] ||
+																		modifier.name?.en ||
+																		modifier.name?.es ||
+																		modifier.name?.original ||
+																		""}
+																{Number(modifier.price || 0) > 0
+																	? ` (+$${Number(modifier.price).toFixed(2)})`
+																	: ""}
+															</Text>
+														))}
+													</View>
+												)}
+										</View>
+
 										<View style={styles.priceContainer}>
 											{hasDiscount && (
 												<Text style={styles.originalPriceText}>
@@ -626,15 +888,54 @@ const PartyCheckoutScreen = () => {
 							})
 						) : (
 							<Text style={styles.noItemsText}>
-								{t("you_have_no_items_in_this_order")}
+								{t(
+									"you_have_no_items_in_this_order",
+									"You have no items in this order.",
+								)}
 							</Text>
 						)}
 					</View>
 
-					{/* Conditional Gratuity */}
+					{isPickupMode && (
+						<View style={styles.section}>
+							<Text style={styles.sectionTitle}>
+								{t(
+									"pickup_special_instructions",
+									"Pickup Special Instructions",
+								)}
+							</Text>
+							<Text style={styles.helperText}>
+								{t(
+									"pickup_special_instructions_help",
+									"Add notes for the pickup window or for the whole order.",
+								)}
+							</Text>
+
+							<TextInput
+								style={styles.instructionsInput}
+								value={pickupSpecialInstructions}
+								onChangeText={setPickupSpecialInstructions}
+								placeholder={t(
+									"pickup_special_instructions_placeholder",
+									"Example: Call when outside, no utensils, extra napkins, send to front desk...",
+								)}
+								placeholderTextColor={colors.textMedium}
+								multiline
+								textAlignVertical="top"
+								maxLength={250}
+							/>
+
+							<Text style={styles.instructionsCounter}>
+								{pickupSpecialInstructions.length}/250
+							</Text>
+						</View>
+					)}
+
 					{canAcceptPayments && (
 						<View style={styles.section}>
-							<Text style={styles.sectionTitle}>{t("add_gratuity")}</Text>
+							<Text style={styles.sectionTitle}>
+								{t("add_gratuity", "Add Gratuity")}
+							</Text>
 							<View style={styles.gratuityContainer}>
 								<Picker
 									selectedValue={gratuityPercentage}
@@ -643,19 +944,30 @@ const PartyCheckoutScreen = () => {
 									}
 									style={styles.gratuityPicker}
 								>
-									<Picker.Item label={t("18_percent_recommended")} value="18" />
-									<Picker.Item label={t("20_percent")} value="20" />
-									<Picker.Item label={t("no_tip")} value="0" />
+									<Picker.Item label={t("10_percent", "10%")} value="10" />
+									<Picker.Item label={t("12_percent", "12%")} value="12" />
+									<Picker.Item label={t("15_percent", "15%")} value="15" />
+									<Picker.Item
+										label={t("18_percent_recommended", "18% Recommended")}
+										value="18"
+									/>
+									<Picker.Item label={t("20_percent", "20%")} value="20" />
+									<Picker.Item label={t("22_percent", "22%")} value="22" />
+									<Picker.Item label={t("25_percent", "25%")} value="25" />
+									<Picker.Item
+										label={t("no_tip_cash", "No Tip / Cash")}
+										value="0"
+									/>
 								</Picker>
 							</View>
 						</View>
 					)}
 
-					{/* Bill Summary */}
 					<View style={styles.section}>
-						<Text style={styles.sectionTitle}>{t("your_bill_summary")}</Text>
+						<Text style={styles.sectionTitle}>
+							{t("your_bill_summary", "Your Bill Summary")}
+						</Text>
 
-						{/* 1. Items Total & Discount (Only shown if there is a discount) */}
 						{myTotalDiscount > 0 ? (
 							<>
 								<View style={styles.summaryRow}>
@@ -674,7 +986,7 @@ const PartyCheckoutScreen = () => {
 								</View>
 								<View style={styles.summaryRow}>
 									<Text style={[styles.label, { fontWeight: "bold" }]}>
-										{t("subtotal")}:
+										{t("subtotal", "Subtotal")}:
 									</Text>
 									<Text style={[styles.amount, { fontWeight: "bold" }]}>
 										{formatCurrency(mySubtotal)}
@@ -683,23 +995,32 @@ const PartyCheckoutScreen = () => {
 							</>
 						) : (
 							<View style={styles.summaryRow}>
-								<Text style={styles.label}>{t("subtotal")}:</Text>
+								<Text style={styles.label}>{t("subtotal", "Subtotal")}:</Text>
 								<Text style={styles.amount}>{formatCurrency(mySubtotal)}</Text>
 							</View>
 						)}
 
-						{/* 2. Gratuity & Service Fee */}
+						{canAcceptPayments && myTax > 0 && (
+							<View style={styles.summaryRow}>
+								<Text style={styles.label}>{t("tax", "Tax")}:</Text>
+								<Text style={styles.amount}>{formatCurrency(myTax)}</Text>
+							</View>
+						)}
+
 						{canAcceptPayments && (
 							<>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>{t("gratuity")}:</Text>
+									<Text style={styles.label}>{t("gratuity", "Gratuity")}:</Text>
 									<Text style={styles.amount}>
 										{formatCurrency(myGratuity)}
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
 									<Text style={styles.label}>
-										{t("service_fee")} ({restaurantData?.pricingTier || "basic"}
+										{t("service_fee", "Service Fee")} (
+										{restaurantData && restaurantData.pricingTier
+											? restaurantData.pricingTier
+											: "basic"}
 										):
 									</Text>
 									<Text style={styles.amount}>
@@ -711,9 +1032,10 @@ const PartyCheckoutScreen = () => {
 
 						<Divider style={styles.divider} />
 
-						{/* 3. Ultimate Final Total */}
 						<View style={styles.summaryRow}>
-							<Text style={styles.totalLabel}>{t("your_total")}:</Text>
+							<Text style={styles.totalLabel}>
+								{t("your_total", "Your Total")}:
+							</Text>
 							<Text style={styles.totalAmount}>
 								{formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}
 							</Text>
@@ -723,34 +1045,33 @@ const PartyCheckoutScreen = () => {
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 				</ScrollView>
 
-				{/* Footer Action Button */}
 				<View style={styles.footer}>
 					{canAcceptPayments ? (
 						<View style={{ flexDirection: "row", gap: 10 }}>
-							<Button
-								mode="outlined"
-								onPress={handleManualCheckout}
-								disabled={
-									!isReadyToPay ||
-									isPreparing ||
-									party?.customerStatus === "ready_to_pay"
-								}
-								loading={isPreparing}
-								style={[
-									styles.payButton,
-									{
-										flex: 1,
-										backgroundColor: colors.surfaceWhite,
-										borderColor: colors.primary,
-										borderWidth: 1,
-									},
-								]}
-								labelStyle={[styles.payButtonText, { color: colors.primary }]}
-							>
-								{party?.customerStatus === "ready_to_pay"
-									? t("server_notified", "Server Notified")
-									: t("pay_cash", "Pay Cash")}
-							</Button>
+							{!isPickupMode && (
+								<Button
+									mode="outlined"
+									onPress={handleManualCheckout}
+									disabled={
+										!isReadyToPay ||
+										isPreparing ||
+										(!isPickupMode && party?.customerStatus === "ready_to_pay")
+									}
+									loading={isPreparing}
+									style={[
+										styles.payButton,
+										{
+											flex: 1,
+											backgroundColor: colors.surfaceWhite,
+											borderColor: colors.primary,
+											borderWidth: 1,
+										},
+									]}
+									labelStyle={[styles.payButtonText, { color: colors.primary }]}
+								>
+									{manualButtonLabel}
+								</Button>
+							)}
 
 							<Button
 								mode="contained"
@@ -764,40 +1085,40 @@ const PartyCheckoutScreen = () => {
 								disabled={
 									!isReadyToPay ||
 									isPreparing ||
-									party?.customerStatus === "ready_to_pay"
+									(!isPickupMode && party?.customerStatus === "ready_to_pay")
 								}
 								loading={isPreparing}
 								style={[styles.payButton, { flex: 1 }]}
 								labelStyle={styles.payButtonText}
 							>
 								{isPreparing
-									? t("preparing")
-									: party?.customerStatus === "ready_to_pay"
-										? t("server_notified", "Server Notified")
-										: `${t("pay")} ${formatCurrency(myFinalTotal)}`}
+									? t("preparing", "Preparing")
+									: isPickupMode
+										? t("place_order_pay", "Place Order & Pay")
+										: cardButtonLabel}
 							</Button>
 						</View>
 					) : (
 						<View style={{ flexDirection: "row", gap: 10 }}>
-							<Button
-								mode="contained"
-								onPress={handleManualCheckout}
-								disabled={
-									!isReadyToPay ||
-									isPreparing ||
-									party?.customerStatus === "ready_to_pay"
-								}
-								loading={isPreparing}
-								style={[
-									styles.payButton,
-									{ flex: 1, backgroundColor: colors.statusWarning },
-								]}
-								labelStyle={styles.payButtonText}
-							>
-								{party?.customerStatus === "ready_to_pay"
-									? t("server_notified", "Server Notified")
-									: t("request_check", "Request Check")}
-							</Button>
+							{!isPickupMode && (
+								<Button
+									mode="contained"
+									onPress={handleManualCheckout}
+									disabled={
+										!isReadyToPay ||
+										isPreparing ||
+										(!isPickupMode && party?.customerStatus === "ready_to_pay")
+									}
+									loading={isPreparing}
+									style={[
+										styles.payButton,
+										{ flex: 1, backgroundColor: colors.statusWarning },
+									]}
+									labelStyle={styles.payButtonText}
+								>
+									{manualButtonLabel}
+								</Button>
+							)}
 
 							<Button
 								mode="contained"
@@ -812,55 +1133,78 @@ const PartyCheckoutScreen = () => {
 									{ color: colors.textMedium },
 								]}
 							>
-								{t("pay_with_card", "Pay with Card")}
+								{isPickupMode
+									? t("place_order_pay", "Place Order & Pay")
+									: t("pay_with_card", "Pay with Card")}
 							</Button>
 						</View>
 					)}
 				</View>
 
-				{/* DLocal Payment Sheet Modal */}
 				<Modal
 					visible={isPaymentModalVisible}
 					transparent={true}
 					animationType="slide"
+					onRequestClose={() => setIsPaymentModalVisible(false)}
 				>
-					<View style={styles.modalBackground}>
-						<TouchableOpacity
-							style={StyleSheet.absoluteFill}
-							activeOpacity={1}
-							onPress={() => setIsPaymentModalVisible(false)}
-						/>
-						<View style={styles.bottomSheet}>
-							<View style={styles.sheetHeader}>
-								<Text style={styles.sheetTitle}>{t("payment_details")}</Text>
-								<TouchableOpacity
-									onPress={() => setIsPaymentModalVisible(false)}
+					<KeyboardAvoidingView
+						style={{ flex: 1 }}
+						behavior={Platform.OS === "ios" ? "padding" : "height"}
+						keyboardVerticalOffset={Platform.OS === "ios" ? 20 : 0}
+					>
+						<View style={styles.modalBackground}>
+							<TouchableOpacity
+								style={StyleSheet.absoluteFill}
+								activeOpacity={1}
+								onPress={() => setIsPaymentModalVisible(false)}
+							/>
+
+							<View style={styles.bottomSheet}>
+								<ScrollView
+									contentContainerStyle={styles.bottomSheetScrollContent}
+									keyboardShouldPersistTaps="handled"
+									showsVerticalScrollIndicator={false}
 								>
-									<Ionicons
-										name="close-circle"
-										size={30}
-										color={colors.textMedium}
-									/>
-								</TouchableOpacity>
-							</View>
-							<View style={styles.webViewContainer}>
-								<DlocalNativeCheckout
-									publicKey={dlocalPublicKey}
-									checkoutToken={dlocalCheckoutToken}
-									amountFormatted={formatCurrency(myFinalTotal)}
-									locale={i18n.language || "es"}
-									isLive={isLiveMode}
-									initialName={savedName}
-									initialDocument={savedDocument}
-									onTokenSuccess={(cardData) => {
-										setIsPaymentModalVisible(false);
-										handleSmartFieldToken(cardData);
-									}}
-									onProcessing={() => setIsPreparing(true)}
-								/>
+									<View style={styles.sheetHeader}>
+										<Text style={styles.sheetTitle}>
+											{t("payment_details", "Payment Details")}
+										</Text>
+										<TouchableOpacity
+											onPress={() => setIsPaymentModalVisible(false)}
+										>
+											<Ionicons
+												name="close-circle"
+												size={30}
+												color={colors.textMedium}
+											/>
+										</TouchableOpacity>
+									</View>
+
+									<View style={styles.webViewContainer}>
+										<DlocalNativeCheckout
+											publicKey={dlocalPublicKey}
+											checkoutToken={dlocalCheckoutToken}
+											amountFormatted={formatCurrency(myFinalTotal)}
+											locale={i18n.language || "es"}
+											isLive={isLiveMode}
+											initialName={savedName}
+											initialDocument={savedDocument}
+											initialEmail={savedEmail || currentUserData?.email || ""}
+											onTokenSuccess={(cardData) => {
+												setIsPaymentModalVisible(false);
+												handleSmartFieldToken(cardData);
+											}}
+											onError={(message) => {
+												setPaymentError(message);
+												Alert.alert("Payment Error", message);
+											}}
+											onProcessing={() => setIsPreparing(true)}
+										/>
+									</View>
+								</ScrollView>
 							</View>
 						</View>
-					</View>
+					</KeyboardAvoidingView>
 				</Modal>
 			</SafeAreaView>
 		</StripeProvider>
@@ -874,6 +1218,17 @@ const styles = StyleSheet.create({
 	header: { padding: 20, paddingBottom: 10, alignItems: "center" },
 	title: { fontSize: 24, fontWeight: "bold", color: colors.textDark },
 	restaurantName: { fontSize: 16, color: colors.textMedium, marginTop: 4 },
+	modePill: {
+		marginTop: 10,
+		paddingHorizontal: 12,
+		paddingVertical: 6,
+		borderRadius: 999,
+		backgroundColor: colors.primary + "15",
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "700",
+		overflow: "hidden",
+	},
 	section: {
 		marginHorizontal: 15,
 		marginVertical: 10,
@@ -926,6 +1281,7 @@ const styles = StyleSheet.create({
 	},
 	label: { fontSize: 16, color: colors.textMedium },
 	amount: { fontSize: 16, fontWeight: "500", color: colors.textDark },
+	totalLabel: { fontSize: 18, fontWeight: "bold", color: colors.textDark },
 	totalAmount: { fontSize: 18, fontWeight: "bold", color: colors.primary },
 	divider: { marginVertical: 8 },
 	errorText: {
@@ -968,6 +1324,7 @@ const styles = StyleSheet.create({
 		backgroundColor: "rgba(0, 0, 0, 0.6)",
 		justifyContent: "flex-end",
 	},
+
 	bottomSheet: {
 		backgroundColor: colors.surfaceWhite,
 		borderTopLeftRadius: 24,
@@ -976,16 +1333,22 @@ const styles = StyleSheet.create({
 		paddingTop: 20,
 		paddingBottom: Platform.OS === "ios" ? 40 : 20,
 		width: "100%",
-		maxHeight: "85%",
+		maxHeight: "92%",
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: -4 },
 		shadowOpacity: 0.1,
 		shadowRadius: 10,
 		elevation: 10,
 	},
+	bottomSheetScrollContent: {
+		paddingBottom: 20,
+		flexGrow: 1,
+	},
+
 	webViewContainer: {
-		height: 420,
 		width: "100%",
+		height: 620,
+		minHeight: 620,
 	},
 	sheetHeader: {
 		flexDirection: "row",
@@ -1001,20 +1364,49 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		color: colors.textDark,
 	},
-	loadingSheet: {
-		flex: 1,
-		justifyContent: "center",
-		alignItems: "center",
-		minHeight: 200,
-	},
-	loadingSheetText: {
-		marginTop: 15,
-		fontSize: 16,
-		color: colors.textMedium,
-	},
 	priceContainer: {
 		alignItems: "flex-end",
 		justifyContent: "center",
+	},
+	itemRowBlock: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		paddingVertical: 8,
+	},
+	itemInfoBlock: {
+		flex: 1,
+		marginRight: 10,
+	},
+	modifiersContainer: {
+		marginTop: 4,
+	},
+	modifierText: {
+		fontSize: 13,
+		color: colors.textMedium,
+		lineHeight: 18,
+		marginTop: 2,
+	},
+	helperText: {
+		fontSize: 13,
+		color: colors.textMedium,
+		marginBottom: 10,
+		lineHeight: 18,
+	},
+	instructionsInput: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 10,
+		padding: 12,
+		minHeight: 110,
+		fontSize: 15,
+		color: colors.textDark,
+		backgroundColor: colors.backgroundLight,
+	},
+	instructionsCounter: {
+		marginTop: 8,
+		textAlign: "right",
+		fontSize: 12,
+		color: colors.textMedium,
 	},
 });
 
