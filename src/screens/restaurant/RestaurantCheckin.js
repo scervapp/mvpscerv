@@ -71,7 +71,12 @@ const RestaurantActiveTables = () => {
 		const q = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", ["active", "checkedOut"])
+			.where("status", "in", [
+				"pending",
+				"AWAITING_TABLE",
+				"active",
+				"checkedOut",
+			])
 			.orderBy("createdAt", "desc");
 
 		const unsubscribe = onSnapshot(
@@ -82,7 +87,9 @@ const RestaurantActiveTables = () => {
 					...doc.data(),
 				}));
 
-				let filteredParties = partiesData;
+				let filteredParties = partiesData.filter(
+					(party) => party.fulfillmentType !== "hotel_pickup",
+				);
 
 				// Restrict view if strictly a server
 				if (
@@ -91,8 +98,8 @@ const RestaurantActiveTables = () => {
 				) {
 					filteredParties = partiesData.filter((party) => {
 						const needsServer =
-							!party.server || party.server.id === "unassigned";
-						const isMyTable = party.server?.id === activeSession.id;
+							!party.server || party?.server?.id === "unassigned";
+						const isMyTable = party?.server?.id === activeSession.id;
 						return needsServer || isMyTable;
 					});
 				}

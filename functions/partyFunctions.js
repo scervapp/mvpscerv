@@ -60,17 +60,22 @@ const generateCode = () => {
 const inviteCode = generateCode();
 
 exports.createParty = functions.https.onCall(async (data, context) => {
-	// 1. Authentication Check
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
 			"unauthenticated",
 			"User must be authenticated to create a party.",
 		);
 	}
+
 	const hostUserId = context.auth.uid;
 
-	// 2. Input Validation
-	const { restaurantId } = data;
+	const {
+		restaurantId,
+		orderMode = "dineIn",
+		fulfillmentType,
+		joinable,
+	} = data || {};
+
 	if (
 		!restaurantId ||
 		typeof restaurantId !== "string" ||
@@ -86,8 +91,16 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		);
 	}
 
+	const normalizedOrderMode = orderMode === "pickup" ? "pickup" : "dineIn";
+
+	const resolvedFulfillmentType =
+		fulfillmentType ||
+		(normalizedOrderMode === "pickup" ? "hotel_pickup" : "table");
+
+	const resolvedJoinable =
+		typeof joinable === "boolean" ? joinable : normalizedOrderMode !== "pickup";
+
 	try {
-		// 3. Fetch Host's Name (Denormalization)
 		const hostUserRef = db.collection("customers").doc(hostUserId);
 		const restaurantDocRef = db.collection("restaurants").doc(restaurantId);
 
@@ -99,8 +112,8 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			hostUserRef.get(),
 			restaurantDocRef.get(),
 		]);
+
 		if (!hostUserSnap.exists) {
-			// Should not happen for authenticated user, but good check
 			throw new functions.https.HttpsError(
 				"not-found",
 				"Host user data not found.",
@@ -113,32 +126,29 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 			);
 			throw new functions.https.HttpsError(
 				"not-found",
-				`Restaurant data not found.`,
+				"Restaurant data not found.",
 			);
 		}
-		// Adjust field names if your customer doc structure is different
+
 		const hostData = hostUserSnap.data();
 		const hostName =
 			`${hostData.firstName || ""} ${hostData.lastName || ""}`.trim() || "Host";
 
 		const restaurantData = restaurantSnap.data();
-		const restaurantName = restaurantData.restaurantName;
-		const restaurantTaxRate = restaurantData.taxRate; // Ensure this field exists on your restaurant documents
 
-		// Fetch the restaurant's Stripe Connect account ID
-		const restaurantStripeAccountId = restaurantData.stripeAccountId;
-		if (!restaurantStripeAccountId) {
-			// This is an important check to ensure the restaurant is properly configured for payments
-			console.error(
-				`Restaurant ${restaurantId} is missing its Stripe Account ID.`,
-			);
-			throw new functions.https.HttpsError(
-				"failed-precondition",
-				"This restaurant is not configured to accept payments.",
-			);
-		}
+		const restaurantName =
+			restaurantData.restaurantName || restaurantData.name || "Restaurant";
 
-		// Validate fetched restaurant data
+		const restaurantTaxRate =
+			typeof restaurantData.taxRate === "number" &&
+			!isNaN(restaurantData.taxRate)
+				? restaurantData.taxRate
+				: 0;
+
+		const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
+
+		const canAcceptPayments = !!restaurantStripeAccountId;
+
 		if (typeof restaurantName !== "string" || restaurantName.trim() === "") {
 			console.error(
 				`CreateParty: Restaurant name missing or invalid for restaurant ${restaurantId}.`,
@@ -148,37 +158,33 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 				"Restaurant configuration error (name).",
 			);
 		}
-		if (typeof restaurantTaxRate !== "number" || isNaN(restaurantTaxRate)) {
-			console.error(
-				`CreateParty: Restaurant tax rate missing or invalid for restaurant ${restaurantId}. Expected number, got:`,
-				restaurantTaxRate,
-			);
-			throw new functions.https.HttpsError(
-				"internal",
-				"Restaurant configuration error (tax rate).",
-			);
-		}
+
 		console.log(
-			`CreateParty: Host: ${hostName}, Restaurant: ${restaurantName}, Tax Rate: ${restaurantTaxRate}`,
+			`CreateParty: Host: ${hostName}, Restaurant: ${restaurantName}, Tax Rate: ${restaurantTaxRate}, OrderMode: ${normalizedOrderMode}`,
 		);
 
-		// 4. Create the Party Document
-		const partyId = db.collection("parties").doc().id; // Pre-generate ID for both docs
-		const partyRef = db.collection("parties").doc(partyId); // Auto-generate ID
-		const sharedBasketRef = db.collection("shared_baskets").doc(partyId); // Use the same ID
+		const partyId = db.collection("parties").doc().id;
+		const partyRef = db.collection("parties").doc(partyId);
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
 
 		const now = admin.firestore.FieldValue.serverTimestamp();
 
 		const partyDataToSet = {
 			id: partyId,
-			restaurantId: restaurantId,
-			restaurantName: restaurantName,
-			restaurantTaxRate: restaurantTaxRate,
-			restaurantStripeAccountId: restaurantStripeAccountId,
-			sharedBasketId: partyId, // <-- FIX: Explicitly add the basket ID
+			restaurantId,
+			restaurantName,
+			restaurantTaxRate,
+			restaurantStripeAccountId,
+			restaurantCanAcceptPayments: canAcceptPayments,
+			sharedBasketId: partyId,
 
-			hostUserId: hostUserId,
-			hostName: hostName,
+			orderMode: normalizedOrderMode,
+			fulfillmentType: resolvedFulfillmentType,
+			joinable: resolvedJoinable,
+			table: null,
+
+			hostUserId,
+			hostName,
 			guestUserIds: [hostUserId],
 			guestPips: [
 				{
@@ -189,27 +195,26 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 				},
 			],
 			guestNames: [],
-			status: "pending",
-			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			status: normalizedOrderMode === "pickup" ? "active" : "pending",
+			createdAt: now,
 			checkInId: null,
 			inviteCode: null,
 			inviteCodeExpiry: null,
 		};
+
 		const sharedBasketDataToSet = {
-			partyId: partyId, // Store partyId in basket for reference
-			restaurantId: restaurantId,
-			items: [], // Initially empty
+			partyId,
+			restaurantId,
+			orderMode: normalizedOrderMode,
+			fulfillmentType: resolvedFulfillmentType,
+			items: [],
 			lastUpdated: now,
 			createdAt: now,
 		};
 
-		console.log(
-			`CreateParty: Preparing batch write for party ${partyId} and its shared basket.`,
-		);
 		const batch = db.batch();
 		batch.set(partyRef, partyDataToSet);
-		batch.set(sharedBasketRef, sharedBasketDataToSet); // Create empty shared basket
-
+		batch.set(sharedBasketRef, sharedBasketDataToSet);
 		batch.update(hostUserRef, {
 			partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
 		});
@@ -217,14 +222,21 @@ exports.createParty = functions.https.onCall(async (data, context) => {
 		await batch.commit();
 
 		console.log(
-			`Party ${partyId} and shared basket created successfully for restaurant ${restaurantId} by host ${hostUserId}`,
+			`Party ${partyId} created successfully for restaurant ${restaurantId} by host ${hostUserId}`,
 		);
-		return { success: true, partyId: partyId };
+
+		return {
+			success: true,
+			partyId,
+			orderMode: normalizedOrderMode,
+		};
 	} catch (error) {
 		console.error("Error creating party:", error);
+
 		if (error.code && error.httpErrorCode) {
 			throw error;
-		} // Re-throw HttpsErrors
+		}
+
 		throw new functions.https.HttpsError(
 			"internal",
 			"Failed to create party.",

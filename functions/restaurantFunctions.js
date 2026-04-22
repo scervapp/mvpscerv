@@ -4,6 +4,10 @@ const db = admin.firestore();
 const bcrypt = require("bcrypt");
 const { Translate } = require("@google-cloud/translate").v2;
 
+const { Resend } = require("resend");
+
+const resend = new Resend("re_c5VCacmN_N1Ynx623z8htk2jxjHR8qSJp");
+
 const translate = new Translate();
 
 const generateTableId = (name) => {
@@ -27,6 +31,727 @@ const commitBatches = async (operations) => {
 		await batch.commit();
 	}
 };
+
+function formatPanamaPhone(phone) {
+	if (!phone) return "";
+	// Strip away everything except raw numbers
+	const digits = String(phone).replace(/\D/g, "");
+
+	// Format as mobile (XXXX-XXXX)
+	if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+
+	// Format as landline (XXX-XXXX)
+	if (digits.length === 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+
+	// Fallback just in case
+	return String(phone);
+}
+
+// ============================================================================
+// 1. HELPER FUNCTIONS (Internal, No Exports)
+// ============================================================================
+
+function toIsoDate(dateLike) {
+	if (!dateLike) return new Date().toISOString();
+
+	if (typeof dateLike.toDate === "function") {
+		const d = dateLike.toDate();
+		if (!(d instanceof Date) || Number.isNaN(d.getTime())) {
+			throw new RangeError(
+				`Invalid Firestore Timestamp passed to toIsoDate: ${JSON.stringify(dateLike)}`,
+			);
+		}
+		return d.toISOString();
+	}
+
+	if (dateLike instanceof Date) {
+		if (Number.isNaN(dateLike.getTime()))
+			throw new RangeError("Invalid JS Date passed to toIsoDate");
+		return dateLike.toISOString();
+	}
+
+	if (
+		typeof dateLike === "object" &&
+		dateLike !== null &&
+		typeof dateLike._seconds === "number"
+	) {
+		const d = new Date(dateLike._seconds * 1000);
+		if (Number.isNaN(d.getTime()))
+			throw new RangeError(`Invalid serialized timestamp passed to toIsoDate`);
+		return d.toISOString();
+	}
+
+	const d = new Date(dateLike);
+	if (Number.isNaN(d.getTime())) {
+		throw new RangeError(
+			`Invalid time value passed to toIsoDate: ${JSON.stringify(dateLike)}`,
+		);
+	}
+	return d.toISOString();
+}
+
+async function getRestaurantDgiConfig(restaurantId) {
+	const snap = await admin
+		.firestore()
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("private_config")
+		.doc("dgi")
+		.get();
+
+	if (!snap.exists) {
+		throw new Error(`DGI config not found for restaurant ${restaurantId}.`);
+	}
+	return snap.data();
+}
+
+function validateDgiConfig(dgiConfig) {
+	const missing = [];
+	if (!dgiConfig.isEnabled) missing.push("isEnabled");
+	if (!dgiConfig.credentials || !dgiConfig.credentials.apiKey)
+		missing.push("credentials.apiKey");
+
+	const emisor = dgiConfig.emisor || {};
+	if (!emisor.ruc) missing.push("emisor.ruc");
+	if (!emisor.dv) missing.push("emisor.dv");
+
+	return { ok: missing.length === 0, missing };
+}
+function buildCustomerReceiver(customer, order) {
+	const fullName =
+		(customer && customer.dlocalName) ||
+		(customer && customer.fullName) ||
+		(order && order.customerName) ||
+		"Consumidor Final";
+
+	const receiverEmail =
+		customer && customer.email && String(customer.email).trim()
+			? String(customer.email).trim().toLowerCase()
+			: order && order.customerEmail && String(order.customerEmail).trim()
+				? String(order.customerEmail).trim().toLowerCase()
+				: "";
+
+	return {
+		tipoReceptorFe: "02",
+		nombreRazonReceptor: fullName,
+		direccionReceptor: (customer && customer.address) || "Panamá",
+		telefonoContactoReceptor:
+			formatPanamaPhone(customer && customer.phone) || "6666-6666",
+		correoElectronicoRecepctor: receiverEmail,
+		paisReceptor: "PA",
+	};
+}
+
+// Only attach the Location block if we actually have a location code
+
+// ============================================================================
+// 2. THE PAYLOAD BUILDER (The Brains)
+// ============================================================================
+
+function buildEfacturaPayload({ order, customer, dgiConfig }) {
+	const emisor = dgiConfig.emisor || {};
+	const cfg = dgiConfig.config || {};
+	const items = Array.isArray(order.items) ? order.items : [];
+
+	// --- 1. CLAMP THE INVOICE NUMBER ---
+	let numDocumento = "1";
+	if (order.readableOrderId && typeof order.readableOrderId === "string") {
+		numDocumento = order.readableOrderId.replace(/\D/g, "");
+		if (!numDocumento) numDocumento = "1";
+	}
+	const safeNumDocumento = String(numDocumento).slice(-10).padStart(10, "0");
+
+	// --- 2. BUILD AND FILTER ITEMS ---
+	let listaItems = items
+		.map((item, index) => {
+			const qty = Number(item.quantity || 1);
+
+			let rawPrice = item.price;
+			if (rawPrice === undefined || rawPrice === null)
+				rawPrice = item.unitPrice;
+			if (rawPrice === undefined || rawPrice === null)
+				rawPrice = item.discountedPrice;
+
+			const precioUnitario = Number(Number(rawPrice || 0).toFixed(2));
+			const precioItem = Number((precioUnitario * qty).toFixed(2));
+			const descuento = Number(Number(item.discountAmount || 0).toFixed(2));
+			const precioAcarreo = 0;
+
+			const rawRate =
+				item.itbmsRate !== undefined && item.itbmsRate !== null
+					? Number(item.itbmsRate)
+					: 0;
+
+			let dgiTaxCode = "00";
+			if (rawRate === 7) dgiTaxCode = "01";
+			if (rawRate === 10) dgiTaxCode = "02";
+			if (rawRate === 15) dgiTaxCode = "03";
+
+			const taxableBase = Number(
+				(precioItem - descuento + precioAcarreo).toFixed(2),
+			);
+			const lineTax = Number((taxableBase * (rawRate / 100)).toFixed(2));
+			const sumaPrecioItem = Number((taxableBase + lineTax).toFixed(2));
+
+			const itemDescription = String(
+				item.dishName || item.name || item.title || `Item ${index + 1}`,
+			).trim();
+
+			console.log("[DGI ITEM TAX DEBUG]", {
+				name: itemDescription,
+				qty,
+				precioUnitario,
+				precioItem,
+				rawRate,
+				dgiTaxCode,
+				taxableBase,
+				lineTax,
+				sumaPrecioItem,
+			});
+
+			return {
+				numeroSecuenciaItem: index + 1,
+				descripcionProductoServicio: itemDescription,
+				codigoInternoItem: String(item.menuItemId || item.id || index + 1),
+				cantidadProductoServicio: qty,
+				codigoItemCodificacionPanamenaAbreviada: 81,
+				grupoPrecios: {
+					precioUnitarioTransferencia: precioUnitario,
+					precioItem: precioItem,
+					precioAcarreo: precioAcarreo,
+					descuento: descuento,
+					sumaPrecioItem: sumaPrecioItem,
+				},
+				grupoITBMS: {
+					tasaITBMSAplicable: dgiTaxCode,
+					montoITBMS: lineTax,
+				},
+			};
+		})
+		.filter((item) => item.grupoPrecios.precioUnitarioTransferencia > 0);
+
+	// --- 3. CALCULATE STRICT GLOBAL TOTALS ---
+	let totalNeto = 0;
+	let totalITBMS = 0;
+	let totalGravado = 0;
+	let valorTotalFactura = 0;
+
+	listaItems.forEach((item) => {
+		totalNeto += Number(item.grupoPrecios.precioItem || 0);
+		totalITBMS += Number(item.grupoITBMS.montoITBMS || 0);
+		valorTotalFactura += Number(item.grupoPrecios.sumaPrecioItem || 0);
+
+		if (item.grupoITBMS.tasaITBMSAplicable !== "00") {
+			totalGravado += Number(item.grupoITBMS.montoITBMS || 0);
+		}
+	});
+
+	totalNeto = Number(totalNeto.toFixed(2));
+	totalITBMS = Number(totalITBMS.toFixed(2));
+	totalGravado = Number(totalGravado.toFixed(2));
+	valorTotalFactura = Number(valorTotalFactura.toFixed(2));
+
+	console.log("[DGI MATH DEBUG] GLOBAL TOTALS:", {
+		totalNeto,
+		totalITBMS,
+		valorTotalFactura,
+	});
+
+	return {
+		datosGenerales: {
+			tipoEmision: "01",
+			tipoDocumento: String(cfg.tipoDocumento || "01").padStart(2, "0"),
+			numeroDocumento: safeNumDocumento,
+			puntoFacturacion: String(cfg.puntoFacturacion || 1).padStart(3, "0"),
+			fechaEmision: toIsoDate(
+				order.fulfilledAt || order.openedAt || order.createdAt || new Date(),
+			),
+			naturalezaOperacion: "01",
+			tipoOperacion: 1,
+			destinoOperacion: 1,
+			formatoGeneracionCafe: 1,
+			maneraEntregaCafe: 1,
+			envioContenedorReceptor: 1,
+			procesoGeneracionFe: 1,
+			tipoTransaccionVenta: 1,
+			tipoSucursal: 1,
+			informacionEmisor: {
+				datosRucEmisor: {
+					tipoContribuyente: 1,
+					ruc: emisor.ruc,
+					digitoVerificador: emisor.dv,
+				},
+				nombreORazonSocial: emisor.razonSocial,
+				codigoSucursal: String(emisor.codigoSucursal || "0").padStart(4, "0"),
+				direccionSucursal: emisor.direccion || "",
+				ubicacionEmisor: {
+					codigoUbicacion: emisor.codigoUbicacion || "",
+					corregimiento: emisor.corregimiento || "",
+					distrito: String(emisor.distrito || "Panama")
+						.replace(/Distrito de /i, "")
+						.replace(/á/g, "a")
+						.replace(/Á/g, "A")
+						.trim(),
+					provincia: String(emisor.provincia || "Panama")
+						.replace(/Provincia de /i, "")
+						.replace(/á/g, "a")
+						.replace(/Á/g, "A")
+						.trim(),
+				},
+				telefonoSucursal: formatPanamaPhone(emisor.telefono),
+				direccionCorreoElectronico: emisor.correo || "",
+			},
+			informacionReceptor: buildCustomerReceiver(customer, order),
+		},
+		listaItems,
+		totales: {
+			totalNeto: totalNeto,
+			totalITBMS: totalITBMS,
+			totalGravado: totalGravado,
+			valorTotalFactura: valorTotalFactura,
+			sumaValoresRecibidos: valorTotalFactura,
+			tiempoPago: 1,
+			numeroTotalItems: listaItems.length,
+			totalTodosItems: valorTotalFactura,
+			grupoFormasPago: [
+				{
+					formaPago: "04",
+					valorCuotaPagada: valorTotalFactura,
+				},
+			],
+		},
+		ambiente: cfg.ambiente === "production" ? 1 : 2,
+		secuencia: Number(order.dgiSequence || 1),
+		versionFormulario: cfg.versionFormulario || "1.0",
+	};
+}
+
+// ============================================================================
+// 3. THE INTERNAL ORCHESTRATOR
+// ============================================================================
+
+async function emitDgiInvoiceInternal(orderId) {
+	try {
+		console.log(`[DGI] Starting invoice for order: ${orderId}`);
+		const db = admin.firestore();
+
+		const orderRef = db.collection("orders").doc(orderId);
+		const orderSnap = await orderRef.get();
+
+		if (!orderSnap.exists) throw new Error("Order not found");
+		const order = orderSnap.data();
+
+		if (order.paymentStatus !== "paid") throw new Error("Order is not paid");
+		if (order.dgiInvoiceStatus === "issued") {
+			console.log("[DGI] Already issued, skipping.");
+			return { success: true, cufe: order.dgiCufe };
+		}
+
+		const restaurantSnap = await db
+			.collection("restaurants")
+			.doc(order.restaurantId)
+			.get();
+		const restaurantData = restaurantSnap.exists ? restaurantSnap.data() : {};
+
+		const dgiConfig = await getRestaurantDgiConfig(order.restaurantId);
+		const validation = validateDgiConfig(dgiConfig);
+		if (!validation.ok)
+			throw new Error(
+				`DGI config incomplete: ${validation.missing.join(", ")}`,
+			);
+
+		let customer = {};
+		if (order.customerId) {
+			const customerSnap = await db
+				.collection("customers")
+				.doc(order.customerId)
+				.get();
+			if (customerSnap.exists) customer = customerSnap.data();
+		}
+
+		const payload = buildEfacturaPayload({ order, customer, dgiConfig });
+
+		payload.listaItems.forEach((item, i) => {
+			if (
+				!item.descripcionProductoServicio ||
+				!String(item.descripcionProductoServicio).trim()
+			) {
+				throw new Error(
+					`DGI payload invalid: missing descripcionProductoServicio for item ${i + 1}`,
+				);
+			}
+		});
+
+		console.log("[DGI DEBUG] FINAL PAYLOAD:", JSON.stringify(payload, null, 2));
+
+		await orderRef.set(
+			{
+				dgiInvoiceStatus: "processing",
+				dgiLastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+		console.log("[DGI FINAL EMAIL DEBUG]", {
+			emisorEmail:
+				payload &&
+				payload.datosGenerales &&
+				payload.datosGenerales.informacionEmisor &&
+				payload.datosGenerales.informacionEmisor.direccionCorreoElectronico
+					? payload.datosGenerales.informacionEmisor.direccionCorreoElectronico
+					: null,
+			receptorEmail:
+				payload &&
+				payload.datosGenerales &&
+				payload.datosGenerales.informacionReceptor &&
+				payload.datosGenerales.informacionReceptor.correoElectronicoRecepctor
+					? payload.datosGenerales.informacionReceptor
+							.correoElectronicoRecepctor
+					: null,
+		});
+
+		const response = await fetch(
+			"https://api.efacturapty.com/api/v1/Invoices",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${dgiConfig.credentials.apiKey}`,
+				},
+				body: JSON.stringify(payload),
+			},
+		);
+
+		const result = await response.json();
+
+		if (!response.ok || result.autorizada === false) {
+			throw new Error(`Raw API Response: ${JSON.stringify(result)}`);
+		}
+
+		console.log("[DGI] Success! CUFE Generated.");
+
+		let cufe = result.cufe || null;
+		let qrLink = result.qrContent || null;
+
+		if (
+			!cufe &&
+			result.rRetEnviFe &&
+			result.rRetEnviFe.xProtFe &&
+			result.rRetEnviFe.xProtFe.rProtFe &&
+			result.rRetEnviFe.xProtFe.rProtFe.gInfProt &&
+			result.rRetEnviFe.xProtFe.rProtFe.gInfProt.dCUFE
+		) {
+			cufe = result.rRetEnviFe.xProtFe.rProtFe.gInfProt.dCUFE;
+		}
+
+		await orderRef.set(
+			{
+				dgiInvoiceStatus: "issued",
+				dgiIssuedAt: admin.firestore.FieldValue.serverTimestamp(),
+				dgiCufe: cufe,
+				dgiQrLink: qrLink,
+				dgiResponse: result,
+			},
+			{ merge: true },
+		);
+
+		await db
+			.collection("restaurants")
+			.doc(order.restaurantId)
+			.collection("private_config")
+			.doc("dgi")
+			.set(
+				{
+					status: {
+						lastInvoiceAt: admin.firestore.FieldValue.serverTimestamp(),
+						lastInvoiceStatus: "issued",
+						lastError: null,
+					},
+				},
+				{ merge: true },
+			);
+
+		// --- EMAIL THE CUSTOMER ---
+		const receiptEmail =
+			customer && customer.email && String(customer.email).trim()
+				? String(customer.email).trim().toLowerCase()
+				: order && order.customerEmail && String(order.customerEmail).trim()
+					? String(order.customerEmail).trim().toLowerCase()
+					: "";
+
+		const restaurantDisplayName =
+			restaurantData && (restaurantData.restaurantName || restaurantData.name)
+				? restaurantData.restaurantName || restaurantData.name
+				: dgiConfig && dgiConfig.emisor && dgiConfig.emisor.razonSocial
+					? dgiConfig.emisor.razonSocial
+					: "Our Restaurant";
+
+		const restaurantLegalName =
+			dgiConfig && dgiConfig.emisor && dgiConfig.emisor.razonSocial
+				? dgiConfig.emisor.razonSocial
+				: restaurantDisplayName;
+
+		const displayItems = (Array.isArray(order.items) ? order.items : []).map(
+			(item, index) => {
+				const qty = Number(item.quantity || 1);
+
+				const unitPrice =
+					item.price !== undefined && item.price !== null
+						? Number(item.price)
+						: item.unitPrice !== undefined && item.unitPrice !== null
+							? Number(item.unitPrice)
+							: item.discountedPrice !== undefined &&
+								  item.discountedPrice !== null
+								? Number(item.discountedPrice)
+								: 0;
+
+				const lineTotal = Number((qty * unitPrice).toFixed(2));
+
+				return {
+					name:
+						item.dishName || item.name || item.title || "Item " + (index + 1),
+					qty: qty,
+					unitPrice: unitPrice,
+					lineTotal: lineTotal,
+				};
+			},
+		);
+
+		const centsToDollars = (value) => {
+			const num = Number(value || 0);
+			if (isNaN(num)) return 0;
+			return Number((num / 100).toFixed(2));
+		};
+
+		const subtotal =
+			order.subtotal !== undefined && order.subtotal !== null
+				? centsToDollars(order.subtotal)
+				: Number(
+						displayItems
+							.reduce((sum, item) => sum + item.lineTotal, 0)
+							.toFixed(2),
+					);
+
+		const tax =
+			order.taxAmount !== undefined && order.taxAmount !== null
+				? centsToDollars(order.taxAmount)
+				: order.tax !== undefined && order.tax !== null
+					? centsToDollars(order.tax)
+					: order.itbmsTotal !== undefined && order.itbmsTotal !== null
+						? Number(order.itbmsTotal)
+						: order.taxTotal !== undefined && order.taxTotal !== null
+							? Number(order.taxTotal)
+							: 0;
+
+		const gratuity =
+			order.gratuityAmount !== undefined && order.gratuityAmount !== null
+				? centsToDollars(order.gratuityAmount)
+				: order.gratuity !== undefined && order.gratuity !== null
+					? centsToDollars(order.gratuity)
+					: 0;
+
+		const serviceFee =
+			order.platformFee !== undefined && order.platformFee !== null
+				? centsToDollars(order.platformFee)
+				: 0;
+
+		const total =
+			order.totalPrice !== undefined && order.totalPrice !== null
+				? centsToDollars(order.totalPrice)
+				: Number((subtotal + tax + gratuity + serviceFee).toFixed(2));
+
+		console.log("[EMAIL NORMALIZED TOTALS]", {
+			subtotal,
+			tax,
+			gratuity,
+			serviceFee,
+			total,
+			rawSubtotal: order.subtotal || null,
+			rawTaxAmount:
+				order.taxAmount ||
+				order.tax ||
+				order.itbmsTotal ||
+				order.taxTotal ||
+				null,
+			rawGratuity: order.gratuityAmount || order.gratuity || null,
+			rawPlatformFee: order.platformFee || null,
+			rawTotalPrice: order.totalPrice || null,
+		});
+
+		const itemsHtml = displayItems.length
+			? displayItems
+					.map(
+						(item) => `
+<tr>
+  <td style="padding: 10px 0; border-bottom: 1px solid #eee;">
+    <div style="font-weight: 600; color: #111;">${item.name}</div>
+    <div style="font-size: 12px; color: #666;">Qty: ${item.qty}</div>
+  </td>
+  <td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right; color: #111;">
+    $${item.lineTotal.toFixed(2)}
+  </td>
+</tr>
+`,
+					)
+					.join("")
+			: `<tr>
+<td colspan="2" style="padding: 10px 0; color: #666;">
+Your receipt is attached and available through the official DGI link below.
+</td>
+</tr>`;
+
+		if (receiptEmail) {
+			console.log("[DGI EMAIL DEBUG]", {
+				receiptEmail: receiptEmail,
+				hasCufe: !!cufe,
+				hasQrLink: !!qrLink,
+			});
+
+			console.log("[SCERV EMAIL DEBUG]", {
+				receiptEmail: receiptEmail || null,
+				customerEmail: customer && customer.email ? customer.email : null,
+				orderCustomerEmail:
+					order && order.customerEmail ? order.customerEmail : null,
+			});
+
+			await db.collection("mail").add({
+				to: receiptEmail,
+				message: {
+					subject: "Your receipt from " + restaurantDisplayName,
+					html: `
+<div style="font-family: Arial, sans-serif; background: #f6f7f9; padding: 24px;">
+  <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e8eaed;">
+    
+    <div style="background: #111; color: #fff; padding: 24px 28px;">
+      <h1 style="margin: 0; font-size: 22px;">${restaurantDisplayName}</h1>
+      <p style="margin: 8px 0 0; color: #d1d5db; font-size: 14px;">
+        Your electronic receipt is ready
+      </p>
+    </div>
+
+    <div style="padding: 28px;">
+      <p style="margin: 0 0 18px; font-size: 15px; color: #333;">
+        Thanks for your order. Your payment was successful and your official electronic invoice has been generated.
+      </p>
+
+      <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 22px;">
+        <div style="margin-bottom: 8px; font-size: 14px; color: #444;">
+          <strong>Order:</strong> ${order.readableOrderId || orderId}
+        </div>
+        <div style="margin-bottom: 8px; font-size: 14px; color: #444;">
+          <strong>CUFE:</strong> ${cufe || "Pending"}
+        </div>
+        <div style="font-size: 14px; color: #444;">
+          <strong>Email:</strong> ${receiptEmail}
+        </div>
+      </div>
+
+      <h2 style="font-size: 16px; margin: 0 0 12px; color: #111;">
+        Order summary
+      </h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 18px;">
+        ${itemsHtml}
+      </table>
+
+     <div style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 14px;">
+  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; color: #444; font-size: 14px;">
+    <span>Subtotal</span>
+    <span>$${subtotal.toFixed(2)}</span>
+  </div>
+  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; color: #444; font-size: 14px;">
+    <span>Tax</span>
+    <span>$${tax.toFixed(2)}</span>
+  </div>
+  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; color: #444; font-size: 14px;">
+    <span>Gratuity</span>
+    <span>$${gratuity.toFixed(2)}</span>
+  </div>
+  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; color: #444; font-size: 14px;">
+    <span>Service Fee</span>
+    <span>$${serviceFee.toFixed(2)}</span>
+  </div>
+  <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 16px; color: #111;">
+    <span>Total</span>
+    <span>$${total.toFixed(2)}</span>
+  </div>
+</div>
+
+      ${
+				qrLink
+					? `<div style="margin-top: 24px;">
+              <a href="${qrLink}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 10px; font-weight: 600;">
+                View official DGI receipt
+              </a>
+            </div>`
+					: ""
+			}
+
+      <p style="margin-top: 28px; font-size: 12px; color: #777;">
+        Powered by Scerv
+      </p>
+    </div>
+  </div>
+</div>
+`,
+				},
+			});
+
+			console.log("[DGI] Email queued for " + receiptEmail);
+		}
+		return { success: true, cufe };
+	} catch (error) {
+		console.error("[DGI] FAILED:", error.message);
+		try {
+			await admin.firestore().collection("orders").doc(orderId).set(
+				{
+					dgiInvoiceStatus: "failed",
+					dgiInvoiceError: error.message,
+					dgiLastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		} catch (e) {
+			console.error("[DGI] Failed to write error state to DB:", e);
+		}
+		throw error;
+	}
+}
+
+// ============================================================================
+// 4. THE PUBLIC CLOUD FUNCTION (The Trigger)
+// ============================================================================
+
+exports.emitDgiInvoice = functions
+	.runWith({ timeoutSeconds: 120 })
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const { orderId } = data || {};
+		if (!orderId || typeof orderId !== "string") {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"orderId is required.",
+			);
+		}
+
+		try {
+			return await emitDgiInvoiceInternal(orderId);
+		} catch (error) {
+			throw new functions.https.HttpsError(
+				"internal",
+				error.message || "Could not emit DGI invoice.",
+			);
+		}
+	});
+
+// If you need to trigger this directly from another backend function (like confirmDlocalPayment),
+// you can export the internal function as well:
+exports.emitDgiInvoiceInternal = emitDgiInvoiceInternal;
 
 /**
  * Starts a new work day for a restaurant.
@@ -1297,7 +2022,8 @@ exports.closePartyTable = functions
 					);
 				}
 
-				const partyData = partyDoc.data();
+				const partyData = partyDoc.data() || {};
+
 				if (partyData.status === "completed") {
 					return { success: true, message: "Table is already closed." };
 				}
@@ -1305,8 +2031,9 @@ exports.closePartyTable = functions
 				const basketRef = db.collection("shared_baskets").doc(partyId);
 				const basketDoc = await transaction.get(basketRef);
 				let basketData = { items: [] };
+
 				if (basketDoc.exists) {
-					basketData = basketDoc.data();
+					basketData = basketDoc.data() || { items: [] };
 				}
 
 				const kitchenOrdersQuery = db
@@ -1315,48 +2042,108 @@ exports.closePartyTable = functions
 				const kitchenOrdersSnap = await transaction.get(kitchenOrdersQuery);
 
 				// ==========================================
-				// 2. DATA PREP & CENTS CONVERSION
+				// 2. DATA PREP & CALCULATIONS
 				// ==========================================
-				const restaurantId = partyData.restaurantId;
-				const tableId = partyData.table.id;
-				const restaurantName = partyData.restaurantName || "Scerv Partner";
+				const restaurantId = partyData.restaurantId || null;
+				const tableId =
+					partyData.table && partyData.table.id ? partyData.table.id : null;
+				const restaurantName =
+					partyData.restaurantName || partyData.name || "Scerv Partner";
 
-				const allItems = basketData.items || [];
+				const allItems = Array.isArray(basketData.items)
+					? basketData.items
+					: [];
 				const officiallyOrderedItems = allItems.filter(
-					(item) => item.status && item.status !== "new",
+					(item) => item && item.status && item.status !== "new",
 				);
 
 				let subtotalCents = 0;
 				let originalSubtotalCents = 0;
+				let taxAmountCents = 0;
 
 				officiallyOrderedItems.forEach((item) => {
-					// Safe parser avoiding syntax errors
 					const activePrice =
 						item.discountedPrice !== undefined && item.discountedPrice !== null
 							? item.discountedPrice
 							: item.price || 0;
 
-					const itemPrice = parseFloat(activePrice);
-					const origPrice = parseFloat(item.price || 0);
+					const itemPrice = parseFloat(activePrice || 0);
+					const originalPrice = parseFloat(item.price || 0);
 					const quantity = parseInt(item.quantity || 1, 10);
 
-					subtotalCents += Math.round(itemPrice * 100) * quantity;
-					originalSubtotalCents += Math.round(origPrice * 100) * quantity;
+					const itemPriceCents = Math.round(itemPrice * 100);
+					const originalPriceCents = Math.round(originalPrice * 100);
+
+					subtotalCents += itemPriceCents * quantity;
+					originalSubtotalCents += originalPriceCents * quantity;
+
+					const rawTaxRate =
+						item.itbmsRate !== undefined && item.itbmsRate !== null
+							? Number(item.itbmsRate)
+							: item.taxRate !== undefined && item.taxRate !== null
+								? Number(item.taxRate)
+								: 0;
+
+					if (!isNaN(rawTaxRate) && rawTaxRate > 0) {
+						taxAmountCents += Math.round(
+							itemPriceCents * quantity * (rawTaxRate / 100),
+						);
+					}
 				});
 
-				const discountTotalCents = originalSubtotalCents - subtotalCents;
+				const discountTotalCents = Math.max(
+					0,
+					originalSubtotalCents - subtotalCents,
+				);
+
+				// Manual closeout business rule:
+				// - No Scerv/platform fee
+				// - No processor fee
+				// - No gratuity unless you later add staff-entered gratuity
+				const gratuityAmountCents = 0;
+				const platformFeeCents = 0;
+				const processorFeeCents = 0;
+
+				const totalPriceCents =
+					subtotalCents +
+					taxAmountCents +
+					gratuityAmountCents +
+					platformFeeCents;
 
 				let turnaroundTimeMinutes = 0;
-				if (partyData.createdAt) {
-					const openedAtMs = partyData.createdAt.toDate().getTime();
-					turnaroundTimeMinutes = Math.round((Date.now() - openedAtMs) / 60000);
+				try {
+					if (partyData.createdAt && partyData.createdAt.toDate) {
+						const openedAtMs = partyData.createdAt.toDate().getTime();
+						turnaroundTimeMinutes = Math.max(
+							0,
+							Math.round((Date.now() - openedAtMs) / 60000),
+						);
+					}
+				} catch (e) {
+					console.warn(
+						`closePartyTable: Could not compute turnaround time for ${partyId}:`,
+						e,
+					);
 				}
+
+				console.log("[closePartyTable totals]", {
+					partyId,
+					subtotalCents,
+					originalSubtotalCents,
+					discountTotalCents,
+					taxAmountCents,
+					gratuityAmountCents,
+					platformFeeCents,
+					processorFeeCents,
+					totalPriceCents,
+					itemCount: officiallyOrderedItems.length,
+				});
 
 				// ==========================================
 				// 3. WRITES
 				// ==========================================
 				transaction.update(partyRef, {
-					status: "checkedOut", // 🚨 CHANGED: This keeps it on the screen so the server can clean it
+					status: "checkedOut",
 					paymentStatus: "paid",
 					paymentMethod: paymentMethod,
 					closedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1364,12 +2151,15 @@ exports.closePartyTable = functions
 				});
 
 				const usersToFree = [];
+
 				if (partyData.hostUserId && partyData.hostUserId !== "walk_in_guest") {
 					usersToFree.push(partyData.hostUserId);
 				}
-				if (partyData.guestPips && Array.isArray(partyData.guestPips)) {
+
+				if (Array.isArray(partyData.guestPips)) {
 					partyData.guestPips.forEach((pip) => {
 						if (
+							pip &&
 							pip.userId &&
 							pip.userId !== "walk_in_guest" &&
 							!usersToFree.includes(pip.userId)
@@ -1381,6 +2171,7 @@ exports.closePartyTable = functions
 
 				usersToFree.forEach((uid) => {
 					const customerRef = db.collection("customers").doc(uid);
+
 					transaction.set(
 						customerRef,
 						{
@@ -1403,7 +2194,10 @@ exports.closePartyTable = functions
 					const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
 					transaction.delete(checkInRef);
 				}
-				transaction.delete(basketRef);
+
+				if (basketDoc.exists) {
+					transaction.delete(basketRef);
+				}
 
 				if (!kitchenOrdersSnap.empty) {
 					kitchenOrdersSnap.forEach((docSnap) => {
@@ -1423,11 +2217,11 @@ exports.closePartyTable = functions
 					subtotal: subtotalCents,
 					originalSubtotal: originalSubtotalCents,
 					discountTotal: discountTotalCents,
-					taxAmount: 0,
-					gratuityAmount: 0,
-					platformFee: 0,
-					processorFee: 0,
-					totalPrice: subtotalCents,
+					taxAmount: taxAmountCents,
+					gratuityAmount: gratuityAmountCents,
+					platformFee: platformFeeCents,
+					processorFee: processorFeeCents,
+					totalPrice: totalPriceCents,
 
 					openedAt:
 						partyData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
@@ -1439,6 +2233,9 @@ exports.closePartyTable = functions
 					paymentMethod: paymentMethod,
 					paymentStatus: "paid",
 					orderStatus: "confirmed",
+					type: "party",
+					orderMode: "dineIn",
+					fulfillmentType: "table",
 				});
 
 				if (receiptEmail && officiallyOrderedItems.length > 0) {
@@ -1449,14 +2246,67 @@ exports.closePartyTable = functions
 								item.discountedPrice !== null
 									? item.discountedPrice
 									: item.price || 0;
-							const lineTotal =
-								parseFloat(activePrice) * parseInt(item.quantity || 1, 10);
+
+							const quantity = parseInt(item.quantity || 1, 10);
+							const lineTotal = parseFloat(activePrice || 0) * quantity;
+
+							const selectedModifiers = Array.isArray(item.selectedModifiers)
+								? item.selectedModifiers
+								: [];
+
+							const modifiersHtml = selectedModifiers.length
+								? `
+									<div style="margin-top: 4px; font-size: 12px; color: #666;">
+										${selectedModifiers
+											.map((modifier) => {
+												const modifierName =
+													typeof modifier.name === "string"
+														? modifier.name
+														: modifier.name && typeof modifier.name === "object"
+															? modifier.name.en ||
+																modifier.name.es ||
+																modifier.name.original ||
+																""
+															: "";
+
+												const modifierPrice = Number(modifier.price || 0);
+
+												return `<div>• ${modifierName}${
+													modifierPrice > 0
+														? ` (+$${modifierPrice.toFixed(2)})`
+														: ""
+												}</div>`;
+											})
+											.join("")}
+									</div>
+								`
+								: "";
+
+							const instructionsText =
+								item.specialInstructions &&
+								typeof item.specialInstructions === "object"
+									? item.specialInstructions.en ||
+										item.specialInstructions.es ||
+										item.specialInstructions.original ||
+										""
+									: item.specialInstructions || "";
+
+							const instructionsHtml = instructionsText
+								? `<div style="margin-top: 4px; font-size: 12px; color: #c0392b;">"${instructionsText}"</div>`
+								: "";
+
 							return `
-                            <tr>
-                                <td style="padding: 10px 0; border-bottom: 1px solid #eee;">${item.quantity || 1}x ${item.dishName || item.name}</td>
-                                <td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right;">$${lineTotal.toFixed(2)}</td>
-                            </tr>
-                        `;
+								<tr>
+									<td style="padding: 10px 0; border-bottom: 1px solid #eee; vertical-align: top;">
+										<div>${quantity}x ${item.dishName || item.name}</div>
+										${modifiersHtml}
+										${instructionsHtml}
+									</td>
+									<td style="padding: 10px 0; border-bottom: 1px solid #eee; text-align: right; vertical-align: top;">
+										$${lineTotal.toFixed(2)}
+									</td>
+								</tr>
+							`;
 						})
 						.join("");
 
@@ -1466,18 +2316,35 @@ exports.closePartyTable = functions
 						message: {
 							subject: `Your Receipt from ${restaurantName}`,
 							html: `
-                                <div style="font-family: Helvetica, Arial, sans-serif; max-width: 450px; margin: auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 12px; background-color: #ffffff;">
-                                    <h2 style="text-align: center; color: #1a1a1a; margin-bottom: 5px;">${restaurantName}</h2>
-                                    <p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">Table: ${partyData.table.name || "Table"}</p>
-                                    <table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
-                                        ${itemsHtml}
-                                    </table>
-                                    <h3 style="text-align: right; margin-top: 20px; color: #1a1a1a;">Total: $${(subtotalCents / 100).toFixed(2)}</h3>
-                                    <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
-                                        <p style="font-size: 12px; color: #999; margin: 0;">Thanks for dining with us!</p>
-                                    </div>
-                                </div>
-                            `,
+								<div style="font-family: Helvetica, Arial, sans-serif; max-width: 450px; margin: auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 12px; background-color: #ffffff;">
+									<h2 style="text-align: center; color: #1a1a1a; margin-bottom: 5px;">${restaurantName}</h2>
+									<p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">
+										Table: ${(partyData.table && partyData.table.name) || "Table"}
+									</p>
+
+									<table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
+										${itemsHtml}
+									</table>
+
+									<div style="margin-top: 20px;">
+										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
+											<span>Subtotal</span>
+											<span>$${(subtotalCents / 100).toFixed(2)}</span>
+										</div>
+										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
+											<span>Tax</span>
+											<span>$${(taxAmountCents / 100).toFixed(2)}</span>
+										</div>
+										<h3 style="text-align: right; margin-top: 12px; color: #1a1a1a;">
+											Total: $${(totalPriceCents / 100).toFixed(2)}
+										</h3>
+									</div>
+
+									<div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
+										<p style="font-size: 12px; color: #999; margin: 0;">Thanks for dining with us!</p>
+									</div>
+								</div>
+							`,
 						},
 					});
 				}
@@ -1488,10 +2355,16 @@ exports.closePartyTable = functions
 						.doc(restaurantId)
 						.collection("tables")
 						.doc(tableId);
+
 					transaction.update(tableRef, { status: "checkedOut" });
 				}
 
-				return { success: true };
+				return {
+					success: true,
+					subtotal: subtotalCents,
+					taxAmount: taxAmountCents,
+					totalPrice: totalPriceCents,
+				};
 			});
 		} catch (error) {
 			console.error(`Error closing party ${partyId}:`, error);

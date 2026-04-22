@@ -17,6 +17,8 @@ import { doc, onSnapshot } from "@react-native-firebase/firestore";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
+import printOrderReceipt from "../../utils/printOrderReceipt";
+import { mockPrinterConfig } from "../../utils/printerConfigExamples";
 
 const ManagePartyScreen = () => {
 	const route = useRoute();
@@ -32,6 +34,20 @@ const ManagePartyScreen = () => {
 	const [receiptEmail, setReceiptEmail] = useState("");
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
+
+	const getLocalizedModifierName = (modifier) => {
+		if (!modifier) return "";
+
+		if (typeof modifier.name === "string") return modifier.name;
+
+		return (
+			modifier.name?.[currentLang] ||
+			modifier.name?.en ||
+			modifier.name?.es ||
+			modifier.name?.original ||
+			""
+		);
+	};
 
 	// 1. Listen to the Party and the Shared Basket simultaneously
 	useEffect(() => {
@@ -114,24 +130,109 @@ const ManagePartyScreen = () => {
 		);
 	};
 
+	const taxTotal = useMemo(() => {
+		return officiallyOrderedItems.reduce((sum, item) => {
+			const quantity = parseInt(item.quantity || 1, 10);
+			const unitPrice =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? parseFloat(item.discountedPrice || 0)
+					: parseFloat(item.price || 0);
+
+			const rawRate =
+				item.itbmsRate !== undefined && item.itbmsRate !== null
+					? Number(item.itbmsRate)
+					: item.taxRate !== undefined && item.taxRate !== null
+						? Number(item.taxRate)
+						: 0;
+
+			if (isNaN(rawRate) || rawRate <= 0) return sum;
+
+			return sum + unitPrice * quantity * (rawRate / 100);
+		}, 0);
+	}, [officiallyOrderedItems]);
+
+	const gratuityTotal = useMemo(() => {
+		// staff review screen default; adjust later if you want editable gratuity here
+		return 0;
+	}, []);
+
+	const serviceFeeTotal = useMemo(() => {
+		// placeholder for now unless you want to calculate based on pricing tier here too
+		return 0;
+	}, []);
+
+	const grandTotal = useMemo(() => {
+		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
+	}, [tableTotal, taxTotal, gratuityTotal, serviceFeeTotal]);
+
 	const executeCloseTable = async (paymentMethod) => {
 		setIsClosing(true);
+
 		try {
 			const closeTableCloudFunction = httpsCallable(
 				functions,
 				"closePartyTable",
 			);
+
 			const result = await closeTableCloudFunction({
 				partyId,
 				paymentMethod,
 				receiptEmail: receiptEmail.trim(),
 			});
 
-			if (result.data.success) {
-				navigation.goBack(); // 🚨 REVERTED: Go straight back to the floor map
-			} else {
+			if (!result?.data?.success) {
 				throw new Error("Failed to close table.");
 			}
+
+			// Build a local printable order object using screen data + CF totals
+			const printableOrder = {
+				id: partyId,
+				orderId: partyId,
+				readableOrderId: partyId,
+				restaurantName:
+					partyData?.restaurantName || partyData?.name || "Scerv Partner",
+				table: partyData?.table || null,
+				server: partyData?.server || null,
+				customerName: "",
+
+				subtotal:
+					result?.data?.subtotal !== undefined
+						? result.data.subtotal
+						: Math.round(tableTotal * 100),
+				taxAmount:
+					result?.data?.taxAmount !== undefined ? result.data.taxAmount : 0,
+				gratuityAmount: 0,
+				platformFee: 0,
+				totalPrice:
+					result?.data?.totalPrice !== undefined
+						? result.data.totalPrice
+						: Math.round(tableTotal * 100),
+
+				orderMode: "dineIn",
+				fulfillmentType: "table",
+
+				items: officiallyOrderedItems,
+			};
+
+			// Best-effort print only
+			try {
+				const printResult = await printOrderReceipt(
+					printableOrder,
+					mockPrinterConfig,
+					{
+						type: "closeout",
+						showBarcode: false,
+					},
+				);
+
+				if (!printResult.success && !printResult.skipped) {
+					console.warn("Close table receipt print failed:", printResult.error);
+				}
+			} catch (printError) {
+				console.warn("Receipt print error:", printError);
+			}
+
+			navigation.goBack();
 		} catch (error) {
 			console.error("Error closing table:", error);
 			Alert.alert(
@@ -142,7 +243,6 @@ const ManagePartyScreen = () => {
 			setIsClosing(false);
 		}
 	};
-
 	const handleAddItemManually = () => {
 		if (!partyData) return;
 		navigation.navigate("ServerMenuScreen", {
@@ -176,7 +276,6 @@ const ManagePartyScreen = () => {
 			item.status === "preparing" ||
 			item.status === "ready";
 
-		// Logic to detect a discount
 		const hasDiscount =
 			item.discountedPrice !== null &&
 			item.discountedPrice !== undefined &&
@@ -188,13 +287,35 @@ const ManagePartyScreen = () => {
 			? parseFloat(item.discountedPrice) * quantity
 			: originalTotal;
 
+		const selectedModifiers = Array.isArray(item.selectedModifiers)
+			? item.selectedModifiers
+			: [];
+
 		return (
 			<View style={styles.itemRow}>
 				<View style={styles.itemQtyBox}>
 					<Text style={styles.itemQtyText}>{item.quantity}</Text>
 				</View>
+
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName || item.name}</Text>
+
+					{selectedModifiers.length > 0 && (
+						<View style={styles.modifiersContainer}>
+							{selectedModifiers.map((modifier, index) => (
+								<Text
+									key={`${modifier.optionId || modifier.name || "modifier"}-${index}`}
+									style={styles.modifierText}
+								>
+									• {getLocalizedModifierName(modifier)}
+									{Number(modifier.price || 0) > 0
+										? ` (+$${Number(modifier.price).toFixed(2)})`
+										: ""}
+								</Text>
+							))}
+						</View>
+					)}
+
 					{item.specialInstructions ? (
 						<Text style={styles.itemInstructions}>
 							"
@@ -208,6 +329,7 @@ const ManagePartyScreen = () => {
 						</Text>
 					) : null}
 				</View>
+
 				<View style={styles.itemTrailing}>
 					<View style={styles.priceContainer}>
 						{hasDiscount && (
@@ -221,6 +343,7 @@ const ManagePartyScreen = () => {
 							${finalTotal.toFixed(2)}
 						</Text>
 					</View>
+
 					<View
 						style={[
 							styles.statusBadge,
@@ -287,11 +410,49 @@ const ManagePartyScreen = () => {
 
 			{/* FOOTER ACTION BAR */}
 			<View style={styles.footer}>
-				<View style={styles.totalsRow}>
-					<Text style={styles.totalLabel}>
-						{t("table_total", "Table Total")}:
-					</Text>
-					<Text style={styles.totalAmount}>${tableTotal.toFixed(2)}</Text>
+				<View style={styles.summaryBlock}>
+					<View style={styles.summaryRow}>
+						<Text style={styles.summaryLabel}>
+							{t("subtotal", "Subtotal")}:
+						</Text>
+						<Text style={styles.summaryValue}>${tableTotal.toFixed(2)}</Text>
+					</View>
+
+					<View style={styles.summaryRow}>
+						<Text style={styles.summaryLabel}>{t("tax", "Tax")}:</Text>
+						<Text style={styles.summaryValue}>${taxTotal.toFixed(2)}</Text>
+					</View>
+
+					{gratuityTotal > 0 && (
+						<View style={styles.summaryRow}>
+							<Text style={styles.summaryLabel}>
+								{t("gratuity", "Gratuity")}:
+							</Text>
+							<Text style={styles.summaryValue}>
+								${gratuityTotal.toFixed(2)}
+							</Text>
+						</View>
+					)}
+
+					{serviceFeeTotal > 0 && (
+						<View style={styles.summaryRow}>
+							<Text style={styles.summaryLabel}>
+								{t("service_fee", "Service Fee")}:
+							</Text>
+							<Text style={styles.summaryValue}>
+								${serviceFeeTotal.toFixed(2)}
+							</Text>
+						</View>
+					)}
+
+					<View style={styles.summaryDivider} />
+
+					<View style={styles.totalsRow}>
+						<Text style={styles.totalLabel}>
+							{t("table_total", "Table Total")}:
+						</Text>
+						<Text style={styles.totalAmount}>${grandTotal.toFixed(2)}</Text>
+					</View>
 				</View>
 
 				<TextInput
@@ -513,6 +674,38 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 		fontWeight: "600",
 		marginBottom: 12,
+	},
+	modifiersContainer: {
+		marginTop: 4,
+	},
+	modifierText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		lineHeight: 17,
+		marginTop: 2,
+	},
+	summaryBlock: {
+		marginBottom: 15,
+	},
+	summaryRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 8,
+	},
+	summaryLabel: {
+		fontSize: 15,
+		color: colors.textMedium,
+	},
+	summaryValue: {
+		fontSize: 15,
+		fontWeight: "600",
+		color: colors.textDark,
+	},
+	summaryDivider: {
+		height: 1,
+		backgroundColor: colors.borderLight,
+		marginVertical: 10,
 	},
 });
 

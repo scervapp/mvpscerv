@@ -16,74 +16,149 @@ import {
 	TouchableOpacity,
 } from "react-native";
 import { useRoute, useNavigation } from "@react-navigation/native";
+import { useTranslation } from "react-i18next";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+
 import MenuItemsList from "../../components/customer/MenuItemsList";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { fetchMenu } from "../../utils/customerUtils";
 import colors from "../../utils/styles/appStyles";
-import { useTranslation } from "react-i18next";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 const PartyMenuScreen = () => {
 	const { t } = useTranslation();
 	const route = useRoute();
 	const navigation = useNavigation();
-	const { partyId, restaurantId } = route.params;
+
+	const partyId = route.params?.partyId || null;
+	const fallbackRestaurantId = route.params?.restaurantId || null;
 
 	const { addItemToPartyBasket, isLoadingParty, partyDetails } = useParty();
-
 	const { currentUserData } = useContext(AuthContext);
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
-
-	// 🚨 STATE: Quick-select checkbox items
 	const [selectedItems, setSelectedItems] = useState({});
-
-	// 🚨 NEW STATE: Items customized via the modal (qty, instructions)
 	const [customizedItems, setCustomizedItems] = useState([]);
-
 	const [isAddingBulk, setIsAddingBulk] = useState(false);
 
+	const activeParty = partyId ? partyDetails?.[partyId] || null : null;
+	const isPickupMode = activeParty?.orderMode === "pickup";
+	const resolvedRestaurantId =
+		activeParty?.restaurantId || fallbackRestaurantId || null;
+	const restaurantName =
+		activeParty?.restaurantName ||
+		route.params?.restaurantName ||
+		t("restaurant", "Restaurant");
+
+	const getItbmsRateFromCategory = (categoryValue) => {
+		const category = String(categoryValue || "")
+			.trim()
+			.toLowerCase();
+
+		const isAlcohol =
+			category === "beer" ||
+			category === "wine" ||
+			category === "cocktails" ||
+			category === "spirits" ||
+			category === "alcoholic drinks";
+
+		return isAlcohol ? 10 : 7;
+	};
+
 	useEffect(() => {
-		if (
-			partyDetails[partyId]?.id === partyId &&
-			partyDetails[partyId]?.restaurantName
-		) {
+		if (!partyId) {
 			navigation.setOptions({
-				title: `${t("add_to_party_at")} ${
-					partyDetails[partyId].restaurantName
-				}`,
+				title: t("menu", "Menu"),
 			});
+			return;
 		}
-	}, [partyId, partyDetails[partyId]?.restaurantName, navigation]);
+
+		if (isPickupMode) {
+			navigation.setOptions({
+				title: t("pickup_order", "Pickup Order"),
+			});
+			return;
+		}
+
+		if (activeParty?.restaurantName) {
+			navigation.setOptions({
+				title: `${t("add_to_party_at", "Add to Party at")} ${activeParty.restaurantName}`,
+			});
+			return;
+		}
+
+		navigation.setOptions({
+			title: t("menu", "Menu"),
+		});
+	}, [partyId, isPickupMode, activeParty?.restaurantName, navigation, t]);
 
 	useEffect(() => {
 		let isMounted = true;
+
 		const loadMenu = async () => {
-			const restId =
-				partyDetails[partyId]?.restaurantId || route.params?.restaurantId;
-			if (!restId || partyDetails[partyId]?.id !== partyId) {
-				if (isMounted) setIsLoadingMenu(false);
-				Alert.alert(t("error"), t("restaurant_id_or_party_details_missing"));
+			if (!partyId) {
+				if (isMounted) {
+					setIsLoadingMenu(false);
+					Alert.alert(
+						t("error", "Error"),
+						t("party_details_missing", "Party details are missing."),
+					);
+				}
 				return;
 			}
+
+			// For pickup, allow loading as soon as we know the restaurant ID.
+			// For dine-in, require the full party object to be present in context.
+			// ✅ Pickup: only need restaurantId
+			if (!partyId) {
+				setIsLoadingMenu(false);
+				return;
+			}
+
+			if (isPickupMode) {
+				// For pickup: only need restaurantId
+				if (!resolvedRestaurantId) {
+					// ⛔ WAIT instead of erroring
+					return;
+				}
+			} else {
+				// For dine-in: wait for full party hydration
+				if (!resolvedRestaurantId || !activeParty) {
+					return;
+				}
+			}
+
 			setIsLoadingMenu(true);
+
 			try {
-				const fetchedMenu = await fetchMenu(restId);
-				if (isMounted) setMenuItems(fetchedMenu);
+				const fetchedMenu = await fetchMenu(resolvedRestaurantId);
+
+				if (!isMounted) return;
+
+				setMenuItems(Array.isArray(fetchedMenu) ? fetchedMenu : []);
 			} catch (error) {
 				console.error("PartyMenuScreen: Error fetching menu:", error);
-				Alert.alert(t("error"), t("could_not_load_menu_items"));
+
+				if (isMounted) {
+					Alert.alert(
+						t("error", "Error"),
+						t("could_not_load_menu_items", "Could not load menu items."),
+					);
+				}
 			} finally {
-				if (isMounted) setIsLoadingMenu(false);
+				if (isMounted) {
+					setIsLoadingMenu(false);
+				}
 			}
 		};
+
 		loadMenu();
+
 		return () => {
 			isMounted = false;
 		};
-	}, [partyId, partyDetails, route.params?.restaurantId]);
+	}, [partyId, resolvedRestaurantId, isPickupMode, activeParty, t]);
 
 	const toggleItemSelection = useCallback((itemId) => {
 		setSelectedItems((prev) => ({
@@ -92,7 +167,6 @@ const PartyMenuScreen = () => {
 		}));
 	}, []);
 
-	// 🚨 UPDATED: This now ONLY saves to local state! No database writes here.
 	const handleConfirmAddItemToPartyContext = useCallback(
 		(itemDataFromModal) => {
 			setCustomizedItems((prev) => [...prev, itemDataFromModal]);
@@ -100,8 +174,7 @@ const PartyMenuScreen = () => {
 		[],
 	);
 
-	// 🚨 UPDATED: Bulk Add now loops through BOTH arrays and sends them at once
-	const handleBulkAddSelectedItems = async () => {
+	const handleBulkAddSelectedItems = useCallback(async () => {
 		if (!partyId || !currentUserData?.uid) return;
 
 		const quickAddItems = menuItems.filter((item) => selectedItems[item.id]);
@@ -109,29 +182,34 @@ const PartyMenuScreen = () => {
 		if (quickAddItems.length === 0 && customizedItems.length === 0) return;
 
 		setIsAddingBulk(true);
-		try {
-			// 1. Process Quick Add (Checkboxes)
-			for (const item of quickAddItems) {
-				// 🚨 NEW: Look for fullName first, then firstName, then fallback to "Myself"
-				const myName =
-					currentUserData?.fullName ||
-					currentUserData?.firstName ||
-					t("myself", "Myself");
 
+		try {
+			const myName =
+				currentUserData?.fullName ||
+				currentUserData?.firstName ||
+				t("myself", "Myself");
+
+			// 1. Quick-select items (simple items, no custom modifier selections)
+			for (const item of quickAddItems) {
 				const partyAddItemData = {
-					partyId: partyId,
+					partyId,
 					orderingForUserId: currentUserData.uid,
-					orderingForPipName: myName, // 🚨 Updated
+					orderingForPipName: myName,
 				};
 
 				const itemDetailsForPartyContext = {
 					id: item.id,
 					name: item.name,
 					price: item.price,
+					basePrice: item.price || 0,
+					modifiersTotal: 0,
+					selectedModifiers: [],
 					category: item.category,
 					quantity: 1,
 					specialInstructions: "",
-					restaurantId: item.restaurantId,
+					restaurantId: item.restaurantId || resolvedRestaurantId,
+					imageUri: item.imageUri || item.image || null,
+					itbmsRate: getItbmsRateFromCategory(item.category),
 				};
 
 				await addItemToPartyBasket(
@@ -140,22 +218,56 @@ const PartyMenuScreen = () => {
 				);
 			}
 
-			// 2. Process Customized Items (Modal)
+			// 2. Customized items from modal
 			for (const customItem of customizedItems) {
 				const partyAddItemData = {
-					partyId: customItem.partyContextData.partyId,
-					orderingForUserId: customItem.partyContextData.currentUserId,
-					orderingForPipName: customItem.partyContextData.orderingForPipName,
+					partyId: customItem?.partyContextData?.partyId || partyId,
+					orderingForUserId:
+						customItem?.partyContextData?.currentUserId || currentUserData.uid,
+					orderingForPipName:
+						customItem?.partyContextData?.orderingForPipName || myName,
 				};
 
 				const itemDetailsForPartyContext = {
-					id: customItem.menuItemDetails.id,
-					name: customItem.menuItemDetails.name,
-					price: customItem.menuItemDetails.price,
-					category: customItem.menuItemDetails.category,
-					quantity: customItem.quantity,
-					specialInstructions: customItem.specialInstructions,
-					restaurantId: customItem.menuItemDetails.restaurantId,
+					id: customItem?.menuItemDetails?.id,
+					name: customItem?.menuItemDetails?.name,
+
+					price:
+						customItem?.menuItemDetails?.finalUnitPrice !== undefined &&
+						customItem?.menuItemDetails?.finalUnitPrice !== null
+							? customItem.menuItemDetails.finalUnitPrice
+							: customItem?.menuItemDetails?.price,
+
+					basePrice:
+						customItem?.menuItemDetails?.basePrice !== undefined &&
+						customItem?.menuItemDetails?.basePrice !== null
+							? customItem.menuItemDetails.basePrice
+							: customItem?.menuItemDetails?.price || 0,
+
+					modifiersTotal:
+						customItem?.menuItemDetails?.modifiersTotal !== undefined &&
+						customItem?.menuItemDetails?.modifiersTotal !== null
+							? customItem.menuItemDetails.modifiersTotal
+							: 0,
+
+					selectedModifiers: Array.isArray(
+						customItem?.menuItemDetails?.selectedModifiers,
+					)
+						? customItem.menuItemDetails.selectedModifiers
+						: [],
+
+					category: customItem?.menuItemDetails?.category,
+					quantity: customItem?.quantity || 1,
+					specialInstructions: customItem?.specialInstructions || "",
+					restaurantId:
+						customItem?.menuItemDetails?.restaurantId || resolvedRestaurantId,
+					imageUri:
+						customItem?.menuItemDetails?.imageUri ||
+						customItem?.menuItemDetails?.image ||
+						null,
+					itbmsRate: getItbmsRateFromCategory(
+						customItem?.menuItemDetails?.category,
+					),
 				};
 
 				await addItemToPartyBasket(
@@ -164,11 +276,17 @@ const PartyMenuScreen = () => {
 				);
 			}
 
-			// 3. Clear State and Navigate
 			setSelectedItems({});
 			setCustomizedItems([]);
 
-			navigation.goBack();
+			if (isPickupMode) {
+				navigation.navigate("PickupCart", {
+					partyId,
+					restaurantId: resolvedRestaurantId,
+				});
+			} else {
+				navigation.goBack();
+			}
 		} catch (error) {
 			console.error("Error bulk adding items:", error);
 			Alert.alert(
@@ -181,26 +299,66 @@ const PartyMenuScreen = () => {
 		} finally {
 			setIsAddingBulk(false);
 		}
-	};
+	}, [
+		partyId,
+		currentUserData?.uid,
+		currentUserData?.fullName,
+		currentUserData?.firstName,
+		menuItems,
+		selectedItems,
+		customizedItems,
+		addItemToPartyBasket,
+		isPickupMode,
+		navigation,
+		resolvedRestaurantId,
+		t,
+	]);
 
 	const partyMembersForModal = useMemo(() => {
-		return partyDetails[partyId]?.guestPips || [];
-	}, [partyId, partyDetails]);
+		if (isPickupMode) return [];
+		return activeParty?.guestPips || [];
+	}, [isPickupMode, activeParty?.guestPips]);
 
-	if (isLoadingParty || !partyDetails[partyId] || isLoadingMenu) {
+	const selectedCount = useMemo(() => {
+		return Object.values(selectedItems).filter(Boolean).length;
+	}, [selectedItems]);
+
+	const totalPendingCount = selectedCount + customizedItems.length;
+
+	const shouldShowInitialLoader =
+		isLoadingMenu || (!isPickupMode && (isLoadingParty || !activeParty));
+
+	if (shouldShowInitialLoader) {
 		return (
 			<SafeAreaView style={styles.centeredScreen}>
 				<ActivityIndicator size="large" color={colors.primary || "#2196F3"} />
 				<Text style={styles.loadingText}>
-					{isLoadingMenu ? t("loading_menu") : t("syncing_party_details")}...
+					{isLoadingMenu
+						? `${t("loading_menu", "Loading menu")}...`
+						: `${t("syncing_party_details", "Syncing party details")}...`}
 				</Text>
 			</SafeAreaView>
 		);
 	}
 
-	// 🚨 Calculate the total number of pending items
-	const selectedCount = Object.values(selectedItems).filter(Boolean).length;
-	const totalPendingCount = selectedCount + customizedItems.length;
+	if (!partyId || !resolvedRestaurantId) {
+		return (
+			<SafeAreaView style={styles.centeredScreen}>
+				<MaterialCommunityIcons
+					name="alert-circle-outline"
+					size={52}
+					color={colors.statusDanger}
+				/>
+				<Text style={styles.errorTitle}>{t("error", "Error")}</Text>
+				<Text style={styles.errorText}>
+					{t(
+						"restaurant_id_or_party_details_missing",
+						"Restaurant or party details are missing.",
+					)}
+				</Text>
+			</SafeAreaView>
+		);
+	}
 
 	return (
 		<SafeAreaView style={styles.screen}>
@@ -209,9 +367,13 @@ const PartyMenuScreen = () => {
 				isLoading={isLoadingMenu}
 				ListHeaderComponent={
 					<View style={styles.headerContainer}>
-						<Text style={styles.headerTitle}>{t("order_for_party")}</Text>
+						<Text style={styles.headerTitle}>
+							{isPickupMode
+								? t("pickup_order", "Pickup Order")
+								: t("order_for_party", "Order for Party")}
+						</Text>
 						<Text style={styles.headerSubtitle}>
-							{t("at")} {partyDetails[partyId].restaurantName}
+							{t("at", "At")} {restaurantName}
 						</Text>
 					</View>
 				}
@@ -219,20 +381,23 @@ const PartyMenuScreen = () => {
 				onConfirmAddItemToContext={handleConfirmAddItemToPartyContext}
 				orderingMode="party"
 				partyData={{
-					partyId: partyId,
-					currentUserId: currentUserData.uid,
+					partyId,
+					currentUserId: currentUserData?.uid,
 				}}
 				selectedItems={selectedItems}
 				onToggleItemSelection={toggleItemSelection}
 			/>
 
-			{/* 🚨 UPDATED BOTTOM BUTTON */}
 			{totalPendingCount > 0 && (
 				<View style={styles.bulkAddContainer}>
 					<TouchableOpacity
-						style={styles.bulkAddButton}
+						style={[
+							styles.bulkAddButton,
+							isAddingBulk && styles.bulkAddButtonDisabled,
+						]}
 						onPress={handleBulkAddSelectedItems}
 						disabled={isAddingBulk}
+						activeOpacity={0.85}
 					>
 						{isAddingBulk ? (
 							<ActivityIndicator size="small" color="#fff" />
@@ -265,8 +430,27 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		alignItems: "center",
 		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 24,
 	},
-	loadingText: { marginTop: 10, fontSize: 16, color: colors.textMedium },
+	loadingText: {
+		marginTop: 10,
+		fontSize: 16,
+		color: colors.textMedium,
+		textAlign: "center",
+	},
+	errorTitle: {
+		marginTop: 12,
+		fontSize: 20,
+		fontWeight: "700",
+		color: colors.textDark,
+		textAlign: "center",
+	},
+	errorText: {
+		marginTop: 8,
+		fontSize: 15,
+		color: colors.textMedium,
+		textAlign: "center",
+	},
 	headerContainer: {
 		padding: 20,
 	},
@@ -305,6 +489,9 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		justifyContent: "center",
 		alignItems: "center",
+	},
+	bulkAddButtonDisabled: {
+		opacity: 0.8,
 	},
 	bulkAddButtonText: {
 		color: "#fff",

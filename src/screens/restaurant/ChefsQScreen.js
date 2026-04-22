@@ -25,9 +25,57 @@ import { useTranslation } from "react-i18next";
 // --- Enterprise Kitchen Ticket ---
 const KitchenTicket = React.memo(
 	({ order, onUpdateStatus, viewMode, ticketWidth, currentTime }) => {
-		// ... (Keep your exact KitchenTicket component code here)
 		const { t, i18n } = useTranslation();
 		const currentLang = i18n.language?.substring(0, 2) || "en";
+
+		const getLocalizedText = (value) => {
+			if (!value) return "";
+			if (typeof value === "string") return value;
+
+			return value[currentLang] || value.en || value.es || value.original || "";
+		};
+		const modifiersForThisStation = (item) => {
+			if (viewMode === "kitchen") {
+				if (
+					Array.isArray(item.kitchenModifiers) &&
+					item.kitchenModifiers.length > 0
+				) {
+					return item.kitchenModifiers;
+				}
+			} else if (viewMode === "bar") {
+				if (Array.isArray(item.barModifiers) && item.barModifiers.length > 0) {
+					return item.barModifiers;
+				}
+			}
+
+			// Fallback for older tickets that only have selectedModifiers
+			if (Array.isArray(item.selectedModifiers)) {
+				return item.selectedModifiers.filter((modifier) => {
+					const category = String(modifier?.category || "")
+						.trim()
+						.toLowerCase();
+
+					const isDrink = [
+						"beer",
+						"wine",
+						"cocktails",
+						"spirits",
+						"sodas",
+						"drinks",
+						"juices",
+						"non-alcoholic drinks",
+						"alcoholic drinks",
+						"beverages",
+						"coffee",
+						"tea",
+					].includes(category);
+
+					return viewMode === "bar" ? isDrink : !isDrink;
+				});
+			}
+
+			return [];
+		};
 
 		const waitTime = moment(currentTime).diff(
 			moment(order.createdAt?.toDate()),
@@ -38,6 +86,9 @@ const KitchenTicket = React.memo(
 		if (itemsToDisplay.length === 0) return null;
 
 		const currentStatus = order.stationStatuses?.[viewMode] || "new";
+
+		// 🚨 1. Determine if this is a hotel order
+		const isPickup = order.fulfillmentType === "hotel_pickup";
 
 		const getUrgencyColor = () => {
 			if (currentStatus === "ready") return colors.statusSuccess;
@@ -63,6 +114,14 @@ const KitchenTicket = React.memo(
 						<Text style={styles.ticketServer} numberOfLines={1}>
 							{order.server?.name || "Staff"}
 						</Text>
+
+						{/* 🚨 2. Render the high-visibility TO-GO badge */}
+						{isPickup && (
+							<View style={styles.togoBadge}>
+								<Ionicons name="bag-handle" size={12} color="#FFF" />
+								<Text style={styles.togoText}>TO-GO / PICKUP</Text>
+							</View>
+						)}
 					</View>
 					<View style={[styles.timerBadge, { backgroundColor: urgencyColor }]}>
 						<Text style={styles.timerText}>{waitTime}m</Text>
@@ -70,32 +129,54 @@ const KitchenTicket = React.memo(
 				</View>
 
 				<View style={styles.ticketItems}>
-					{itemsToDisplay.map((item, index) => (
-						<View key={`${item.id}-${index}`} style={styles.ticketItemRow}>
-							<Text style={styles.itemQuantity}>{item.quantity}x</Text>
-							<View style={styles.itemDetails}>
-								<Text style={styles.itemName} numberOfLines={2}>
-									{item.dishName}
-								</Text>
-								{item.orderedFor && item.orderedFor !== "Myself" && (
-									<Text style={styles.itemFor} numberOfLines={1}>
-										{t("for")}: {item.orderedFor}
+					{itemsToDisplay.map((item, index) => {
+						const stationModifiers = modifiersForThisStation(item);
+
+						return (
+							<View key={`${item.id}-${index}`} style={styles.ticketItemRow}>
+								<Text style={styles.itemQuantity}>{item.quantity}x</Text>
+								<View style={styles.itemDetails}>
+									<Text style={styles.itemName} numberOfLines={2}>
+										{item.dishName}
 									</Text>
-								)}
-								{item.specialInstructions ? (
-									<Text style={styles.itemInstructions} numberOfLines={2}>
-										"
-										{typeof item.specialInstructions === "object"
-											? item.specialInstructions[currentLang] ||
-												item.specialInstructions.original ||
-												item.specialInstructions.en
-											: item.specialInstructions}
-										"
-									</Text>
-								) : null}
+
+									{item.orderedFor && item.orderedFor !== "Myself" && (
+										<Text style={styles.itemFor} numberOfLines={1}>
+											{t("for", "For")}: {item.orderedFor}
+										</Text>
+									)}
+
+									{stationModifiers.length > 0 && (
+										<View style={styles.modifiersContainer}>
+											{stationModifiers.map((modifier, modifierIndex) => (
+												<Text
+													key={`${modifier.optionId || modifier.name || "modifier"}-${modifierIndex}`}
+													style={styles.modifierText}
+												>
+													• {getLocalizedText(modifier.name)}
+													{Number(modifier.price || 0) > 0
+														? ` (+$${Number(modifier.price).toFixed(2)})`
+														: ""}
+												</Text>
+											))}
+										</View>
+									)}
+
+									{item.specialInstructions ? (
+										<Text style={styles.itemInstructions} numberOfLines={3}>
+											"
+											{typeof item.specialInstructions === "object"
+												? item.specialInstructions[currentLang] ||
+													item.specialInstructions.original ||
+													item.specialInstructions.en
+												: item.specialInstructions}
+											"
+										</Text>
+									) : null}
+								</View>
 							</View>
-						</View>
-					))}
+						);
+					})}
 				</View>
 
 				<TouchableOpacity
@@ -225,13 +306,18 @@ const ChefsQScreen = ({ navigation }) => {
 	// 7. Action Logic
 	const handleUpdateOrderStatus = async (order, newStatus, station) => {
 		try {
+			// ✅ Always update kitchen_orders (source of truth)
 			await db
 				.collection("kitchen_orders")
 				.doc(order.id)
 				.update({
 					[`stationStatuses.${station}`]: newStatus,
 				});
-			if (order.partyId) {
+
+			// ❌ Skip basket updates for pickup
+			const isPickup = order.fulfillmentType === "hotel_pickup";
+
+			if (!isPickup && order.partyId) {
 				await db
 					.collection("shared_baskets")
 					.doc(order.partyId)
@@ -241,6 +327,7 @@ const ChefsQScreen = ({ navigation }) => {
 					});
 			}
 		} catch (e) {
+			console.error("❌ Update failed:", e);
 			Alert.alert("Error", "Update failed");
 		}
 	};
@@ -495,6 +582,33 @@ const styles = StyleSheet.create({
 		zIndex: 999, // Ensures it sits above the tickets
 		borderWidth: 1,
 		borderColor: "rgba(255, 255, 255, 0.2)",
+	},
+	togoBadge: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.statusWarning, // High visibility orange
+		paddingVertical: 3,
+		paddingHorizontal: 8,
+		borderRadius: 4,
+		alignSelf: "flex-start",
+		marginTop: 4,
+	},
+	togoText: {
+		color: "#FFF",
+		fontSize: 10,
+		fontWeight: "bold",
+		marginLeft: 4,
+	},
+	modifiersContainer: {
+		marginTop: 4,
+		marginBottom: 2,
+	},
+	modifierText: {
+		fontSize: 12,
+		color: "#475569",
+		fontWeight: "700",
+		lineHeight: 16,
+		marginTop: 2,
 	},
 });
 

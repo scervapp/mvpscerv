@@ -17,6 +17,49 @@ const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
 const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
+const DRINK_CATEGORIES = [
+	"Beer",
+	"Wine",
+	"Cocktails",
+	"Spirits",
+	"Sodas",
+	"Drinks",
+	"Juices",
+	"Non-Alcoholic Drinks",
+	"Alcoholic Drinks",
+	"Beverages",
+];
+
+const isBarCategory = (category) => {
+	const normalized = String(category || "")
+		.trim()
+		.toLowerCase();
+
+	return DRINK_CATEGORIES.some(
+		(cat) =>
+			String(cat || "")
+				.trim()
+				.toLowerCase() === normalized,
+	);
+};
+
+const getModifierDisplayName = (modifier) => {
+	if (!modifier) return "Modifier";
+
+	if (typeof modifier.name === "string") return modifier.name;
+
+	if (modifier.name && typeof modifier.name === "object") {
+		return (
+			modifier.name.en ||
+			modifier.name.es ||
+			modifier.name.original ||
+			"Modifier"
+		);
+	}
+
+	return "Modifier";
+};
+
 /**
  * @async
  * @function getRestaurantTier
@@ -510,13 +553,178 @@ exports.preparePayment = functions
 	});
 
 /**
+ * Creates a kitchen_orders ticket for a paid pickup order.
+ * Safe to call repeatedly: uses orderId as the kitchen order doc id.
+ */
+const createKitchenOrderForPaidPickup = async ({
+	orderId,
+	restaurantId,
+	partyId = null,
+	items = [],
+	fulfillmentType = "hotel_pickup",
+	locationName = "Hotel Pickup",
+	customerName = "",
+	customerEmail = "",
+	pickupSpecialInstructions = "",
+}) => {
+	if (!orderId || !restaurantId) {
+		throw new Error(
+			`[PickupKitchenOrder] Missing orderId or restaurantId. orderId=${orderId}, restaurantId=${restaurantId}`,
+		);
+	}
+
+	const kitchenOrderRef = db.collection("kitchen_orders").doc(orderId);
+	const existingSnap = await kitchenOrderRef.get();
+
+	// Idempotency: if it already exists, do nothing
+	if (existingSnap.exists) {
+		console.log(
+			`[PickupKitchenOrder] kitchen_orders/${orderId} already exists. Skipping.`,
+		);
+		return;
+	}
+
+	let hasKitchen = false;
+	let hasBar = false;
+
+	const normalizedItems = (items || []).map((item, index) => {
+		const category = item.category || "Other";
+		const destination = isBarCategory(category) ? "bar" : "kitchen";
+
+		const selectedModifiers = Array.isArray(item.selectedModifiers)
+			? item.selectedModifiers
+			: [];
+
+		const kitchenModifiers = [];
+		const barModifiers = [];
+
+		selectedModifiers.forEach((modifier) => {
+			const modifierCategory = modifier.category || "Extras";
+			const normalizedModifier = {
+				optionId: modifier.optionId || null,
+				groupId: modifier.groupId || null,
+				groupName: modifier.groupName || "",
+				name: getModifierDisplayName(modifier),
+				price:
+					modifier.price !== undefined && modifier.price !== null
+						? Number(modifier.price)
+						: 0,
+				category: modifierCategory,
+			};
+
+			if (isBarCategory(modifierCategory)) {
+				barModifiers.push(normalizedModifier);
+			} else {
+				kitchenModifiers.push(normalizedModifier);
+			}
+		});
+
+		if (destination === "kitchen") hasKitchen = true;
+		if (destination === "bar") hasBar = true;
+
+		if (kitchenModifiers.length > 0) hasKitchen = true;
+		if (barModifiers.length > 0) hasBar = true;
+
+		return {
+			id: item.id || `item_${index}`,
+			dishName: item.dishName || item.name || "Unknown Item",
+			quantity: item.quantity || 1,
+			specialInstructions: item.specialInstructions || "",
+			orderedFor:
+				item.orderedFor ||
+				item.orderedByPipName ||
+				item.customerName ||
+				"Guest",
+			destination,
+			selectedModifiers: selectedModifiers,
+			kitchenModifiers: kitchenModifiers,
+			barModifiers: barModifiers,
+		};
+	});
+
+	console.log(
+		"[PICKUP KITCHEN MODIFIER DEBUG]",
+		JSON.stringify(normalizedItems, null, 2),
+	);
+	const initialStationStatuses = {};
+	if (hasKitchen) initialStationStatuses.kitchen = "new";
+	if (hasBar) initialStationStatuses.bar = "new";
+
+	const kitchenOrderData = {
+		restaurantId,
+		orderId,
+		partyId,
+
+		table: {
+			id: "hotel_pickup",
+			name: locationName,
+		},
+
+		server: {
+			id: "pickup_queue",
+			name: "Pickup Queue",
+		},
+
+		// ✅ ADD THESE (CRITICAL)
+		customerName: customerName || "Pickup Guest",
+		customerEmail: customerEmail || null,
+		pickupSpecialInstructions: pickupSpecialInstructions || "",
+
+		items: normalizedItems,
+
+		stationStatuses: initialStationStatuses,
+		overallStatus: "active",
+		status: "new",
+		fulfillmentType,
+		orderMode: "pickup",
+		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		restaurantId,
+		orderId,
+		partyId,
+		table: {
+			id: "hotel_pickup",
+			name: locationName,
+		},
+		server: {
+			id: "pickup_queue",
+			name: "Pickup Queue",
+		},
+
+		customerName: customerName || "Pickup Guest",
+		customerEmail: customerEmail || null,
+		pickupSpecialInstructions: pickupSpecialInstructions || "",
+
+		items: normalizedItems,
+		stationStatuses: initialStationStatuses,
+		overallStatus: "active",
+		status: "new",
+		fulfillmentType,
+		orderMode: "pickup",
+		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+	};
+
+	await kitchenOrderRef.set(kitchenOrderData);
+
+	console.log(
+		`[PickupKitchenOrder] Created kitchen_orders/${orderId} for paid pickup.`,
+	);
+};
+
+/**
  * @function fulfillOrder
  * @description A consolidated, robust, and GATEWAY-AGNOSTIC function to process a successful payment.
+ */
+/**
+ * @function fulfillOrder
+ * @description A consolidated, robust, and gateway-agnostic function to process a successful payment.
+ * Safely handles dine-in party orders, pickup orders, and individual orders with idempotent cleanup.
  */
 const fulfillOrder = async ({
 	orderId,
 	paymentType,
 	userId,
+	customerEmail = null,
+	customerName = null,
 	restaurantId,
 	processor,
 	processorTransactionId,
@@ -534,106 +742,211 @@ const fulfillOrder = async ({
 	}
 
 	console.log(
-		`[Fulfill] Fulfilling ${paymentType} order ${orderId} via ${processor.toUpperCase()}.`,
+		`[Fulfill] Fulfilling ${paymentType} order ${orderId} via ${String(
+			processor || "unknown",
+		).toUpperCase()}.`,
 	);
 
 	const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 	const pendingOrderSnap = await pendingOrderRef.get();
 
+	// Idempotency guard: already fulfilled or missing pending order
 	if (!pendingOrderSnap.exists) {
 		console.log(
-			`[Fulfill] Idempotency check: Pending order ${orderId} already processed.`,
+			`[Fulfill] Idempotency check: Pending order ${orderId} already processed or missing.`,
 		);
 		return;
 	}
 
-	const pendingOrderData = pendingOrderSnap.data();
-	const readableOrderId = await generateOrderId(restaurantId);
+	const pendingOrderData = pendingOrderSnap.data() || {};
+
+	// Defensive normalization
+	const normalizedRestaurantId =
+		restaurantId || pendingOrderData.restaurantId || null;
+
+	if (!normalizedRestaurantId) {
+		throw new Error(
+			`[Fulfill] Cannot fulfill order ${orderId}: missing restaurantId.`,
+		);
+	}
+
+	const isPickupOrder =
+		pendingOrderData.orderMode === "pickup" ||
+		pendingOrderData.fulfillmentType === "hotel_pickup" ||
+		pendingOrderData.type === "pickup";
+
+	const readableOrderId = await generateOrderId(normalizedRestaurantId);
 
 	const restaurantDoc = await db
 		.collection("restaurants")
-		.doc(restaurantId)
+		.doc(normalizedRestaurantId)
 		.get();
-	const restaurantData = restaurantDoc.data();
+
+	if (!restaurantDoc.exists) {
+		throw new Error(
+			`[Fulfill] Restaurant ${normalizedRestaurantId} not found for order ${orderId}.`,
+		);
+	}
+
+	const restaurantData = restaurantDoc.data() || {};
 	const payoutRouting = restaurantData.payoutMethod || "stripe_connect";
 
-	// 1. Ensure Cents Integration
+	// Monetary normalization
 	const subtotal = Number(pendingOrderData.subtotal) || 0;
 	const gratuity = Number(pendingOrderData.gratuity) || 0;
-	const platformFee = platformFeeActual || pendingOrderData.platformFee || 0;
-	const processorFee = processorFeeActual || 0;
-	const taxAmount = pendingOrderData.taxAmount || 0;
+	const platformFee = Number(
+		platformFeeActual || pendingOrderData.platformFee || 0,
+	);
+	const processorFee = Number(processorFeeActual || 0);
+	const taxAmount = Number(
+		pendingOrderData.taxAmount || pendingOrderData.tax || 0,
+	);
+	const normalizedTotalPrice = Number(
+		totalPrice || pendingOrderData.totalPrice || 0,
+	);
 
-	const restaurantTierInfo = await getRestaurantTier(restaurantId);
-	const payoutPercentage = restaurantTierInfo.payoutPercentage || 0.9;
+	const restaurantTierInfo = await getRestaurantTier(normalizedRestaurantId);
+	const payoutPercentage = Number(restaurantTierInfo.payoutPercentage || 0.9);
+
+	// Preserve your existing payout calculation behavior
 	const amountToTransfer = Math.round(subtotal * payoutPercentage) + gratuity;
 
 	let turnaroundTimeMinutes = 0;
-	if (pendingOrderData.createdAt) {
-		const openedAtMs = pendingOrderData.createdAt.toDate().getTime();
-		turnaroundTimeMinutes = Math.round((Date.now() - openedAtMs) / 60000);
+	try {
+		if (pendingOrderData.createdAt.toDate) {
+			const openedAtMs = pendingOrderData.createdAt.toDate().getTime();
+			turnaroundTimeMinutes = Math.max(
+				0,
+				Math.round((Date.now() - openedAtMs) / 60000),
+			);
+		}
+	} catch (e) {
+		console.warn(
+			`[Fulfill] Could not compute turnaroundTimeMinutes for ${orderId}:`,
+			e,
+		);
 	}
+
+	const resolvedCustomerId = pendingOrderData.customerId || userId || null;
+
+	const resolvedCustomerEmail =
+		pendingOrderData.customerEmail || customerEmail || null;
+
+	const resolvedCustomerName =
+		pendingOrderData.customerName || customerName || null;
+
+	console.log("[Fulfill Customer Debug]", {
+		orderId,
+		pendingCustomerId: pendingOrderData.customerId || null,
+		passedUserId: userId || null,
+		resolvedCustomerId,
+		pendingCustomerEmail: pendingOrderData.customerEmail || null,
+		passedCustomerEmail: customerEmail || null,
+		resolvedCustomerEmail,
+		pendingCustomerName: pendingOrderData.customerName || null,
+		passedCustomerName: customerName || null,
+		resolvedCustomerName,
+	});
 
 	const finalOrderData = {
 		id: orderId,
-		readableOrderId: readableOrderId,
+		readableOrderId,
 		partyId: pendingOrderData.partyId || null,
-		restaurantId: restaurantId,
-		restaurantName: restaurantData.name || "Scerv Partner",
+		restaurantId: normalizedRestaurantId,
+		restaurantName:
+			restaurantData.restaurantName || restaurantData.name || "Scerv Partner",
+
+		customerId: resolvedCustomerId,
+		customerEmail: resolvedCustomerEmail,
+		customerName: resolvedCustomerName,
+
 		table: pendingOrderData.table || null,
 		server: pendingOrderData.server || null,
 
-		subtotal: subtotal,
-		taxAmount: taxAmount,
+		subtotal,
+		taxAmount,
 		gratuityAmount: gratuity,
-		platformFee: platformFee,
-		processorFee: processorFee,
-		totalPrice: totalPrice,
+		platformFee,
+		processorFee,
+		totalPrice: normalizedTotalPrice,
 
 		openedAt:
 			pendingOrderData.createdAt ||
 			admin.firestore.FieldValue.serverTimestamp(),
 		fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
-		turnaroundTimeMinutes: turnaroundTimeMinutes,
+		turnaroundTimeMinutes,
 
 		items: pendingOrderData.items || [],
-		paymentProcessor: processor,
-		paymentProcessorId: processorTransactionId,
+
+		paymentProcessor: processor || "unknown",
+		paymentProcessorId: processorTransactionId || null,
 		paymentMethod: paymentType,
 		paymentStatus: "paid",
 		orderStatus: "confirmed",
+
+		type: pendingOrderData.type || paymentType,
+		orderMode:
+			pendingOrderData.orderMode || (isPickupOrder ? "pickup" : "dineIn"),
+		fulfillmentType:
+			pendingOrderData.fulfillmentType ||
+			(isPickupOrder ? "hotel_pickup" : "table"),
 	};
 
 	// 2. ATOMIC DATABASE TRANSACTION
 	try {
 		await db.runTransaction(async (t) => {
 			const transactionalPendingOrderSnap = await t.get(pendingOrderRef);
-			if (!transactionalPendingOrderSnap.exists) return;
 
-			let partySnap, basketSnap, kitchenOrdersSnap;
-			if (paymentType === "party" && pendingOrderData.partyId) {
-				const partyRef = db.collection("parties").doc(pendingOrderData.partyId);
+			// Idempotency check inside transaction
+			if (!transactionalPendingOrderSnap.exists) {
+				console.log(
+					`[Fulfill] Transaction idempotency: pending order ${orderId} no longer exists.`,
+				);
+				return;
+			}
+
+			const transactionalPendingOrderData =
+				transactionalPendingOrderSnap.data() || {};
+			const transactionalIsPickupOrder =
+				transactionalPendingOrderData.orderMode === "pickup" ||
+				transactionalPendingOrderData.fulfillmentType === "hotel_pickup" ||
+				transactionalPendingOrderData.type === "pickup";
+
+			let partySnap = null;
+			let basketSnap = null;
+			let kitchenOrdersSnap = null;
+
+			if (
+				transactionalPendingOrderData.partyId &&
+				(paymentType === "party" || transactionalIsPickupOrder)
+			) {
+				const partyRef = db
+					.collection("parties")
+					.doc(transactionalPendingOrderData.partyId);
 				partySnap = await t.get(partyRef);
 
 				const basketRef = db
 					.collection("shared_baskets")
-					.doc(pendingOrderData.partyId);
+					.doc(transactionalPendingOrderData.partyId);
 				basketSnap = await t.get(basketRef);
 
 				const kitchenQuery = db
 					.collection("kitchen_orders")
-					.where("partyId", "==", pendingOrderData.partyId);
+					.where("partyId", "==", transactionalPendingOrderData.partyId);
 				kitchenOrdersSnap = await t.get(kitchenQuery);
 			}
 
+			// Create final order
 			const finalOrderRef = db.collection("orders").doc(orderId);
 			t.set(finalOrderRef, finalOrderData);
 
-			const payerUserId = pendingOrderData.customerId || userId;
+			const payerUserId =
+				transactionalPendingOrderData.customerId || resolvedCustomerId || null;
 
-			// Global Clean: Free the paying customer
+			// Free the paying customer globally
 			if (payerUserId && payerUserId !== "anonymous") {
 				const customerRef = db.collection("customers").doc(payerUserId);
+
 				t.set(
 					customerRef,
 					{
@@ -643,49 +956,112 @@ const fulfillOrder = async ({
 					},
 					{ merge: true },
 				);
-				if (restaurantId) {
-					t.delete(customerRef.collection("baskets").doc(restaurantId));
+
+				if (normalizedRestaurantId) {
+					t.delete(
+						customerRef.collection("baskets").doc(normalizedRestaurantId),
+					);
 				}
 			}
 
 			// Individual Clean
 			if (paymentType === "individual") {
-				if (pendingOrderData.table.id) {
+				if (transactionalPendingOrderData.table.id) {
 					const tableRef = db
 						.collection("restaurants")
-						.doc(restaurantId)
+						.doc(normalizedRestaurantId)
 						.collection("tables")
-						.doc(pendingOrderData.table.id);
+						.doc(transactionalPendingOrderData.table.id);
+
 					t.update(tableRef, { status: "checkedOut" });
 				}
 			}
 
-			// Party Clean (Array Safe Filtering)
-			else if (paymentType === "party" && partySnap.exists) {
-				const partyData = partySnap.data();
+			// Pickup Clean (party-backed, but NOT dine-in table logic)
+			else if (transactionalIsPickupOrder && partySnap.exists) {
+				const partyData = partySnap.data() || {};
 
-				const updatedGuestPips = partyData.guestPips.map((pip) =>
-					pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip,
-				);
-				t.update(partySnap.ref, { guestPips: updatedGuestPips });
-
-				// Array Safe Deletion
 				if (basketSnap.exists) {
 					const currentBasketItems = basketSnap.data().items || [];
-					const paidItemIds = pendingOrderData.items.map((item) => item.id);
+					const paidItemIds = (transactionalPendingOrderData.items || []).map(
+						(item) => item.id,
+					);
+
 					const remainingItems = currentBasketItems.filter(
 						(item) => !paidItemIds.includes(item.id),
 					);
-					t.update(basketSnap.ref, { items: remainingItems });
+
+					if (remainingItems.length > 0) {
+						t.update(basketSnap.ref, {
+							items: remainingItems,
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						});
+					} else {
+						// Fully complete pickup session only when empty
+						t.update(partySnap.ref, {
+							status: "completed",
+							paymentStatus: "paid",
+							closedAt: admin.firestore.FieldValue.serverTimestamp(),
+							closedByUserId: "system_digital_checkout",
+						});
+
+						t.delete(basketSnap.ref);
+
+						if (kitchenOrdersSnap && !kitchenOrdersSnap.empty) {
+							kitchenOrdersSnap.forEach((docSnap) => t.delete(docSnap.ref));
+						}
+					}
+				} else {
+					// No basket found; still safely complete the pickup party
+					t.update(partySnap.ref, {
+						status: "completed",
+						paymentStatus: "paid",
+						closedAt: admin.firestore.FieldValue.serverTimestamp(),
+						closedByUserId: "system_digital_checkout",
+					});
 				}
 
-				const allPaid = updatedGuestPips.every(
-					(pip) => pip.paymentStatus === "paid",
+				// No table cleanup
+				// No check-in deletion
+				// No guestPips payment fan-out
+			}
+
+			// Dine-in Party Clean
+			else if (paymentType === "party" && partySnap.exists) {
+				const partyData = partySnap.data() || {};
+				const currentGuestPips = Array.isArray(partyData.guestPips)
+					? partyData.guestPips
+					: [];
+
+				const updatedGuestPips = currentGuestPips.map((pip) =>
+					pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip,
 				);
+
+				t.update(partySnap.ref, { guestPips: updatedGuestPips });
+
+				if (basketSnap.exists) {
+					const currentBasketItems = basketSnap.data().items || [];
+					const paidItemIds = (transactionalPendingOrderData.items || []).map(
+						(item) => item.id,
+					);
+
+					const remainingItems = currentBasketItems.filter(
+						(item) => !paidItemIds.includes(item.id),
+					);
+
+					t.update(basketSnap.ref, {
+						items: remainingItems,
+						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+					});
+				}
+
+				const allPaid =
+					updatedGuestPips.length > 0 &&
+					updatedGuestPips.every((pip) => pip.paymentStatus === "paid");
 
 				if (allPaid) {
 					t.update(partySnap.ref, {
-						status: "completed",
+						status: "checkedOut", // ✅ keep visible for cleaning
 						paymentStatus: "paid",
 						closedAt: admin.firestore.FieldValue.serverTimestamp(),
 						closedByUserId: "system_digital_checkout",
@@ -697,6 +1073,7 @@ const fulfillOrder = async ({
 							.doc(partyData.restaurantId)
 							.collection("tables")
 							.doc(partyData.table.id);
+
 						t.update(tableRef, { status: "checkedOut" });
 					}
 
@@ -704,7 +1081,9 @@ const fulfillOrder = async ({
 						t.delete(db.collection("checkIns").doc(partyData.checkInId));
 					}
 
-					t.delete(basketSnap.ref);
+					if (basketSnap.exists) {
+						t.delete(basketSnap.ref);
+					}
 
 					if (kitchenOrdersSnap && !kitchenOrdersSnap.empty) {
 						kitchenOrdersSnap.forEach((docSnap) => t.delete(docSnap.ref));
@@ -712,16 +1091,55 @@ const fulfillOrder = async ({
 				}
 			}
 
+			// Finally, remove pending order
 			t.delete(pendingOrderRef);
 		});
 
 		console.log(`[Fulfill] ✅ DB transaction committed for order ${orderId}.`);
 	} catch (error) {
-		console.error(`[Fulfill] ❌ DB transaction failed:`, error);
+		console.error(`[Fulfill] ❌ DB transaction failed for ${orderId}:`, error);
 		throw error;
 	}
 
-	// 3. EXTERNAL API CALL
+	// 3. CREATE PRODUCTION TICKET FOR PAID PICKUP AFTER DB COMMIT
+	if (isPickupOrder) {
+		try {
+			await createKitchenOrderForPaidPickup({
+				orderId,
+				restaurantId: normalizedRestaurantId,
+				partyId: pendingOrderData.partyId || null,
+				items: pendingOrderData.items || [],
+				fulfillmentType: pendingOrderData.fulfillmentType || "hotel_pickup",
+				locationName:
+					pendingOrderData.table.name ||
+					pendingOrderData.locationName ||
+					"Hotel Pickup",
+
+				customerName:
+					resolvedCustomerName ||
+					pendingOrderData.customerName ||
+					"Pickup Guest",
+
+				customerEmail:
+					resolvedCustomerEmail || pendingOrderData.customerEmail || null,
+
+				pickupSpecialInstructions:
+					pendingOrderData.pickupSpecialInstructions || "",
+			});
+
+			console.log(
+				`[Fulfill] ✅ Created kitchen ticket for paid pickup order ${orderId}.`,
+			);
+		} catch (pickupTicketError) {
+			console.error(
+				`[Fulfill] ❌ Failed to create kitchen ticket for pickup order ${orderId}:`,
+				pickupTicketError,
+			);
+			throw pickupTicketError;
+		}
+	}
+
+	// 3. EXTERNAL API CALLS AFTER DB COMMIT
 	if (processor === "stripe" && stripeInstance) {
 		if (
 			payoutRouting === "stripe_connect" &&
@@ -734,14 +1152,17 @@ const fulfillOrder = async ({
 					currency: "usd",
 					destination: pendingOrderData.connectedAccountId,
 					source_transaction: latestChargeId,
-					metadata: { orderId: orderId },
+					metadata: { orderId },
 				});
-				await db
-					.collection("orders")
-					.doc(orderId)
-					.update({ stripeTransferId: transfer.id });
+
+				await db.collection("orders").doc(orderId).update({
+					stripeTransferId: transfer.id,
+				});
 			} catch (apiError) {
-				console.error(`[Fulfill] 🚨 Stripe Transfer FAILED:`, apiError);
+				console.error(
+					`[Fulfill] 🚨 Stripe Transfer FAILED for ${orderId}:`,
+					apiError,
+				);
 			}
 		}
 	}

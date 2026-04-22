@@ -39,6 +39,9 @@ import ManagePartyScreen from "../screens/restaurant/ManagePartyScreen.js";
 import ManualSeatScreen from "../screens/restaurant/ManualSeatingScreen.js";
 import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
 import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext.js";
+import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
+import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
+import OrderDetailScreen from "../screens/restaurant/OrderDetailScreen.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -107,7 +110,17 @@ const BackOfficeStackNavigator = () => {
 			<Stack.Screen
 				name="SalesReportScreen"
 				component={SalesReportScreen}
-				options={{ headerTitle: t("daily_sales_summary_title") }}
+				options={{ title: "Business Report" }}
+			/>
+			<Stack.Screen
+				name="OrdersLedgerScreen"
+				component={OrdersLedgerScreen}
+				options={{ title: "Orders Ledger" }}
+			/>
+			<Stack.Screen
+				name="OrderDetailScreen"
+				component={OrderDetailScreen}
+				options={{ title: "Order Detail" }}
 			/>
 			<Stack.Screen
 				name="DailySalesDetails"
@@ -167,8 +180,12 @@ const ActiveTablesStack = () => (
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
 	const { t } = useTranslation();
-	const { newCheckInCount, newKitchenOrderCount, serviceRequestCount } =
-		useRestaurantData();
+	const {
+		newCheckInCount,
+		newKitchenOrderCount,
+		serviceRequestCount,
+		pickupOrderCount,
+	} = useRestaurantData();
 	const insets = useSafeAreaInsets();
 
 	return (
@@ -197,7 +214,6 @@ const RestaurantBottomNavigation = () => {
 							break;
 						case "Checkins":
 							iconName = focused ? "clipboard-text" : "clipboard-text-outline";
-							// 🚨 MOVED THE SERVICE BADGE HERE
 							badgeCount = newCheckInCount + serviceRequestCount;
 							break;
 						case "ChefsQ":
@@ -206,10 +222,10 @@ const RestaurantBottomNavigation = () => {
 								: "silverware-fork-knife";
 							badgeCount = newKitchenOrderCount;
 							break;
-
-						case "Service":
-							iconName = focused ? "bell-ring" : "bell-outline";
-							badgeCount = serviceRequestCount;
+						// 🚨 NEW: Added the Pickups Case
+						case "Pickups":
+							iconName = focused ? "bag-personal" : "bag-personal-outline";
+							badgeCount = pickupOrderCount || 0; // 🚨 NEW: Attach the badge!
 							break;
 
 						default:
@@ -235,16 +251,15 @@ const RestaurantBottomNavigation = () => {
 							label = t("dashboard_tab");
 							break;
 						case "Checkins":
-							// 🚨 CHANGED: You can hardcode "Tickets" here, or add "tickets_tab" to your translation file
 							label = t("tickets_tab");
-							break;
-						case "Service":
-							label = t("service_tab"); // Or t("service_tab") if you add it to translations
 							break;
 						case "ChefsQ":
 							label = t("chefs_q_tab");
 							break;
-
+						// 🚨 NEW: Added the Pickups Label
+						case "Pickups":
+							label = t("pickups_tab", "Pickups");
+							break;
 						case "BackOfficeNavigator":
 							label = t("back_office_tab");
 							break;
@@ -260,7 +275,8 @@ const RestaurantBottomNavigation = () => {
 
 			{/* Tab 3: Chef's Queue */}
 			<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
-			{/* Tab 4: Table Management */}
+			{/* 🚨 NEW Tab 4: Pickup Queue */}
+			<Tab.Screen name="Pickups" component={PickupQueueScreen} />
 		</Tab.Navigator>
 	);
 };

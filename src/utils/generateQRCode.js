@@ -3,7 +3,7 @@ const Jimp = require("jimp");
 const fs = require("fs");
 const path = require("path");
 
-const outputDir = path.join(__dirname, "table_qrcodes");
+const outputDir = path.join(__dirname, "table_qrcodesWandaEats");
 if (!fs.existsSync(outputDir)) {
 	fs.mkdirSync(outputDir);
 }
@@ -11,11 +11,11 @@ if (!fs.existsSync(outputDir)) {
 // ==========================================
 // CONFIGURATION
 // ==========================================
-const TOTAL_TABLES = 50;
+const TOTAL_TABLES = 10;
 const baseUrl = "https://scervmvp.web.app/scan";
 
 // 🚨 PASTE DAQUIRI 23's FIREBASE RESTAURANT ID HERE
-const RESTAURANT_UID = "xD6c9KwlHJdY99gNFzTFhKdzVAH2";
+const RESTAURANT_UID = " BK1jtATyT5hzRWotUDnkdBqLlGx2";
 
 const generateCodes = async () => {
 	console.log(

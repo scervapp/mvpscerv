@@ -1,6 +1,10 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { fulfillOrder } = require("./paymentFunctions");
+const {
+	emitDgiInvoice,
+	emitDgiInvoiceInternal,
+} = require("./restaurantFunctions");
 const db = admin.firestore();
 
 /**
@@ -571,7 +575,7 @@ exports.createDlocalPayment = functions
 
 exports.confirmDlocalPayment = functions
 	.runWith({
-		timeoutSeconds: 120, // Extra buffer for API and DB writes
+		timeoutSeconds: 120,
 		secrets: [
 			"DLOCAL_LIVE_API_KEY",
 			"DLOCAL_LIVE_SECRET_KEY",
@@ -580,8 +584,7 @@ exports.confirmDlocalPayment = functions
 		],
 	})
 	.https.onCall(async (data, context) => {
-		// 1. Auth Guard
-		if (!context.auth) {
+		if (!context.auth || !context.auth.uid) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
 				"User must be logged in.",
@@ -598,33 +601,121 @@ exports.confirmDlocalPayment = functions
 			clientDocumentType,
 			clientEmail,
 			country,
-			saveCard, // 🚨 The true/false value from your custom checkbox
+			saveDetails,
 			restaurantId,
-		} = data;
+		} = data || {};
 
-		// Assumes getDlocalConfig() is defined elsewhere in your file
-		const { apiKey, secretKey, baseUrl } = await getDlocalConfig(restaurantId);
+		if (!pendingOrderId || typeof pendingOrderId !== "string") {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"pendingOrderId is required.",
+			);
+		}
+
+		if (!checkoutToken || typeof checkoutToken !== "string") {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"checkoutToken is required.",
+			);
+		}
+
+		if (!cardToken || typeof cardToken !== "string") {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"cardToken is required.",
+			);
+		}
+
+		const uid = context.auth.uid;
+		const shouldSaveDetails = saveDetails === true;
 
 		try {
 			console.log(
-				`🔒 Confirming Smart Fields Payment for Order: ${pendingOrderId}`,
+				`[ConfirmDlocal] Starting confirmation for pendingOrderId=${pendingOrderId}, uid=${uid}`,
 			);
 
-			// 2. Build dLocal Payload
-			const paymentPayload = {
-				cardToken: cardToken,
-				clientFirstName: clientFirstName,
-				clientLastName: clientLastName,
-				clientDocumentType: clientDocumentType,
-				clientDocument: clientDocument,
-				clientEmail: clientEmail,
-				country: country || "PA",
+			// 1. Validate pending order before charging
+			const pendingOrderRef = db
+				.collection("pending_orders")
+				.doc(pendingOrderId);
+			const pendingOrderSnap = await pendingOrderRef.get();
 
-				// 🚨 CRITICAL: This flag tells dLocal to permanently vault the card
-				save_card: saveCard === true,
+			if (!pendingOrderSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Pending order not found.",
+				);
+			}
+
+			const pendingOrderData = pendingOrderSnap.data() || {};
+			const effectiveRestaurantId =
+				pendingOrderData.restaurantId || restaurantId || null;
+
+			if (!effectiveRestaurantId) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Pending order is missing restaurant information.",
+				);
+			}
+
+			if (
+				restaurantId &&
+				pendingOrderData.restaurantId &&
+				restaurantId !== pendingOrderData.restaurantId
+			) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Restaurant mismatch on pending order.",
+				);
+			}
+
+			const normalizedTotal = Number(pendingOrderData.totalPrice || 0);
+			if (normalizedTotal <= 0) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Pending order has an invalid total.",
+				);
+			}
+
+			// Idempotency / duplicate-processing guard
+			if (
+				pendingOrderData.paymentStatus === "paid" ||
+				pendingOrderData.status === "paid" ||
+				pendingOrderData.status === "fulfilled"
+			) {
+				console.log(
+					`[ConfirmDlocal] Pending order ${pendingOrderId} already processed.`,
+				);
+				return {
+					success: true,
+					status: "ALREADY_PROCESSED",
+					paymentId: pendingOrderData.paymentIntentId || null,
+				};
+			}
+
+			// 2. Resolve dLocal config from trusted restaurant id
+			const { apiKey, secretKey, baseUrl } = await getDlocalConfig(
+				effectiveRestaurantId,
+			);
+
+			console.log(
+				`[ConfirmDlocal] Confirming Smart Fields payment for order ${pendingOrderId}`,
+			);
+
+			// 3. Build dLocal confirmation payload
+			// IMPORTANT: we do NOT support card vaulting here; only saving billing details locally.
+			const paymentPayload = {
+				cardToken,
+				clientFirstName: clientFirstName || "Guest",
+				clientLastName: clientLastName || "User",
+				clientDocumentType: clientDocumentType || "CIP",
+				clientDocument: clientDocument || "8-888-8888",
+				clientEmail: clientEmail || "customer@scerv.com",
+				country: country || "PA",
+				save_card: false,
 			};
 
-			// 3. Hit dLocal API
+			// 4. Call dLocal
 			const confirmResponse = await fetch(
 				`${baseUrl}/v1/payments/confirm/${checkoutToken}`,
 				{
@@ -638,131 +729,118 @@ exports.confirmDlocalPayment = functions
 			);
 
 			const confirmData = await confirmResponse.json();
-			console.log("DEBUG: dLocal Raw Response:", JSON.stringify(confirmData));
+			console.log(
+				"[ConfirmDlocal] Raw dLocal response:",
+				JSON.stringify(confirmData),
+			);
 
-			// 4. Handle HTTP Rejections
+			// 5. Handle HTTP-level failures
 			if (!confirmResponse.ok) {
-				console.error("Smart Fields Confirmation Failed:", confirmData);
-				throw new Error(
-					confirmData.message ||
+				console.error(
+					"[ConfirmDlocal] dLocal HTTP rejection:",
+					JSON.stringify(confirmData),
+				);
+
+				return {
+					success: false,
+					status: "FAILED",
+					error:
+						confirmData.message ||
 						confirmData.code ||
 						"Card declined by processor.",
-				);
+				};
 			}
 
-			// 5. Bulletproof Success Check
-			if (
+			// 6. Success / approval handling
+			const isApproved =
 				confirmData.status === "PAID" ||
 				confirmData.status === "PROCESSING" ||
 				confirmData.status === "APPROVED" ||
-				confirmData.success === true
-			) {
+				confirmData.success === true;
+
+			if (isApproved) {
 				const finalPaymentId =
 					confirmData.payment_id || confirmData.id || "captured";
 
-				// A. Update Firestore Pending Order
-				await db.collection("pending_orders").doc(pendingOrderId).update({
+				// Mark pending order as processing before fulfillment
+				await pendingOrderRef.update({
 					status: "processing",
 					paymentIntentId: finalPaymentId,
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				});
 
-				// B. 🚨 RESTORED: Vault the card in Firestore with Debug Logging
-				if (saveCard === true) {
+				// 7. Save billing details to customer document if requested
+				if (shouldSaveDetails) {
 					try {
-						const uid = context.auth.uid;
-						let brandToSave = "Card";
-						let last4ToSave = "****";
+						const normalizedEmail =
+							typeof clientEmail === "string"
+								? clientEmail.trim().toLowerCase()
+								: "";
 
-						// Fetch full receipt to get the real Last 4
-						try {
-							const detailsResponse = await fetch(
-								`${baseUrl}/v1/payments/${finalPaymentId}`,
-								{
-									method: "GET",
-									headers: {
-										Authorization: `Bearer ${apiKey}:${secretKey}`,
-										"Content-Type": "application/json",
-									},
-								},
-							);
+						const normalizedName =
+							`${clientFirstName || ""} ${clientLastName || ""}`.trim();
 
-							if (detailsResponse.ok) {
-								const detailsData = await detailsResponse.json();
+						const customerUpdatePayload = {
+							dlocalName: normalizedName,
+							dlocalDocument: clientDocument || "",
+							dlocalDocumentType: clientDocumentType || "CIP",
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+						};
 
-								// Safely drill down to the card object
-								const pmDetails = detailsData.payment_method || {};
-								const cardObj = pmDetails.card || detailsData.card || {};
-
-								// Map the exact fields dLocal uses
-								brandToSave = cardObj.issuer || cardObj.brand || "Card";
-								last4ToSave = cardObj.last_four || cardObj.last4 || "****";
-							}
-						} catch (fetchErr) {
-							console.error("Could not fetch full payment details:", fetchErr);
+						if (normalizedEmail) {
+							customerUpdatePayload.email = normalizedEmail;
 						}
 
-						// Save the permanent token to Firestore (Debug data removed for production)
 						await db
 							.collection("customers")
 							.doc(uid)
-							.collection("saved_cards")
-							.add({
-								token: cardToken,
-								brand: brandToSave,
-								last4: last4ToSave,
-								savedAt: admin.firestore.FieldValue.serverTimestamp(),
-							});
+							.set(customerUpdatePayload, { merge: true });
 
 						console.log(
-							`[Confirm] ✅ Successfully vaulted card for user ${uid}`,
+							`[ConfirmDlocal] Saved billing details for user ${uid}`,
 						);
 					} catch (saveErr) {
-						console.error("[Confirm] 🚨 Failed to vault card:", saveErr);
-					}
-				}
-
-				// C. Trigger fulfillOrder directly!
-				try {
-					console.log(
-						`[Confirm] Triggering fulfillOrder for ${pendingOrderId}`,
-					);
-
-					const pendingOrderSnap = await db
-						.collection("pending_orders")
-						.doc(pendingOrderId)
-						.get();
-
-					if (pendingOrderSnap.exists) {
-						const pendingData = pendingOrderSnap.data();
-
-						await fulfillOrder({
-							orderId: pendingOrderId,
-							paymentType: pendingData.type || "party",
-							userId: pendingData.customerId || context.auth.uid,
-							restaurantId: pendingData.restaurantId,
-							processor: "dlocal",
-							processorTransactionId: finalPaymentId,
-							totalPrice: pendingData.totalPrice,
-							processorFeeActual: 0,
-							platformFeeActual: pendingData.platformFee || 0,
-						});
-						console.log(
-							`[Confirm] ✅ fulfillOrder completed successfully for ${pendingOrderId}`,
-						);
-					} else {
 						console.error(
-							`[Confirm] 🚨 pending_order ${pendingOrderId} not found for fulfillment!`,
+							"[ConfirmDlocal] Failed to save customer billing details:",
+							saveErr,
 						);
+						// Non-fatal: payment can still succeed even if details save fails
 					}
-				} catch (fulfillErr) {
-					console.error(
-						"[Confirm] 🚨 fulfillOrder failed during confirmation:",
-						fulfillErr,
-					);
 				}
 
-				// D. Return explicit success to React Native
+				// 8. Fulfillment must succeed, otherwise we surface failure
+				console.log(
+					`[ConfirmDlocal] Triggering fulfillOrder for ${pendingOrderId}`,
+				);
+
+				await fulfillOrder({
+					orderId: pendingOrderId,
+					paymentType: pendingOrderData.type || "party",
+					userId: pendingOrderData.customerId || uid,
+					customerEmail: pendingOrderData.customerEmail || clientEmail || null,
+					customerName:
+						pendingOrderData.customerName ||
+						`${clientFirstName || ""} ${clientLastName || ""}`.trim() ||
+						null,
+					restaurantId: pendingOrderData.restaurantId,
+					processor: "dlocal",
+					processorTransactionId: finalPaymentId,
+					totalPrice: pendingOrderData.totalPrice,
+					processorFeeActual: 0,
+					platformFeeActual: pendingOrderData.platformFee || 0,
+				});
+
+				console.log(
+					`[ConfirmDlocal] fulfillOrder completed successfully for ${pendingOrderId}`,
+				);
+
+				emitDgiInvoiceInternal(pendingOrderId).catch((invoiceErr) => {
+					console.error(
+						`[ConfirmDlocal] DGI invoice emission failed for ${pendingOrderId}:`,
+						invoiceErr,
+					);
+				});
+
 				return {
 					success: true,
 					status: "PAID",
@@ -770,25 +848,30 @@ exports.confirmDlocalPayment = functions
 					redirect_url: confirmData.redirect_url || null,
 				};
 			}
-			// 6. Handle 3D Secure / Bank Redirects
-			else if (confirmData.redirect_url) {
+
+			// 9. 3DS / bank redirect flow
+			if (confirmData.redirect_url) {
 				return {
 					success: false,
 					status: "PENDING_3DS",
 					redirect_url: confirmData.redirect_url,
 				};
 			}
-			// 7. Handle Silent Fails
-			else {
-				return {
-					success: false,
-					status: "FAILED",
-					error:
-						confirmData.message || confirmData.status || "Unknown dLocal error",
-				};
-			}
+
+			// 10. Silent fail / unsupported status
+			return {
+				success: false,
+				status: "FAILED",
+				error:
+					confirmData.message || confirmData.status || "Unknown dLocal error",
+			};
 		} catch (error) {
-			console.error("Cloud Function Error in Confirmation:", error);
+			console.error("[ConfirmDlocal] Cloud Function Error:", error);
+
+			if (error instanceof functions.https.HttpsError) {
+				throw error;
+			}
+
 			return {
 				success: false,
 				status: "ERROR",

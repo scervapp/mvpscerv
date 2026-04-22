@@ -389,9 +389,10 @@ const PartySessionScreen = () => {
 	};
 
 	const handleSendMyItems = () => {
-		if (!sendMyItemsToKitchen) return;
+		if (!sendMyItemsToKitchen || !currentPartyId) return;
+
 		setIsSendingItems(true);
-		sendMyItemsToKitchen()
+		sendMyItemsToKitchen(currentPartyId)
 			.catch((e) => console.error(e))
 			.finally(() => setIsSendingItems(false));
 	};

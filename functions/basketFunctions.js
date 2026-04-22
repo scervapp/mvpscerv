@@ -502,7 +502,39 @@ const DRINK_CATEGORIES = [
 	"Non-Alcoholic Drinks",
 	"Alcoholic Drinks",
 	"Beverages",
+	"Coffee",
+	"Tea",
 ];
+
+const isBarCategory = (category) => {
+	const normalized = String(category || "")
+		.trim()
+		.toLowerCase();
+
+	return DRINK_CATEGORIES.some(
+		(cat) =>
+			String(cat || "")
+				.trim()
+				.toLowerCase() === normalized,
+	);
+};
+
+const getLocalizedModifierName = (modifier) => {
+	if (!modifier) return "Modifier";
+
+	if (typeof modifier.name === "string") return modifier.name;
+
+	if (modifier.name && typeof modifier.name === "object") {
+		return (
+			modifier.name.en ||
+			modifier.name.es ||
+			modifier.name.original ||
+			"Modifier"
+		);
+	}
+
+	return "Modifier";
+};
 exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
@@ -514,7 +546,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 	const { sourceId, table, server, allowedUserIds } = data;
 	const userId = context.auth.uid;
 
-	if (!sourceId || !table || !server) {
+	if (!sourceId || !table) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
 			"Missing required data.",
@@ -582,15 +614,48 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			const details = menuItemDetailsMap.get(item.menuItemId) || {};
 			const category = details.category || item.category || "Other";
 			const dishName =
-				details.name || item.dishName || item.dish.name || "Unknown Item";
+				details.name ||
+				item.dishName ||
+				(item.dish && item.dish.name) ||
+				"Unknown Item";
 
-			// Note: Make sure DRINK_CATEGORIES is defined at the top of your Cloud Functions file!
-			const destination = DRINK_CATEGORIES.includes(category)
-				? "bar"
-				: "kitchen";
+			const selectedModifiers = Array.isArray(item.selectedModifiers)
+				? item.selectedModifiers
+				: [];
+
+			const kitchenModifiers = [];
+			const barModifiers = [];
+
+			selectedModifiers.forEach((modifier) => {
+				const modifierCategory = modifier.category || "Extras";
+				const modifierName = getLocalizedModifierName(modifier);
+
+				const normalizedModifier = {
+					optionId: modifier.optionId || null,
+					groupId: modifier.groupId || null,
+					groupName: modifier.groupName || "",
+					name: modifierName,
+					price:
+						modifier.price !== undefined && modifier.price !== null
+							? Number(modifier.price)
+							: 0,
+					category: modifierCategory,
+				};
+
+				if (isBarCategory(modifierCategory)) {
+					barModifiers.push(normalizedModifier);
+				} else {
+					kitchenModifiers.push(normalizedModifier);
+				}
+			});
+
+			const destination = isBarCategory(category) ? "bar" : "kitchen";
 
 			if (destination === "kitchen") hasKitchen = true;
 			if (destination === "bar") hasBar = true;
+
+			if (kitchenModifiers.length > 0) hasKitchen = true;
+			if (barModifiers.length > 0) hasBar = true;
 
 			return {
 				id: item.id,
@@ -600,6 +665,9 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				orderedFor:
 					item.orderedByPipName || item.pipName || item.customerName || "Guest",
 				destination: destination,
+				selectedModifiers: selectedModifiers,
+				kitchenModifiers: kitchenModifiers,
+				barModifiers: barModifiers,
 			};
 		});
 
@@ -627,7 +695,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			orderId: orderId,
 			partyId: sourceId,
 			table: table,
-			server: server,
+			server: server || { id: "unassigned", name: "Unassigned" },
 			items: kitchenItems,
 			stationStatuses: initialStationStatuses, // Independent Bar/Kitchen tracking
 			overallStatus: "active", // The main switch
@@ -637,6 +705,10 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 		batch.set(kitchenOrderRef, kitchenOrderData);
 		await batch.commit();
+		console.log(
+			"[SEND TO KITCHEN MODIFIER DEBUG]",
+			JSON.stringify(kitchenItems, null, 2),
+		);
 
 		return {
 			success: true,
@@ -754,7 +826,7 @@ exports.addItemToSharedBasket = functions.https.onCall(
 			partyId,
 			orderingForUserId,
 			orderingForPipName,
-			menuItemData, // Expects { id, name, price, quantity, specialInstructions?, category?, imageUri?, restaurantId? }
+			menuItemData, // Expects { id, name, price, basePrice?, modifiersTotal?, selectedModifiers?, quantity, specialInstructions?, category?, imageUri?, restaurantId?, itbmsRate? }
 		} = data;
 
 		if (
@@ -772,17 +844,14 @@ exports.addItemToSharedBasket = functions.https.onCall(
 				"Missing or invalid required fields.",
 			);
 		}
-		// Validate that the restaurantId for the item is present if you intend to store it per item
+
 		if (
 			typeof menuItemData.restaurantId !== "string" ||
 			!menuItemData.restaurantId
 		) {
 			console.warn(
-				`addItemToSharedBasket: menuItemData.restaurantId is missing or invalid for item ${menuItemData.name}. Storing as null or consider fetching party's restaurantId.`,
+				`addItemToSharedBasket: menuItemData.restaurantId is missing or invalid for item ${menuItemData.name}.`,
 			);
-			// If all items in a party basket must belong to the party's restaurant,
-			// you might fetch the party document here to get its restaurantId and use that.
-			// For now, we'll proceed, and it will be stored as null if not provided.
 		}
 
 		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
@@ -809,29 +878,84 @@ exports.addItemToSharedBasket = functions.https.onCall(
 
 				const currentBasketData = basketDoc.data();
 				const itemsArray = currentBasketData.items || [];
-
 				const basketItemId = db.collection("dummy").doc().id;
+
+				const normalizedItbmsRate =
+					menuItemData.itbmsRate !== undefined &&
+					menuItemData.itbmsRate !== null
+						? Number(menuItemData.itbmsRate)
+						: 7;
+
+				if (isNaN(normalizedItbmsRate)) {
+					throw new functions.https.HttpsError(
+						"invalid-argument",
+						"Invalid ITBMS rate.",
+					);
+				}
+
+				const normalizedBasePrice =
+					menuItemData.basePrice !== undefined &&
+					menuItemData.basePrice !== null
+						? Number(menuItemData.basePrice)
+						: Number(menuItemData.price);
+
+				const normalizedModifiersTotal =
+					menuItemData.modifiersTotal !== undefined &&
+					menuItemData.modifiersTotal !== null
+						? Number(menuItemData.modifiersTotal)
+						: 0;
+
+				const normalizedSelectedModifiers = Array.isArray(
+					menuItemData.selectedModifiers,
+				)
+					? menuItemData.selectedModifiers
+					: [];
+
 				const newItem = {
 					id: basketItemId,
 					menuItemId: menuItemData.id,
 					dishName: menuItemData.name,
-					price: menuItemData.price,
+
+					// final unit price customer is paying
+					price: Number(menuItemData.price),
+
+					// base menu item price before modifiers
+					basePrice: isNaN(normalizedBasePrice)
+						? Number(menuItemData.price)
+						: normalizedBasePrice,
+
+					// total added by modifiers per unit
+					modifiersTotal: isNaN(normalizedModifiersTotal)
+						? 0
+						: normalizedModifiersTotal,
+
+					// structured modifier selections
+					selectedModifiers: normalizedSelectedModifiers,
+
 					quantity: menuItemData.quantity,
 					specialInstructions: menuItemData.specialInstructions || "",
 					orderedByUserId: orderingForUserId,
 					orderedByPipName: orderingForPipName || null,
 					addedByUserId: currentUserId,
-					addedAt: new Date(), // <<< Use new Date() here (Cloud Function's server time)
+					addedAt: new Date(),
 					status: "new",
 					category: menuItemData.category || null,
 					imageUri: menuItemData.imageUri || null,
-					restaurantId: menuItemData.restaurantId || null, // Store what's passed, even if null
+					restaurantId: menuItemData.restaurantId || null,
+					itbmsRate: normalizedItbmsRate,
 				};
+
+				console.log("[BASKET MODIFIER DEBUG]", {
+					name: newItem.dishName,
+					price: newItem.price,
+					basePrice: newItem.basePrice,
+					modifiersTotal: newItem.modifiersTotal,
+					selectedModifiers: newItem.selectedModifiers,
+				});
 
 				console.log(
 					`addItemToSharedBasket: Preparing to add new item to party ${partyId}:`,
 					JSON.stringify(newItem, null, (key, value) => {
-						// Custom replacer for Date objects if direct stringify is too verbose or problematic for logs
 						if (value instanceof Date) {
 							return value.toISOString();
 						}
@@ -843,12 +967,13 @@ exports.addItemToSharedBasket = functions.https.onCall(
 
 				transaction.update(sharedBasketRef, {
 					items: updatedItemsArray,
-					lastUpdated: admin.firestore.FieldValue.serverTimestamp(), // serverTimestamp is fine for top-level fields
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 				});
 
 				console.log(
 					`addItemToSharedBasket: Item ${basketItemId} transactionally added to shared basket for party ${partyId}.`,
 				);
+
 				return { success: true, basketItemId: basketItemId };
 			});
 		} catch (error) {

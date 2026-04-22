@@ -14,7 +14,8 @@ import { useEmployeeSession } from "./EmployeeSessionContext";
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
 	newKitchenOrderCount: 0,
-	serviceRequestCount: 0, // 🚨 NEW: Added to Context
+	serviceRequestCount: 0, //
+	pickupOrderCount: 0,
 });
 
 export const RestaurantDataProvider = ({ children }) => {
@@ -30,7 +31,8 @@ export const RestaurantDataProvider = ({ children }) => {
     ────────────────────────────── */
 	const [newCheckInCount, setNewCheckInCount] = useState(0);
 	const [newKitchenOrderCount, setNewKitchenOrderCount] = useState(0);
-	const [serviceRequestCount, setServiceRequestCount] = useState(0); // 🚨 NEW: Badge state
+	const [serviceRequestCount, setServiceRequestCount] = useState(0);
+	const [pickupOrderCount, setPickupOrderCount] = useState(0); // 🚨 NEW: Badge state
 
 	const checkInPlayer = useRef(null);
 	const kitchenPlayer = useRef(null);
@@ -256,13 +258,35 @@ export const RestaurantDataProvider = ({ children }) => {
 		activeSession?.jobTitle,
 	]);
 
+	// --- 🚨 NEW: PICKUP QUEUE LISTENER ---
+	useEffect(() => {
+		if (!restaurantId) {
+			setPickupOrderCount(0);
+			return;
+		}
+
+		// Listen for active orders explicitly flagged for hotel pickup
+		const unsub = db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
+			.where("fulfillmentType", "==", "hotel_pickup")
+			.onSnapshot((snap) => {
+				if (!snap) return;
+				setPickupOrderCount(snap.docs.length);
+			});
+
+		return () => unsub();
+	}, [restaurantId]);
+
 	/* ──────────────────────────────
      4.  Context value
     ────────────────────────────── */
 	const value = {
 		newCheckInCount,
 		newKitchenOrderCount,
-		serviceRequestCount, // 🚨 NEW: Exported so NavBar can show the red badge
+		serviceRequestCount,
+		pickupOrderCount,
 	};
 
 	return (
