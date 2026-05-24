@@ -43,6 +43,144 @@ const isBarCategory = (category) => {
 	);
 };
 
+const normalizeCountryCode = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase();
+
+const isUsRestaurantCountry = (value) =>
+	["us", "usa", "united states", "united states of america"].includes(
+		normalizeCountryCode(value),
+	);
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (Number.isNaN(parsed)) return fallback;
+	const decimal = parsed > 1 ? parsed / 100 : parsed;
+	return Math.min(Math.max(decimal, 0), 1);
+};
+
+const toMillis = (value) => {
+	if (!value) return null;
+	if (typeof value.toMillis === "function") return value.toMillis();
+	if (typeof value.toDate === "function") return value.toDate().getTime();
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date.getTime();
+};
+
+const isDateInFuture = (value) => {
+	const millis = toMillis(value);
+	return millis !== null && millis > Date.now();
+};
+
+const firstDefined = (...values) => {
+	const match = values.find((value) => value !== undefined && value !== null);
+	return match === undefined ? null : match;
+};
+
+const normalizeStripeFeeResponsibility = (value) =>
+	value === "scerv" ? "scerv" : "restaurant";
+
+const resolvePaymentPolicy = ({
+	restaurantData = {},
+	customerData = {},
+	restaurantTierInfo = {},
+}) => {
+	const restaurantPolicy = restaurantData.paymentPolicy || {};
+	const customerPolicy = customerData.paymentPolicy || {};
+	const tierPolicy = restaurantTierInfo.paymentPolicy || {};
+
+	const baseScervFeePercentage = normalizePercentage(
+		firstDefined(
+			customerPolicy.scervFeePercentage,
+			customerData.scervFeePercentage,
+			customerPolicy.platformFeePercentage,
+			customerData.platformFeePercentage,
+			restaurantPolicy.scervFeePercentage,
+			restaurantData.scervFeePercentage,
+			restaurantPolicy.platformFeePercentage,
+			restaurantData.platformFeePercentage,
+			tierPolicy.scervFeePercentage,
+			restaurantTierInfo.scervFeePercentage,
+		),
+		0.03,
+	);
+
+	const scervFeeWaived =
+		customerPolicy.waiveScervFee === true ||
+		customerData.waiveScervFee === true ||
+		customerPolicy.waivePlatformFee === true ||
+		customerData.waivePlatformFee === true ||
+		restaurantPolicy.waiveScervFee === true ||
+		restaurantData.waiveScervFee === true ||
+		restaurantPolicy.waivePlatformFee === true ||
+		restaurantData.waivePlatformFee === true ||
+		isDateInFuture(customerPolicy.scervFeeWaivedUntil) ||
+		isDateInFuture(customerData.scervFeeWaivedUntil) ||
+		isDateInFuture(restaurantPolicy.scervFeeWaivedUntil) ||
+		isDateInFuture(restaurantData.scervFeeWaivedUntil);
+
+	const stripeFeeResponsibility = normalizeStripeFeeResponsibility(
+		firstDefined(
+			customerPolicy.stripeFeeResponsibility,
+			customerData.stripeFeeResponsibility,
+			restaurantPolicy.stripeFeeResponsibility,
+			restaurantData.stripeFeeResponsibility,
+			tierPolicy.stripeFeeResponsibility,
+			restaurantTierInfo.stripeFeeResponsibility,
+		),
+	);
+
+	return {
+		version: 1,
+		source: "server_policy",
+		pricingTier: restaurantTierInfo.tierName || restaurantData.pricingTier || "basic",
+		scervFeeBasis: "subtotal",
+		baseScervFeePercentage,
+		scervFeePercentage: scervFeeWaived ? 0 : baseScervFeePercentage,
+		scervFeeWaived,
+		feeWaiverReason: scervFeeWaived
+			? firstDefined(
+					customerPolicy.feeWaiverReason,
+					customerData.feeWaiverReason,
+					restaurantPolicy.feeWaiverReason,
+					restaurantData.feeWaiverReason,
+					"admin_waiver",
+				)
+			: null,
+		stripeFeeResponsibility,
+		customerPolicySnapshot: {
+			scervFeePercentage: firstDefined(
+				customerPolicy.scervFeePercentage,
+				customerData.scervFeePercentage,
+				null,
+			),
+			waiveScervFee: customerPolicy.waiveScervFee === true ||
+				customerData.waiveScervFee === true,
+			stripeFeeResponsibility: firstDefined(
+				customerPolicy.stripeFeeResponsibility,
+				customerData.stripeFeeResponsibility,
+				null,
+			),
+		},
+		restaurantPolicySnapshot: {
+			scervFeePercentage: firstDefined(
+				restaurantPolicy.scervFeePercentage,
+				restaurantData.scervFeePercentage,
+				null,
+			),
+			waiveScervFee: restaurantPolicy.waiveScervFee === true ||
+				restaurantData.waiveScervFee === true ||
+				restaurantData.waivePlatformFee === true,
+			stripeFeeResponsibility: firstDefined(
+				restaurantPolicy.stripeFeeResponsibility,
+				restaurantData.stripeFeeResponsibility,
+				null,
+			),
+		},
+	};
+};
+
 const getModifierDisplayName = (modifier) => {
 	if (!modifier) return "Modifier";
 
@@ -101,26 +239,190 @@ async function getRestaurantTier(restaurantId) {
 	const tiersDoc = await tiersRef.get();
 
 	if (!tiersDoc.exists) {
-		// This is a system-level critical failure.
-		throw new Error(
-			"getRestaurantTier Error: The 'pricingTiers' document was not found in 'appConfig'.",
+		console.warn(
+			"getRestaurantTier Warning: The 'pricingTiers' document was not found in 'appConfig'. Falling back to default basic pricing.",
 		);
+		return {
+			tierName,
+			payoutPercentage: 0.97,
+			scervFeePercentage: 0.03,
+			source: "default_fallback",
+		};
 	}
 
 	const allTiers = tiersDoc.data();
-	const tierConfig = allTiers[tierName];
+	const tierConfig = allTiers.pricingTiers
+		? allTiers.pricingTiers[tierName]
+		: allTiers[tierName];
 
 	// 4. Check for data integrity.
 	if (!tierConfig || typeof tierConfig.payoutPercentage !== "number") {
-		// This indicates a configuration error (e.g., a typo in the restaurant's tier name).
-		throw new Error(
-			`getRestaurantTier Error: Configuration for tier "${tierName}" is missing or invalid in the pricingTiers document.`,
+		console.warn(
+			`getRestaurantTier Warning: Configuration for tier "${tierName}" is missing or invalid. Falling back to default basic pricing.`,
 		);
+		return {
+			tierName,
+			payoutPercentage: 0.97,
+			scervFeePercentage: 0.03,
+			source: "default_fallback",
+		};
 	}
 
 	// 5. Return the specific configuration object for the determined tier.
-	return tierConfig;
+	const payoutPercentage = normalizePercentage(tierConfig.payoutPercentage, 0.97);
+
+	return {
+		...tierConfig,
+		tierName,
+		payoutPercentage,
+		scervFeePercentage: Math.max(0, 1 - payoutPercentage),
+	};
 }
+
+const getStripeObjectId = (value) => {
+	if (!value) return null;
+	if (typeof value === "string") return value;
+	return value.id || null;
+};
+
+const sanitizeFirestoreValue = (value) => {
+	if (value === undefined) return null;
+	if (value === null) return null;
+	if (Array.isArray(value)) return value.map(sanitizeFirestoreValue);
+	if (
+		typeof value === "object" &&
+		!(value instanceof Date) &&
+		!(value && typeof value.toDate === "function")
+	) {
+		return Object.entries(value).reduce((cleaned, [key, entryValue]) => {
+			if (entryValue !== undefined) {
+				cleaned[key] = sanitizeFirestoreValue(entryValue);
+			}
+			return cleaned;
+		}, {});
+	}
+	return value;
+};
+
+const saveStripePaymentMethodSummary = async ({
+	stripeInstance,
+	paymentIntent,
+	userId,
+}) => {
+	const paymentMethodId = getStripeObjectId(paymentIntent.payment_method);
+	const stripeCustomerId = getStripeObjectId(paymentIntent.customer);
+
+	if (!stripeInstance || !paymentMethodId || !userId || userId === "anonymous") {
+		return null;
+	}
+
+	try {
+		const paymentMethod =
+			typeof paymentIntent.payment_method === "object"
+				? paymentIntent.payment_method
+				: await stripeInstance.paymentMethods.retrieve(paymentMethodId);
+
+		const card = paymentMethod.card || {};
+		const wallet = card.wallet || {};
+		const createdAt = paymentMethod.created
+			? admin.firestore.Timestamp.fromMillis(paymentMethod.created * 1000)
+			: admin.firestore.FieldValue.serverTimestamp();
+		const summary = {
+			processor: "stripe",
+			type: paymentMethod.type || null,
+			paymentMethodId,
+			stripePaymentMethodId: paymentMethodId,
+			stripeCustomerId,
+			brand: card.brand || null,
+			last4: card.last4 || null,
+			expMonth: card.exp_month || null,
+			expYear: card.exp_year || null,
+			funding: card.funding || null,
+			country: card.country || null,
+			wallet: wallet.type || null,
+			reusable: true,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		};
+
+		const customerRef = db.collection("customers").doc(userId);
+		await customerRef
+			.collection("savedPaymentMethods")
+			.doc(paymentMethodId)
+			.set(
+				{
+					...summary,
+					createdAt,
+				},
+				{ merge: true },
+			);
+
+		await customerRef.set(
+			{
+				hasSavedStripePaymentMethod: true,
+				lastStripePaymentMethodId: paymentMethodId,
+				lastStripePaymentMethodUpdatedAt:
+					admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		return summary;
+	} catch (error) {
+		console.warn(
+			`[Webhook] Could not save Stripe payment method summary for ${paymentMethodId}.`,
+			error,
+		);
+		return null;
+	}
+};
+
+const toPreparePaymentHttpsError = (error) => {
+	if (error instanceof functions.https.HttpsError) {
+		return error;
+	}
+
+	const message = String(error && error.message ? error.message : error || "");
+	const stripeType = error && error.type;
+	const stripeCode = error && error.code;
+
+	if (stripeType || stripeCode) {
+		return new functions.https.HttpsError(
+			"failed-precondition",
+			`Stripe could not prepare this payment: ${message}`,
+			{
+				stripeType: stripeType || null,
+				stripeCode: stripeCode || null,
+				requestId: error && error.requestId ? error.requestId : null,
+			},
+		);
+	}
+
+	if (
+		message.includes("Cannot use \"undefined\" as a Firestore value") ||
+		message.includes("Cannot use undefined as a Firestore value")
+	) {
+		return new functions.https.HttpsError(
+			"failed-precondition",
+			"Payment data contains an unsupported empty field. Please refresh your basket and try again.",
+		);
+	}
+
+	if (
+		message.includes("secret") ||
+		message.includes("Secret") ||
+		message.includes("STRIPE_")
+	) {
+		return new functions.https.HttpsError(
+			"failed-precondition",
+			"Stripe is not fully configured for this restaurant or environment.",
+		);
+	}
+
+	return new functions.https.HttpsError(
+		"internal",
+		`Payment preparation failed: ${message || "unknown server error"}`,
+	);
+};
 
 /**
  * A shared helper function to process verified Stripe webhook events.
@@ -171,13 +473,80 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				stripeFeeActual = Math.round(paymentIntent.amount * 0.029) + 30;
 			}
 
+			const stripePaymentMethodId = getStripeObjectId(
+				paymentIntent.payment_method,
+			);
+			const stripePaymentMethodSummary = await saveStripePaymentMethodSummary({
+				stripeInstance,
+				paymentIntent,
+				userId: metadata.userId,
+			});
+
 			// --- Delegate to the Fulfillment Helper ---
 			// The handler's job is simple: pass the verified data to our powerful helper.
-			await fulfillOrder(stripeInstance, paymentIntent, stripeFeeActual);
+			await db
+				.collection("payment_events")
+				.doc(event.id)
+				.set(
+					{
+						eventId: event.id,
+						eventType: event.type,
+						processor: "stripe",
+						processorObjectId: paymentIntent.id,
+						orderId: metadata.orderId || null,
+						restaurantId: metadata.restaurantId || null,
+						customerId: metadata.userId || null,
+						amount: paymentIntent.amount_received || paymentIntent.amount || 0,
+						currency: paymentIntent.currency || "usd",
+						liveMode: event.livemode === true,
+						stripePaymentMethodId,
+						paymentMethodSummary: stripePaymentMethodSummary,
+						receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+
+			if (metadata.orderId) {
+				await db
+					.collection("pending_orders")
+					.doc(metadata.orderId)
+					.set(
+						{
+							status: "processing",
+							paymentStatus: "paid",
+							paymentIntentId: paymentIntent.id,
+							stripePaymentIntentId: paymentIntent.id,
+							stripeLatestChargeId: paymentIntent.latest_charge || null,
+							stripePaymentMethodId,
+							paymentMethodSummary: stripePaymentMethodSummary,
+							stripeEventId: event.id,
+							amountReceived:
+								paymentIntent.amount_received || paymentIntent.amount || 0,
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+			}
+
+			await fulfillOrder({
+				orderId: metadata.orderId,
+				paymentType: metadata.type || "party",
+				userId: metadata.userId || paymentIntent.customer || null,
+				restaurantId: metadata.restaurantId,
+				processor: "stripe",
+				processorTransactionId: paymentIntent.id,
+				totalPrice: paymentIntent.amount_received || paymentIntent.amount,
+				processorFeeActual: stripeFeeActual,
+				platformFeeActual: Number(metadata.platformFee || 0),
+				stripeInstance,
+				latestChargeId: paymentIntent.latest_charge || null,
+				stripePaymentMethodId,
+				paymentMethodSummary: stripePaymentMethodSummary,
+			});
 			break;
 
 		case "account.updated":
-			const account = eventObject;
+			const account = event.data.object;
 			const accountId = account.id;
 
 			// --- THIS IS THE FIX ---
@@ -288,11 +657,15 @@ exports.preparePayment = functions
 			restaurantId,
 			items,
 			gratuity,
+			taxAmount,
+			expectedTotal,
 			checkInId,
 			partyId,
 			table,
 			server,
 			checkInTimestamp,
+			orderMode,
+			fulfillmentType,
 		} = data;
 
 		if (
@@ -309,6 +682,42 @@ exports.preparePayment = functions
 		}
 
 		try {
+			const restaurantDoc = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+
+			if (!restaurantDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Restaurant not found.",
+				);
+			}
+
+			const restaurantData = restaurantDoc.data() || {};
+			const restaurantCountry =
+				restaurantData.countryCode || restaurantData.country || null;
+
+			if (!isUsRestaurantCountry(restaurantCountry)) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Stripe checkout is only enabled for US restaurants in this flow.",
+				);
+			}
+
+			const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
+			const restaurantStripeReady =
+				restaurantStripeAccountId &&
+				(restaurantData.stripeAccountStatus === "verified" ||
+					restaurantData.stripeChargesEnabled === true);
+
+			if (!restaurantStripeReady) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This restaurant has not completed Stripe payout onboarding yet.",
+				);
+			}
+
 			// 2. ============== STRIPE INITIALIZATION & CUSTOMER FETCH ==============
 			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
@@ -343,7 +752,10 @@ exports.preparePayment = functions
 			let itemsToProcess = [];
 			let isUserVerifiedForParty = false;
 
-			if (paymentType === "party") {
+			const isSharedBasketPayment =
+				paymentType === "party" || paymentType === "pickup";
+
+			if (isSharedBasketPayment) {
 				if (!partyId) {
 					throw new functions.https.HttpsError(
 						"invalid-argument",
@@ -360,7 +772,7 @@ exports.preparePayment = functions
 				}
 
 				const partyData = partyDoc.data();
-				const memberIds = partyData.guestPips.map((p) => p.userId) || [];
+				const memberIds = (partyData.guestPips || []).map((p) => p.userId);
 				if (memberIds.includes(userId)) {
 					isUserVerifiedForParty = true;
 				} else {
@@ -391,8 +803,15 @@ exports.preparePayment = functions
 
 				const allItemsInBasket = sharedBasketDoc.data().items || [];
 				const clientItemIds = new Set(items.map((item) => item.id));
-				itemsToProcess = allItemsInBasket.filter((itemInDb) =>
-					clientItemIds.has(itemInDb.id),
+				itemsToProcess = allItemsInBasket.filter(
+					(itemInDb) => {
+						const itemOwnerId =
+							itemInDb.orderedByUserId ||
+							itemInDb.userId ||
+							itemInDb.addedByUserId ||
+							null;
+						return clientItemIds.has(itemInDb.id) && itemOwnerId === userId;
+					},
 				);
 			} else {
 				// 'individual' checkout
@@ -408,6 +827,20 @@ exports.preparePayment = functions
 					.filter(Boolean);
 			}
 
+			if (itemsToProcess.length === 0) {
+				console.warn("[preparePayment] No shared basket items matched payment.", {
+					paymentType,
+					partyId: partyId || null,
+					restaurantId,
+					userId,
+					requestedItemIds: items.map((item) => item.id),
+				});
+				throw new functions.https.HttpsError(
+					"not-found",
+					"No valid basket items were found for this payment.",
+				);
+			}
+
 			const basketId = itemsToProcess[0].id;
 
 			if (!basketId) {
@@ -417,21 +850,23 @@ exports.preparePayment = functions
 				);
 			}
 
-			if (itemsToProcess.length === 0) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"No valid basket items were found for this payment.",
-				);
-			}
-
-			// 4. ============== CALCULATE SUBTOTAL & FEE ==============
+			// 4. ============== CALCULATE SERVER-AUTHORITATIVE TOTALS ==============
+			const restaurantTierInfo = await getRestaurantTier(restaurantId);
+			const paymentPolicy = resolvePaymentPolicy({
+				restaurantData,
+				customerData: userData,
+				restaurantTierInfo,
+			});
+			const scervFeePercentage = paymentPolicy.scervFeePercentage;
+			const restaurantTaxRate = normalizePercentage(restaurantData.taxRate, 0);
 			let calculatedSubtotal = 0;
+			let calculatedTax = 0;
 			const fullItemDetails = [];
 
 			itemsToProcess.forEach((basketData) => {
 				let isSecure = false;
 
-				if (paymentType === "party" && isUserVerifiedForParty) {
+				if (isSharedBasketPayment && isUserVerifiedForParty) {
 					isSecure = basketData.restaurantId === restaurantId;
 				} else {
 					isSecure =
@@ -446,27 +881,61 @@ exports.preparePayment = functions
 				const price =
 					basketData.discountedPrice ||
 					basketData.price ||
-					basketData.dish.price ||
+					(basketData.dish && basketData.dish.price) ||
 					0;
 				const priceInCents = Math.round(price * 100);
 				const quantity = basketData.quantity || 1;
-				calculatedSubtotal += priceInCents * quantity;
-				fullItemDetails.push({ ...basketData, price: priceInCents, quantity });
+				const lineSubtotal = priceInCents * quantity;
+				const lineTax = Math.round(lineSubtotal * restaurantTaxRate);
+				calculatedSubtotal += lineSubtotal;
+				calculatedTax += lineTax;
+				fullItemDetails.push({
+					...basketData,
+					price: priceInCents,
+					quantity,
+					lineSubtotal,
+					taxRate: restaurantTaxRate,
+					taxAmount: lineTax,
+				});
 			});
 
 			if (calculatedSubtotal <= 0) {
+				console.warn("[preparePayment] Payment subtotal was not positive.", {
+					paymentType,
+					partyId: partyId || null,
+					restaurantId,
+					userId,
+					itemsToProcess: itemsToProcess.length,
+					fullItemDetails: fullItemDetails.length,
+				});
 				throw new functions.https.HttpsError(
 					"failed-precondition",
 					"Cannot process a payment with a zero or negative subtotal.",
 				);
 			}
 
-			const configDoc = await db.collection("appConfig").doc("general").get();
-			const platformFeePercentage = configDoc.data().fees || 0;
 			const calculatedPlatformFee = Math.round(
-				calculatedSubtotal * platformFeePercentage,
+				calculatedSubtotal * scervFeePercentage,
 			);
-			const finalAmount = calculatedSubtotal + gratuity + calculatedPlatformFee;
+			const finalAmount =
+				calculatedSubtotal + calculatedTax + gratuity + calculatedPlatformFee;
+			const restaurantTransferAmount =
+				calculatedSubtotal + calculatedTax + gratuity;
+			const gratuityPassthroughAmount = gratuity;
+			const restaurantSalesAndTaxAmount = calculatedSubtotal + calculatedTax;
+			const clientExpectedTotal = Number(expectedTotal || 0);
+
+			if (
+				clientExpectedTotal > 0 &&
+				Math.abs(clientExpectedTotal - finalAmount) > 1
+			) {
+				console.warn("[preparePayment] Client/server total mismatch", {
+					orderTotalFromClient: clientExpectedTotal,
+					serverTotal: finalAmount,
+					restaurantId,
+					userId,
+				});
+			}
 
 			// 5. ============== CREATE PENDING ORDER ==============
 			const pendingOrderRef = db.collection("pending_orders").doc();
@@ -475,20 +944,80 @@ exports.preparePayment = functions
 			await pendingOrderRef.set({
 				restaurantId,
 				customerId: userId,
+				customerEmail: userData.email || context.auth.token.email || null,
+				customerName:
+					userData.fullName ||
+					`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
+					null,
 				stripeCustomerId: stripeCustomerId, // Store this for reference
 				checkInId,
 				paymentType,
-				items: fullItemDetails,
+				paymentProcessor: "stripe",
+				paymentProvider: "stripe",
+				currency: "usd",
+				restaurantCountry,
+				connectedAccountId: restaurantStripeAccountId,
+				payoutRouting: restaurantData.payoutMethod || "stripe_connect",
+				restaurantStripeAccountStatus:
+					restaurantData.stripeAccountStatus || null,
+				pricingTier: paymentPolicy.pricingTier,
+				payoutPercentage: restaurantTierInfo.payoutPercentage,
+				scervFeePercentage,
+				baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
+				scervFeeBasis: paymentPolicy.scervFeeBasis,
+				scervFeeWaived: paymentPolicy.scervFeeWaived,
+				feeWaiverReason: paymentPolicy.feeWaiverReason,
+				stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
+				savePaymentMethod: true,
+				savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
+				paymentPolicy: sanitizeFirestoreValue(paymentPolicy),
+				restaurantTaxRate,
+				items: sanitizeFirestoreValue(fullItemDetails),
 				subtotal: calculatedSubtotal,
+				taxAmount: calculatedTax,
 				gratuity,
+				gratuityPassthroughAmount,
+				restaurantSalesAndTaxAmount,
 				platformFee: calculatedPlatformFee,
+				scervFee: calculatedPlatformFee,
+				restaurantTransferAmount,
+				clientExpectedTotal: clientExpectedTotal || null,
 				total: finalAmount,
+				totalPrice: finalAmount,
 				status: "pending_payment",
+				paymentStatus: "pending",
 				createdAt: admin.firestore.FieldValue.serverTimestamp(),
-				table: table || null,
-				server: server || null,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				table: sanitizeFirestoreValue(table || null),
+				server: sanitizeFirestoreValue(server || null),
 				checkInTimestamp: checkInTimestamp || null,
-				...(paymentType === "party" && { partyId }),
+				orderMode:
+					orderMode || (paymentType === "pickup" ? "pickup" : "dineIn"),
+				fulfillmentType:
+					fulfillmentType ||
+					(paymentType === "pickup" ? "hotel_pickup" : "table"),
+				type: paymentType,
+				paymentTrace: sanitizeFirestoreValue({
+					initiatedBy: userId,
+					initiatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					source: "mobile_party_checkout",
+					processor: "stripe",
+					mode: keys.isTestMode ? "test" : "live",
+					pricingTier: paymentPolicy.pricingTier,
+					scervFeeBasis: paymentPolicy.scervFeeBasis,
+					scervFeePercentage,
+					baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
+					gratuityPassthroughAmount,
+					restaurantSalesAndTaxAmount,
+					scervFeeWaived: paymentPolicy.scervFeeWaived,
+					feeWaiverReason: paymentPolicy.feeWaiverReason,
+					stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
+					savePaymentMethod: true,
+					savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
+					restaurantTaxRate,
+					itemIds: fullItemDetails.map((item) => item.id),
+				}),
+				...(isSharedBasketPayment && { partyId }),
 			});
 
 			// 6. ============== STRIPE INTENTS & KEYS ==============
@@ -517,19 +1046,57 @@ exports.preparePayment = functions
 				}
 			}
 
-			const paymentIntent = await stripeInstance.paymentIntents.create({
-				amount: finalAmount,
-				currency: "usd",
-				customer: stripeCustomerId,
-				// --- THIS IS THE CRITICAL LINE FOR CARD VAULTING ---
-				setup_future_usage: "off_session",
-				automatic_payment_methods: { enabled: true },
-				metadata: {
-					orderId: newOrderId,
-					userId,
-					restaurantId,
-					type: paymentType,
+			const paymentIntent = await stripeInstance.paymentIntents.create(
+				{
+					amount: finalAmount,
+					currency: "usd",
+					customer: stripeCustomerId,
+					receipt_email:
+						userData.email || context.auth.token.email || undefined,
+					description: `Scerv ${paymentType} order ${newOrderId}`,
+					// --- THIS IS THE CRITICAL LINE FOR CARD VAULTING ---
+					setup_future_usage: "off_session",
+					automatic_payment_methods: { enabled: true },
+					metadata: {
+						orderId: newOrderId,
+						userId,
+						restaurantId,
+						type: paymentType,
+						partyId: partyId || "",
+						checkInId: checkInId || "",
+						orderMode:
+							orderMode || (paymentType === "pickup" ? "pickup" : "dineIn"),
+						fulfillmentType:
+							fulfillmentType ||
+							(paymentType === "pickup" ? "hotel_pickup" : "table"),
+						subtotal: String(calculatedSubtotal),
+						taxAmount: String(calculatedTax),
+						gratuity: String(gratuity),
+						gratuityPassthroughAmount: String(gratuityPassthroughAmount),
+						restaurantSalesAndTaxAmount: String(restaurantSalesAndTaxAmount),
+						platformFee: String(calculatedPlatformFee),
+						restaurantTransferAmount: String(restaurantTransferAmount),
+						pricingTier: paymentPolicy.pricingTier,
+						scervFeeBasis: paymentPolicy.scervFeeBasis,
+						scervFeePercentage: String(scervFeePercentage),
+						scervFeeWaived: String(paymentPolicy.scervFeeWaived),
+						stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
+						savePaymentMethod: "true",
+						setupFutureUsage: "off_session",
+						total: String(finalAmount),
+					},
 				},
+				{
+					idempotencyKey: `preparePayment:${newOrderId}`,
+				},
+			);
+
+			await pendingOrderRef.update({
+				paymentIntentId: paymentIntent.id,
+				stripePaymentIntentId: paymentIntent.id,
+				stripeClientSecretCreatedAt:
+					admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
 
 			// 7. ============== RETURN SECRETS TO REACT NATIVE ==============
@@ -542,13 +1109,7 @@ exports.preparePayment = functions
 			};
 		} catch (error) {
 			console.error("Error in preparePayment:", error);
-			if (error instanceof functions.https.HttpsError) {
-				throw error;
-			}
-			throw new functions.https.HttpsError(
-				"internal",
-				"An unexpected error occurred while preparing the payment.",
-			);
+			throw toPreparePaymentHttpsError(error);
 		}
 	});
 
@@ -733,6 +1294,8 @@ const fulfillOrder = async ({
 	platformFeeActual = 0,
 	stripeInstance = null,
 	latestChargeId = null,
+	stripePaymentMethodId = null,
+	paymentMethodSummary = null,
 }) => {
 	if (!orderId || !paymentType) {
 		console.error(
@@ -759,6 +1322,16 @@ const fulfillOrder = async ({
 	}
 
 	const pendingOrderData = pendingOrderSnap.data() || {};
+
+	if (
+		pendingOrderData.status === "fulfilled" ||
+		pendingOrderData.fulfilledOrderId
+	) {
+		console.log(
+			`[Fulfill] Idempotency check: Pending order ${orderId} already fulfilled.`,
+		);
+		return;
+	}
 
 	// Defensive normalization
 	const normalizedRestaurantId =
@@ -806,10 +1379,41 @@ const fulfillOrder = async ({
 	);
 
 	const restaurantTierInfo = await getRestaurantTier(normalizedRestaurantId);
-	const payoutPercentage = Number(restaurantTierInfo.payoutPercentage || 0.9);
-
-	// Preserve your existing payout calculation behavior
-	const amountToTransfer = Math.round(subtotal * payoutPercentage) + gratuity;
+	const payoutPercentage = normalizePercentage(
+		pendingOrderData.payoutPercentage || restaurantTierInfo.payoutPercentage,
+		0.97,
+	);
+	const scervFeePercentage = normalizePercentage(
+		pendingOrderData.scervFeePercentage || restaurantTierInfo.scervFeePercentage,
+		0.03,
+	);
+	const paymentPolicy = pendingOrderData.paymentPolicy || {};
+	const stripeFeeResponsibility = normalizeStripeFeeResponsibility(
+		pendingOrderData.stripeFeeResponsibility ||
+			paymentPolicy.stripeFeeResponsibility,
+	);
+	const gratuityPassthroughAmount = gratuity;
+	const restaurantSalesAndTaxAmount = subtotal + taxAmount;
+	const calculatedRestaurantGross =
+		restaurantSalesAndTaxAmount + gratuityPassthroughAmount;
+	const restaurantGrossAmount = Number(
+		pendingOrderData.restaurantTransferAmount ||
+			calculatedRestaurantGross,
+	);
+	const restaurantPaysStripeFee = stripeFeeResponsibility === "restaurant";
+	const processorFeeAppliedToRestaurantSales = restaurantPaysStripeFee
+		? Math.min(processorFee, restaurantSalesAndTaxAmount)
+		: 0;
+	const restaurantSalesAndTaxNetAmount = Math.max(
+		0,
+		restaurantSalesAndTaxAmount - processorFeeAppliedToRestaurantSales,
+	);
+	const amountToTransfer = Math.max(
+		0,
+		restaurantSalesAndTaxNetAmount + gratuityPassthroughAmount,
+	);
+	const scervGrossFee = platformFee;
+	const scervNet = scervGrossFee - (restaurantPaysStripeFee ? 0 : processorFee);
 
 	let turnaroundTimeMinutes = 0;
 	try {
@@ -866,7 +1470,26 @@ const fulfillOrder = async ({
 		subtotal,
 		taxAmount,
 		gratuityAmount: gratuity,
+		gratuityPassthroughAmount,
+		restaurantSalesAndTaxAmount,
+		restaurantSalesAndTaxNetAmount,
+		processorFeeAppliedToRestaurantSales,
 		platformFee,
+		scervFee: platformFee,
+		scervFeePercentage,
+		scervFeeBasis: pendingOrderData.scervFeeBasis || "subtotal",
+		baseScervFeePercentage:
+			pendingOrderData.baseScervFeePercentage || scervFeePercentage,
+		scervFeeWaived: pendingOrderData.scervFeeWaived === true,
+		feeWaiverReason: pendingOrderData.feeWaiverReason || null,
+		stripeFeeResponsibility,
+		restaurantGrossAmount,
+		restaurantTransferAmount: amountToTransfer,
+		scervGrossFee,
+		scervNet,
+		payoutPercentage,
+		pricingTier:
+			pendingOrderData.pricingTier || restaurantTierInfo.tierName || null,
 		processorFee,
 		totalPrice: normalizedTotalPrice,
 
@@ -877,12 +1500,62 @@ const fulfillOrder = async ({
 		turnaroundTimeMinutes,
 
 		items: pendingOrderData.items || [],
+		sourcePendingOrderId: orderId,
+		sourcePendingOrder: {
+			status: pendingOrderData.status || null,
+			type: pendingOrderData.type || null,
+			paymentType: pendingOrderData.paymentType || null,
+			orderMode: pendingOrderData.orderMode || null,
+			fulfillmentType: pendingOrderData.fulfillmentType || null,
+			createdAt: pendingOrderData.createdAt || null,
+			itemIds: (pendingOrderData.items || []).map((item) => item.id),
+		},
 
 		paymentProcessor: processor || "unknown",
 		paymentProcessorId: processorTransactionId || null,
+		paymentProvider: processor || "unknown",
+		paymentIntentId:
+			pendingOrderData.paymentIntentId || processorTransactionId || null,
+		stripePaymentIntentId:
+			processor === "stripe"
+				? processorTransactionId ||
+					pendingOrderData.stripePaymentIntentId ||
+					null
+				: pendingOrderData.stripePaymentIntentId || null,
+		stripeChargeId: latestChargeId || null,
+		stripePaymentMethodId:
+			stripePaymentMethodId || pendingOrderData.stripePaymentMethodId || null,
+		paymentMethodSummary:
+			paymentMethodSummary || pendingOrderData.paymentMethodSummary || null,
 		paymentMethod: paymentType,
+		paymentTender:
+			processor === "stripe" ? "card" : pendingOrderData.paymentTender || null,
 		paymentStatus: "paid",
 		orderStatus: "confirmed",
+		currency: pendingOrderData.currency || "usd",
+		paymentTrace: {
+			...(pendingOrderData.paymentTrace || {}),
+			processor: processor || "unknown",
+			processorTransactionId: processorTransactionId || null,
+			latestChargeId: latestChargeId || null,
+			stripePaymentMethodId:
+				stripePaymentMethodId || pendingOrderData.stripePaymentMethodId || null,
+			processorFeeActual: processorFee,
+			platformFeeActual: platformFee,
+			scervFee: platformFee,
+			scervFeePercentage,
+			scervFeeBasis: pendingOrderData.scervFeeBasis || "subtotal",
+			gratuityPassthroughAmount,
+			restaurantSalesAndTaxAmount,
+			restaurantSalesAndTaxNetAmount,
+			processorFeeAppliedToRestaurantSales,
+			stripeFeeResponsibility,
+			restaurantGrossAmount,
+			restaurantTransferAmount: amountToTransfer,
+			scervGrossFee,
+			scervNet,
+			fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+		},
 
 		type: pendingOrderData.type || paymentType,
 		orderMode:
@@ -907,6 +1580,17 @@ const fulfillOrder = async ({
 
 			const transactionalPendingOrderData =
 				transactionalPendingOrderSnap.data() || {};
+
+			if (
+				transactionalPendingOrderData.status === "fulfilled" ||
+				transactionalPendingOrderData.fulfilledOrderId
+			) {
+				console.log(
+					`[Fulfill] Transaction idempotency: pending order ${orderId} already fulfilled.`,
+				);
+				return;
+			}
+
 			const transactionalIsPickupOrder =
 				transactionalPendingOrderData.orderMode === "pickup" ||
 				transactionalPendingOrderData.fulfillmentType === "hotel_pickup" ||
@@ -953,6 +1637,14 @@ const fulfillOrder = async ({
 						activeCheckIn: null,
 						activePartyId: null,
 						activeRestaurantId: null,
+						...(transactionalPendingOrderData.partyId && {
+							partyIds: admin.firestore.FieldValue.arrayRemove(
+								transactionalPendingOrderData.partyId,
+							),
+						}),
+						...(transactionalIsPickupOrder && {
+							activePickupOrderId: orderId,
+						}),
 					},
 					{ merge: true },
 				);
@@ -1005,10 +1697,26 @@ const fulfillOrder = async ({
 							closedByUserId: "system_digital_checkout",
 						});
 
-						t.delete(basketSnap.ref);
+						t.update(basketSnap.ref, {
+							items: [],
+							status: "archived_paid",
+							archivedForAudit: true,
+							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+							archivedOrderId: orderId,
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						});
 
 						if (kitchenOrdersSnap && !kitchenOrdersSnap.empty) {
-							kitchenOrdersSnap.forEach((docSnap) => t.delete(docSnap.ref));
+							kitchenOrdersSnap.forEach((docSnap) =>
+								t.update(docSnap.ref, {
+									overallStatus: "completed",
+									status: "completed",
+									closedAt: admin.firestore.FieldValue.serverTimestamp(),
+									closedBy: "system_digital_checkout",
+									archivedForAudit: true,
+									archivedOrderId: orderId,
+								}),
+							);
 						}
 					}
 				} else {
@@ -1018,6 +1726,12 @@ const fulfillOrder = async ({
 						paymentStatus: "paid",
 						closedAt: admin.firestore.FieldValue.serverTimestamp(),
 						closedByUserId: "system_digital_checkout",
+					});
+				}
+
+				if (payerUserId) {
+					t.update(partySnap.ref, {
+						guestUserIds: admin.firestore.FieldValue.arrayRemove(payerUserId),
 					});
 				}
 
@@ -1037,7 +1751,12 @@ const fulfillOrder = async ({
 					pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip,
 				);
 
-				t.update(partySnap.ref, { guestPips: updatedGuestPips });
+				t.update(partySnap.ref, {
+					guestPips: updatedGuestPips,
+					...(payerUserId && {
+						guestUserIds: admin.firestore.FieldValue.arrayRemove(payerUserId),
+					}),
+				});
 
 				if (basketSnap.exists) {
 					const currentBasketItems = basketSnap.data().items || [];
@@ -1078,21 +1797,72 @@ const fulfillOrder = async ({
 					}
 
 					if (partyData.checkInId) {
-						t.delete(db.collection("checkIns").doc(partyData.checkInId));
+						t.set(
+							db.collection("checkIns").doc(partyData.checkInId),
+							{
+								status: "COMPLETED",
+								completedAt: admin.firestore.FieldValue.serverTimestamp(),
+								completedBy: "system_digital_checkout",
+								archivedForAudit: true,
+							},
+							{ merge: true },
+						);
 					}
 
 					if (basketSnap.exists) {
-						t.delete(basketSnap.ref);
+						t.update(basketSnap.ref, {
+							items: [],
+							status: "archived_paid",
+							archivedForAudit: true,
+							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+							archivedOrderId: orderId,
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						});
 					}
 
 					if (kitchenOrdersSnap && !kitchenOrdersSnap.empty) {
-						kitchenOrdersSnap.forEach((docSnap) => t.delete(docSnap.ref));
+						kitchenOrdersSnap.forEach((docSnap) =>
+							t.update(docSnap.ref, {
+								overallStatus: "completed",
+								status: "completed",
+								closedAt: admin.firestore.FieldValue.serverTimestamp(),
+								closedBy: "system_digital_checkout",
+								archivedForAudit: true,
+								archivedOrderId: orderId,
+							}),
+						);
 					}
+
+					currentGuestPips.forEach((pip) => {
+						if (!pip.userId || pip.userId === "walk_in_guest") return;
+						t.set(
+							db.collection("customers").doc(pip.userId),
+							{
+								activeCheckIn: null,
+								activePartyId: null,
+								activeRestaurantId: null,
+								partyIds: admin.firestore.FieldValue.arrayRemove(
+									transactionalPendingOrderData.partyId,
+								),
+							},
+							{ merge: true },
+						);
+					});
 				}
 			}
 
-			// Finally, remove pending order
-			t.delete(pendingOrderRef);
+			// Preserve the pending order as an audit/index record instead of deleting it.
+			t.set(
+				pendingOrderRef,
+				{
+					status: "fulfilled",
+					paymentStatus: "paid",
+					fulfilledOrderId: orderId,
+					fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+					archivedForAudit: true,
+				},
+				{ merge: true },
+			);
 		});
 
 		console.log(`[Fulfill] ✅ DB transaction committed for order ${orderId}.`);
@@ -1152,16 +1922,42 @@ const fulfillOrder = async ({
 					currency: "usd",
 					destination: pendingOrderData.connectedAccountId,
 					source_transaction: latestChargeId,
-					metadata: { orderId },
+					metadata: {
+						orderId,
+						stripeFeeResponsibility,
+						restaurantGrossAmount: String(restaurantGrossAmount),
+						restaurantTransferAmount: String(amountToTransfer),
+						gratuityPassthroughAmount: String(gratuityPassthroughAmount),
+						restaurantSalesAndTaxAmount: String(restaurantSalesAndTaxAmount),
+						restaurantSalesAndTaxNetAmount: String(
+							restaurantSalesAndTaxNetAmount,
+						),
+						processorFeeAppliedToRestaurantSales: String(
+							processorFeeAppliedToRestaurantSales,
+						),
+						scervGrossFee: String(scervGrossFee),
+						scervNet: String(scervNet),
+					},
 				});
 
 				await db.collection("orders").doc(orderId).update({
 					stripeTransferId: transfer.id,
+					restaurantTransferStatus: "created",
+					restaurantTransferAmount: amountToTransfer,
 				});
 			} catch (apiError) {
 				console.error(
 					`[Fulfill] 🚨 Stripe Transfer FAILED for ${orderId}:`,
 					apiError,
+				);
+				await db.collection("orders").doc(orderId).set(
+					{
+						restaurantTransferStatus: "failed",
+						restaurantTransferError: apiError.message || String(apiError),
+						restaurantTransferFailedAt:
+							admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
 				);
 			}
 		}
@@ -1257,28 +2053,6 @@ exports.stripeWebhookLive = functions
 		}
 	});
 
-//
-
-// Function to allow custome to select cards using setupIntent
-exports.createSetupIntent = functions
-	.runWith({
-		secrets: [STRIPE_SECRET_KEY_LIVE, STRIPE_SECRET_KEY_TEST], // Declare required secrets
-	})
-	.https.onCall(async (data, context) => {
-		const { stripeSecretKey } = await getStripeKeys(data.restaurantId);
-		const { customerId } = data;
-		try {
-			const setupIntent = await stripe(stripeSecretKey).setupIntents.create({
-				customer: customerId,
-				payment_method_types: ["card"],
-			});
-
-			return { clientSecret: setupIntent.client_secret };
-		} catch (error) {
-			throw new functions.https.HttpsError("internal", error.message);
-		}
-	});
-
 // Function to fetch the Stripe publishable key from RemoteCinfig(server-side)
 exports.getStripePublishableKey = functions
 	.runWith({
@@ -1312,611 +2086,5 @@ exports.getStripePublishableKey = functions
 			);
 		}
 	});
-
-exports.createEphemeralKey = functions
-	.runWith({
-		secrets: [STRIPE_SECRET_KEY_LIVE, STRIPE_SECRET_KEY_TEST],
-	})
-	.https.onCall(async (data, context) => {
-		const { userId, apiVersion, customerId, restaurantId } = data || {};
-		// console.log("createEphemeralKey - Received data:", data); // LOG THE ENTIRE DATA OBJECT
-		// console.log("createEphemeralKey - restaurantId:", restaurantId); // Log the restaurantId
-
-		if (!customerId || !apiVersion || !restaurantId) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Customer ID, API version, and Restaurant ID are required.",
-			);
-		}
-
-		const { stripeSecretKey } = await getStripeKeys(restaurantId);
-
-		try {
-			// 2. Retrieve the stripe secret key using secret
-			// Create an ephemeral key
-			const ephemeralKey = await stripe(stripeSecretKey).ephemeralKeys.create(
-				{
-					customer: customerId,
-				},
-				{ apiVersion: apiVersion },
-			);
-
-			console.log("EphermeralKey Successfuly created");
-
-			// 4. Return the ephemeral key
-			return { ephemeralKey: ephemeralKey.secret };
-		} catch (error) {
-			console.error("Error creating ephermeral key: ", error);
-			throw new functions.https.HttpsError("internal", error.message);
-		}
-	});
-
-// Make sure you have admin initialized at the top of your file if it isn't already:
-// const admin = require('firebase-admin');
-// admin.initializeApp();
-
-exports.seedMenuOnce = functions.https.onRequest(async (req, res) => {
-	const db = admin.firestore();
-	const restaurantId = "xD6c9KwlHJdY99gNFzTFhKdzVAH2";
-
-	const menuItemsToSeed = [
-		// COCKTAILS (DAIQUIRIS)
-		{
-			name: "Pineapple Paradise Daiquiri",
-			name_es: "Daiquiri Paraíso de Piña",
-			description: "Fresh pineapple daiquiri made with Bacardi Silver Rum.",
-			description_es: "Daiquiri fresco de piña hecho con ron Bacardi Silver.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Mango Madness Daiquiri",
-			name_es: "Daiquiri Locura de Mango",
-			description: "Fresh mango daiquiri made with Captain Morgan White.",
-			description_es:
-				"Daiquiri fresco de mango hecho con Captain Morgan White.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Coconut Breeze Daiquiri",
-			name_es: "Daiquiri Brisa de Coco",
-			description: "Refreshing coconut daiquiri made with Malibu Coconut Rum.",
-			description_es:
-				"Refrescante daiquiri de coco hecho con Malibu Coconut Rum.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Passion Fruit Storm Daiquiri",
-			name_es: "Daiquiri Tormenta de Maracuyá",
-			description: "Passion fruit daiquiri made with Flor de Cana 5 Year.",
-			description_es: "Daiquiri de maracuyá hecho con Flor de Caña 5 Años.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Strawberry Splash Daiquiri",
-			name_es: "Daiquiri Salpicón de Fresa",
-			description: "Classic strawberry daiquiri made with Bacardi Superior.",
-			description_es: "Daiquiri clásico de fresa hecho con Bacardi Superior.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Watermelon Wave Daiquiri",
-			name_es: "Daiquiri Ola de Sandía",
-			description: "Watermelon daiquiri made with Plantation 3 Star.",
-			description_es: "Daiquiri de sandía hecho con Plantation 3 Star.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Blueberry Chill Daiquiri",
-			name_es: "Daiquiri Escalofrío de Arándano",
-			description: "Blueberry daiquiri made with Mount Gay Eclipse.",
-			description_es: "Daiquiri de arándano hecho con Mount Gay Eclipse.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Banana Boat Daiquiri",
-			name_es: "Daiquiri Barco de Plátano",
-			description: "Banana daiquiri made with Havana Club Añejo Blanco.",
-			description_es: "Daiquiri de plátano hecho con Havana Club Añejo Blanco.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Lemon Zest Delight Daiquiri",
-			name_es: "Daiquiri Delicia de Limón",
-			description: "Lemon daiquiri made with Tanqueray Gin.",
-			description_es: "Daiquiri de limón hecho con ginebra Tanqueray.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Cucumber Mint Refresher",
-			name_es: "Refrescante de Pepino y Menta",
-			description: "Cucumber and mint daiquiri made with Gin.",
-			description_es: "Daiquiri de pepino y menta hecho con ginebra.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Berry Basil Bliss Daiquiri",
-			name_es: "Daiquiri Éxtasis de Moras y Albahaca",
-			description: "Berry and basil daiquiri made with Beefeater Gin.",
-			description_es:
-				"Daiquiri de moras y albahaca hecho con ginebra Beefeater.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Tropical Lime Garden Daiquiri",
-			name_es: "Daiquiri Jardín de Lima Tropical",
-			description: "Tropical lime daiquiri made with Gordon's Gin.",
-			description_es: "Daiquiri de lima tropical hecho con ginebra Gordon's.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Peach Bourbon Sunset",
-			name_es: "Atardecer de Durazno y Bourbon",
-			description: "Peach daiquiri made with Maker's Mark Bourbon.",
-			description_es: "Daiquiri de durazno hecho con bourbon Maker's Mark.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Cherry Oak Smash",
-			name_es: "Colisión de Cereza y Roble",
-			description: "Cherry daiquiri made with Bulleit Bourbon.",
-			description_es: "Daiquiri de cereza hecho con bourbon Bulleit.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Honey Citrus Kick",
-			name_es: "Toque Cítrico con Miel",
-			description: "Citrus and honey daiquiri made with Jim Beam Honey.",
-			description_es: "Daiquiri de cítricos y miel hecho con Jim Beam Honey.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Spiced Apple Rush",
-			name_es: "Frenesí de Manzana Especiada",
-			description: "Spiced apple daiquiri made with Wild Turkey 101.",
-			description_es:
-				"Daiquiri de manzana especiada hecho con Wild Turkey 101.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Cinnamon Maple Twist",
-			name_es: "Giro de Canela y Arce",
-			description: "Cinnamon maple daiquiri made with Evan Williams.",
-			description_es: "Daiquiri de canela y arce hecho con Evan Williams.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Vanilla Smoked Nectar",
-			name_es: "Néctar Ahumado de Vainilla",
-			description: "Vanilla daiquiri made with Knob Creek.",
-			description_es: "Daiquiri de vainilla hecho con Knob Creek.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Coconut Barrel Chill",
-			name_es: "Escalofrío de Barril de Coco",
-			description: "Coconut bourbon daiquiri made with Four Roses.",
-			description_es: "Daiquiri de bourbon y coco hecho con Four Roses.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Chocolate Mocha Storm",
-			name_es: "Tormenta de Mocha y Chocolate",
-			description: "Mocha chocolate daiquiri made with Buffalo Trace.",
-			description_es: "Daiquiri de mocha y chocolate hecho con Buffalo Trace.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 9.0,
-			restaurantId,
-		},
-		{
-			name: "Daiquiri Flight (Any 5 Flavors)",
-			name_es: "Vuelo de Daiquiris (5 Sabores)",
-			description: "A tasting flight of any 5 daiquiri flavors.",
-			description_es: "Una degustación de 5 sabores de daiquiri a elección.",
-			category: "Cocktails",
-			isDailySpecial: false,
-			price: 20.0,
-			restaurantId,
-		},
-
-		// ENTREES (BURGERS & SANDWICHES)
-		{
-			name: "Deluxe Cheeseburger",
-			name_es: "Hamburguesa de Lujo con Queso",
-			description:
-				"Classic deluxe cheeseburger with lettuce, tomato, and cheese.",
-			description_es:
-				"Clásica hamburguesa de lujo con queso, lechuga y tomate.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 15.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken Club / Bacon Sandwich",
-			name_es: "Club de Pollo con Tocino",
-			description: "Chicken club sandwich loaded with crispy bacon.",
-			description_es: "Sándwich club de pollo con tocino crujiente.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 13.95,
-			restaurantId,
-		},
-		{
-			name: "Spicy Chicken Sandwich",
-			name_es: "Sándwich de Pollo Picante",
-			description: "Crispy and spicy chicken sandwich.",
-			description_es: "Sándwich de pollo crujiente y picante.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 11.95,
-			restaurantId,
-		},
-		{
-			name: "Grilled Chicken Sandwich",
-			name_es: "Sándwich de Pollo a la Parrilla",
-			description: "Healthy and delicious grilled chicken sandwich.",
-			description_es: "Saludable y delicioso sándwich de pollo a la parrilla.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 11.95,
-			restaurantId,
-		},
-		{
-			name: "Fish Fillet Sandwich",
-			name_es: "Sándwich de Pescado Crujiente",
-			description: "Crispy fried fish fillet sandwich.",
-			description_es: "Sándwich de filete de pescado frito y crujiente.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 13.95,
-			restaurantId,
-		},
-		{
-			name: "BLT Sandwich",
-			name_es: "Sándwich de Lechuga, Tomate y Tocino",
-			description: "Classic Bacon, Lettuce, and Tomato sandwich.",
-			description_es: "Sándwich clásico de tocino, lechuga y tomate.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 13.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken & Waffles",
-			name_es: "Pollo con Waffles",
-			description: "Crispy fried chicken served with a fluffy golden waffle.",
-			description_es:
-				"Pollo frito crujiente servido con un waffle dorado y esponjoso.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 14.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken Nuggets with Fries (8 Pieces)",
-			name_es: "Nuggets de Pollo con Papas (8 Piezas)",
-			description: "8 crispy chicken nuggets served with golden fries.",
-			description_es:
-				"8 nuggets de pollo crujientes servidos con papas fritas doradas.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken Nuggets with Fries (12 Pieces)",
-			name_es: "Nuggets de Pollo con Papas (12 Piezas)",
-			description: "12 crispy chicken nuggets served with golden fries.",
-			description_es:
-				"12 nuggets de pollo crujientes servidos con papas fritas doradas.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 12.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken Strips with Fries (3 Pieces)",
-			name_es: "Tiras de Pollo con Papas (3 Piezas)",
-			description: "3 tender chicken strips served with fries.",
-			description_es: "3 tiras de pollo tiernas servidas con papas fritas.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 7.95,
-			restaurantId,
-		},
-		{
-			name: "Chicken Strips with Fries (6 Pieces)",
-			name_es: "Tiras de Pollo con Papas (6 Piezas)",
-			description: "6 tender chicken strips served with fries.",
-			description_es: "6 tiras de pollo tiernas servidas con papas fritas.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 9.95,
-			restaurantId,
-		},
-
-		// APPETIZERS (NACHOS & SALADS)
-		{
-			name: "Nachos with Chicken or Beef",
-			name_es: "Nachos con Pollo o Carne",
-			description:
-				"Crispy tortilla chips covered with beans, melted cheese, jalapenos, guacamole, sour cream, and tomatoes.",
-			description_es:
-				"Totopos crujientes con frijoles, queso derretido, jalapeños, guacamole, crema agria y tomates.",
-			category: "Appetizers",
-			isDailySpecial: false,
-			price: 9.95,
-			restaurantId,
-		},
-		{
-			name: "Crisp Garden Salad",
-			name_es: "Ensalada Fresca del Huerto",
-			description: "Delicious crisp lettuce with chopped vegetables.",
-			description_es: "Deliciosa y crujiente lechuga con vegetales picados.",
-			category: "Appetizers",
-			isDailySpecial: false,
-			price: 9.95,
-			restaurantId,
-		},
-		{
-			name: "Garden Salad with Grilled Chicken & Bacon",
-			name_es: "Ensalada con Pollo a la Parrilla y Tocino",
-			description: "Crisp garden salad topped with grilled chicken and bacon.",
-			description_es: "Ensalada fresca con pollo a la parrilla y tocino.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 14.95,
-			restaurantId,
-		},
-		{
-			name: "Garden Salad with Crispy Chicken & Bacon",
-			name_es: "Ensalada con Pollo Crujiente y Tocino",
-			description: "Crisp garden salad topped with fried chicken and bacon.",
-			description_es: "Ensalada fresca con pollo frito crujiente y tocino.",
-			category: "Entrees",
-			isDailySpecial: false,
-			price: 14.95,
-			restaurantId,
-		},
-
-		// NON-ALCOHOLIC DRINKS
-		{
-			name: "Fresh Juice (16 oz)",
-			name_es: "Jugo Fresco (16 oz)",
-			description: "16 oz of refreshing fresh juice.",
-			description_es: "16 oz de jugo fresco y refrescante.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 5.0,
-			restaurantId,
-		},
-		{
-			name: "Lemonade",
-			name_es: "Limonada",
-			description: "Freshly squeezed lemonade.",
-			description_es: "Limonada recién exprimida.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Tropical Fruit Drink",
-			name_es: "Bebida de Fruta Tropical",
-			description: "Refreshing tropical fruit beverage.",
-			description_es: "Refrescante bebida de frutas tropicales.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Tamarind Drink",
-			name_es: "Bebida de Tamarindo",
-			description: "Sweet and tangy tamarind drink.",
-			description_es: "Bebida dulce y ácida de tamarindo.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Passion Fruit Drink",
-			name_es: "Bebida de Maracuyá",
-			description: "Sweet passion fruit beverage.",
-			description_es: "Bebida dulce de maracuyá.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Iced Tea",
-			name_es: "Té Helado",
-			description: "Classic chilled iced tea.",
-			description_es: "Té helado clásico.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Soda",
-			name_es: "Refresco",
-			description: "Assorted carbonated sodas.",
-			description_es: "Refrescos carbonatados variados.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Coffee / Hot Tea",
-			name_es: "Café / Té Caliente",
-			description: "Freshly brewed coffee or hot tea.",
-			description_es: "Café recién hecho o té caliente.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 3.5,
-			restaurantId,
-		},
-		{
-			name: "Bottled Water",
-			name_es: "Agua Embotellada",
-			description: "Purified bottled water.",
-			description_es: "Agua purificada embotellada.",
-			category: "Non-Alcoholic Drinks",
-			isDailySpecial: false,
-			price: 2.5,
-			restaurantId,
-		},
-
-		// DESSERTS
-		{
-			name: "Classic Cheesecake",
-			name_es: "Tarta de Queso Clásica",
-			description: "Rich and creamy classic cheesecake.",
-			description_es: "Tarta de queso clásica, rica y cremosa.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-		{
-			name: "Caramel Cheesecake",
-			name_es: "Tarta de Queso con Caramelo",
-			description: "Cheesecake topped with rich caramel sauce.",
-			description_es: "Tarta de queso cubierta con rica salsa de caramelo.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 13.95,
-			restaurantId,
-		},
-		{
-			name: "Apple Cobbler",
-			name_es: "Crujiente de Manzana",
-			description: "Warm baked apple cobbler.",
-			description_es: "Postre crujiente de manzana horneada caliente.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-		{
-			name: "Tres Leches Cake",
-			name_es: "Pastel de Tres Leches",
-			description: "Traditional sponge cake soaked in three kinds of milk.",
-			description_es: "Bizcocho tradicional bañado en tres tipos de leche.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-		{
-			name: "Ice Cream Scoop",
-			name_es: "Bola de Helado",
-			description: "One scoop of Vanilla, Strawberry, or Chocolate ice cream.",
-			description_es: "Una bola de helado de Vainilla, Fresa o Chocolate.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 3.95,
-			restaurantId,
-		},
-		{
-			name: "Ice Cream Trio",
-			name_es: "Trío de Helados",
-			description: "Three scoops of assorted ice cream.",
-			description_es: "Tres bolas de helado surtido.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-		{
-			name: "Dessert of the Week",
-			name_es: "Postre de la Semana",
-			description: "Ask your server about our special dessert of the week.",
-			description_es:
-				"Pregunte a su mesero por el postre especial de la semana.",
-			category: "Desserts",
-			isDailySpecial: false,
-			price: 8.95,
-			restaurantId,
-		},
-	];
-
-	try {
-		const batch = db.batch();
-
-		menuItemsToSeed.forEach((item) => {
-			const newItemRef = db.collection("menuItems").doc();
-			batch.set(newItemRef, item);
-		});
-
-		await batch.commit();
-		res.status(200).send("✅ Successfully seeded all menu items!");
-	} catch (error) {
-		console.error("❌ Error seeding menu items:", error);
-		res.status(500).send("Error seeding menu: " + error.message);
-	}
-});
 
 exports.fulfillOrder = fulfillOrder;

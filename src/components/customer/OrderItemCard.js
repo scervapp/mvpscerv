@@ -17,9 +17,11 @@ const OrderItemCard = (props) => {
 		isUpdating = false,
 		liveTrackerStatus,
 		variant = "default",
+		hideOrderedFor = false,
 	} = props;
 
 	const isPickupVariant = variant === "pickup";
+	const isCompactVariant = variant === "compact";
 	const currentLang = i18n.language?.substring(0, 2) || "en";
 
 	if (!item || !item.dishName) {
@@ -124,6 +126,7 @@ const OrderItemCard = (props) => {
 			style={[
 				styles.orderItemCard,
 				isPickupVariant && styles.pickupOrderItemCard,
+				isCompactVariant && styles.compactOrderItemCard,
 				isSentToKitchen && styles.sentItemCardVisual,
 			]}
 		>
@@ -131,20 +134,26 @@ const OrderItemCard = (props) => {
 				style={[
 					styles.itemContent,
 					isPickupVariant && styles.pickupItemContent,
+					isCompactVariant && styles.compactItemContent,
 				]}
 			>
 				{(!isPickupVariant || badgeConfig) && (
-					<View style={styles.statusIconContainer}>
+					<View
+						style={[
+							styles.statusIconContainer,
+							isCompactVariant && styles.compactStatusIconContainer,
+						]}
+					>
 						{isSentToKitchen ? (
 							<MaterialCommunityIcons
 								name="check-circle"
-								size={24}
+								size={isCompactVariant ? 18 : 24}
 								color={badgeConfig?.color || colors.statusSuccess}
 							/>
 						) : (
 							<MaterialCommunityIcons
 								name="circle-outline"
-								size={24}
+								size={isCompactVariant ? 18 : 24}
 								color={colors.textLight}
 							/>
 						)}
@@ -155,19 +164,25 @@ const OrderItemCard = (props) => {
 					style={[
 						styles.detailsContainer,
 						isPickupVariant && styles.pickupDetailsContainer,
+						isCompactVariant && styles.compactDetailsContainer,
 					]}
 				>
 					<Text
 						style={[
 							styles.dishName,
 							isPickupVariant && styles.pickupDishName,
+							isCompactVariant && styles.compactDishName,
 							isSentToKitchen && styles.sentItemText,
 						]}
+						numberOfLines={isCompactVariant ? 1 : undefined}
 					>
 						{item.dishName}
 					</Text>
 
-					{!isPickupVariant && displayOrderedForName && (
+					{!isPickupVariant &&
+						!isCompactVariant &&
+						!hideOrderedFor &&
+						displayOrderedForName && (
 						<Text
 							style={[
 								styles.orderedForText,
@@ -178,7 +193,7 @@ const OrderItemCard = (props) => {
 						</Text>
 					)}
 
-					{item.specialInstructions && (
+					{!isCompactVariant && item.specialInstructions && (
 						<Text
 							style={[
 								styles.specialInstructions,
@@ -192,9 +207,9 @@ const OrderItemCard = (props) => {
 									item.specialInstructions.original ||
 									""
 								: item.specialInstructions}
-						</Text>
-					)}
-					{selectedModifiers.length > 0 && (
+							</Text>
+						)}
+					{!isCompactVariant && selectedModifiers.length > 0 && (
 						<View style={styles.modifiersContainer}>
 							{selectedModifiers.map((modifier, index) => {
 								const modifierName = getModifierDisplayName(modifier);
@@ -218,7 +233,7 @@ const OrderItemCard = (props) => {
 						</View>
 					)}
 
-					{badgeConfig && (
+					{badgeConfig && !isCompactVariant && (
 						<View
 							style={[styles.statusBadge, { backgroundColor: badgeConfig.bg }]}
 						>
@@ -241,6 +256,7 @@ const OrderItemCard = (props) => {
 					style={[
 						styles.controlsAndPriceContainer,
 						isPickupVariant && styles.pickupControlsAndPriceContainer,
+						isCompactVariant && styles.compactControlsAndPriceContainer,
 					]}
 				>
 					{isUpdating ? (
@@ -248,28 +264,51 @@ const OrderItemCard = (props) => {
 							<ActivityIndicator size="small" color={colors.primary} />
 						</View>
 					) : !isSentToKitchen && allowEdit ? (
-						<View style={styles.quantityControls}>
+						<View
+							style={[
+								styles.quantityControls,
+								isCompactVariant && styles.compactQuantityControls,
+							]}
+						>
 							<IconButton
 								icon="minus-circle"
-								size={26}
+								size={isCompactVariant ? 22 : 26}
 								onPress={handleDecrement}
-								style={styles.quantityButton}
+								style={[
+									styles.quantityButton,
+									isCompactVariant && styles.compactQuantityButton,
+								]}
 								iconColor={colors.textMedium}
 								disabled={isUpdating}
 							/>
-							<Text style={styles.quantityText}>{item.quantity}</Text>
+							<Text
+								style={[
+									styles.quantityText,
+									isCompactVariant && styles.compactQuantityText,
+								]}
+							>
+								{item.quantity}
+							</Text>
 							<IconButton
 								icon="plus-circle"
-								size={26}
+								size={isCompactVariant ? 22 : 26}
 								onPress={handleIncrement}
-								style={styles.quantityButton}
+								style={[
+									styles.quantityButton,
+									isCompactVariant && styles.compactQuantityButton,
+								]}
 								iconColor={colors.primary}
 								disabled={isUpdating}
 							/>
 						</View>
 					) : (
-						<Text style={styles.quantityDisplayOnly}>
-							{t("qty_label")}: {item.quantity}
+						<Text
+							style={[
+								styles.quantityDisplayOnly,
+								isCompactVariant && styles.compactQuantityDisplayOnly,
+							]}
+						>
+							{isCompactVariant ? `x${item.quantity}` : `${t("qty_label")}: ${item.quantity}`}
 						</Text>
 					)}
 
@@ -277,8 +316,10 @@ const OrderItemCard = (props) => {
 						style={[
 							styles.itemPrice,
 							isPickupVariant && styles.pickupItemPrice,
+							isCompactVariant && styles.compactItemPrice,
 							isSentToKitchen && styles.sentItemPriceDimmed,
 						]}
+						numberOfLines={1}
 					>
 						{formatCurrency(itemTotal)}
 					</Text>
@@ -314,6 +355,17 @@ const styles = StyleSheet.create({
 		borderWidth: 0,
 		backgroundColor: "transparent",
 	},
+	compactOrderItemCard: {
+		backgroundColor: "transparent",
+		borderRadius: 0,
+		paddingVertical: 6,
+		paddingHorizontal: 0,
+		marginVertical: 0,
+		shadowOpacity: 0,
+		shadowRadius: 0,
+		elevation: 0,
+		borderWidth: 0,
+	},
 	sentItemCardVisual: {
 		backgroundColor: colors.backgroundLight,
 	},
@@ -324,10 +376,17 @@ const styles = StyleSheet.create({
 	pickupItemContent: {
 		alignItems: "center",
 	},
+	compactItemContent: {
+		alignItems: "center",
+	},
 	statusIconContainer: {
 		marginRight: 10,
 		alignItems: "center",
 		paddingTop: 2,
+	},
+	compactStatusIconContainer: {
+		marginRight: 6,
+		paddingTop: 0,
 	},
 	detailsContainer: {
 		flex: 1,
@@ -335,6 +394,10 @@ const styles = StyleSheet.create({
 	},
 	pickupDetailsContainer: {
 		marginRight: 10,
+	},
+	compactDetailsContainer: {
+		marginRight: 6,
+		minWidth: 0,
 	},
 	dishName: {
 		fontSize: 16,
@@ -346,6 +409,11 @@ const styles = StyleSheet.create({
 		fontSize: 17,
 		fontWeight: "700",
 		marginBottom: 6,
+	},
+	compactDishName: {
+		fontSize: 14,
+		fontWeight: "600",
+		marginBottom: 0,
 	},
 	orderedForText: {
 		fontSize: 13,
@@ -382,15 +450,29 @@ const styles = StyleSheet.create({
 	pickupControlsAndPriceContainer: {
 		minWidth: 110,
 	},
+	compactControlsAndPriceContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "flex-end",
+		minWidth: 112,
+	},
 	quantityControls: {
 		flexDirection: "row",
 		alignItems: "center",
 		marginBottom: 5,
 	},
+	compactQuantityControls: {
+		marginBottom: 0,
+		marginRight: 6,
+	},
 	quantityButton: {
 		margin: 0,
 		width: 32,
 		height: 32,
+	},
+	compactQuantityButton: {
+		width: 24,
+		height: 24,
 	},
 	quantityText: {
 		fontSize: 17,
@@ -400,11 +482,21 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginHorizontal: 4,
 	},
+	compactQuantityText: {
+		fontSize: 14,
+		minWidth: 18,
+		marginHorizontal: 0,
+	},
 	quantityDisplayOnly: {
 		fontSize: 15,
 		color: colors.textMedium,
 		fontWeight: "500",
 		marginBottom: 5,
+	},
+	compactQuantityDisplayOnly: {
+		fontSize: 13,
+		marginBottom: 0,
+		marginRight: 8,
 	},
 	itemPrice: {
 		fontSize: 16,
@@ -413,6 +505,11 @@ const styles = StyleSheet.create({
 	},
 	pickupItemPrice: {
 		fontSize: 17,
+	},
+	compactItemPrice: {
+		fontSize: 14,
+		minWidth: 58,
+		textAlign: "right",
 	},
 	sentItemText: {
 		color: colors.textMedium,

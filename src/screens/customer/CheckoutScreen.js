@@ -52,7 +52,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [isLoading, setIsLoading] = useState(false);
 	const [isDataLoading, setIsDataLoading] = useState(true);
 	const [paymentError, setPaymentError] = useState(null);
-	const [fees, setFees] = useState(0.05);
+	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("15");
 	const [expandedPIPs, setExpandedPIPs] = useState({});
 	const [savedCards, setSavedCards] = useState([]);
@@ -87,6 +87,23 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const selectedCard =
 		savedCards?.find((card) => card.vaultId === selectedVaultId) ||
 		savedCards?.[0];
+	const stripeBillingDetails = useMemo(() => {
+		const name = [
+			currentUserData?.firstName,
+			currentUserData?.lastName,
+		]
+			.filter(Boolean)
+			.join(" ")
+			.trim();
+
+		return {
+			...(name && { name }),
+			...(currentUserData?.email && { email: currentUserData.email }),
+			...(currentUserData?.phoneNumber && {
+				phone: currentUserData.phoneNumber,
+			}),
+		};
+	}, [currentUserData]);
 
 	// --- Memoized Basket Items ---
 	const restaurantBasketItems = useMemo(() => {
@@ -108,11 +125,13 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const fetchInitialData = async () => {
 			setIsDataLoading(true);
 			try {
-				const feesSnap = await db.collection("appConfig").doc("general").get();
-				if (isMounted && feesSnap.exists()) {
-					setFees(feesSnap.data().fees);
-				} else if (isMounted) {
-					setFees(0.03);
+				const tiersSnap = await db
+					.collection("appConfig")
+					.doc("pricingTiers")
+					.get();
+				if (isMounted && tiersSnap.exists()) {
+					const data = tiersSnap.data();
+					setPricingTiers(data.pricingTiers || data);
 				}
 			} catch (error) {
 				// error handling
@@ -180,6 +199,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		subtotal,
 		gratuity,
 		platformFee,
+		taxAmount,
 		totalDiscount,
 		originalSubtotal,
 		pipTotals,
@@ -189,13 +209,13 @@ const CheckoutScreen = ({ route, navigation }) => {
 		if (
 			!restaurantBasketItems ||
 			restaurantBasketItems.length === 0 ||
-			!Array.isArray(filteredBasketData) ||
-			typeof fees !== "number"
+			!Array.isArray(filteredBasketData)
 		) {
 			return {
 				subtotal: 0,
 				gratuity: 0,
 				platformFee: 0,
+				taxAmount: 0,
 				totalDiscount: 0,
 				originalSubtotal: 0,
 				pipTotals: [],
@@ -206,6 +226,24 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 		let calcSubtotal = 0;
 		let calcOriginalSubtotal = 0;
+		const restaurantTier = restaurant?.pricingTier || "basic";
+		const rawPayout =
+			pricingTiers &&
+			pricingTiers[restaurantTier] &&
+			pricingTiers[restaurantTier].payoutPercentage !== undefined &&
+			pricingTiers[restaurantTier].payoutPercentage !== null
+				? pricingTiers[restaurantTier].payoutPercentage
+				: 0.97;
+		let payoutVal = Number(rawPayout);
+		if (isNaN(payoutVal)) payoutVal = 0.97;
+		if (payoutVal > 1) payoutVal = payoutVal / 100;
+		const scervFeePercentage = Math.max(
+			0,
+			Math.round((1 - payoutVal) * 10000) / 10000,
+		);
+		let taxRate = Number(restaurant?.taxRate || 0);
+		if (isNaN(taxRate)) taxRate = 0;
+		if (taxRate > 1) taxRate = taxRate / 100;
 
 		for (const item of restaurantBasketItems) {
 			const originalPrice = Math.round((Number(item?.dish?.price) || 0) * 100);
@@ -243,7 +281,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
-			const pipFee = Math.round(pipSubtotal * fees);
+			const pipFee = Math.round(pipSubtotal * scervFeePercentage);
 			const pipDiscount = pipOriginalSubtotal - pipSubtotal;
 
 			return {
@@ -260,21 +298,33 @@ const CheckoutScreen = ({ route, navigation }) => {
 			(sum, pip) => sum + (pip.fee || 0),
 			0,
 		);
+		const calculatedTaxAmount = Math.round(calcSubtotal * taxRate);
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
 		const calcFinalAmount =
-			calcSubtotal + calcGratuityAmount + calculated_platform_fee;
+			calcSubtotal +
+			calculatedTaxAmount +
+			calcGratuityAmount +
+			calculated_platform_fee;
 
 		return {
 			subtotal: calcSubtotal,
 			gratuity: calcGratuityAmount,
 			platformFee: calculated_platform_fee,
+			taxAmount: calculatedTaxAmount,
 			totalDiscount: calcTotalDiscount,
 			originalSubtotal: calcOriginalSubtotal,
 			pipTotals: calcPipTotals,
-			totalForPayment: calcSubtotal + calcGratuityAmount,
+			totalForPayment: calcSubtotal + calculatedTaxAmount + calcGratuityAmount,
 			finalTotal: calcFinalAmount,
 		};
-	}, [restaurantBasketItems, gratuityPercentage, fees, filteredBasketData]);
+	}, [
+		restaurantBasketItems,
+		gratuityPercentage,
+		filteredBasketData,
+		pricingTiers,
+		restaurant?.pricingTier,
+		restaurant?.taxRate,
+	]);
 
 	useEffect(() => {
 		if (memoizedFinalTotal !== undefined) {
@@ -332,6 +382,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 					quantity: item.quantity,
 				})),
 				gratuity: gratuity,
+				taxAmount,
+				platformFee,
+				expectedTotal: finalTotal,
 				stripeCustomerId: currentUserData.stripeCustomerId,
 				checkInId: checkInObj.id,
 				table: checkInObj.table || null,
@@ -348,6 +401,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 				customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 				customerId: prepData.customerId,
 				allowsDelayedPaymentMethods: true,
+				allowsRemovalOfLastSavedPaymentMethod: true,
+				defaultBillingDetails: stripeBillingDetails,
 				returnURL: "scerv://stripe-redirect",
 			});
 
@@ -645,6 +700,12 @@ const CheckoutScreen = ({ route, navigation }) => {
 							<Text style={styles.label}>{t("subtotal")}:</Text>
 							<Text style={styles.amount}>{formatCurrency(subtotal)}</Text>
 						</View>
+						{taxAmount > 0 && (
+							<View style={styles.summaryRow}>
+								<Text style={styles.label}>{t("tax", "Tax")}:</Text>
+								<Text style={styles.amount}>{formatCurrency(taxAmount)}</Text>
+							</View>
+						)}
 						<View style={styles.summaryRow}>
 							<Text style={styles.label}>
 								{t("gratuity_with_percentage", {

@@ -58,6 +58,23 @@ const PartyCheckoutScreen = () => {
 
 	const sharedBasketItems = sharedBaskets[partyId]?.items || [];
 	const party = partyDetails[partyId] || {};
+	const stripeBillingDetails = useMemo(() => {
+		const name = [
+			currentUserData?.firstName,
+			currentUserData?.lastName,
+		]
+			.filter(Boolean)
+			.join(" ")
+			.trim();
+
+		return {
+			...(name && { name }),
+			...(currentUserData?.email && { email: currentUserData.email }),
+			...(currentUserData?.phoneNumber && {
+				phone: currentUserData.phoneNumber,
+			}),
+		};
+	}, [currentUserData]);
 
 	const isPickupMode = party?.orderMode === "pickup";
 	const fulfillmentType =
@@ -74,6 +91,7 @@ const PartyCheckoutScreen = () => {
 
 	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
+	const [isTaxesAndFeesExpanded, setIsTaxesAndFeesExpanded] = useState(false);
 
 	const [dlocalPublicKey, setDlocalPublicKey] = useState(null);
 	const [dlocalCheckoutToken, setDlocalCheckoutToken] = useState(null);
@@ -92,9 +110,19 @@ const PartyCheckoutScreen = () => {
 	const [isEditingPickupInstructions, setIsEditingPickupInstructions] =
 		useState(false);
 
-	const country = party?.restaurantCountryCode || "PA";
+	const country =
+		restaurantData?.countryCode ||
+		restaurantData?.country ||
+		party?.restaurantCountryCode ||
+		party?.restaurantCountry ||
+		null;
 	const isPanama =
 		country === "PA" || country === "Panama" || country === "panama";
+	const isUS =
+		country === "US" ||
+		country === "USA" ||
+		country === "usa" ||
+		country === "United States";
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
@@ -141,6 +169,9 @@ const PartyCheckoutScreen = () => {
 		let originalSubtotalInCents = 0;
 		let discountedSubtotalInCents = 0;
 		let taxInCents = 0;
+		let restaurantTaxRate = Number(restaurantData?.taxRate || 0);
+		if (isNaN(restaurantTaxRate)) restaurantTaxRate = 0;
+		if (restaurantTaxRate > 1) restaurantTaxRate = restaurantTaxRate / 100;
 
 		items.forEach((item) => {
 			const priceInCents = Math.round((item.price || 0) * 100);
@@ -159,18 +190,9 @@ const PartyCheckoutScreen = () => {
 					? Math.round(item.discountedPrice * 100)
 					: Math.round((item.price || 0) * 100);
 
-			const rawTaxRate =
-				item.itbmsRate !== undefined && item.itbmsRate !== null
-					? Number(item.itbmsRate)
-					: item.taxRate !== undefined && item.taxRate !== null
-						? Number(item.taxRate)
-						: 0;
-
-			if (!isNaN(rawTaxRate) && rawTaxRate > 0) {
-				taxInCents += Math.round(
-					effectiveUnitPriceInCents * quantity * (rawTaxRate / 100),
-				);
-			}
+			taxInCents += Math.round(
+				effectiveUnitPriceInCents * quantity * restaurantTaxRate,
+			);
 		});
 
 		const gratuityInCents = canAcceptPayments
@@ -280,6 +302,7 @@ const PartyCheckoutScreen = () => {
 		gratuityPercentage,
 		pricingTiers,
 		restaurantData && restaurantData.pricingTier,
+		restaurantData && restaurantData.taxRate,
 		canAcceptPayments,
 	]);
 
@@ -353,9 +376,9 @@ const PartyCheckoutScreen = () => {
 				setPricingTiers(data.pricingTiers || data);
 			}
 
-			if (!canAcceptPayments) return;
+			if (!canAcceptPayments || (!isUS && !isPanama)) return;
 
-			if (!isPanama) {
+			if (isUS) {
 				try {
 					const getStripePublishableKeyFunction = httpsCallable(
 						functions,
@@ -424,7 +447,7 @@ const PartyCheckoutScreen = () => {
 		return () => {
 			isMounted = false;
 		};
-	}, [resolvedRestaurantId, myFinalTotal, isPanama, canAcceptPayments, t]);
+	}, [resolvedRestaurantId, myFinalTotal, isPanama, isUS, canAcceptPayments, t]);
 
 	useEffect(() => {
 		// 🚨 HARD STOP for pickup — NEVER go to confirmation
@@ -701,7 +724,9 @@ const PartyCheckoutScreen = () => {
 				partyId: party.id,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
+				taxAmount: myTax,
 				platformFee: myPlatformFee,
+				expectedTotal: myFinalTotal,
 				checkInId: isPickupMode ? null : party.checkInId,
 				table: isPickupMode ? null : party.table || null,
 				server: isPickupMode ? null : party.server || null,
@@ -725,6 +750,8 @@ const PartyCheckoutScreen = () => {
 				customerEphemeralKeySecret: prepData.ephemeralKeySecret,
 				customerId: prepData.customerId,
 				allowsDelayedPaymentMethods: true,
+				allowsRemovalOfLastSavedPaymentMethod: true,
+				defaultBillingDetails: stripeBillingDetails,
 				returnURL: "scerv://stripe-redirect",
 			});
 
@@ -793,6 +820,11 @@ const PartyCheckoutScreen = () => {
 		party?.customerStatus === "ready_to_pay"
 			? t("server_notified", "Server Notified")
 			: `${t("pay", "Pay")} ${formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}`;
+	const taxesAndFeesTotal = myTax + myPlatformFee;
+	const paymentConfigReady =
+		!canAcceptPayments ||
+		(isPanama && dlocalPublicKey && dlocalCheckoutToken) ||
+		(isUS && stripePublishableKey);
 
 	return (
 		<StripeProvider publishableKey={stripePublishableKey || ""}>
@@ -1000,13 +1032,6 @@ const PartyCheckoutScreen = () => {
 							</View>
 						)}
 
-						{canAcceptPayments && myTax > 0 && (
-							<View style={styles.summaryRow}>
-								<Text style={styles.label}>{t("tax", "Tax")}:</Text>
-								<Text style={styles.amount}>{formatCurrency(myTax)}</Text>
-							</View>
-						)}
-
 						{canAcceptPayments && (
 							<>
 								<View style={styles.summaryRow}>
@@ -1015,18 +1040,51 @@ const PartyCheckoutScreen = () => {
 										{formatCurrency(myGratuity)}
 									</Text>
 								</View>
-								<View style={styles.summaryRow}>
-									<Text style={styles.label}>
-										{t("service_fee", "Service Fee")} (
-										{restaurantData && restaurantData.pricingTier
-											? restaurantData.pricingTier
-											: "basic"}
-										):
-									</Text>
+								<TouchableOpacity
+									style={styles.summaryRow}
+									activeOpacity={0.75}
+									onPress={() =>
+										setIsTaxesAndFeesExpanded((expanded) => !expanded)
+									}
+								>
+									<View style={styles.summaryLabelWithIcon}>
+										<Text style={styles.label}>
+											{t("taxes_and_fees", "Taxes & fees")}:
+										</Text>
+										<Ionicons
+											name={
+												isTaxesAndFeesExpanded
+													? "chevron-up"
+													: "chevron-down"
+											}
+											size={16}
+											color={colors.textMedium}
+										/>
+									</View>
 									<Text style={styles.amount}>
-										{formatCurrency(myPlatformFee)}
+										{formatCurrency(taxesAndFeesTotal)}
 									</Text>
-								</View>
+								</TouchableOpacity>
+								{isTaxesAndFeesExpanded && (
+									<View style={styles.feeDetailsContainer}>
+										<View style={styles.feeDetailRow}>
+											<Text style={styles.feeDetailLabel}>
+												{t("tax", "Tax")}
+											</Text>
+											<Text style={styles.feeDetailAmount}>
+												{formatCurrency(myTax)}
+											</Text>
+										</View>
+										<View style={styles.feeDetailRow}>
+											<Text style={styles.feeDetailLabel}>
+												{t("platform_fee", "Platform fee")}
+											</Text>
+											<Text style={styles.feeDetailAmount}>
+												{formatCurrency(myPlatformFee)}
+											</Text>
+										</View>
+									</View>
+								)}
 							</>
 						)}
 
@@ -1078,12 +1136,21 @@ const PartyCheckoutScreen = () => {
 								onPress={() => {
 									if (isPanama) {
 										setIsPaymentModalVisible(true);
-									} else {
+									} else if (isUS) {
 										handlePayment();
+									} else {
+										Alert.alert(
+											t("payment_unavailable", "Payment Unavailable"),
+											t(
+												"payment_region_not_supported",
+												"Online card payments are not configured for this restaurant region.",
+											),
+										);
 									}
 								}}
 								disabled={
 									!isReadyToPay ||
+									!paymentConfigReady ||
 									isPreparing ||
 									(!isPickupMode && party?.customerStatus === "ready_to_pay")
 								}
@@ -1277,8 +1344,28 @@ const styles = StyleSheet.create({
 	summaryRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",
+		alignItems: "center",
 		paddingVertical: 5,
 	},
+	summaryLabelWithIcon: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		flexShrink: 1,
+	},
+	feeDetailsContainer: {
+		paddingLeft: 16,
+		paddingTop: 2,
+		paddingBottom: 4,
+	},
+	feeDetailRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 3,
+	},
+	feeDetailLabel: { fontSize: 14, color: colors.textMedium },
+	feeDetailAmount: { fontSize: 14, fontWeight: "500", color: colors.textDark },
 	label: { fontSize: 16, color: colors.textMedium },
 	amount: { fontSize: 16, fontWeight: "500", color: colors.textDark },
 	totalLabel: { fontSize: 18, fontWeight: "bold", color: colors.textDark },
