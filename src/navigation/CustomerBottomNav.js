@@ -19,7 +19,7 @@ import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
-import { Alert, Platform, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, Text, TouchableOpacity, View } from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
@@ -56,7 +56,7 @@ const defaultHeaderOptions = {
 	headerBackTitleVisible: false, // Hide default back title
 };
 
-const BackButton = () => {
+const BackButton = ({ fallbackRoute, fallbackParams, label }) => {
 	const navigation = useNavigation();
 	return (
 		<TouchableOpacity
@@ -64,17 +64,33 @@ const BackButton = () => {
 				console.log("BackButtonPress (using hook)");
 				if (navigation.canGoBack()) {
 					navigation.goBack();
+				} else if (fallbackRoute) {
+					navigation.navigate(fallbackRoute, fallbackParams);
 				} else {
+					navigation.popToTop();
 					console.log("Cannot go back from this screen.");
 				}
 			}}
+			style={{
+				flexDirection: "row",
+				alignItems: "center",
+				paddingHorizontal: 10,
+				paddingVertical: 8,
+				minHeight: 44,
+			}}
+			hitSlop={{ top: 8, right: 12, bottom: 8, left: 8 }}
+			accessibilityRole="button"
+			accessibilityLabel={label || "Go back"}
 		>
 			<Ionicons
 				name="arrow-back"
 				size={24}
 				color="black"
-				style={{ marginLeft: 10 }}
+				style={{ marginRight: 4 }}
 			/>
+			<Text style={{ color: "black", fontSize: 16, fontWeight: "600" }}>
+				{label || "Back"}
+			</Text>
 		</TouchableOpacity>
 	);
 };
@@ -124,8 +140,21 @@ const CustomerDashboardStack = () => {
 			<Stack.Screen
 				name="BasketScreen"
 				component={BasketScreen}
-				options={() => ({
+				options={({ route }) => ({
 					headerTitle: t("basket_title"),
+					headerLeft: () => (
+						<BackButton
+							label={t("back", "Back")}
+							fallbackRoute={
+								route.params?.restaurant ? "RestaurantDetail" : undefined
+							}
+							fallbackParams={
+								route.params?.restaurant
+									? { restaurant: route.params.restaurant }
+									: undefined
+							}
+						/>
+					),
 				})}
 			/>
 			<Stack.Screen

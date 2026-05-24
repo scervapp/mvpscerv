@@ -117,7 +117,10 @@ const BackOfficeScreen = ({ navigation }) => {
 	const handleCreateConnectedAccount = async () => {
 		try {
 			const createAccount = httpsCallable(functions, "createConnectedAccount");
-			await createAccount(currentUserData);
+			const response = await createAccount({ restaurantId: currentUserData.uid });
+			if (response.data?.accountLinkUrl || response.data?.url) {
+				await Linking.openURL(response.data.accountLinkUrl || response.data.url);
+			}
 			Alert.alert(t("successfully_initialized"));
 		} catch (error) {
 			console.error("Error creating connected account:", error);

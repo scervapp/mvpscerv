@@ -46,6 +46,39 @@ async function getDlocalConfig(restaurantId) {
 	};
 }
 
+const getRestaurantCountryCode = async (restaurantId) => {
+	const restaurantDoc = await db.collection("restaurants").doc(restaurantId).get();
+
+	if (!restaurantDoc.exists) {
+		throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+	}
+
+	const restaurantData = restaurantDoc.data() || {};
+	return String(
+		restaurantData.countryCode || restaurantData.country || "",
+	).trim();
+};
+
+const isUsCountry = (countryCode) => {
+	const normalized = String(countryCode || "").trim().toLowerCase();
+	return ["us", "usa", "united states", "united states of america"].includes(
+		normalized,
+	);
+};
+
+const assertDlocalAllowedForRestaurant = async (restaurantId) => {
+	const countryCode = await getRestaurantCountryCode(restaurantId);
+
+	if (isUsCountry(countryCode)) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"US restaurants must use Stripe for card payments.",
+		);
+	}
+
+	return countryCode;
+};
+
 exports.getDlocalPublicKey = functions
 	.runWith({
 		secrets: [
@@ -62,6 +95,8 @@ exports.getDlocalPublicKey = functions
 				"Restaurant ID is required to fetch the correct Smart Fields key.",
 			);
 		}
+
+		await assertDlocalAllowedForRestaurant(restaurantId);
 
 		// 1. Look up the restaurant in Firestore
 		const restaurantDoc = await db
@@ -525,6 +560,8 @@ exports.createDlocalPayment = functions
 			);
 		}
 
+		await assertDlocalAllowedForRestaurant(restaurantId);
+
 		// 🚨 THE FIX: Pass it into the config!
 		const { apiKey, secretKey, baseUrl } = await getDlocalConfig(restaurantId);
 
@@ -657,6 +694,8 @@ exports.confirmDlocalPayment = functions
 					"Pending order is missing restaurant information.",
 				);
 			}
+
+			await assertDlocalAllowedForRestaurant(effectiveRestaurantId);
 
 			if (
 				restaurantId &&

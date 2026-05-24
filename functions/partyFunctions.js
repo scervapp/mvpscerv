@@ -516,9 +516,14 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	const userRef = db.collection("customers").doc(leavingUserId);
 
 	try {
+		let preservedPartyId = null;
+		let preservedRestaurantId = null;
+		let preservedOrderMode = null;
+
 		await db.runTransaction(async (transaction) => {
 			const partyDoc = await transaction.get(partyRef);
 			const basketDoc = await transaction.get(sharedBasketRef);
+			const userDoc = await transaction.get(userRef);
 
 			// 1. If the party is already gone, just clean up the user doc and exit.
 			if (!partyDoc.exists) {
@@ -529,6 +534,10 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 			}
 
 			const partyData = partyDoc.data();
+			const basketItems = basketDoc.exists ? basketDoc.data().items || [] : [];
+			preservedRestaurantId = partyData.restaurantId || null;
+			preservedOrderMode =
+				partyData.orderMode === "pickup" ? "pickup" : "dineIn";
 
 			// 2. If the user is already not in the party, just clean up the user doc and exit.
 			if (
@@ -543,7 +552,6 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 
 			// 3. Check for SENT items. Block the leave if they exist.
 			if (basketDoc.exists) {
-				const basketItems = basketDoc.data().items || [];
 				const userHasSentItems = basketItems.some(
 					(item) =>
 						// Check both common ID fields just to be safe
@@ -562,9 +570,95 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 				}
 			}
 
-			// 4. Remove any "new" or "draft" items this user had in the basket
+			const userUnsentItems = basketItems.filter(
+				(item) =>
+					(item.orderedByUserId === leavingUserId ||
+						item.userId === leavingUserId) &&
+					(!item.status || item.status === "new" || item.status === "draft"),
+			);
+
+			// 4. Preserve unsent items in a new personal party basket, then remove
+			// them from the shared party the user is leaving.
+			if (userUnsentItems.length > 0) {
+				const preservedPartyRef = db.collection("parties").doc();
+				const preservedBasketRef = db
+					.collection("shared_baskets")
+					.doc(preservedPartyRef.id);
+				const userData = userDoc.exists ? userDoc.data() || {} : {};
+				const guestPip = (partyData.guestPips || []).find(
+					(pip) => pip.userId === leavingUserId,
+				);
+				const hostName =
+					guestPip.name ||
+					userData.fullName ||
+					`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
+					"Guest";
+				const timestamp = admin.firestore.FieldValue.serverTimestamp();
+				const orderMode =
+					partyData.orderMode === "pickup" ? "pickup" : "dineIn";
+
+				preservedPartyId = preservedPartyRef.id;
+
+				transaction.set(preservedPartyRef, {
+					id: preservedPartyRef.id,
+					restaurantId: partyData.restaurantId,
+					restaurantName: partyData.restaurantName || "Restaurant",
+					restaurantTaxRate: partyData.restaurantTaxRate || 0,
+					restaurantStripeAccountId:
+						partyData.restaurantStripeAccountId || null,
+					restaurantCanAcceptPayments:
+						partyData.restaurantCanAcceptPayments || false,
+					sharedBasketId: preservedPartyRef.id,
+					orderMode,
+					fulfillmentType:
+						partyData.fulfillmentType ||
+						(orderMode === "pickup" ? "hotel_pickup" : "table"),
+					joinable: orderMode !== "pickup",
+					table: null,
+					hostUserId: leavingUserId,
+					hostName,
+					guestUserIds: [leavingUserId],
+					guestPips: [
+						{
+							userId: leavingUserId,
+							name: hostName,
+							joinedAt: new Date(),
+							isLocal: true,
+							paymentStatus: "pending",
+						},
+					],
+					guestNames: [],
+					status: orderMode === "pickup" ? "active" : "pending",
+					createdAt: timestamp,
+					lastUpdated: timestamp,
+					checkInId: null,
+					inviteCode: null,
+					inviteCodeExpiry: null,
+					preservedFromPartyId: partyId,
+				});
+
+				transaction.set(preservedBasketRef, {
+					partyId: preservedPartyRef.id,
+					restaurantId: partyData.restaurantId,
+					orderMode,
+					fulfillmentType:
+						partyData.fulfillmentType ||
+						(orderMode === "pickup" ? "hotel_pickup" : "table"),
+					items: userUnsentItems.map((item) => ({
+						...item,
+						status: "new",
+						ticketId: null,
+						sentAt: null,
+						preservedFromPartyId: partyId,
+					})),
+					createdAt: timestamp,
+					lastUpdated: timestamp,
+				});
+			}
+
+			// Remove any new/draft items this user had in the shared party basket
 			if (basketDoc.exists) {
-				const updatedItems = (basketDoc.data().items || []).filter(
+				const updatedItems = basketItems.filter(
 					(item) =>
 						item.orderedByUserId !== leavingUserId &&
 						item.userId !== leavingUserId,
@@ -606,13 +700,32 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 			}
 
 			// 6. Finally, remove the party ID from the user's profile
-			transaction.update(userRef, {
-				partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
-			});
+			const existingPartyIds = userDoc.exists
+				? userDoc.data().partyIds || []
+				: [];
+			if (preservedPartyId) {
+				transaction.update(userRef, {
+					partyIds: [
+						...new Set([
+							...existingPartyIds.filter((id) => id !== partyId),
+							preservedPartyId,
+						]),
+					],
+				});
+			} else {
+				transaction.update(userRef, {
+					partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+				});
+			}
 		});
 
 		// Transaction completed successfully!
-		return { success: true };
+		return {
+			success: true,
+			preservedPartyId,
+			restaurantId: preservedRestaurantId,
+			orderMode: preservedOrderMode,
+		};
 	} catch (error) {
 		console.error(`Error leaving party ${partyId}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
@@ -754,7 +867,25 @@ exports.activatePartyCheckIn = functions.https.onCall(async (data, context) => {
 				);
 			}
 			if (partyData.status !== "pending") {
-				// Or if it's already "AWAITING_TABLE" and checkInId matches, perhaps it's a no-op.
+				const partyAlreadyLinkedToCheckIn =
+					partyData.checkInId === checkInId ||
+					partyData.activeCheckInId === checkInId;
+				const checkInAlreadyAccepted = checkInData.status === "ACCEPTED";
+				const partyAlreadyActive = ["AWAITING_TABLE", "active"].includes(
+					partyData.status,
+				);
+
+				if (
+					partyAlreadyLinkedToCheckIn ||
+					(partyAlreadyActive && checkInAlreadyAccepted)
+				) {
+					return {
+						success: true,
+						alreadyActivated: true,
+						message: "Party check-in is already active.",
+					};
+				}
+
 				throw new functions.https.HttpsError(
 					"failed-precondition",
 					"Party is not in a pending state for check-in activation.",
@@ -1470,4 +1601,3 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
-

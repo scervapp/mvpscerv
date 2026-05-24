@@ -8,7 +8,6 @@ import {
 	ActivityIndicator,
 	Alert,
 	SafeAreaView,
-	ScrollView,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -21,11 +20,13 @@ import { useParty } from "../../context/customer/PartyContext";
 import colors from "../../utils/styles/appStyles";
 import {
 	handleCancelCheckIn,
+	fetchMenu,
 	useCheckInStatus,
 } from "../../utils/customerUtils";
 import { db, functions } from "../../config/firebase";
 import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
+import MenuItemsList from "./MenuItemsList";
 
 const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
@@ -41,7 +42,10 @@ const RestaurantDetailScreen = () => {
 		isLoadingParty,
 		currentPartyIds,
 		partyDetails,
+		createParty,
 		activatePartyCheckIn,
+		addItemToPartyBasket,
+		leaveParty,
 		sharedBaskets,
 		getOrCreatePickupParty,
 	} = useParty();
@@ -52,6 +56,9 @@ const RestaurantDetailScreen = () => {
 	const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
 	const [liveRestaurantData, setLiveRestaurantData] = useState(restaurant);
 	const [isLoadingRestaurant, setIsLoadingRestaurant] = useState(true);
+	const [menuItems, setMenuItems] = useState([]);
+	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
+	const [isAddingDineInItem, setIsAddingDineInItem] = useState(false);
 
 	const hasAttemptedAutoActivateRef = useRef(false);
 
@@ -160,6 +167,50 @@ const RestaurantDetailScreen = () => {
 	}, [restaurant?.id]);
 
 	useEffect(() => {
+		let isMounted = true;
+
+		const loadMenu = async () => {
+			if (!restaurant?.id) {
+				if (isMounted) {
+					setMenuItems([]);
+					setIsLoadingMenu(false);
+				}
+				return;
+			}
+
+			setIsLoadingMenu(true);
+
+			try {
+				const fetchedMenu = await fetchMenu(restaurant.id);
+
+				if (isMounted) {
+					setMenuItems(Array.isArray(fetchedMenu) ? fetchedMenu : []);
+				}
+			} catch (error) {
+				console.error("RestaurantDetailScreen: Error fetching menu:", error);
+
+				if (isMounted) {
+					Alert.alert(
+						t("error_title", "Error"),
+						t("could_not_load_menu_items", "Could not load menu items."),
+					);
+					setMenuItems([]);
+				}
+			} finally {
+				if (isMounted) {
+					setIsLoadingMenu(false);
+				}
+			}
+		};
+
+		loadMenu();
+
+		return () => {
+			isMounted = false;
+		};
+	}, [restaurant?.id, t]);
+
+	useEffect(() => {
 		hasAttemptedAutoActivateRef.current = false;
 	}, [dineInPartyId]);
 
@@ -203,6 +254,127 @@ const RestaurantDetailScreen = () => {
 		setIsAuthModalVisible(true);
 	};
 
+	const getRestaurantDisplayName = () =>
+		liveRestaurantData?.restaurantName ||
+		liveRestaurantData?.name ||
+		restaurant?.restaurantName ||
+		restaurant?.name ||
+		t("restaurant", "Restaurant");
+
+	const getItbmsRateFromCategory = (categoryValue) => {
+		const category = String(categoryValue || "")
+			.trim()
+			.toLowerCase();
+
+		const isAlcohol =
+			category === "beer" ||
+			category === "wine" ||
+			category === "cocktails" ||
+			category === "spirits" ||
+			category === "alcoholic drinks";
+
+		return isAlcohol ? 10 : 7;
+	};
+
+	const getOrCreateDineInParty = async () => {
+		if (!restaurant?.id) return null;
+		if (dineInPartyId) return dineInPartyId;
+
+		return createParty(restaurant.id, getRestaurantDisplayName(), {
+			orderMode: "dineIn",
+			fulfillmentType: "table",
+			joinable: true,
+		});
+	};
+
+	const handleAddDineInMenuItem = async (itemDataFromModal) => {
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			throw new Error("Authentication required.");
+		}
+
+		if (!restaurant?.id || !currentUserData?.uid) {
+			throw new Error(t("restaurant_data_not_found", "Restaurant not found"));
+		}
+
+		if (isAddingDineInItem) {
+			throw new Error(t("please_wait", "Please Wait"));
+		}
+
+		setIsAddingDineInItem(true);
+
+		try {
+			const resolvedPartyId = await getOrCreateDineInParty();
+
+			if (!resolvedPartyId) {
+				throw new Error(
+					t("could_not_create_party", "Could not create your basket."),
+				);
+			}
+
+			const menuItemDetails = itemDataFromModal?.menuItemDetails || {};
+			const targets =
+				Array.isArray(itemDataFromModal?.individualPips) &&
+				itemDataFromModal.individualPips.length > 0
+					? itemDataFromModal.individualPips
+					: [
+							{
+								name:
+									currentUserData?.fullName ||
+									currentUserData?.firstName ||
+									t("myself", "Myself"),
+								specialInstructions: "",
+							},
+						];
+
+			for (const target of targets) {
+				await addItemToPartyBasket(
+					{
+						partyId: resolvedPartyId,
+						orderingForUserId: currentUserData.uid,
+						orderingForPipName:
+							target?.name ||
+							currentUserData?.fullName ||
+							currentUserData?.firstName ||
+							t("myself", "Myself"),
+					},
+					{
+						id: menuItemDetails.id,
+						name: menuItemDetails.name,
+						price:
+							menuItemDetails.finalUnitPrice !== undefined &&
+							menuItemDetails.finalUnitPrice !== null
+								? menuItemDetails.finalUnitPrice
+								: menuItemDetails.price,
+						basePrice:
+							menuItemDetails.basePrice !== undefined &&
+							menuItemDetails.basePrice !== null
+								? menuItemDetails.basePrice
+								: menuItemDetails.price || 0,
+						modifiersTotal:
+							menuItemDetails.modifiersTotal !== undefined &&
+							menuItemDetails.modifiersTotal !== null
+								? menuItemDetails.modifiersTotal
+								: 0,
+						selectedModifiers: Array.isArray(
+							menuItemDetails.selectedModifiers,
+						)
+							? menuItemDetails.selectedModifiers
+							: [],
+						category: menuItemDetails.category,
+						quantity: itemDataFromModal?.quantity || 1,
+						specialInstructions: target?.specialInstructions || "",
+						restaurantId: menuItemDetails.restaurantId || restaurant.id,
+						imageUri: menuItemDetails.imageUri || menuItemDetails.image || null,
+						itbmsRate: getItbmsRateFromCategory(menuItemDetails.category),
+					},
+				);
+			}
+		} finally {
+			setIsAddingDineInItem(false);
+		}
+	};
+
 	const handleStartDineIn = () => {
 		if (currentUserData?.role === "guest") {
 			handleRequireAuth();
@@ -211,6 +383,8 @@ const RestaurantDetailScreen = () => {
 
 		navigation.navigate("QRScannerScreen", {
 			restaurantId: restaurant.id,
+			restaurantName: getRestaurantDisplayName(),
+			partyId: dineInPartyId,
 		});
 	};
 
@@ -351,6 +525,13 @@ const RestaurantDetailScreen = () => {
 					onPress: async () => {
 						setIsProcessingCheckInAction(true);
 						try {
+							if (dineInPartyId) {
+								const leftParty = await leaveParty(dineInPartyId);
+								if (!leftParty) {
+									return;
+								}
+							}
+
 							await customerCancelSeatedCheckIn({ checkInId: checkInObj.id });
 						} catch (error) {
 							Alert.alert(
@@ -540,23 +721,33 @@ const RestaurantDetailScreen = () => {
 		if (dineInPartyId && !hasDineInTable) {
 			return (
 				<View style={styles.actionsRow}>
-					<View style={styles.splitActionsRow}>
-						<TouchableOpacity
-							style={[styles.primaryScanButton, styles.splitActionButton]}
-							onPress={handleViewDineInParty}
-							activeOpacity={0.85}
-						>
-							<MaterialCommunityIcons name="basket" size={20} color="#fff" />
-							<Text
-								style={[styles.primaryScanText, styles.splitActionButtonText]}
-								numberOfLines={1}
-							>
-								{t("view_cart", "View Basket")}
-							</Text>
-						</TouchableOpacity>
+					<View style={styles.prebuiltBasketPanel}>
+						<View style={styles.prebuiltBasketInfo}>
+							<View style={styles.prebuiltBasketIcon}>
+								<MaterialCommunityIcons
+									name="basket-outline"
+									size={22}
+									color={colors.primary}
+								/>
+							</View>
+							<View style={styles.prebuiltBasketTextWrap}>
+								<Text style={styles.prebuiltBasketTitle}>
+									{t("basket_ready_title", "Basket ready")}
+								</Text>
+								<Text style={styles.prebuiltBasketSubtitle} numberOfLines={1}>
+									{t("items_ready_to_scan", {
+										count: dineInBasketCount,
+										defaultValue:
+											dineInBasketCount === 1
+												? "1 item saved for dine-in"
+												: `${dineInBasketCount} items saved for dine-in`,
+									})}
+								</Text>
+							</View>
+						</View>
 
 						<TouchableOpacity
-							style={[styles.primaryScanButton, styles.splitActionButton]}
+							style={styles.compactScanButton}
 							onPress={handleStartDineIn}
 							activeOpacity={0.85}
 						>
@@ -565,20 +756,30 @@ const RestaurantDetailScreen = () => {
 								size={20}
 								color="#fff"
 							/>
-							<Text
-								style={[styles.primaryScanText, styles.splitActionButtonText]}
-								numberOfLines={1}
-							>
-								{t("scan_to_order", "Scan to Order")}
+							<Text style={styles.compactScanText} numberOfLines={1}>
+								{t("scan_table", "Scan Table")}
+							</Text>
+						</TouchableOpacity>
+					</View>
+
+					<View style={styles.compactActionRow}>
+						<TouchableOpacity
+							style={styles.compactSecondaryButton}
+							onPress={handleViewDineInParty}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons
+								name="format-list-bulleted"
+								size={18}
+								color={colors.primary}
+							/>
+							<Text style={styles.compactSecondaryText} numberOfLines={1}>
+								{t("view_basket", "View Basket")}
 							</Text>
 						</TouchableOpacity>
 
 						<TouchableOpacity
-							style={[
-								styles.primaryScanButton,
-								styles.splitActionButton,
-								styles.secondaryPickupButton,
-							]}
+							style={styles.compactSecondaryButton}
 							onPress={handleOpenPickupFlow}
 							disabled={isStartingPickup}
 							activeOpacity={0.85}
@@ -589,20 +790,13 @@ const RestaurantDetailScreen = () => {
 								<>
 									<MaterialCommunityIcons
 										name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
-										size={20}
+										size={18}
 										color={colors.primary}
 									/>
-									<Text
-										style={[
-											styles.primaryScanText,
-											styles.splitActionButtonText,
-											styles.secondaryPickupText,
-										]}
-										numberOfLines={1}
-									>
+									<Text style={styles.compactSecondaryText} numberOfLines={1}>
 										{pickupBasketCount > 0
 											? t("continue_pickup_order", "Continue Pickup")
-											: t("start_pickup_order", "Start Pickup")}
+											: t("pickup", "Pickup")}
 									</Text>
 								</>
 							)}
@@ -684,16 +878,18 @@ const RestaurantDetailScreen = () => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView
-				contentContainerStyle={styles.scrollContent}
-				showsVerticalScrollIndicator={false}
-			>
-				<RestaurantHeader
-					restaurant={liveRestaurantData || restaurant}
-					initialView={initialView}
-					renderActionButtons={renderActionButtons}
-				/>
-			</ScrollView>
+			<MenuItemsList
+				menuItems={menuItems}
+				isLoading={isLoadingMenu}
+				ListHeaderComponent={
+					<RestaurantHeader
+						restaurant={liveRestaurantData || restaurant}
+						initialView={initialView}
+						renderActionButtons={renderActionButtons}
+					/>
+				}
+				onConfirmAddItemToContext={handleAddDineInMenuItem}
+			/>
 
 			{currentUserData?.role === "customer" && basketCount > 0 && (
 				<TouchableOpacity
@@ -730,9 +926,6 @@ const styles = StyleSheet.create({
 	safeArea: {
 		flex: 1,
 		backgroundColor: colors.backgroundLight,
-	},
-	scrollContent: {
-		paddingBottom: 100,
 	},
 	centered: {
 		flex: 1,
@@ -789,6 +982,83 @@ const styles = StyleSheet.create({
 	},
 	secondaryPickupText: {
 		color: colors.primary,
+	},
+	prebuiltBasketPanel: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 10,
+		padding: 10,
+	},
+	prebuiltBasketInfo: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		marginRight: 10,
+	},
+	prebuiltBasketIcon: {
+		width: 40,
+		height: 40,
+		borderRadius: 20,
+		backgroundColor: colors.primary + "14",
+		justifyContent: "center",
+		alignItems: "center",
+		marginRight: 10,
+	},
+	prebuiltBasketTextWrap: {
+		flex: 1,
+	},
+	prebuiltBasketTitle: {
+		fontSize: 15,
+		fontWeight: "700",
+		color: colors.textDark,
+	},
+	prebuiltBasketSubtitle: {
+		marginTop: 2,
+		fontSize: 12,
+		color: colors.textMedium,
+	},
+	compactScanButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+		borderRadius: 8,
+		paddingVertical: 10,
+		paddingHorizontal: 12,
+		minWidth: 118,
+	},
+	compactScanText: {
+		color: "#fff",
+		fontSize: 14,
+		fontWeight: "700",
+		marginLeft: 6,
+	},
+	compactActionRow: {
+		flexDirection: "row",
+		columnGap: 10,
+		marginTop: 10,
+	},
+	compactSecondaryButton: {
+		flex: 1,
+		minHeight: 40,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+	},
+	compactSecondaryText: {
+		color: colors.primary,
+		fontSize: 13,
+		fontWeight: "700",
+		marginLeft: 6,
 	},
 	actionButtonCheckedIn: {
 		flex: 1,

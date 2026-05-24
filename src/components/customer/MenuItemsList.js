@@ -260,7 +260,12 @@ const MenuItemsList = ({
 	}
 
 	if (!menuItems || menuItems.length === 0) {
-		return <Text style={styles.noItemsText}>{t("no_menu_items_found")}</Text>;
+		return (
+			<ScrollView style={styles.container}>
+				{ListHeaderComponent}
+				<Text style={styles.noItemsText}>{t("no_menu_items_found")}</Text>
+			</ScrollView>
+		);
 	}
 
 	return (

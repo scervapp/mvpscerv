@@ -47,13 +47,7 @@ exports.createOrder = orderFunctions.createOrder;
 exports.createPendingOrder = orderFunctions.createPendingOrder;
 
 // Payment Functions
-exports.createSetupIntent = paymentFunctions.createSetupIntent;
 exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
-exports.createEphemeralKey = paymentFunctions.createEphemeralKey;
-exports.preparePaymentSheetData = paymentFunctions.preparePaymentSheetData;
-exports.preparePartyPaymentSheet = paymentFunctions.preparePartyPaymentSheet;
-exports.finalizePartyPaymentAndCreateOrder =
-	paymentFunctions.finalizePartyPaymentAndCreateOrder;
 exports.discountOrderItem = restaurantFunctions.discountOrderItem;
 
 exports.preparePayment = paymentFunctions.preparePayment;
@@ -66,6 +60,7 @@ exports.handleStripeEvent = paymentFunctions.handleStripeEvent;
 exports.createStripeCustomer = userFunctions.createStripeCustomer;
 exports.onUserCreate = userFunctions.onUserCreate;
 exports.createUserAccount = userFunctions.createUserAccount;
+exports.updateUserCredentials = userFunctions.updateUserCredentials;
 
 exports.sendWhatsAppOTP = userFunctions.sendWhatsAppOTP;
 exports.verifyWhatsAppOTP = userFunctions.verifyWhatsAppOTP;

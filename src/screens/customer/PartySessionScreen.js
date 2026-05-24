@@ -184,12 +184,12 @@ const PartySessionScreen = () => {
 	// --- 🚨 NEW: Smart Leave Party Wrapper ---
 	const handleLeavePartyPress = () => {
 		// Prevent dine-and-dash by blocking exit if they have items in cart
-		if (myItems.length > 0 && !userHasPaid) {
+		if (userHasKitchenItems && !userHasPaid) {
 			Alert.alert(
 				t("cannot_leave", "Cannot Leave"),
 				t(
 					"cannot_leave_with_items",
-					"You have items in your basket. Please delete unsent items or pay for your ordered items before leaving the party.",
+					"You have items that were sent to the kitchen. Please pay for your ordered items before leaving the party.",
 				),
 			);
 			return;
@@ -214,7 +214,10 @@ const PartySessionScreen = () => {
 						setUiLoading(true);
 						try {
 							// 🚨 THE FIX: Pass the currentPartyId here!
-							await leaveParty(currentPartyId);
+							const success = await leaveParty(currentPartyId);
+							if (success) {
+								navigation.goBack();
+							}
 						} catch (e) {
 							Alert.alert(
 								t("error", "Error"),
@@ -299,35 +302,46 @@ const PartySessionScreen = () => {
 
 		const groups = {};
 		items.forEach((item) => {
-			let groupOwnerUserId =
-				item.addedByUserId ||
-				item.userId ||
-				item.orderedByUserId ||
-				"unassigned_items";
+			const targetName =
+				item.orderedByPipName ||
+				item.pipName ||
+				item.customerName ||
+				(item.orderedByUserId === currentUserData?.uid
+					? currentUserData?.firstName
+					: null) ||
+				t("guest", "Guest");
 
-			if (!groups[groupOwnerUserId]) {
-				let groupDisplayName;
+			const currentUserNames = [
+				currentUserData?.fullName,
+				currentUserData?.firstName,
+				"Myself",
+				t("myself", "Myself"),
+			]
+				.filter(Boolean)
+				.map((name) => String(name).trim().toLowerCase());
+			const normalizedTargetName = String(targetName).trim().toLowerCase();
 
-				if (groupOwnerUserId === currentUserData?.uid) {
-					groupDisplayName = currentUserData.firstName
-						? `${currentUserData.firstName} (${t("you", "You")})`
-						: t("your_items", "Your Items");
-				} else if (partyDetails[currentPartyId]?.guestPips) {
-					const guestInfo = partyDetails[currentPartyId]?.guestPips?.find(
-						(p) => p.userId === groupOwnerUserId,
-					);
-					groupDisplayName = guestInfo?.name || `${t("guest", "Guest")}`;
-				} else {
-					groupDisplayName = `${t("guest", "Guest")}`;
-				}
+			const isCurrentUserTarget =
+				item.orderedByUserId === currentUserData?.uid &&
+				currentUserNames.includes(normalizedTargetName);
 
-				groups[groupOwnerUserId] = {
-					userId: groupOwnerUserId,
-					userName: groupDisplayName,
+			const groupKey = isCurrentUserTarget
+				? currentUserData.uid
+				: `target:${normalizedTargetName}`;
+
+			if (!groups[groupKey]) {
+				groups[groupKey] = {
+					userId: groupKey,
+					userName: isCurrentUserTarget
+						? currentUserData?.firstName
+							? `${currentUserData.firstName} (${t("you", "You")})`
+							: t("your_items", "Your Items")
+						: targetName,
+					isCurrentUserTarget,
 					items: [],
 				};
 			}
-			groups[groupOwnerUserId].items.push(item);
+			groups[groupKey].items.push(item);
 		});
 
 		const currentUserGroupKey = currentUserData?.uid;
@@ -340,11 +354,17 @@ const PartySessionScreen = () => {
 	}, [sharedBaskets, currentPartyId, currentUserData, partyDetails, t]);
 
 	const myItems = useMemo(() => {
-		const myGroup = groupedBasket?.find(
-			(g) => g.userId === currentUserData?.uid,
+		const rawBasket = sharedBaskets?.[currentPartyId] || {};
+		const items = rawBasket.items || [];
+		return items.filter((item) => item.orderedByUserId === currentUserData?.uid);
+	}, [sharedBaskets, currentPartyId, currentUserData?.uid]);
+
+	const userHasPaid = myPartyStatus?.paymentStatus === "paid";
+	const userHasKitchenItems = useMemo(() => {
+		return myItems.some((item) =>
+			["sent", "processing", "completed"].includes(item.status),
 		);
-		return myGroup ? myGroup.items : [];
-	}, [groupedBasket, currentUserData?.uid]);
+	}, [myItems]);
 
 	const hasUnsentItems = useMemo(() => {
 		return (
@@ -428,7 +448,6 @@ const PartySessionScreen = () => {
 
 	const partyIsPending = currentParty.status === "pending";
 	const partyIsActive = currentParty.status === "active";
-	const userHasPaid = myPartyStatus?.paymentStatus === "paid";
 	const isMultiplayer = groupedBasket.length > 1;
 
 	return (
@@ -542,7 +561,7 @@ const PartySessionScreen = () => {
 				contentContainerStyle={styles.flatListContentContainer}
 				ListEmptyComponent={<PartyBasketGuide isHost={isHost} />}
 				renderItem={({ item: group, index }) => {
-					const isMyGroup = group.userId === currentUserData?.uid;
+					const isMyGroup = group.isCurrentUserTarget;
 					// Highlight the current user's basket with your primary color, guests get a neutral/secondary color
 					const accentColor = isMyGroup ? colors.primary : colors.textMedium;
 
@@ -569,8 +588,12 @@ const PartySessionScreen = () => {
 									<Text style={styles.userNameHeader}>{group.userName}</Text>
 								</View>
 
-								{currentParty?.guestPips?.find((p) => p.userId === group.userId)
-									?.paymentStatus === "paid" && (
+								{currentParty?.guestPips?.find(
+									(p) =>
+										p.userId === group.userId ||
+										String(p.name).trim().toLowerCase() ===
+											String(group.userName).trim().toLowerCase(),
+								)?.paymentStatus === "paid" && (
 									<View style={styles.paidBadge}>
 										<Text style={styles.paidBadgeText}>
 											{t("paid", "Paid")}
@@ -582,10 +605,11 @@ const PartySessionScreen = () => {
 							{group.items.length > 0 ? (
 								<View style={styles.itemsWrapper}>
 									{group.items.map((basketItem, itemIndex) => {
-										const isForPip =
-											basketItem.orderedByPipName &&
-											basketItem.orderedByPipName !== "Myself";
 										const isLastItem = itemIndex === group.items.length - 1;
+										const canEditItem =
+											basketItem.orderedByUserId === currentUserData?.uid &&
+											(basketItem.status === "new" || !basketItem.status) &&
+											!userHasPaid;
 
 										return (
 											<View
@@ -595,14 +619,6 @@ const PartySessionScreen = () => {
 													!isLastItem && styles.itemSeparator,
 												]}
 											>
-												{isForPip && (
-													<View style={styles.pipLabelPill}>
-														<Text style={styles.pipLabelText}>
-															{t("for", "For")}: {basketItem.orderedByPipName}
-														</Text>
-													</View>
-												)}
-
 												<OrderItemCard
 													item={{
 														...basketItem,
@@ -613,17 +629,14 @@ const PartySessionScreen = () => {
 													onQuantityChange={
 														onItemQuantityChangeCallbackForParty
 													}
+													variant="compact"
+													hideOrderedFor
 													liveTrackerStatus={getItemLiveStatus(basketItem)}
 													isSentToKitchen={
 														getItemLiveStatus(basketItem) !== "new" &&
 														getItemLiveStatus(basketItem) !== null
 													}
-													allowEdit={
-														isMyGroup &&
-														(basketItem.status === "new" ||
-															!basketItem.status) &&
-														!userHasPaid
-													}
+													allowEdit={canEditItem}
 													isUpdating={updatingItemId === basketItem.id}
 												/>
 											</View>
@@ -691,7 +704,7 @@ const PartySessionScreen = () => {
 									style={{ marginRight: 8 }}
 								/>
 								<Text style={styles.stickyPrimaryBtnText}>
-									{t("scan_to_send", "Scan Table to Send")}
+									{t("scan_table", "Scan Table")}
 								</Text>
 							</TouchableOpacity>
 						</View>

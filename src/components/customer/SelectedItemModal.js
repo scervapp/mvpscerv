@@ -126,31 +126,57 @@ const SelectedItemModal = ({
 		return selectedItem.modifierGroups;
 	}, [selectedItem]);
 
+	const currentUserTarget = useMemo(() => {
+		if (!currentUserData?.uid) return null;
+
+		return {
+			id: currentUserData.uid,
+			userId: currentUserData.uid,
+			name:
+				currentUserData.fullName ||
+				currentUserData.firstName ||
+				t("myself", "Myself"),
+			specialInstructions: "",
+		};
+	}, [
+		currentUserData?.uid,
+		currentUserData?.fullName,
+		currentUserData?.firstName,
+		t,
+	]);
+
+	const displayOptions = useMemo(() => {
+		const normalizedPips = Array.isArray(pips)
+			? pips
+					.map((pip) => {
+						const id = pip?.id || pip?.userId || pip?.localPipId;
+						if (!id) return null;
+
+						return {
+							...pip,
+							id,
+							name: pip?.name || pip?.fullName || t("guest", "Guest"),
+							specialInstructions: pip?.specialInstructions || "",
+						};
+					})
+					.filter(Boolean)
+			: [];
+
+		if (normalizedPips.length > 0) return normalizedPips;
+		return currentUserTarget ? [currentUserTarget] : [];
+	}, [pips, currentUserTarget, t]);
+
 	useEffect(() => {
 		if (visible && selectedItem) {
 			setQuantity(1);
 			setSelectedModifiers([]);
 
-			if (orderingMode === "party" && currentUserData) {
-				const myName =
-					currentUserData.fullName ||
-					currentUserData.firstName ||
-					t("myself", "Myself");
+			const initialTarget = displayOptions[0] || null;
 
-				const initialTarget = {
-					id: currentUserData.uid,
-					name: myName,
-					specialInstructions: "",
-				};
-
-				setPartyModeTarget(initialTarget);
-				setOrderTargets([initialTarget]);
-			} else {
-				setPartyModeTarget(null);
-				setOrderTargets([]);
-			}
+			setPartyModeTarget(orderingMode === "party" ? initialTarget : null);
+			setOrderTargets(initialTarget ? [initialTarget] : []);
 		}
-	}, [visible, selectedItem, orderingMode, currentUserData, t]);
+	}, [visible, selectedItem, orderingMode, displayOptions]);
 
 	const openInstructionModalForTarget = (target) => {
 		const existingTarget = orderTargets.find((t) => t.id === target.id);
@@ -369,8 +395,6 @@ const SelectedItemModal = ({
 
 		onConfirm(dataToConfirm);
 	};
-
-	const displayOptions = pips || [];
 
 	const renderModifierGroup = (group) => {
 		const groupTitle = getLocalizedText(group.name) || group.name || "";
@@ -597,7 +621,7 @@ const SelectedItemModal = ({
 								</Text>
 
 								{displayOptions.map((option) => {
-									const uniqueKey = option.userId || option.localPipId;
+									const uniqueKey = option.id;
 									const isSelected = orderTargets[0]?.id === uniqueKey;
 									const targetObject = {
 										id: uniqueKey,

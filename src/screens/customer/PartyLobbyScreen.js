@@ -312,7 +312,7 @@ const PartyLobbyScreen = () => {
 					style: "destructive",
 					onPress: async () => {
 						setIsActionLoading(true);
-						await leaveParty(restaurantId);
+						await leaveParty(partyId);
 						setIsActionLoading(false);
 					},
 				},

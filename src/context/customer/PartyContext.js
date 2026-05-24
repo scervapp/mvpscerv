@@ -370,6 +370,63 @@ export const PartyProvider = ({ children }) => {
 				const result = await leavePartyFunction({ partyId });
 
 				if (result?.data?.success) {
+					const {
+						preservedPartyId,
+						restaurantId,
+						orderMode = "dineIn",
+					} = result.data || {};
+					const modeKey = orderMode === "pickup" ? "pickup" : "dineIn";
+
+					setCurrentPartyIds((prev) => {
+						const next = { ...prev };
+
+						Object.entries(next).forEach(([currentRestaurantId, sessions]) => {
+							const nextSessions = { ...(sessions || {}) };
+
+							if (nextSessions.dineIn === partyId) {
+								nextSessions.dineIn = null;
+							}
+							if (nextSessions.pickup === partyId) {
+								nextSessions.pickup = null;
+							}
+
+							if (
+								preservedPartyId &&
+								restaurantId &&
+								currentRestaurantId === restaurantId
+							) {
+								nextSessions[modeKey] = preservedPartyId;
+							}
+
+							if (nextSessions.dineIn || nextSessions.pickup) {
+								next[currentRestaurantId] = nextSessions;
+							} else {
+								delete next[currentRestaurantId];
+							}
+						});
+
+						if (preservedPartyId && restaurantId && !next[restaurantId]) {
+							next[restaurantId] = {
+								dineIn: modeKey === "dineIn" ? preservedPartyId : null,
+								pickup: modeKey === "pickup" ? preservedPartyId : null,
+							};
+						}
+
+						return next;
+					});
+
+					setPartyDetails((prev) => {
+						const next = { ...prev };
+						delete next[partyId];
+						return next;
+					});
+
+					setSharedBaskets((prev) => {
+						const next = { ...prev };
+						delete next[partyId];
+						return next;
+					});
+
 					return true;
 				}
 
