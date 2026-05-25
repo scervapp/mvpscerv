@@ -2327,7 +2327,7 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 			);
 		}
 
-		const { orderId, station, status, staffId, staffName } = data || {};
+		const { orderId, station, status, staffId, staffName, itemId } = data || {};
 		const validStations = ["kitchen", "bar"];
 		const validStatuses = ["new", "preparing", "ready"];
 
@@ -2361,20 +2361,91 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 				action: `update ${station} tickets`,
 			});
 
-			const updatePayload = {
-				[`stationStatuses.${station}`]: status,
-				[`stationUpdatedAt.${station}`]:
-					admin.firestore.FieldValue.serverTimestamp(),
-				[`stationUpdatedBy.${station}`]: {
-					userId: context.auth.uid,
-					staffId: staffMember.id || staffId || null,
-					name: staffName || staffMember.name || null,
-					role: staffMember.role || null,
-					jobTitle: staffMember.jobTitle || null,
-				},
-			};
-
 			await db.runTransaction(async (transaction) => {
+				const currentOrderDoc = await transaction.get(orderRef);
+				const currentOrderData = currentOrderDoc.data() || {};
+				const currentItems = Array.isArray(currentOrderData.items)
+					? currentOrderData.items
+					: [];
+
+				const stationItemMatcher = (item) => {
+					if (!item) return false;
+					if (item.destination === station) return true;
+					if (station === "kitchen") {
+						return (
+							Array.isArray(item.kitchenModifiers) &&
+							item.kitchenModifiers.length > 0
+						);
+					}
+					if (station === "bar") {
+						return (
+							Array.isArray(item.barModifiers) && item.barModifiers.length > 0
+						);
+					}
+					return false;
+				};
+
+				const matchingItems = currentItems.filter(stationItemMatcher);
+				if (matchingItems.length === 0) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						`Ticket has no ${station} items to update.`,
+					);
+				}
+
+				if (itemId && !matchingItems.some((item) => item.id === itemId)) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Ticket item not found for this station.",
+					);
+				}
+
+				const updatedItems = currentItems.map((item) => {
+					const shouldUpdateItem = itemId
+						? item.id === itemId
+						: stationItemMatcher(item);
+
+					if (!shouldUpdateItem) return item;
+
+					return {
+						...item,
+						stationStatuses: {
+							...(item.stationStatuses || {}),
+							[station]: status,
+						},
+					};
+				});
+
+				const updatedMatchingItems = updatedItems.filter(stationItemMatcher);
+				const updatedItemStatuses = updatedMatchingItems.map(
+					(item) =>
+						(item.stationStatuses && item.stationStatuses[station]) || "new",
+				);
+				const aggregateStationStatus = updatedItemStatuses.every(
+					(itemStatus) => itemStatus === "ready",
+				)
+					? "ready"
+					: updatedItemStatuses.some(
+							(itemStatus) =>
+								itemStatus === "preparing" || itemStatus === "ready",
+						)
+						? "preparing"
+						: "new";
+
+				const updatePayload = {
+					items: updatedItems,
+					[`stationStatuses.${station}`]: aggregateStationStatus,
+					[`stationUpdatedAt.${station}`]:
+						admin.firestore.FieldValue.serverTimestamp(),
+					[`stationUpdatedBy.${station}`]: {
+						userId: context.auth.uid,
+						staffId: staffMember.id || staffId || null,
+						name: staffName || staffMember.name || null,
+						role: staffMember.role || null,
+						jobTitle: staffMember.jobTitle || null,
+					},
+				};
+
 				transaction.update(orderRef, updatePayload);
 
 				if (orderData.partyId && orderData.fulfillmentType !== "hotel_pickup") {
@@ -2384,7 +2455,8 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 					transaction.set(
 						basketRef,
 						{
-							[`ticketStatuses.${orderId}.${station}`]: status,
+							[`ticketStatuses.${orderId}.${station}`]:
+								aggregateStationStatus,
 							lastKitchenUpdate: admin.firestore.FieldValue.serverTimestamp(),
 						},
 						{ merge: true },

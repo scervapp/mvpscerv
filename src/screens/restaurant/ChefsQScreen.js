@@ -27,9 +27,61 @@ import { httpsCallable } from "@react-native-firebase/functions";
 import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
 import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
 
+const itemBelongsToStation = (item, station) => {
+	if (!item) return false;
+	if (item.destination === station) return true;
+
+	if (station === "kitchen") {
+		return (
+			Array.isArray(item.kitchenModifiers) && item.kitchenModifiers.length > 0
+		);
+	}
+
+	if (station === "bar") {
+		return Array.isArray(item.barModifiers) && item.barModifiers.length > 0;
+	}
+
+	return false;
+};
+
+const getStationItemStatus = (item, station, fallbackStatus = "new") =>
+	item?.stationStatuses?.[station] || fallbackStatus || "new";
+
+const getItemStatusFallback = (items, station, stationStatus = "new") => {
+	const hasExplicitItemStatuses = items.some(
+		(item) => item?.stationStatuses?.[station],
+	);
+
+	return hasExplicitItemStatuses ? "new" : stationStatus || "new";
+};
+
+const deriveStationStatusFromItems = (items, station, fallbackStatus = "new") => {
+	if (!Array.isArray(items) || items.length === 0) {
+		return fallbackStatus || "new";
+	}
+
+	const statuses = items.map((item) =>
+		getStationItemStatus(item, station, fallbackStatus),
+	);
+
+	if (statuses.every((status) => status === "ready")) return "ready";
+	if (statuses.some((status) => status === "preparing" || status === "ready")) {
+		return "preparing";
+	}
+
+	return "new";
+};
+
 // --- Enterprise Kitchen Ticket ---
 const KitchenTicket = React.memo(
-	({ order, onUpdateStatus, viewMode, ticketWidth, currentTime }) => {
+	({
+		order,
+		onUpdateStatus,
+		onUpdateItemStatus,
+		viewMode,
+		ticketWidth,
+		currentTime,
+	}) => {
 		const { t, i18n } = useTranslation();
 		const currentLang = i18n.language?.substring(0, 2) || "en";
 
@@ -87,10 +139,20 @@ const KitchenTicket = React.memo(
 			"minutes",
 		);
 		const itemsToDisplay =
-			order.items?.filter((item) => item.destination === viewMode) || [];
+			order.items?.filter((item) => itemBelongsToStation(item, viewMode)) || [];
 		if (itemsToDisplay.length === 0) return null;
 
-		const currentStatus = order.stationStatuses?.[viewMode] || "new";
+		const stationStatus = order.stationStatuses?.[viewMode] || "new";
+		const itemStatusFallback = getItemStatusFallback(
+			itemsToDisplay,
+			viewMode,
+			stationStatus,
+		);
+		const currentStatus = deriveStationStatusFromItems(
+			itemsToDisplay,
+			viewMode,
+			itemStatusFallback,
+		);
 
 		// 🚨 1. Determine if this is a hotel order
 		const isPickup = order.fulfillmentType === "hotel_pickup";
@@ -136,9 +198,23 @@ const KitchenTicket = React.memo(
 				<View style={styles.ticketItems}>
 					{itemsToDisplay.map((item, index) => {
 						const stationModifiers = modifiersForThisStation(item);
+						const itemStatus = getStationItemStatus(
+							item,
+							viewMode,
+							itemStatusFallback,
+						);
+						const isItemReady = itemStatus === "ready";
+						const nextItemStatus =
+							itemStatus === "new" ? "preparing" : "ready";
 
 						return (
-							<View key={`${item.id}-${index}`} style={styles.ticketItemRow}>
+							<View
+								key={`${item.id}-${index}`}
+								style={[
+									styles.ticketItemRow,
+									isItemReady && styles.ticketItemRowReady,
+								]}
+							>
 								<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 								<View style={styles.itemDetails}>
 									<Text style={styles.itemName} numberOfLines={2}>
@@ -179,6 +255,39 @@ const KitchenTicket = React.memo(
 										</Text>
 									) : null}
 								</View>
+
+								<TouchableOpacity
+									disabled={isItemReady}
+									style={[
+										styles.itemStatusButton,
+										itemStatus === "new" && styles.itemStartButton,
+										itemStatus === "preparing" && styles.itemDoneButton,
+										isItemReady && styles.itemReadyButton,
+									]}
+									onPress={() =>
+										onUpdateItemStatus(
+											order,
+											item,
+											nextItemStatus,
+											viewMode,
+										)
+									}
+								>
+									<Text
+										style={[
+											styles.itemStatusButtonText,
+											itemStatus === "new" && styles.itemStartButtonText,
+											isItemReady && styles.itemReadyButtonText,
+										]}
+										numberOfLines={1}
+									>
+										{isItemReady
+											? t("READY")
+											: itemStatus === "new"
+												? t("START")
+												: t("DONE")}
+									</Text>
+								</TouchableOpacity>
 							</View>
 						);
 					})}
@@ -207,7 +316,7 @@ const KitchenTicket = React.memo(
 							},
 						]}
 					>
-						{currentStatus === "new" ? t("START") : t("DONE")}
+						{currentStatus === "new" ? t("START ALL") : t("DONE ALL")}
 					</Text>
 				</TouchableOpacity>
 			</View>
@@ -310,9 +419,23 @@ const ChefsQScreen = ({ navigation }) => {
 	const filteredOrders = useMemo(() => {
 		if (!orders || !Array.isArray(orders)) return [];
 		return orders.filter((o) => {
-			const hasItems = o.items?.some((i) => i.destination === viewMode);
+			const stationItems =
+				o.items?.filter((item) => itemBelongsToStation(item, viewMode)) || [];
 			const status = o.stationStatuses?.[viewMode] || "new";
-			return hasItems && ["new", "preparing"].includes(status);
+			const itemStatusFallback = getItemStatusFallback(
+				stationItems,
+				viewMode,
+				status,
+			);
+			const hasOpenItems = stationItems.some(
+				(item) =>
+					getStationItemStatus(item, viewMode, itemStatusFallback) !== "ready",
+			);
+			return (
+				stationItems.length > 0 &&
+				hasOpenItems &&
+				["new", "preparing"].includes(status)
+			);
 		});
 	}, [orders, viewMode]);
 
@@ -335,6 +458,26 @@ const ChefsQScreen = ({ navigation }) => {
 			// ❌ Skip basket updates for pickup
 		} catch (e) {
 			console.error("❌ Update failed:", e);
+			Alert.alert("Error", "Update failed");
+		}
+	};
+
+	const handleUpdateItemStatus = async (order, item, newStatus, station) => {
+		try {
+			await updateKitchenOrderStationStatusFunction({
+				orderId: order.id,
+				itemId: item.id,
+				station,
+				status: newStatus,
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
+			});
+		} catch (e) {
+			console.error("Update item failed:", e);
 			Alert.alert("Error", "Update failed");
 		}
 	};
@@ -433,6 +576,7 @@ const ChefsQScreen = ({ navigation }) => {
 					<KitchenTicket
 						order={item}
 						onUpdateStatus={handleUpdateOrderStatus}
+						onUpdateItemStatus={handleUpdateItemStatus}
 						viewMode={viewMode}
 						ticketWidth={ticketWidth}
 						currentTime={currentTime}
@@ -542,7 +686,13 @@ const styles = StyleSheet.create({
 	ticketItemRow: {
 		flexDirection: "row",
 		marginBottom: 12,
-		alignItems: "flex-start",
+		alignItems: "center",
+		borderBottomWidth: 1,
+		borderBottomColor: "#F1F5F9",
+		paddingBottom: 10,
+	},
+	ticketItemRowReady: {
+		opacity: 0.6,
 	},
 	itemQuantity: {
 		fontSize: 18,
@@ -571,6 +721,40 @@ const styles = StyleSheet.create({
 		fontWeight: "800",
 		marginTop: 4,
 		lineHeight: 16,
+	},
+	itemStatusButton: {
+		height: 40,
+		minWidth: 70,
+		paddingHorizontal: 10,
+		marginLeft: 8,
+		borderRadius: 6,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+	},
+	itemStartButton: {
+		backgroundColor: colors.statusWarning + "15",
+		borderColor: colors.statusWarning + "55",
+	},
+	itemDoneButton: {
+		backgroundColor: colors.statusSuccess,
+		borderColor: colors.statusSuccess,
+	},
+	itemReadyButton: {
+		backgroundColor: "#F8FAFC",
+		borderColor: "#CBD5E1",
+	},
+	itemStatusButtonText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: "#FFF",
+		letterSpacing: 0.5,
+	},
+	itemStartButtonText: {
+		color: colors.statusWarning,
+	},
+	itemReadyButtonText: {
+		color: "#64748B",
 	},
 	actionButton: {
 		padding: 16,
