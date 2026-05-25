@@ -1,5 +1,5 @@
 // navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
-import React from "react";
+import React, { useContext } from "react";
 import {
 	Platform,
 	View,
@@ -45,6 +45,8 @@ import OrderDetailScreen from "../screens/restaurant/OrderDetailScreen.js";
 import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
 import { getRestaurantPermissions } from "../utils/restaurantPermissions.js";
 import RestaurantLockButton from "../components/restaurant/RestaurantLockButton.js";
+import { AuthContext } from "../context/authContext.js";
+import { isPickupEnabledForRestaurant } from "../config/featureFlags.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -201,8 +203,10 @@ const RestaurantBottomNavigation = () => {
 		serviceRequestCount,
 		pickupOrderCount,
 	} = useRestaurantData();
+	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 	const permissions = getRestaurantPermissions(activeSession);
+	const pickupEnabled = isPickupEnabledForRestaurant(currentUserData);
 	const insets = useSafeAreaInsets();
 
 	return (
@@ -242,7 +246,7 @@ const RestaurantBottomNavigation = () => {
 						// 🚨 NEW: Added the Pickups Case
 						case "Pickups":
 							iconName = focused ? "bag-personal" : "bag-personal-outline";
-							badgeCount = pickupOrderCount || 0; // 🚨 NEW: Attach the badge!
+							badgeCount = pickupEnabled ? pickupOrderCount || 0 : 0;
 							break;
 
 						default:
@@ -299,7 +303,7 @@ const RestaurantBottomNavigation = () => {
 				<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
 			)}
 			{/* 🚨 NEW Tab 4: Pickup Queue */}
-			{permissions.canViewPickupQueue && (
+			{pickupEnabled && permissions.canViewPickupQueue && (
 				<Tab.Screen name="Pickups" component={PickupQueueScreen} />
 			)}
 		</Tab.Navigator>

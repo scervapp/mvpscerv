@@ -39,6 +39,7 @@ import QRScannerScreen from "../screens/customer/QRScannerScreen";
 import TableSetupPrompt from "../screens/customer/TableSetupPrompt";
 import PickupCartScreen from "../screens/customer/PickupCartScreen";
 import PickupOrderStatusScreen from "../screens/customer/PickupOrderStatusScreen";
+import { PICKUP_FLOW_ENABLED } from "../config/featureFlags";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -210,11 +211,13 @@ const PartyStackScreen = () => {
 				// Options can be dynamic, e.g., set by PartyMenuScreen itself using navigation.setOptions
 				// options={({ route }) => ({ title: `Menu: ${route.params?.restaurantName || 'Menu'}` })}
 			/>
-			<Stack.Screen
-				name="PickupCart"
-				component={PickupCartScreen}
-				options={{ headerShown: false }} // We built a custom header inside the file
-			/>
+			{PICKUP_FLOW_ENABLED && (
+				<Stack.Screen
+					name="PickupCart"
+					component={PickupCartScreen}
+					options={{ headerShown: false }} // We built a custom header inside the file
+				/>
+			)}
 			{/* 🚨 THE FIX: Add the QR Scanner natively to the Party flow! */}
 			<Stack.Screen
 				name="QRScannerScreen"
@@ -235,11 +238,13 @@ const PartyStackScreen = () => {
 				component={PartyCheckoutScreen}
 				options={{ headerTitle: t("checkout_your_items_title") }}
 			/>
-			<Stack.Screen
-				name="PickupOrderStatus"
-				component={PickupOrderStatusScreen}
-				options={{ headerTitle: t("order_status", "Order Status") }}
-			/>
+			{PICKUP_FLOW_ENABLED && (
+				<Stack.Screen
+					name="PickupOrderStatus"
+					component={PickupOrderStatusScreen}
+					options={{ headerTitle: t("order_status", "Order Status") }}
+				/>
+			)}
 			<Stack.Screen
 				name="OrderConfirmation"
 				component={OrderConfirmationScreen}

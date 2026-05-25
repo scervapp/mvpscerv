@@ -27,6 +27,7 @@ import { db, functions } from "../../config/firebase";
 import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
 import MenuItemsList from "./MenuItemsList";
+import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
 
 const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
@@ -62,6 +63,11 @@ const RestaurantDetailScreen = () => {
 
 	const hasAttemptedAutoActivateRef = useRef(false);
 
+	const pickupEnabled = useMemo(
+		() => isPickupEnabledForRestaurant(liveRestaurantData || restaurant),
+		[liveRestaurantData, restaurant],
+	);
+
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
 		"customerCancelSeatedCheckIn",
@@ -96,8 +102,9 @@ const RestaurantDetailScreen = () => {
 	}, [dineInPartyId, partyDetails]);
 
 	const pickupParty = useMemo(() => {
+		if (!pickupEnabled) return null;
 		return pickupPartyId ? partyDetails?.[pickupPartyId] || null : null;
-	}, [pickupPartyId, partyDetails]);
+	}, [pickupEnabled, pickupPartyId, partyDetails]);
 
 	const dineInItems = useMemo(() => {
 		if (!dineInPartyId) return [];
@@ -105,9 +112,10 @@ const RestaurantDetailScreen = () => {
 	}, [dineInPartyId, sharedBaskets]);
 
 	const pickupItems = useMemo(() => {
+		if (!pickupEnabled) return [];
 		if (!pickupPartyId) return [];
 		return sharedBaskets?.[pickupPartyId]?.items || [];
-	}, [pickupPartyId, sharedBaskets]);
+	}, [pickupEnabled, pickupPartyId, sharedBaskets]);
 
 	const dineInBasketCount = useMemo(() => {
 		if (!currentUserData?.uid) return 0;
@@ -119,6 +127,7 @@ const RestaurantDetailScreen = () => {
 	}, [dineInItems, currentUserData?.uid]);
 
 	const pickupBasketCount = useMemo(() => {
+		if (!pickupEnabled) return 0;
 		if (!currentUserData?.uid) return 0;
 
 		return (
@@ -127,17 +136,20 @@ const RestaurantDetailScreen = () => {
 					item && !item.deleted && item.orderedByUserId === currentUserData.uid,
 			).length || 0
 		);
-	}, [pickupItems, currentUserData?.uid]);
+	}, [pickupEnabled, pickupItems, currentUserData?.uid]);
 
 	// Prefer showing the basket FAB for whichever flow currently has items
-	const basketCount =
-		pickupBasketCount > 0 ? pickupBasketCount : dineInBasketCount;
+	const basketCount = pickupEnabled
+		? pickupBasketCount > 0
+			? pickupBasketCount
+			: dineInBasketCount
+		: dineInBasketCount;
 	const hasDineInTable =
 		checkInStatus === "ACCEPTED" || Boolean(dineInParty?.table?.id);
 
 	const basketTargetMode = hasDineInTable
 		? "dineIn"
-		: pickupBasketCount > 0
+		: pickupEnabled && pickupBasketCount > 0
 			? "pickup"
 			: "dineIn";
 
@@ -400,6 +412,8 @@ const RestaurantDetailScreen = () => {
 	};
 
 	const handleOpenPickupFlow = async () => {
+		if (!pickupEnabled) return;
+
 		if (!restaurant?.id) {
 			Alert.alert(
 				t("error_title", "Error"),
@@ -479,7 +493,7 @@ const RestaurantDetailScreen = () => {
 	};
 
 	const handlePrimaryFabPress = () => {
-		if (basketTargetMode === "pickup" && pickupPartyId) {
+		if (pickupEnabled && basketTargetMode === "pickup" && pickupPartyId) {
 			navigation.navigate("PartyTab", {
 				screen: "PickupCart",
 				params: {
@@ -500,7 +514,7 @@ const RestaurantDetailScreen = () => {
 			return;
 		}
 
-		if (pickupPartyId) {
+		if (pickupEnabled && pickupPartyId) {
 			navigation.navigate("PartyTab", {
 				screen: "PickupCart",
 				params: {
@@ -620,22 +634,24 @@ const RestaurantDetailScreen = () => {
 						) : null}
 					</TouchableOpacity>
 
-					<TouchableOpacity
-						style={styles.secondaryActionButton}
-						onPress={handleOpenPickupFlow}
-						activeOpacity={0.85}
-					>
-						<MaterialCommunityIcons
-							name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
-							size={20}
-							color={colors.primary}
-						/>
-						<Text style={styles.secondaryActionButtonText}>
-							{pickupBasketCount > 0
-								? t("continue_pickup_order", "Continue Pickup")
-								: t("pickup", "Pickup")}
-						</Text>
-					</TouchableOpacity>
+					{pickupEnabled && (
+						<TouchableOpacity
+							style={styles.secondaryActionButton}
+							onPress={handleOpenPickupFlow}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons
+								name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+								size={20}
+								color={colors.primary}
+							/>
+							<Text style={styles.secondaryActionButtonText}>
+								{pickupBasketCount > 0
+									? t("continue_pickup_order", "Continue Pickup")
+									: t("pickup", "Pickup")}
+							</Text>
+						</TouchableOpacity>
+					)}
 
 					{checkInStatus === "ACCEPTED" && (
 						<TouchableOpacity
@@ -679,22 +695,24 @@ const RestaurantDetailScreen = () => {
 						</Text>
 					</View>
 
-					<TouchableOpacity
-						style={styles.secondaryActionButton}
-						onPress={handleOpenPickupFlow}
-						activeOpacity={0.85}
-					>
-						<MaterialCommunityIcons
-							name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
-							size={20}
-							color={colors.primary}
-						/>
-						<Text style={styles.secondaryActionButtonText}>
-							{pickupBasketCount > 0
-								? t("continue_pickup_order", "Continue Pickup")
-								: t("pickup", "Pickup")}
-						</Text>
-					</TouchableOpacity>
+					{pickupEnabled && (
+						<TouchableOpacity
+							style={styles.secondaryActionButton}
+							onPress={handleOpenPickupFlow}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons
+								name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
+								size={20}
+								color={colors.primary}
+							/>
+							<Text style={styles.secondaryActionButtonText}>
+								{pickupBasketCount > 0
+									? t("continue_pickup_order", "Continue Pickup")
+									: t("pickup", "Pickup")}
+							</Text>
+						</TouchableOpacity>
+					)}
 
 					<TouchableOpacity
 						style={styles.cancelButton}
@@ -778,29 +796,38 @@ const RestaurantDetailScreen = () => {
 							</Text>
 						</TouchableOpacity>
 
-						<TouchableOpacity
-							style={styles.compactSecondaryButton}
-							onPress={handleOpenPickupFlow}
-							disabled={isStartingPickup}
-							activeOpacity={0.85}
-						>
-							{isStartingPickup ? (
-								<ActivityIndicator size="small" color={colors.primary} />
-							) : (
-								<>
-									<MaterialCommunityIcons
-										name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
-										size={18}
-										color={colors.primary}
-									/>
-									<Text style={styles.compactSecondaryText} numberOfLines={1}>
-										{pickupBasketCount > 0
-											? t("continue_pickup_order", "Continue Pickup")
-											: t("pickup", "Pickup")}
-									</Text>
-								</>
-							)}
-						</TouchableOpacity>
+						{pickupEnabled && (
+							<TouchableOpacity
+								style={styles.compactSecondaryButton}
+								onPress={handleOpenPickupFlow}
+								disabled={isStartingPickup}
+								activeOpacity={0.85}
+							>
+								{isStartingPickup ? (
+									<ActivityIndicator size="small" color={colors.primary} />
+								) : (
+									<>
+										<MaterialCommunityIcons
+											name={
+												pickupBasketCount > 0
+													? "basket"
+													: "shopping-outline"
+											}
+											size={18}
+											color={colors.primary}
+										/>
+										<Text
+											style={styles.compactSecondaryText}
+											numberOfLines={1}
+										>
+											{pickupBasketCount > 0
+												? t("continue_pickup_order", "Continue Pickup")
+												: t("pickup", "Pickup")}
+										</Text>
+									</>
+								)}
+							</TouchableOpacity>
+						)}
 					</View>
 				</View>
 			);
@@ -824,40 +851,46 @@ const RestaurantDetailScreen = () => {
 						</Text>
 					</TouchableOpacity>
 
-					<TouchableOpacity
-						style={[
-							styles.primaryScanButton,
-							styles.splitActionButton,
-							styles.secondaryPickupButton,
-						]}
-						onPress={handleOpenPickupFlow}
-						disabled={isStartingPickup}
-						activeOpacity={0.85}
-					>
-						{isStartingPickup ? (
-							<ActivityIndicator size="small" color={colors.primary} />
-						) : (
-							<>
-								<MaterialCommunityIcons
-									name={pickupBasketCount > 0 ? "basket" : "shopping-outline"}
-									size={20}
-									color={colors.primary}
-								/>
-								<Text
-									style={[
-										styles.primaryScanText,
-										styles.splitActionButtonText,
-										styles.secondaryPickupText,
-									]}
-									numberOfLines={1}
-								>
-									{pickupBasketCount > 0
-										? t("continue_pickup_order", "Continue Pickup")
-										: t("pickup", "Pickup")}
-								</Text>
-							</>
-						)}
-					</TouchableOpacity>
+					{pickupEnabled && (
+						<TouchableOpacity
+							style={[
+								styles.primaryScanButton,
+								styles.splitActionButton,
+								styles.secondaryPickupButton,
+							]}
+							onPress={handleOpenPickupFlow}
+							disabled={isStartingPickup}
+							activeOpacity={0.85}
+						>
+							{isStartingPickup ? (
+								<ActivityIndicator size="small" color={colors.primary} />
+							) : (
+								<>
+									<MaterialCommunityIcons
+										name={
+											pickupBasketCount > 0
+												? "basket"
+												: "shopping-outline"
+										}
+										size={20}
+										color={colors.primary}
+									/>
+									<Text
+										style={[
+											styles.primaryScanText,
+											styles.splitActionButtonText,
+											styles.secondaryPickupText,
+										]}
+										numberOfLines={1}
+									>
+										{pickupBasketCount > 0
+											? t("continue_pickup_order", "Continue Pickup")
+											: t("pickup", "Pickup")}
+									</Text>
+								</>
+							)}
+						</TouchableOpacity>
+					)}
 				</View>
 			</View>
 		);
