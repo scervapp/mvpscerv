@@ -197,12 +197,7 @@ const ActiveTablesStack = () => (
 // --- This is the main Tab Navigator for the restaurant app ---
 const RestaurantBottomNavigation = () => {
 	const { t } = useTranslation();
-	const {
-		newCheckInCount,
-		newKitchenOrderCount,
-		serviceRequestCount,
-		pickupOrderCount,
-	} = useRestaurantData();
+	const { newKitchenOrderCount, pickupOrderCount } = useRestaurantData();
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 	const permissions = getRestaurantPermissions(activeSession);
@@ -232,10 +227,6 @@ const RestaurantBottomNavigation = () => {
 					switch (route.name) {
 						case "Dashboard":
 							iconName = focused ? "view-dashboard" : "view-dashboard-outline";
-							break;
-						case "Checkins":
-							iconName = focused ? "clipboard-text" : "clipboard-text-outline";
-							badgeCount = newCheckInCount + serviceRequestCount;
 							break;
 						case "ChefsQ":
 							iconName = focused
@@ -271,9 +262,6 @@ const RestaurantBottomNavigation = () => {
 						case "Dashboard":
 							label = t("dashboard_tab");
 							break;
-						case "Checkins":
-							label = t("tickets_tab");
-							break;
 						case "ChefsQ":
 							label = t("chefs_q_tab");
 							break;
@@ -294,10 +282,6 @@ const RestaurantBottomNavigation = () => {
 				<Tab.Screen name="Dashboard" component={RestaurantDashboardStack} />
 			)}
 			{/* Tab 2: Customers Waiting */}
-			{permissions.canViewTickets && (
-				<Tab.Screen name="Checkins" component={ActiveTablesStack} />
-			)}
-
 			{/* Tab 3: Chef's Queue */}
 			{permissions.canViewKitchen && (
 				<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
@@ -315,6 +299,10 @@ const RestaurantBottomNavigation = () => {
 const RestaurantDashboardStack = () => (
 	<Stack.Navigator screenOptions={{ headerShown: false }}>
 		<Stack.Screen name="DashboardHome" component={RestaurantDashboardScreen} />
+		<Stack.Screen
+			name="ActiveTablesNavigator"
+			component={ActiveTablesStack}
+		/>
 		<Stack.Screen
 			name="BackOfficeNavigator"
 			component={BackOfficeStackNavigator}

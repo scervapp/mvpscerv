@@ -15,6 +15,10 @@ import {
 	Alert,
 	TouchableOpacity,
 	ScrollView,
+	Modal,
+	TextInput,
+	KeyboardAvoidingView,
+	Platform,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -33,19 +37,42 @@ const ServerMenuScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
 
-	const { partyId, restaurantId, tableName, tableId, serverObj } = route.params;
+	const {
+		partyId,
+		restaurantId,
+		tableName,
+		tableId,
+		serverObj,
+		partySeats = [],
+	} = route.params;
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
-	const [selectedItems, setSelectedItems] = useState({});
+	const [quickDraftItems, setQuickDraftItems] = useState([]);
 	const [customizedItems, setCustomizedItems] = useState([]);
 	const [isAddingBulk, setIsAddingBulk] = useState(false);
 	const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
+	const [isPendingTrayCollapsed, setIsPendingTrayCollapsed] = useState(true);
+	const [seatOptions, setSeatOptions] = useState(() => {
+		const normalizedSeats = Array.isArray(partySeats)
+			? partySeats.filter((seat) => seat?.id && seat?.name)
+			: [];
+		return normalizedSeats.length > 0
+			? normalizedSeats
+			: [{ id: "seat_1", name: "Seat 1" }];
+	});
+	const [selectedSeatId, setSelectedSeatId] = useState(
+		seatOptions[0]?.id || "seat_1",
+	);
+	const [isSeatModalVisible, setIsSeatModalVisible] = useState(false);
+	const [newSeatName, setNewSeatName] = useState("");
 
 	// ✅ NEW: selected category
 	const [selectedCategory, setSelectedCategory] = useState("All");
+	const selectedSeat =
+		seatOptions.find((seat) => seat.id === selectedSeatId) || seatOptions[0];
 
 	useEffect(() => {
 		const loadMenu = async () => {
@@ -199,24 +226,31 @@ const ServerMenuScreen = () => {
 		);
 	}, []);
 
-	const removeQuickSelectedItem = useCallback((itemId) => {
-		setSelectedItems((prev) => ({
-			...prev,
-			[itemId]: false,
-		}));
+	const selectedItems = useMemo(() => {
+		return quickDraftItems.reduce((selectedMap, draftItem) => {
+			if (draftItem?.seat?.id === selectedSeat?.id) {
+				selectedMap[draftItem.menuItemId] = true;
+			}
+			return selectedMap;
+		}, {});
+	}, [quickDraftItems, selectedSeat?.id]);
+
+	const removeQuickSelectedItem = useCallback((draftKey) => {
+		setQuickDraftItems((prev) =>
+			prev.filter((draftItem) => draftItem.key !== draftKey),
+		);
 	}, []);
 
 	const pendingPreviewItems = useMemo(() => {
-		const quickPreview = menuItems
-			.filter((item) => selectedItems[item.id])
-			.map((item) => ({
+		const quickPreview = quickDraftItems.map((draftItem) => ({
 				type: "quick",
-				key: `quick-${item.id}`,
-				id: item.id,
-				name: item.name,
+				key: draftItem.key,
+				id: draftItem.menuItemId,
+				name: draftItem.name,
 				quantity: 1,
+				seat: draftItem.seat,
 				modifiers: [],
-				price: item.price || 0,
+				price: draftItem.price || 0,
 			}));
 
 		const customPreview = customizedItems.map((customItem, index) => ({
@@ -226,6 +260,7 @@ const ServerMenuScreen = () => {
 			id: customItem?.menuItemDetails?.id || `custom-${index}`,
 			name: customItem?.menuItemDetails?.name || t("item", "Item"),
 			quantity: customItem?.quantity || 1,
+			seat: customItem?.orderedForSeat || selectedSeat,
 			modifiers: Array.isArray(customItem?.menuItemDetails?.selectedModifiers)
 				? customItem.menuItemDetails.selectedModifiers
 				: [],
@@ -237,23 +272,73 @@ const ServerMenuScreen = () => {
 		}));
 
 		return [...quickPreview, ...customPreview];
-	}, [menuItems, selectedItems, customizedItems, t]);
+	}, [quickDraftItems, selectedSeat, customizedItems, t]);
 
 	const toggleItemSelection = useCallback((itemId) => {
-		setSelectedItems((prev) => ({
-			...prev,
-			[itemId]: !prev[itemId],
-		}));
-	}, []);
+		const menuItem = menuItems.find((item) => item.id === itemId);
+		if (!menuItem) return;
+
+		const seat = selectedSeat || { id: "seat_1", name: "Seat 1" };
+		const draftKey = `quick-${seat.id}-${itemId}`;
+
+		setQuickDraftItems((prev) => {
+			const isSelectedForSeat = prev.some(
+				(draftItem) => draftItem.key === draftKey,
+			);
+
+			if (isSelectedForSeat) {
+				return prev.filter((draftItem) => draftItem.key !== draftKey);
+			}
+
+			return [
+				...prev,
+				{
+					key: draftKey,
+					menuItemId: itemId,
+					name: menuItem.name,
+					price: menuItem.price || 0,
+					seat,
+				},
+			];
+		});
+	}, [menuItems, selectedSeat]);
 
 	const handleServerAddItem = async (itemDataFromModal) => {
-		setCustomizedItems((prev) => [...prev, itemDataFromModal]);
+		setCustomizedItems((prev) => [
+			...prev,
+			{
+				...itemDataFromModal,
+				orderedForSeat: selectedSeat || { id: "seat_1", name: "Seat 1" },
+			},
+		]);
+	};
+
+	const handleAddSeat = () => {
+		const trimmedSeatName = newSeatName.trim();
+		const seatNumber = seatOptions.length + 1;
+		const seatName = trimmedSeatName || `Seat ${seatNumber}`;
+		const generatedSeatId = seatName
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "_")
+			.replace(/^_+|_+$/g, "");
+		const seatId = generatedSeatId || `seat_${seatNumber}`;
+
+		if (seatOptions.some((seat) => seat.id === seatId)) {
+			setSelectedSeatId(seatId);
+			setIsSeatModalVisible(false);
+			setNewSeatName("");
+			return;
+		}
+
+		const nextSeat = { id: seatId, name: seatName };
+		setSeatOptions((prev) => [...prev, nextSeat]);
+		setSelectedSeatId(nextSeat.id);
+		setIsSeatModalVisible(false);
+		setNewSeatName("");
 	};
 
 	const handleBulkServerAddItem = async () => {
-		const quickAddItems = menuItems.filter((item) => selectedItems[item.id]);
-
-		if (quickAddItems.length === 0 && customizedItems.length === 0) return;
+		if (quickDraftItems.length === 0 && customizedItems.length === 0) return;
 
 		setIsAddingBulk(true);
 
@@ -267,13 +352,23 @@ const ServerMenuScreen = () => {
 				currentUserData?.lastName || ""
 			}`.trim() ||
 			"Server";
-		const displayName = guestName || tableName || "Table";
+		const selectedOrderSeatIds = [
+			...quickDraftItems.map((item) => item.seat?.id),
+			...customizedItems.map((item) => (item.orderedForSeat || selectedSeat)?.id),
+		].filter(Boolean);
+		const hasMultipleSeats = new Set(selectedOrderSeatIds).size > 1;
+		const displayName = hasMultipleSeats
+			? "Multiple Seats"
+			: selectedSeat?.name || guestName || tableName || "Table";
 		try {
-			const quickItemsPayload = quickAddItems.map((item) => ({
-				menuItemId: item.id,
+			const quickItemsPayload = quickDraftItems.map((item) => ({
+				menuItemId: item.menuItemId,
 				selectedModifiers: [],
 				quantity: 1,
 				specialInstructions: "",
+				orderedForSeat:
+					item.seat ||
+					{ id: "seat_1", name: displayName },
 			}));
 
 			const customItemsPayload = customizedItems.map((customItem) => ({
@@ -285,6 +380,10 @@ const ServerMenuScreen = () => {
 					: [],
 				quantity: customItem?.quantity || 1,
 				specialInstructions: customItem?.specialInstructions || "",
+				orderedForSeat:
+					customItem?.orderedForSeat ||
+					selectedSeat ||
+					{ id: "seat_1", name: displayName },
 			}));
 
 			const allItemsToFire = [...quickItemsPayload, ...customItemsPayload];
@@ -312,10 +411,11 @@ const ServerMenuScreen = () => {
 					name: staffName,
 				},
 				orderedForName: displayName,
+				orderedForSeat: selectedSeat || { id: "seat_1", name: displayName },
 				items: allItemsToFire,
 			});
 
-			setSelectedItems({});
+			setQuickDraftItems([]);
 			setCustomizedItems([]);
 
 			setSnackbar({
@@ -351,7 +451,7 @@ const ServerMenuScreen = () => {
 		);
 	}
 
-	const selectedCount = Object.values(selectedItems).filter(Boolean).length;
+	const selectedCount = quickDraftItems.length;
 	const totalPendingCount = selectedCount + customizedItems.length;
 
 	return (
@@ -412,6 +512,51 @@ const ServerMenuScreen = () => {
 				</ScrollView>
 			</View>
 
+			<View style={styles.seatSection}>
+				<View style={styles.seatHeaderRow}>
+					<Text style={styles.seatHeaderText}>
+						{t("ordering_for", "Ordering For")}
+					</Text>
+					<TouchableOpacity
+						style={styles.addSeatButton}
+						onPress={() => setIsSeatModalVisible(true)}
+					>
+						<Ionicons name="add" size={16} color={colors.primary} />
+						<Text style={styles.addSeatText}>{t("seat", "Seat")}</Text>
+					</TouchableOpacity>
+				</View>
+				<ScrollView
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					contentContainerStyle={styles.seatScrollContent}
+				>
+					{seatOptions.map((seat) => {
+						const selected = selectedSeatId === seat.id;
+
+						return (
+							<TouchableOpacity
+								key={seat.id}
+								style={[
+									styles.seatChip,
+									selected && styles.seatChipActive,
+								]}
+								onPress={() => setSelectedSeatId(seat.id)}
+							>
+								<Text
+									style={[
+										styles.seatChipText,
+										selected && styles.seatChipTextActive,
+									]}
+									numberOfLines={1}
+								>
+									{seat.name}
+								</Text>
+							</TouchableOpacity>
+						);
+					})}
+				</ScrollView>
+			</View>
+
 			<MenuItemsList
 				menuItems={filteredMenuItems}
 				isLoading={isLoadingMenu}
@@ -438,11 +583,39 @@ const ServerMenuScreen = () => {
 			/>
 
 			{pendingPreviewItems.length > 0 && (
-				<View style={styles.pendingTray}>
-					<Text style={styles.pendingTrayTitle}>
-						{t("pending_items_title", "Pending Items")}
-					</Text>
+				<View
+					style={[
+						styles.pendingTray,
+						isPendingTrayCollapsed && styles.pendingTrayCollapsed,
+					]}
+				>
+					<TouchableOpacity
+						style={styles.pendingTrayHeader}
+						onPress={() =>
+							setIsPendingTrayCollapsed((currentValue) => !currentValue)
+						}
+						activeOpacity={0.8}
+					>
+						<View>
+							<Text style={styles.pendingTrayTitle}>
+								{t("pending_items_title", "Pending Items")}
+							</Text>
+							<Text style={styles.pendingTraySubtitle}>
+								{totalPendingCount} {t("items", "items")}
+							</Text>
+						</View>
+						<Ionicons
+							name={
+								isPendingTrayCollapsed
+									? "chevron-up-outline"
+									: "chevron-down-outline"
+							}
+							size={22}
+							color={colors.textMedium}
+						/>
+					</TouchableOpacity>
 
+					{!isPendingTrayCollapsed && (
 					<ScrollView
 						style={styles.pendingTrayScroll}
 						showsVerticalScrollIndicator={true}
@@ -460,6 +633,9 @@ const ServerMenuScreen = () => {
 									]}
 								>
 									<View style={styles.pendingItemDetails}>
+										<Text style={styles.pendingSeatLabel}>
+											{pendingItem.seat?.name || t("seat", "Seat")}
+										</Text>
 										<Text style={styles.pendingItemName}>
 											{pendingItem.quantity}x {pendingItem.name}
 										</Text>
@@ -491,7 +667,7 @@ const ServerMenuScreen = () => {
 									<TouchableOpacity
 										onPress={() => {
 											if (pendingItem.type === "quick") {
-												removeQuickSelectedItem(pendingItem.id);
+												removeQuickSelectedItem(pendingItem.key);
 											} else {
 												removeCustomizedItem(pendingItem.index);
 											}
@@ -508,6 +684,7 @@ const ServerMenuScreen = () => {
 							);
 						})}
 					</ScrollView>
+					)}
 				</View>
 			)}
 
@@ -540,6 +717,55 @@ const ServerMenuScreen = () => {
 					</Text>
 				</View>
 			)}
+
+			<Modal
+				visible={isSeatModalVisible}
+				transparent
+				animationType="fade"
+				onRequestClose={() => setIsSeatModalVisible(false)}
+			>
+				<KeyboardAvoidingView
+					style={styles.modalOverlay}
+					behavior={Platform.OS === "ios" ? "padding" : "height"}
+				>
+					<View style={styles.seatModalCard}>
+						<Text style={styles.seatModalTitle}>
+							{t("add_seat", "Add Seat")}
+						</Text>
+						<TextInput
+							style={styles.seatModalInput}
+							value={newSeatName}
+							onChangeText={setNewSeatName}
+							placeholder={t("seat_name_optional", "Seat name or guest name")}
+							placeholderTextColor={colors.textMedium}
+							autoFocus
+							returnKeyType="done"
+							onSubmitEditing={handleAddSeat}
+						/>
+						<View style={styles.seatModalActions}>
+							<TouchableOpacity
+								style={styles.seatModalSecondary}
+								onPress={() => {
+									setIsSeatModalVisible(false);
+									setNewSeatName("");
+								}}
+							>
+								<Text style={styles.seatModalSecondaryText}>
+									{t("cancel", "Cancel")}
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={styles.seatModalPrimary}
+								onPress={handleAddSeat}
+							>
+								<Text style={styles.seatModalPrimaryText}>
+									{t("add", "Add")}
+								</Text>
+							</TouchableOpacity>
+						</View>
+					</View>
+				</KeyboardAvoidingView>
+			</Modal>
 		</SafeAreaView>
 	);
 };
@@ -627,6 +853,66 @@ const styles = StyleSheet.create({
 	categoryCardTextActive: {
 		color: colors.primary,
 	},
+	seatSection: {
+		backgroundColor: colors.surfaceWhite,
+		paddingHorizontal: 16,
+		paddingTop: 10,
+		paddingBottom: 12,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	seatHeaderRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 8,
+	},
+	seatHeaderText: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	addSeatButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "12",
+	},
+	addSeatText: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.primary,
+	},
+	seatScrollContent: {
+		paddingRight: 16,
+	},
+	seatChip: {
+		minWidth: 92,
+		maxWidth: 160,
+		paddingHorizontal: 12,
+		paddingVertical: 9,
+		borderRadius: 8,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		marginRight: 8,
+		alignItems: "center",
+	},
+	seatChipActive: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	seatChipText: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	seatChipTextActive: {
+		color: colors.surfaceWhite,
+	},
 
 	headerContainer: { padding: 20 },
 	headerTitle: {
@@ -690,11 +976,26 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
+	pendingTrayCollapsed: {
+		paddingVertical: 10,
+		marginBottom: 92,
+	},
+	pendingTrayHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 8,
+	},
 	pendingTrayTitle: {
 		fontSize: 16,
 		fontWeight: "700",
 		color: colors.textDark,
-		marginBottom: 10,
+	},
+	pendingTraySubtitle: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
 	},
 	pendingTrayScroll: {
 		maxHeight: 220,
@@ -718,6 +1019,12 @@ const styles = StyleSheet.create({
 		fontSize: 15,
 		fontWeight: "600",
 		color: colors.textDark,
+	},
+	pendingSeatLabel: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.primary,
+		marginBottom: 2,
 	},
 	pendingModifiersWrap: {
 		marginTop: 4,
@@ -750,6 +1057,59 @@ const styles = StyleSheet.create({
 		fontWeight: "700",
 		fontSize: 15,
 		textAlign: "center",
+	},
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.45)",
+		justifyContent: "center",
+		padding: 24,
+	},
+	seatModalCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		padding: 18,
+	},
+	seatModalTitle: {
+		fontSize: 18,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginBottom: 12,
+	},
+	seatModalInput: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 11,
+		fontSize: 16,
+		color: colors.textDark,
+		marginBottom: 14,
+	},
+	seatModalActions: {
+		flexDirection: "row",
+		gap: 10,
+		justifyContent: "flex-end",
+	},
+	seatModalSecondary: {
+		paddingHorizontal: 16,
+		paddingVertical: 10,
+		borderRadius: 8,
+		backgroundColor: colors.backgroundMedium,
+	},
+	seatModalSecondaryText: {
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	seatModalPrimary: {
+		paddingHorizontal: 18,
+		paddingVertical: 10,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+	},
+	seatModalPrimaryText: {
+		fontWeight: "800",
+		color: colors.surfaceWhite,
 	},
 });
 

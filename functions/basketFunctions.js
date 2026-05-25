@@ -617,6 +617,7 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 			server,
 			items,
 			orderedForName = "Table",
+			orderedForSeat = null,
 			staff = {},
 		} = data || {};
 
@@ -698,12 +699,51 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 			String(staff.name || "").trim() || staffMember.name || "Staff";
 		const staffId = staffMember.id || staff.id || context.auth.uid;
 		const normalizedOrderedForName =
-			String(orderedForName || "").trim() ||
+			String(
+				(orderedForSeat && orderedForSeat.name) || orderedForName || "",
+			).trim() ||
 			partyData.hostName ||
 			(partyData.table && partyData.table.name) ||
 			"Table";
+		const normalizedSeatId =
+			orderedForSeat && orderedForSeat.id
+				? String(orderedForSeat.id).trim()
+				: normalizedOrderedForName
+					.toLowerCase()
+					.replace(/[^a-z0-9]+/g, "_")
+					.replace(/^_+|_+$/g, "") || "table_share";
+		const normalizedSeat = {
+			id: normalizedSeatId,
+			name: normalizedOrderedForName,
+			source: "restaurant_pos",
+		};
 
 		const staffBasketItems = items.map((requestedItem) => {
+			const itemOrderedForSeat =
+				requestedItem && requestedItem.orderedForSeat
+					? requestedItem.orderedForSeat
+					: orderedForSeat;
+			const itemOrderedForName =
+				String(
+					(itemOrderedForSeat && itemOrderedForSeat.name) ||
+						orderedForName ||
+						"",
+				).trim() ||
+				partyData.hostName ||
+				(partyData.table && partyData.table.name) ||
+				"Table";
+			const itemSeatId =
+				itemOrderedForSeat && itemOrderedForSeat.id
+					? String(itemOrderedForSeat.id).trim()
+					: itemOrderedForName
+						.toLowerCase()
+						.replace(/[^a-z0-9]+/g, "_")
+						.replace(/^_+|_+$/g, "") || "table_share";
+			const itemSeat = {
+				id: itemSeatId,
+				name: itemOrderedForName,
+				source: "restaurant_pos",
+			};
 			const menuItemId = requestedItem && requestedItem.menuItemId;
 			const menuItem = menuItemMap.get(menuItemId);
 
@@ -759,8 +799,12 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				quantity,
 				specialInstructions,
 				orderedByUserId: context.auth.uid,
-				orderedByPipName: normalizedOrderedForName,
-				orderedForName: normalizedOrderedForName,
+				orderedByPipName: itemSeat.name,
+				orderedForName: itemSeat.name,
+				seatId: itemSeat.id,
+				seatName: itemSeat.name,
+				orderedForSeatId: itemSeat.id,
+				orderedForSeatName: itemSeat.name,
 				source: "restaurant_pos",
 				orderEntryMode: "staff",
 				paymentResponsibility: "restaurant_pos",
@@ -773,6 +817,19 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				itbmsRate: getItbmsRateFromCategory(menuItem.category),
 			};
 		});
+		const staffOrderSeatMap = new Map();
+		staffBasketItems.forEach((item) => {
+			if (!item.seatId) return;
+			staffOrderSeatMap.set(item.seatId, {
+				id: item.seatId,
+				name: item.seatName || item.orderedForName || "Seat",
+				source: "restaurant_pos",
+			});
+		});
+		if (staffOrderSeatMap.size === 0) {
+			staffOrderSeatMap.set(normalizedSeat.id, normalizedSeat);
+		}
+		const staffOrderSeats = Array.from(staffOrderSeatMap.values());
 
 		const batch = db.batch();
 		const basketDoc = await basketRef.get();
@@ -820,6 +877,8 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				quantity: item.quantity,
 				specialInstructions: item.specialInstructions || "",
 				orderedFor: item.orderedForName || "Table",
+				seatId: item.seatId || null,
+				seatName: item.seatName || null,
 				source: item.source,
 				orderEntryMode: item.orderEntryMode,
 				paymentResponsibility: item.paymentResponsibility,
@@ -871,6 +930,17 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 			status: "new",
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
+
+		batch.set(
+			partyRef,
+			{
+				staffOrderSeats:
+					admin.firestore.FieldValue.arrayUnion(...staffOrderSeats),
+				hasSeatBasedStaffOrders: true,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
 
 		await batch.commit();
 
