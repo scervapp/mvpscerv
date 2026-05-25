@@ -99,6 +99,17 @@ const OrderDetailScreen = ({ route }) => {
 	const customerPaid = Number(order.totalPrice || 0);
 	const platformFee = Number(order.platformFee || 0);
 	const processorFee = Number(order.processorFee || 0);
+	const restaurantProcessingFee = Number(
+		order.restaurantProcessingFeeAmount ||
+			order.processorFeeAppliedToRestaurantSales ||
+			processorFee ||
+			0,
+	);
+	const applicationFeeAmount = Number(
+		order.applicationFeeAmount ||
+			order.stripeApplicationFeeAmount ||
+			platformFee + restaurantProcessingFee,
+	);
 	const restaurantGrossAfterPlatformFee = Number.isFinite(
 		Number(order.restaurantGrossAmount),
 	)
@@ -108,7 +119,7 @@ const OrderDetailScreen = ({ route }) => {
 		Number(order.restaurantTransferAmount),
 	)
 		? Number(order.restaurantTransferAmount)
-		: Math.max(0, restaurantGrossAfterPlatformFee - processorFee);
+		: Math.max(0, restaurantGrossAfterPlatformFee - restaurantProcessingFee);
 	const stripePaymentIntentId =
 		order.stripePaymentIntentId || order.paymentIntentId || order.paymentProcessorId;
 	const isManualRestaurantOrder =
@@ -206,8 +217,8 @@ const OrderDetailScreen = ({ route }) => {
 						value={restaurantGrossAfterPlatformFee}
 					/>
 					<MoneyRow
-						label="Less Stripe processing fee"
-						value={order.processorFee}
+						label="Less restaurant processing fee"
+						value={restaurantProcessingFee}
 						isDeduction
 					/>
 					<MoneyRow
@@ -220,7 +231,18 @@ const OrderDetailScreen = ({ route }) => {
 						value={stripePaymentIntentId}
 					/>
 					<TraceRow label="Stripe charge" value={order.stripeChargeId} />
-					<TraceRow label="Stripe transfer" value={order.stripeTransferId} />
+					<TraceRow
+						label="Stripe transfer"
+						value={order.stripeTransferId || order.stripeDestinationTransferId}
+					/>
+					<TraceRow
+						label="Stripe application fee"
+						value={formatCurrency(applicationFeeAmount)}
+					/>
+					<TraceRow
+						label="Actual Stripe processor cost"
+						value={formatCurrency(processorFee)}
+					/>
 					<TraceRow
 						label="Transfer status"
 						value={order.restaurantTransferStatus}
