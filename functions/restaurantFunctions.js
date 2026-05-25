@@ -20,6 +20,60 @@ const generateTableId = (name) => {
 		.replace(/[^a-z0-9_]/g, ""); // Remove special characters
 };
 
+const getRestaurantSeatIdForItem = (item = {}) => {
+	if (item.seatId) return String(item.seatId);
+	if (item.orderedForSeatId) return String(item.orderedForSeatId);
+	if (item.orderedByUserId) return `guest_${item.orderedByUserId}`;
+	return "table_share";
+};
+
+const getRestaurantSeatNameForItem = (item = {}) => {
+	return (
+		item.seatName ||
+		item.orderedForSeatName ||
+		item.orderedForName ||
+		item.orderedByPipName ||
+		item.customerName ||
+		"Table"
+	);
+};
+
+const calculateRestaurantCloseoutTotals = (items, restaurantTaxRate) => {
+	let subtotalCents = 0;
+	let originalSubtotalCents = 0;
+	let taxAmountCents = 0;
+
+	(items || []).forEach((item) => {
+		const activePrice =
+			item.discountedPrice !== undefined && item.discountedPrice !== null
+				? item.discountedPrice
+				: item.price || 0;
+
+		const itemPrice = parseFloat(activePrice || 0);
+		const originalPrice = parseFloat(item.price || 0);
+		const quantity = parseInt(item.quantity || 1, 10);
+
+		const itemPriceCents = Math.round(itemPrice * 100);
+		const originalPriceCents = Math.round(originalPrice * 100);
+
+		subtotalCents += itemPriceCents * quantity;
+		originalSubtotalCents += originalPriceCents * quantity;
+
+		if (!isNaN(restaurantTaxRate) && restaurantTaxRate > 0) {
+			taxAmountCents += Math.round(
+				itemPriceCents * quantity * restaurantTaxRate,
+			);
+		}
+	});
+
+	return {
+		subtotalCents,
+		originalSubtotalCents,
+		taxAmountCents,
+		discountTotalCents: Math.max(0, originalSubtotalCents - subtotalCents),
+	};
+};
+
 /**
  * Helper function to process Firestore operations in chunks of 500
  * (Enterprise standard to prevent batch limit crashes)
@@ -2807,6 +2861,8 @@ exports.closePartyTable = functions
 			closeoutNotes = "",
 			closedByName = "",
 			closedByStaffId = "",
+			closeoutItemIds = [],
+			closeoutSeatIds = [],
 		} = data;
 
 		if (!partyId) {
@@ -2905,39 +2961,81 @@ exports.closePartyTable = functions
 					(item) => item && item.status && item.status !== "new",
 				);
 
-				let subtotalCents = 0;
-				let originalSubtotalCents = 0;
-				let taxAmountCents = 0;
 				let restaurantTaxRate = Number(restaurantData.taxRate || 0);
 				if (isNaN(restaurantTaxRate)) restaurantTaxRate = 0;
 				if (restaurantTaxRate > 1) restaurantTaxRate = restaurantTaxRate / 100;
 
-				officiallyOrderedItems.forEach((item) => {
-					const activePrice =
-						item.discountedPrice !== undefined && item.discountedPrice !== null
-							? item.discountedPrice
-							: item.price || 0;
+				const paidItemIds = new Set(
+					officiallyOrderedItems
+						.filter(
+							(item) =>
+								item.paymentStatus === "paid" ||
+								item.closeoutStatus === "paid",
+						)
+						.map((item) => item.id)
+						.filter(Boolean),
+				);
+				const unpaidItems = officiallyOrderedItems.filter(
+					(item) => item && item.id && !paidItemIds.has(item.id),
+				);
+				const requestedItemIdSet = new Set(
+					(Array.isArray(closeoutItemIds) ? closeoutItemIds : [])
+						.map((id) => String(id || "").trim())
+						.filter(Boolean),
+				);
+				const requestedSeatIdSet = new Set(
+					(Array.isArray(closeoutSeatIds) ? closeoutSeatIds : [])
+						.map((id) => String(id || "").trim())
+						.filter(Boolean),
+				);
+				let selectedCloseoutItems = unpaidItems;
 
-					const itemPrice = parseFloat(activePrice || 0);
-					const originalPrice = parseFloat(item.price || 0);
-					const quantity = parseInt(item.quantity || 1, 10);
+				if (requestedItemIdSet.size > 0) {
+					selectedCloseoutItems = unpaidItems.filter((item) =>
+						requestedItemIdSet.has(item.id),
+					);
+				} else if (requestedSeatIdSet.size > 0) {
+					selectedCloseoutItems = unpaidItems.filter((item) =>
+						requestedSeatIdSet.has(getRestaurantSeatIdForItem(item)),
+					);
+				}
 
-					const itemPriceCents = Math.round(itemPrice * 100);
-					const originalPriceCents = Math.round(originalPrice * 100);
+				if (selectedCloseoutItems.length === 0) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"No unpaid items were selected for closeout.",
+					);
+				}
 
-					subtotalCents += itemPriceCents * quantity;
-					originalSubtotalCents += originalPriceCents * quantity;
-
-					if (!isNaN(restaurantTaxRate) && restaurantTaxRate > 0) {
-						taxAmountCents += Math.round(
-							itemPriceCents * quantity * restaurantTaxRate,
-						);
-					}
+				const selectedCloseoutItemIds = selectedCloseoutItems
+					.map((item) => item.id)
+					.filter(Boolean);
+				const selectedCloseoutItemIdSet = new Set(selectedCloseoutItemIds);
+				const selectedCloseoutSeatIds = [
+					...new Set(selectedCloseoutItems.map(getRestaurantSeatIdForItem)),
+				];
+				const selectedCloseoutSeats = selectedCloseoutSeatIds.map((seatId) => {
+					const seatItem = selectedCloseoutItems.find(
+						(item) => getRestaurantSeatIdForItem(item) === seatId,
+					);
+					return {
+						id: seatId,
+						name: getRestaurantSeatNameForItem(seatItem),
+					};
 				});
-
-				const discountTotalCents = Math.max(
-					0,
-					originalSubtotalCents - subtotalCents,
+				const remainingUnpaidItemsAfterPayment = unpaidItems.filter(
+					(item) => !selectedCloseoutItemIdSet.has(item.id),
+				);
+				const isTableFullyPaid = remainingUnpaidItemsAfterPayment.length === 0;
+				const closeoutScope = isTableFullyPaid ? "final" : "partial";
+				const {
+					subtotalCents,
+					originalSubtotalCents,
+					taxAmountCents,
+					discountTotalCents,
+				} = calculateRestaurantCloseoutTotals(
+					selectedCloseoutItems,
+					restaurantTaxRate,
 				);
 
 				// Manual/external closeout business rule:
@@ -3026,11 +3124,18 @@ exports.closePartyTable = functions
 					jobTitle: staffMember.jobTitle || null,
 					email: context.auth.token.email || null,
 				};
+				const paymentId = db.collection("dummy").doc().id;
 
 				const closeout = {
+					id: paymentId,
 					source: "restaurant_pos",
 					orderEntryMode: "staff",
 					feePolicy: "manual_tender_scerv_fee_waived",
+					scope: closeoutScope,
+					isFinalCloseout: isTableFullyPaid,
+					itemIds: selectedCloseoutItemIds,
+					seatIds: selectedCloseoutSeatIds,
+					seats: selectedCloseoutSeats,
 					paymentMethod: paymentMethod,
 					tenderType: tenderType || paymentMethod,
 					externalReference: String(externalReference || "").trim() || null,
@@ -3051,23 +3156,143 @@ exports.closePartyTable = functions
 					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
 					changeDue: changeDueCents,
 					closedBy: closedBy,
-					closedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedAtIso: new Date().toISOString(),
 				};
+				const existingCloseoutPayments = Array.isArray(
+					partyData.closeoutPayments,
+				)
+					? partyData.closeoutPayments
+					: [];
+				const closeoutPayments = [...existingCloseoutPayments, closeout];
+				const aggregateCloseout = closeoutPayments.reduce(
+					(acc, payment) => {
+						acc.subtotal += Number(payment.subtotal || 0);
+						acc.originalSubtotal += Number(payment.originalSubtotal || 0);
+						acc.discountTotal += Number(payment.discountTotal || 0);
+						acc.taxAmount += Number(payment.taxAmount || 0);
+						acc.gratuityAmount += Number(payment.gratuityAmount || 0);
+						acc.platformFee += Number(payment.platformFee || 0);
+						acc.processorFee += Number(payment.processorFee || 0);
+						acc.restaurantGrossAmount += Number(
+							payment.restaurantGrossAmount || 0,
+						);
+						acc.restaurantTransferAmount += Number(
+							payment.restaurantTransferAmount || 0,
+						);
+						acc.totalPrice += Number(payment.totalPrice || 0);
+						acc.cashReceived += Number(payment.cashReceived || 0);
+						acc.changeDue += Number(payment.changeDue || 0);
+						return acc;
+					},
+					{
+						subtotal: 0,
+						originalSubtotal: 0,
+						discountTotal: 0,
+						taxAmount: 0,
+						gratuityAmount: 0,
+						platformFee: 0,
+						processorFee: 0,
+						restaurantGrossAmount: 0,
+						restaurantTransferAmount: 0,
+						totalPrice: 0,
+						cashReceived: 0,
+						changeDue: 0,
+					},
+				);
+				const balanceTotals = calculateRestaurantCloseoutTotals(
+					remainingUnpaidItemsAfterPayment,
+					restaurantTaxRate,
+				);
+				const balanceDueCents =
+					balanceTotals.subtotalCents + balanceTotals.taxAmountCents;
+				const updatedBasketItems = allItems.map((item) =>
+					item && selectedCloseoutItemIdSet.has(item.id)
+						? {
+								...item,
+								paymentStatus: "paid",
+								closeoutStatus: "paid",
+								paidAt: new Date().toISOString(),
+								closeoutPaymentId: paymentId,
+								paidByTenderType: tenderType || paymentMethod,
+							}
+						: item,
+				);
 
 				// ==========================================
 				// 3. WRITES
 				// ==========================================
 				transaction.update(partyRef, {
-					status: "checkedOut",
-					paymentStatus: "paid",
+					...(isTableFullyPaid
+						? {
+								status: "checkedOut",
+								paymentStatus: "paid",
+								customerStatus: "closed",
+								serviceRequested: false,
+								closedAt: admin.firestore.FieldValue.serverTimestamp(),
+							}
+						: {
+								status: partyData.status || "active",
+								paymentStatus: "partially_paid",
+								customerStatus: "open",
+							}),
 					paymentMethod: paymentMethod,
-					customerStatus: "closed",
-					serviceRequested: false,
 					closeout: closeout,
-					closedAt: admin.firestore.FieldValue.serverTimestamp(),
-					closedByUserId: context.auth.uid,
-					closedByName: closedBy.name,
+					closeoutPayments,
+					openBalance: {
+						subtotal: balanceTotals.subtotalCents,
+						taxAmount: balanceTotals.taxAmountCents,
+						totalPrice: balanceDueCents,
+						itemCount: remainingUnpaidItemsAfterPayment.length,
+						updatedAtIso: new Date().toISOString(),
+					},
+					paidBalance: aggregateCloseout,
+					lastPaymentAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByUserId: isTableFullyPaid ? context.auth.uid : null,
+					closedByName: isTableFullyPaid ? closedBy.name : null,
 				});
+
+				if (basketDoc.exists) {
+					transaction.set(
+						basketRef,
+						{
+							items: updatedBasketItems,
+							paymentStatus: isTableFullyPaid ? "paid" : "partially_paid",
+							closeoutPayments,
+							openBalance: {
+								subtotal: balanceTotals.subtotalCents,
+								taxAmount: balanceTotals.taxAmountCents,
+								totalPrice: balanceDueCents,
+								itemCount: remainingUnpaidItemsAfterPayment.length,
+							},
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				}
+
+				if (!isTableFullyPaid) {
+					return {
+						success: true,
+						orderId: partyId,
+						paymentId,
+						isFinalCloseout: false,
+						paymentStatus: "partially_paid",
+						readableOrderId,
+						subtotal: subtotalCents,
+						taxAmount: taxAmountCents,
+						taxRate: restaurantTaxRate,
+						taxSource: "restaurant.taxRate",
+						gratuityAmount: gratuityAmountCents,
+						platformFee: platformFeeCents,
+						feePolicy: "manual_tender_scerv_fee_waived",
+						restaurantTransferAmount: restaurantTransferAmountCents,
+						cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
+						changeDue: changeDueCents,
+						totalPrice: totalPriceCents,
+						balanceDue: balanceDueCents,
+						remainingItemCount: remainingUnpaidItemsAfterPayment.length,
+					};
+				}
 
 				const usersToFree = [];
 
@@ -3183,31 +3408,35 @@ exports.closePartyTable = functions
 					table: partyData.table || null,
 					server: partyData.server || null,
 
-					subtotal: subtotalCents,
-					originalSubtotal: originalSubtotalCents,
-					discountTotal: discountTotalCents,
-					taxAmount: taxAmountCents,
+					subtotal: aggregateCloseout.subtotal,
+					originalSubtotal: aggregateCloseout.originalSubtotal,
+					discountTotal: aggregateCloseout.discountTotal,
+					taxAmount: aggregateCloseout.taxAmount,
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",
-					gratuityAmount: gratuityAmountCents,
-					platformFee: platformFeeCents,
-					processorFee: processorFeeCents,
-					restaurantGrossAmount: restaurantGrossAmountCents,
-					restaurantTransferAmount: restaurantTransferAmountCents,
-					scervGrossFee: platformFeeCents,
-					scervNet: platformFeeCents,
+					gratuityAmount: aggregateCloseout.gratuityAmount,
+					platformFee: aggregateCloseout.platformFee,
+					processorFee: aggregateCloseout.processorFee,
+					restaurantGrossAmount: aggregateCloseout.restaurantGrossAmount,
+					restaurantTransferAmount:
+						aggregateCloseout.restaurantTransferAmount,
+					scervGrossFee: aggregateCloseout.platformFee,
+					scervNet: aggregateCloseout.platformFee,
 					stripeFeeResponsibility: "not_applicable",
 					restaurantTransferStatus: "manual_tender",
-					totalPrice: totalPriceCents,
-					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
-					changeDue: changeDueCents,
+					totalPrice: aggregateCloseout.totalPrice,
+					cashReceived: aggregateCloseout.cashReceived,
+					changeDue: aggregateCloseout.changeDue,
 
 					openedAt:
 						partyData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
 					fulfilledAt: admin.firestore.FieldValue.serverTimestamp(),
 					turnaroundTimeMinutes: turnaroundTimeMinutes,
 
-					items: officiallyOrderedItems,
+					items: updatedBasketItems.filter(
+						(item) => item && item.status && item.status !== "new",
+					),
+					closeoutPayments,
 					isManualRestaurantOrder: true,
 					orderEntryMode: "staff",
 					feePolicy: "manual_tender_scerv_fee_waived",
@@ -3338,26 +3567,26 @@ exports.closePartyTable = functions
 									<div style="margin-top: 20px;">
 										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
 											<span>Subtotal</span>
-											<span>$${(subtotalCents / 100).toFixed(2)}</span>
+											<span>$${(aggregateCloseout.subtotal / 100).toFixed(2)}</span>
 										</div>
 										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
 											<span>Tax (${(restaurantTaxRate * 100).toFixed(2)}%)</span>
-											<span>$${(taxAmountCents / 100).toFixed(2)}</span>
+											<span>$${(aggregateCloseout.taxAmount / 100).toFixed(2)}</span>
 										</div>
 										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
 											<span>Scerv Fee</span>
 											<span>$0.00 waived</span>
 										</div>
 										${
-											gratuityAmountCents > 0
+											aggregateCloseout.gratuityAmount > 0
 												? `<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
 											<span>Tip</span>
-											<span>$${(gratuityAmountCents / 100).toFixed(2)}</span>
+											<span>$${(aggregateCloseout.gratuityAmount / 100).toFixed(2)}</span>
 										</div>`
 												: ""
 										}
 										<h3 style="text-align: right; margin-top: 12px; color: #1a1a1a;">
-											Total: $${(totalPriceCents / 100).toFixed(2)}
+											Total: $${(aggregateCloseout.totalPrice / 100).toFixed(2)}
 										</h3>
 									</div>
 									<div style="margin-top: 18px; padding: 12px; border-radius: 8px; background: #f7f7f7; font-size: 13px; color: #555;">
@@ -3397,6 +3626,8 @@ exports.closePartyTable = functions
 				return {
 					success: true,
 					orderId: partyId,
+					paymentId,
+					isFinalCloseout: true,
 					readableOrderId,
 					subtotal: subtotalCents,
 					taxAmount: taxAmountCents,

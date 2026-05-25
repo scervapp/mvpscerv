@@ -68,6 +68,16 @@ const RestaurantDashboardScreen = () => {
 	};
 
 	const openRestaurantTab = (tabName, screenName = null) => {
+		if (tabName === "ActiveTablesNavigator") {
+			if (screenName) {
+				navigation.navigate("ActiveTablesNavigator", { screen: screenName });
+				return;
+			}
+
+			navigation.navigate("ActiveTablesNavigator");
+			return;
+		}
+
 		const targetNavigation = navigation.getParent() || navigation;
 
 		if (screenName) {
@@ -175,15 +185,28 @@ const RestaurantDashboardScreen = () => {
 
 				<View style={styles.navigationGrid}>
 					{/* 🚨 3. FRONT OF HOUSE: Servers, Hosts, and Managers */}
-					{(permissions.canSeatWalkIn || permissions.canViewServiceRequests) && (
+					{(permissions.canViewTickets ||
+						permissions.canSeatWalkIn ||
+						permissions.canViewServiceRequests) && (
 						<>
+							{permissions.canViewTickets && (
+								<DashboardCard
+									label={t("active_tables", "Active Tables")}
+									iconName="clipboard-text-outline"
+									color="#2563eb"
+									onPress={() => openRestaurantTab("ActiveTablesNavigator")}
+								/>
+							)}
 							{permissions.canSeatWalkIn && (
 								<DashboardCard
 									label={t("seat_walk_in", "Seat Walk-in")}
 									iconName="table-chair"
 									color="#0ea5e9"
 									onPress={() =>
-										openRestaurantTab("Checkins", "ManualSeatScreen")
+										openRestaurantTab(
+											"ActiveTablesNavigator",
+											"ManualSeatScreen",
+										)
 									}
 								/>
 							)}
@@ -193,7 +216,10 @@ const RestaurantDashboardScreen = () => {
 									iconName="bell-ring-outline"
 									color="#ef4444"
 									onPress={() =>
-										openRestaurantTab("Checkins", "ServiceRequestsScreen")
+										openRestaurantTab(
+											"ActiveTablesNavigator",
+											"ServiceRequestsScreen",
+										)
 									}
 								/>
 							)}

@@ -6,6 +6,7 @@ import {
 	SafeAreaView,
 	TouchableOpacity,
 	SectionList,
+	ScrollView,
 	ActivityIndicator,
 	Alert,
 	TextInput,
@@ -49,6 +50,9 @@ const ManagePartyScreen = () => {
 	const [externalReference, setExternalReference] = useState("");
 	const [closeoutNotes, setCloseoutNotes] = useState("");
 	const [restaurantDetails, setRestaurantDetails] = useState(null);
+	const [selectedCloseoutSeatIds, setSelectedCloseoutSeatIds] = useState([]);
+	const [isTicketSummaryCollapsed, setIsTicketSummaryCollapsed] =
+		useState(true);
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
 	const goToActiveTables = () => {
@@ -122,6 +126,80 @@ const ManagePartyScreen = () => {
 		);
 	}, [basketItems]);
 
+	const getItemSeatId = (item = {}) => {
+		if (item.seatId) return String(item.seatId);
+		if (item.orderedForSeatId) return String(item.orderedForSeatId);
+		if (item.orderedByUserId) return `guest_${item.orderedByUserId}`;
+		return "table_share";
+	};
+
+	const getItemSeatName = (item = {}) =>
+		item.seatName ||
+		item.orderedForSeatName ||
+		item.orderedForName ||
+		item.orderedByPipName ||
+		item.customerName ||
+		t("table", "Table");
+
+	const isItemPaid = (item = {}) =>
+		item.paymentStatus === "paid" || item.closeoutStatus === "paid";
+
+	const unpaidOrderedItems = useMemo(
+		() => officiallyOrderedItems.filter((item) => !isItemPaid(item)),
+		[officiallyOrderedItems],
+	);
+
+	const paidSubtotal = useMemo(() => {
+		return officiallyOrderedItems
+			.filter(isItemPaid)
+			.reduce((sum, item) => {
+				const effectivePrice =
+					item.discountedPrice !== null && item.discountedPrice !== undefined
+						? parseFloat(item.discountedPrice)
+						: parseFloat(item.price || 0);
+				return sum + effectivePrice * parseInt(item.quantity || 1, 10);
+			}, 0);
+	}, [officiallyOrderedItems]);
+
+	const seatSummaries = useMemo(() => {
+		const seats = {};
+
+		unpaidOrderedItems.forEach((item) => {
+			const seatId = getItemSeatId(item);
+			const seatName = getItemSeatName(item);
+			const effectivePrice =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? parseFloat(item.discountedPrice)
+					: parseFloat(item.price || 0);
+			const lineTotal = effectivePrice * parseInt(item.quantity || 1, 10);
+
+			if (!seats[seatId]) {
+				seats[seatId] = {
+					id: seatId,
+					name: seatName,
+					subtotal: 0,
+					itemIds: [],
+					items: [],
+					itemCount: 0,
+				};
+			}
+
+			seats[seatId].subtotal += lineTotal;
+			seats[seatId].itemIds.push(item.id);
+			seats[seatId].items.push({
+				id: item.id,
+				name: item.dishName || item.name || t("item", "Item"),
+				quantity: parseInt(item.quantity || 1, 10),
+				lineTotal,
+			});
+			seats[seatId].itemCount += 1;
+		});
+
+		return Object.values(seats).sort((a, b) =>
+			String(a.name).localeCompare(String(b.name)),
+		);
+	}, [unpaidOrderedItems, t]);
+
 	const groupedOrders = useMemo(() => {
 		const groups = {};
 		officiallyOrderedItems.forEach((item) => {
@@ -152,8 +230,14 @@ const ManagePartyScreen = () => {
 	}, [officiallyOrderedItems, partyData, t]);
 
 	const tableTotal = useMemo(() => {
-		return groupedOrders.reduce((sum, group) => sum + group.subtotal, 0);
-	}, [groupedOrders]);
+		return unpaidOrderedItems.reduce((sum, item) => {
+			const effectivePrice =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? parseFloat(item.discountedPrice)
+					: parseFloat(item.price || 0);
+			return sum + effectivePrice * parseInt(item.quantity || 1, 10);
+		}, 0);
+	}, [unpaidOrderedItems]);
 
 	const parseCurrencyToCents = (value) => {
 		const normalized = String(value || "").replace(/[^0-9.]/g, "");
@@ -172,11 +256,19 @@ const ManagePartyScreen = () => {
 
 	// 3. Handlers
 	const handleCloseTable = () => {
+		if (unpaidOrderedItems.length === 0) {
+			Alert.alert(
+				t("nothing_to_close", "Nothing to close"),
+				t("all_items_already_paid", "All ordered items have already been paid."),
+			);
+			return;
+		}
 		setSelectedPaymentMethod("cash");
 		setTipInput("");
 		setCashReceivedInput("");
 		setExternalReference("");
 		setCloseoutNotes("");
+		setSelectedCloseoutSeatIds(seatSummaries.map((seat) => seat.id));
 		setIsCloseoutModalVisible(true);
 	};
 
@@ -189,6 +281,32 @@ const ManagePartyScreen = () => {
 		tipInput,
 	]);
 
+	const selectedCloseoutItems = useMemo(() => {
+		const selectedSet = new Set(selectedCloseoutSeatIds);
+		return unpaidOrderedItems.filter((item) =>
+			selectedSet.has(getItemSeatId(item)),
+		);
+	}, [selectedCloseoutSeatIds, unpaidOrderedItems]);
+
+	const closeoutSubtotal = useMemo(() => {
+		return selectedCloseoutItems.reduce((sum, item) => {
+			const effectivePrice =
+				item.discountedPrice !== null && item.discountedPrice !== undefined
+					? parseFloat(item.discountedPrice)
+					: parseFloat(item.price || 0);
+			return sum + effectivePrice * parseInt(item.quantity || 1, 10);
+		}, 0);
+	}, [selectedCloseoutItems]);
+
+	const closeoutTaxTotal = useMemo(() => {
+		return closeoutSubtotal * restaurantTaxRate;
+	}, [closeoutSubtotal, restaurantTaxRate]);
+
+	const selectedSeatBreakdown = useMemo(() => {
+		const selectedSet = new Set(selectedCloseoutSeatIds);
+		return seatSummaries.filter((seat) => selectedSet.has(seat.id));
+	}, [seatSummaries, selectedCloseoutSeatIds]);
+
 	const serviceFeeTotal = useMemo(() => {
 		// placeholder for now unless you want to calculate based on pricing tier here too
 		return 0;
@@ -197,8 +315,11 @@ const ManagePartyScreen = () => {
 	const grandTotal = useMemo(() => {
 		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
 	}, [tableTotal, taxTotal, gratuityTotal, serviceFeeTotal]);
-	const expectedTotalCents = useMemo(() => Math.round(grandTotal * 100), [
-		grandTotal,
+	const closeoutGrandTotal = useMemo(() => {
+		return closeoutSubtotal + closeoutTaxTotal + gratuityTotal + serviceFeeTotal;
+	}, [closeoutSubtotal, closeoutTaxTotal, gratuityTotal, serviceFeeTotal]);
+	const expectedTotalCents = useMemo(() => Math.round(closeoutGrandTotal * 100), [
+		closeoutGrandTotal,
 	]);
 	const cashReceivedPreviewCents = useMemo(
 		() => parseCurrencyToCents(cashReceivedInput),
@@ -215,6 +336,22 @@ const ManagePartyScreen = () => {
 		try {
 			const tipAmount = parseCurrencyToCents(tipInput);
 			const cashReceived = parseCurrencyToCents(cashReceivedInput);
+			const selectedSeatIds = selectedCloseoutSeatIds.filter(Boolean);
+			const selectedItemIds = selectedCloseoutItems
+				.map((item) => item.id)
+				.filter(Boolean);
+
+			if (selectedItemIds.length === 0) {
+				Alert.alert(
+					t("select_items_to_close", "Select items to close"),
+					t(
+						"choose_one_or_more_seats",
+						"Choose one or more seats before recording payment.",
+					),
+				);
+				setIsClosing(false);
+				return;
+			}
 
 			if (
 				selectedPaymentMethod === "cash" &&
@@ -260,6 +397,8 @@ const ManagePartyScreen = () => {
 					selectedPaymentMethod === "cash" ? cashReceived : 0,
 				externalReference: externalReference.trim(),
 				closeoutNotes: closeoutNotes.trim(),
+				closeoutSeatIds: selectedSeatIds,
+				closeoutItemIds: selectedItemIds,
 				closedByStaffId: activeSession?.id || null,
 				closedByName:
 					activeSession?.name ||
@@ -322,7 +461,7 @@ const ManagePartyScreen = () => {
 				orderMode: "dineIn",
 				fulfillmentType: "table",
 
-				items: officiallyOrderedItems,
+				items: selectedCloseoutItems,
 			};
 
 			// Best-effort print only
@@ -344,18 +483,35 @@ const ManagePartyScreen = () => {
 			}
 
 			setIsCloseoutModalVisible(false);
+			setTipInput("");
+			setCashReceivedInput("");
+			setExternalReference("");
+			setCloseoutNotes("");
+			setSelectedCloseoutSeatIds([]);
+			const isFinalCloseout = result?.data?.isFinalCloseout !== false;
 			Alert.alert(
-				t("table_closed", "Table Closed"),
-				`${t("order", "Order")}: ${
-					result?.data?.readableOrderId || partyId
-				}${
+				isFinalCloseout
+					? t("table_closed", "Table Closed")
+					: t("payment_recorded", "Payment Recorded"),
+				`${t("order", "Order")}: ${result?.data?.readableOrderId || partyId}${
 					selectedPaymentMethod === "cash"
 						? `\n${t("change_due", "Change Due")}: ${formatCurrencyFromDollars(
 								(result?.data?.changeDue || 0) / 100,
 							)}`
 						: ""
+				}${
+					!isFinalCloseout
+						? `\n${t("remaining_balance", "Remaining Balance")}: ${formatCurrencyFromDollars(
+								(result?.data?.balanceDue || 0) / 100,
+							)}`
+						: ""
 				}`,
-				[{ text: t("ok", "OK"), onPress: goToActiveTables }],
+				[
+					{
+						text: t("ok", "OK"),
+						onPress: isFinalCloseout ? goToActiveTables : undefined,
+					},
+				],
 			);
 		} catch (error) {
 			console.error("Error closing table:", error);
@@ -376,6 +532,10 @@ const ManagePartyScreen = () => {
 			tableId: partyData.table?.id,
 			guestName: partyData.hostName,
 			serverObj: partyData.server,
+			partySeats:
+				seatSummaries.length > 0
+					? seatSummaries.map((seat) => ({ id: seat.id, name: seat.name }))
+					: partyData.staffOrderSeats || [],
 		});
 	};
 
@@ -416,6 +576,7 @@ const ManagePartyScreen = () => {
 		const selectedModifiers = Array.isArray(item.selectedModifiers)
 			? item.selectedModifiers
 			: [];
+		const paid = isItemPaid(item);
 
 		return (
 			<View style={styles.itemRow}>
@@ -425,6 +586,7 @@ const ManagePartyScreen = () => {
 
 				<View style={styles.itemDetails}>
 					<Text style={styles.itemName}>{item.dishName || item.name}</Text>
+					<Text style={styles.itemSeatLabel}>{getItemSeatName(item)}</Text>
 
 					{selectedModifiers.length > 0 && (
 						<View style={styles.modifiersContainer}>
@@ -473,16 +635,28 @@ const ManagePartyScreen = () => {
 					<View
 						style={[
 							styles.statusBadge,
-							isSent ? styles.badgeSent : styles.badgeNew,
+							paid
+								? styles.badgePaid
+								: isSent
+									? styles.badgeSent
+									: styles.badgeNew,
 						]}
 					>
 						<Text
 							style={[
 								styles.badgeText,
-								isSent ? styles.badgeTextSent : styles.badgeTextNew,
+								paid
+									? styles.badgeTextPaid
+									: isSent
+										? styles.badgeTextSent
+										: styles.badgeTextNew,
 							]}
 						>
-							{isSent ? t("sent", "Sent") : t("new", "New")}
+							{paid
+								? t("paid", "Paid")
+								: isSent
+									? t("sent", "Sent")
+									: t("new", "New")}
 						</Text>
 					</View>
 				</View>
@@ -529,7 +703,10 @@ const ManagePartyScreen = () => {
 				keyExtractor={(item, index) => item.id || index.toString()}
 				renderItem={renderOrderItem}
 				renderSectionHeader={renderSectionHeader}
-				contentContainerStyle={styles.listContent}
+				contentContainerStyle={[
+					styles.listContent,
+					isTicketSummaryCollapsed && styles.listContentCollapsed,
+				]}
 				stickySectionHeadersEnabled={false}
 				ListEmptyComponent={
 					<Text style={styles.emptyText}>
@@ -540,6 +717,33 @@ const ManagePartyScreen = () => {
 
 			{/* FOOTER ACTION BAR */}
 			<View style={styles.footer}>
+				<TouchableOpacity
+					style={styles.footerCompactHeader}
+					onPress={() =>
+						setIsTicketSummaryCollapsed((currentValue) => !currentValue)
+					}
+					activeOpacity={0.8}
+				>
+					<View>
+						<Text style={styles.footerCompactLabel}>
+							{t("balance_due", "Balance Due")}
+						</Text>
+						<Text style={styles.footerCompactAmount}>
+							{formatCurrencyFromDollars(grandTotal)}
+						</Text>
+					</View>
+					<Ionicons
+						name={
+							isTicketSummaryCollapsed
+								? "chevron-up-outline"
+								: "chevron-down-outline"
+						}
+						size={22}
+						color={colors.textMedium}
+					/>
+				</TouchableOpacity>
+
+				{!isTicketSummaryCollapsed && (
 				<View style={styles.summaryBlock}>
 					<View style={styles.summaryRow}>
 						<Text style={styles.summaryLabel}>
@@ -583,27 +787,56 @@ const ManagePartyScreen = () => {
 
 					<View style={styles.totalsRow}>
 						<Text style={styles.totalLabel}>
-							{t("table_total", "Table Total")}:
+							{t("balance_due", "Balance Due")}:
 						</Text>
 						<Text style={styles.totalAmount}>
 							{formatCurrencyFromDollars(grandTotal)}
 						</Text>
 					</View>
 				</View>
+				)}
 
-				<TextInput
-					style={styles.emailInput}
-					placeholder={t(
-						"customer_email_optional",
-						"Customer Email (Optional for Receipt)",
-					)}
-					placeholderTextColor={colors.textMedium}
-					value={receiptEmail}
-					onChangeText={setReceiptEmail}
-					keyboardType="email-address"
-					autoCapitalize="none"
-					autoCorrect={false}
-				/>
+				{!isTicketSummaryCollapsed && seatSummaries.length > 0 && (
+					<View style={styles.seatSummaryPanel}>
+						<View style={styles.seatSummaryHeader}>
+							<Text style={styles.seatSummaryTitle}>
+								{t("unpaid_by_seat", "Unpaid by Seat")}
+							</Text>
+							{paidSubtotal > 0 && (
+								<Text style={styles.paidSummaryText}>
+									{t("paid", "Paid")}:{" "}
+									{formatCurrencyFromDollars(paidSubtotal)}
+								</Text>
+							)}
+						</View>
+						<ScrollView horizontal showsHorizontalScrollIndicator={false}>
+							{seatSummaries.map((seat) => (
+								<View key={seat.id} style={styles.seatSummaryChip}>
+									<Text style={styles.seatSummaryName}>{seat.name}</Text>
+									<Text style={styles.seatSummaryAmount}>
+										{formatCurrencyFromDollars(seat.subtotal)}
+									</Text>
+								</View>
+							))}
+						</ScrollView>
+					</View>
+				)}
+
+				{!isTicketSummaryCollapsed && (
+					<TextInput
+						style={styles.emailInput}
+						placeholder={t(
+							"customer_email_optional",
+							"Customer Email (Optional for Receipt)",
+						)}
+						placeholderTextColor={colors.textMedium}
+						value={receiptEmail}
+						onChangeText={setReceiptEmail}
+						keyboardType="email-address"
+						autoCapitalize="none"
+						autoCorrect={false}
+					/>
+				)}
 
 				{/* NEW: Server Warning Message */}
 				{!hasServer && (
@@ -665,6 +898,12 @@ const ManagePartyScreen = () => {
 							</TouchableOpacity>
 						</View>
 
+						<ScrollView
+							style={styles.closeoutScroll}
+							contentContainerStyle={styles.closeoutScrollContent}
+							keyboardShouldPersistTaps="handled"
+							showsVerticalScrollIndicator={false}
+						>
 						<View style={styles.paymentMethodRow}>
 							<TouchableOpacity
 								style={[
@@ -705,12 +944,88 @@ const ManagePartyScreen = () => {
 						</View>
 
 						<View style={styles.modalTotalsBox}>
+							<View style={styles.closeoutSeatSelector}>
+								<Text style={styles.closeoutSeatTitle}>
+									{t("settle_seats", "Settle Seats")}
+								</Text>
+								<ScrollView horizontal showsHorizontalScrollIndicator={false}>
+									{seatSummaries.map((seat) => {
+										const selected = selectedCloseoutSeatIds.includes(seat.id);
+
+										return (
+											<TouchableOpacity
+												key={seat.id}
+												style={[
+													styles.closeoutSeatChip,
+													selected && styles.closeoutSeatChipActive,
+												]}
+												onPress={() => {
+													setSelectedCloseoutSeatIds((prev) =>
+														prev.includes(seat.id)
+															? prev.filter((id) => id !== seat.id)
+															: [...prev, seat.id],
+													);
+												}}
+											>
+												<Text
+													style={[
+														styles.closeoutSeatChipText,
+														selected && styles.closeoutSeatChipTextActive,
+													]}
+												>
+													{seat.name}
+												</Text>
+												<Text
+													style={[
+														styles.closeoutSeatAmount,
+														selected && styles.closeoutSeatChipTextActive,
+													]}
+												>
+													{formatCurrencyFromDollars(seat.subtotal)}
+												</Text>
+											</TouchableOpacity>
+										);
+									})}
+								</ScrollView>
+							</View>
+							{selectedSeatBreakdown.length > 0 && (
+								<View style={styles.closeoutSeatItemsBox}>
+									{selectedSeatBreakdown.map((seat) => (
+										<View key={seat.id} style={styles.closeoutSeatItemsGroup}>
+											<View style={styles.closeoutSeatItemsHeader}>
+												<Text style={styles.closeoutSeatItemsTitle}>
+													{seat.name}
+												</Text>
+												<Text style={styles.closeoutSeatItemsTotal}>
+													{formatCurrencyFromDollars(seat.subtotal)}
+												</Text>
+											</View>
+											{seat.items.map((seatItem) => (
+												<View
+													key={seatItem.id}
+													style={styles.closeoutSeatItemRow}
+												>
+													<Text
+														style={styles.closeoutSeatItemName}
+														numberOfLines={1}
+													>
+														{seatItem.quantity}x {seatItem.name}
+													</Text>
+													<Text style={styles.closeoutSeatItemAmount}>
+														{formatCurrencyFromDollars(seatItem.lineTotal)}
+													</Text>
+												</View>
+											))}
+										</View>
+									))}
+								</View>
+							)}
 							<View style={styles.summaryRow}>
 								<Text style={styles.summaryLabel}>
 									{t("subtotal", "Subtotal")}
 								</Text>
 								<Text style={styles.summaryValue}>
-									{formatCurrencyFromDollars(tableTotal)}
+									{formatCurrencyFromDollars(closeoutSubtotal)}
 								</Text>
 							</View>
 							<View style={styles.summaryRow}>
@@ -725,7 +1040,7 @@ const ManagePartyScreen = () => {
 									</Text>
 								</View>
 								<Text style={styles.summaryValue}>
-									{formatCurrencyFromDollars(taxTotal)}
+									{formatCurrencyFromDollars(closeoutTaxTotal)}
 								</Text>
 							</View>
 							<View style={styles.summaryRow}>
@@ -753,10 +1068,10 @@ const ManagePartyScreen = () => {
 							<View style={styles.summaryDivider} />
 							<View style={styles.totalsRow}>
 								<Text style={styles.totalLabel}>
-									{t("table_total", "Table Total")}
+									{t("selected_total", "Selected Total")}
 								</Text>
 								<Text style={styles.totalAmount}>
-									{formatCurrencyFromDollars(grandTotal)}
+									{formatCurrencyFromDollars(closeoutGrandTotal)}
 								</Text>
 							</View>
 						</View>
@@ -842,6 +1157,7 @@ const ManagePartyScreen = () => {
 							multiline
 							textAlignVertical="top"
 						/>
+						</ScrollView>
 
 						<TouchableOpacity
 							style={[styles.confirmCloseButton, isClosing && { opacity: 0.7 }]}
@@ -888,6 +1204,7 @@ const styles = StyleSheet.create({
 
 	// List & Sections
 	listContent: { padding: 15, paddingBottom: 250 },
+	listContentCollapsed: { paddingBottom: 132 },
 	emptyText: {
 		textAlign: "center",
 		color: colors.textMedium,
@@ -938,6 +1255,12 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginBottom: 2,
 	},
+	itemSeatLabel: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.primary,
+		marginBottom: 2,
+	},
 	itemInstructions: { fontSize: 13, color: colors.statusDanger, marginTop: 4 },
 	itemTrailing: { alignItems: "flex-end", justifyContent: "space-between" },
 	itemPrice: {
@@ -966,6 +1289,12 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "bold",
 	},
+	badgePaid: { backgroundColor: colors.primary + "18" },
+	badgeTextPaid: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "bold",
+	},
 
 	// Footer
 	footer: {
@@ -981,6 +1310,24 @@ const styles = StyleSheet.create({
 		shadowOffset: { width: 0, height: -3 },
 		shadowOpacity: 0.1,
 		elevation: 10,
+	},
+	footerCompactHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 12,
+	},
+	footerCompactLabel: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+	},
+	footerCompactAmount: {
+		fontSize: 22,
+		fontWeight: "900",
+		color: colors.primary,
+		marginTop: 2,
 	},
 	totalsRow: {
 		flexDirection: "row",
@@ -1044,6 +1391,46 @@ const styles = StyleSheet.create({
 		lineHeight: 17,
 		marginTop: 2,
 	},
+	seatSummaryPanel: {
+		marginBottom: 14,
+	},
+	seatSummaryHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 8,
+	},
+	seatSummaryTitle: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	paidSummaryText: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.statusSuccess,
+	},
+	seatSummaryChip: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		marginRight: 8,
+		minWidth: 104,
+	},
+	seatSummaryName: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	seatSummaryAmount: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
 	modalOverlay: {
 		flex: 1,
 		backgroundColor: "rgba(0,0,0,0.45)",
@@ -1055,6 +1442,13 @@ const styles = StyleSheet.create({
 		borderTopRightRadius: 18,
 		padding: 20,
 		paddingBottom: Platform.OS === "ios" ? 34 : 20,
+		maxHeight: "88%",
+	},
+	closeoutScroll: {
+		maxHeight: 520,
+	},
+	closeoutScrollContent: {
+		paddingBottom: 8,
 	},
 	modalHeader: {
 		flexDirection: "row",
@@ -1098,6 +1492,87 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		padding: 12,
 		marginBottom: 14,
+	},
+	closeoutSeatSelector: {
+		marginBottom: 12,
+	},
+	closeoutSeatTitle: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginBottom: 8,
+	},
+	closeoutSeatChip: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		marginRight: 8,
+		minWidth: 110,
+	},
+	closeoutSeatChipActive: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	closeoutSeatChipText: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	closeoutSeatChipTextActive: {
+		color: colors.surfaceWhite,
+	},
+	closeoutSeatAmount: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	closeoutSeatItemsBox: {
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 10,
+		padding: 10,
+		marginBottom: 12,
+	},
+	closeoutSeatItemsGroup: {
+		marginBottom: 10,
+	},
+	closeoutSeatItemsHeader: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		marginBottom: 5,
+	},
+	closeoutSeatItemsTitle: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	closeoutSeatItemsTotal: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.primary,
+	},
+	closeoutSeatItemRow: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		paddingVertical: 3,
+	},
+	closeoutSeatItemName: {
+		flex: 1,
+		fontSize: 12,
+		color: colors.textMedium,
+		marginRight: 8,
+	},
+	closeoutSeatItemAmount: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textDark,
 	},
 	modalInput: {
 		backgroundColor: colors.backgroundMedium,
