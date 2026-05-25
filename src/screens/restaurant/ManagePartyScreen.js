@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useContext } from "react";
 import {
 	View,
 	Text,
@@ -9,9 +9,12 @@ import {
 	ActivityIndicator,
 	Alert,
 	TextInput,
+	Modal,
+	KeyboardAvoidingView,
+	Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { CommonActions, useRoute, useNavigation } from "@react-navigation/native";
 import { db, functions } from "../../config/firebase";
 import { doc, onSnapshot } from "@react-native-firebase/firestore";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -19,6 +22,10 @@ import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
 import printOrderReceipt from "../../utils/printOrderReceipt";
 import { mockPrinterConfig } from "../../utils/printerConfigExamples";
+import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
 
 const ManagePartyScreen = () => {
 	const route = useRoute();
@@ -26,14 +33,31 @@ const ManagePartyScreen = () => {
 	const { t, i18n } = useTranslation();
 	const currentLang = i18n.language?.substring(0, 2) || "en";
 	const { partyId } = route.params;
+	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
 
 	const [partyData, setPartyData] = useState(null);
 	const [basketItems, setBasketItems] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isClosing, setIsClosing] = useState(false);
 	const [receiptEmail, setReceiptEmail] = useState("");
+	const [isCloseoutModalVisible, setIsCloseoutModalVisible] = useState(false);
+	const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash");
+	const [tipInput, setTipInput] = useState("");
+	const [cashReceivedInput, setCashReceivedInput] = useState("");
+	const [externalReference, setExternalReference] = useState("");
+	const [closeoutNotes, setCloseoutNotes] = useState("");
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
+	const goToActiveTables = () => {
+		navigation.dispatch(
+			CommonActions.reset({
+				index: 0,
+				routes: [{ name: "RestaurantActiveTables" }],
+			}),
+		);
+	};
 
 	const getLocalizedModifierName = (modifier) => {
 		if (!modifier) return "";
@@ -85,8 +109,12 @@ const ManagePartyScreen = () => {
 	const groupedOrders = useMemo(() => {
 		const groups = {};
 		officiallyOrderedItems.forEach((item) => {
-			const isServerOrder = item.orderedByPipName?.startsWith("Server:");
-			const ownerName = isServerOrder
+			const isStaffEnteredOrder =
+				item.source === "restaurant_pos" ||
+				item.orderEntryMode === "staff" ||
+				item.paymentResponsibility === "restaurant_pos" ||
+				item.orderedByPipName?.startsWith("Server:");
+			const ownerName = isStaffEnteredOrder
 				? partyData?.hostName || t("table", "Table")
 				: item.orderedByPipName || item.customerName || t("guest", "Guest");
 
@@ -111,50 +139,37 @@ const ManagePartyScreen = () => {
 		return groupedOrders.reduce((sum, group) => sum + group.subtotal, 0);
 	}, [groupedOrders]);
 
+	const parseCurrencyToCents = (value) => {
+		const normalized = String(value || "").replace(/[^0-9.]/g, "");
+		const parsed = Number(normalized);
+		if (Number.isNaN(parsed)) return 0;
+		return Math.max(0, Math.round(parsed * 100));
+	};
+
+	const restaurantTaxRate = useMemo(() => {
+		const rawRate = Number(currentUserData?.taxRate || 0);
+		if (Number.isNaN(rawRate) || rawRate <= 0) return 0;
+		return rawRate > 1 ? rawRate / 100 : rawRate;
+	}, [currentUserData?.taxRate]);
+
 	// 3. Handlers
 	const handleCloseTable = () => {
-		Alert.alert(
-			t("settle_and_close", "Settle & Close Table"),
-			t("how_was_this_paid", "How was this table's bill settled?"),
-			[
-				{ text: t("cancel", "Cancel"), style: "cancel" },
-				{
-					text: t("cash", "Paid with Cash"),
-					onPress: () => executeCloseTable("cash"),
-				},
-				{
-					text: t("card_terminal", "External Card Terminal"),
-					onPress: () => executeCloseTable("external_terminal"),
-				},
-			],
-		);
+		setSelectedPaymentMethod("cash");
+		setTipInput("");
+		setCashReceivedInput("");
+		setExternalReference("");
+		setCloseoutNotes("");
+		setIsCloseoutModalVisible(true);
 	};
 
 	const taxTotal = useMemo(() => {
-		return officiallyOrderedItems.reduce((sum, item) => {
-			const quantity = parseInt(item.quantity || 1, 10);
-			const unitPrice =
-				item.discountedPrice !== null && item.discountedPrice !== undefined
-					? parseFloat(item.discountedPrice || 0)
-					: parseFloat(item.price || 0);
+		return tableTotal * restaurantTaxRate;
+	}, [restaurantTaxRate, tableTotal]);
+	const taxRateLabel = `${(restaurantTaxRate * 100).toFixed(2)}%`;
 
-			const rawRate =
-				item.itbmsRate !== undefined && item.itbmsRate !== null
-					? Number(item.itbmsRate)
-					: item.taxRate !== undefined && item.taxRate !== null
-						? Number(item.taxRate)
-						: 0;
-
-			if (isNaN(rawRate) || rawRate <= 0) return sum;
-
-			return sum + unitPrice * quantity * (rawRate / 100);
-		}, 0);
-	}, [officiallyOrderedItems]);
-
-	const gratuityTotal = useMemo(() => {
-		// staff review screen default; adjust later if you want editable gratuity here
-		return 0;
-	}, []);
+	const gratuityTotal = useMemo(() => parseCurrencyToCents(tipInput) / 100, [
+		tipInput,
+	]);
 
 	const serviceFeeTotal = useMemo(() => {
 		// placeholder for now unless you want to calculate based on pricing tier here too
@@ -164,11 +179,54 @@ const ManagePartyScreen = () => {
 	const grandTotal = useMemo(() => {
 		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
 	}, [tableTotal, taxTotal, gratuityTotal, serviceFeeTotal]);
+	const expectedTotalCents = useMemo(() => Math.round(grandTotal * 100), [
+		grandTotal,
+	]);
+	const cashReceivedPreviewCents = useMemo(
+		() => parseCurrencyToCents(cashReceivedInput),
+		[cashReceivedInput],
+	);
+	const changeDuePreviewCents = useMemo(
+		() => Math.max(0, cashReceivedPreviewCents - expectedTotalCents),
+		[cashReceivedPreviewCents, expectedTotalCents],
+	);
 
-	const executeCloseTable = async (paymentMethod) => {
+	const executeCloseTable = async () => {
 		setIsClosing(true);
 
 		try {
+			const tipAmount = parseCurrencyToCents(tipInput);
+			const cashReceived = parseCurrencyToCents(cashReceivedInput);
+
+			if (
+				selectedPaymentMethod === "cash" &&
+				cashReceived < expectedTotalCents
+			) {
+				Alert.alert(
+					t("cash_short", "Cash Short"),
+					t(
+						"cash_received_less_than_total",
+						"Cash received is less than the table total.",
+					),
+				);
+				setIsClosing(false);
+				return;
+			}
+			if (
+				selectedPaymentMethod === "external_terminal" &&
+				!externalReference.trim()
+			) {
+				Alert.alert(
+					t("reference_required", "Reference Required"),
+					t(
+						"terminal_reference_required",
+						"Enter the terminal authorization or reference code before closing.",
+					),
+				);
+				setIsClosing(false);
+				return;
+			}
+
 			const closeTableCloudFunction = httpsCallable(
 				functions,
 				"closePartyTable",
@@ -176,8 +234,20 @@ const ManagePartyScreen = () => {
 
 			const result = await closeTableCloudFunction({
 				partyId,
-				paymentMethod,
+				paymentMethod: selectedPaymentMethod,
+				tenderType: selectedPaymentMethod,
 				receiptEmail: receiptEmail.trim(),
+				tipAmount,
+				cashReceived:
+					selectedPaymentMethod === "cash" ? cashReceived : 0,
+				externalReference: externalReference.trim(),
+				closeoutNotes: closeoutNotes.trim(),
+				closedByStaffId: activeSession?.id || null,
+				closedByName:
+					activeSession?.name ||
+					`${currentUserData?.firstName || ""} ${
+						currentUserData?.lastName || ""
+					}`.trim(),
 			});
 
 			if (!result?.data?.success) {
@@ -188,7 +258,7 @@ const ManagePartyScreen = () => {
 			const printableOrder = {
 				id: partyId,
 				orderId: partyId,
-				readableOrderId: partyId,
+				readableOrderId: result?.data?.readableOrderId || partyId,
 				restaurantName:
 					partyData?.restaurantName || partyData?.name || "Scerv Partner",
 				table: partyData?.table || null,
@@ -201,8 +271,31 @@ const ManagePartyScreen = () => {
 						: Math.round(tableTotal * 100),
 				taxAmount:
 					result?.data?.taxAmount !== undefined ? result.data.taxAmount : 0,
-				gratuityAmount: 0,
+				gratuityAmount:
+					result?.data?.gratuityAmount !== undefined
+						? result.data.gratuityAmount
+						: tipAmount,
 				platformFee: 0,
+				isManualRestaurantOrder: true,
+				paymentMethod: selectedPaymentMethod,
+				tenderType: selectedPaymentMethod,
+				externalReference: externalReference.trim(),
+				cashReceived:
+					result?.data?.cashReceived !== undefined
+						? result.data.cashReceived
+						: selectedPaymentMethod === "cash"
+							? cashReceived
+							: 0,
+				changeDue:
+					result?.data?.changeDue !== undefined
+						? result.data.changeDue
+						: selectedPaymentMethod === "cash"
+							? Math.max(0, cashReceived - expectedTotalCents)
+							: 0,
+				taxRate: result?.data?.taxRate ?? restaurantTaxRate,
+				taxSource: result?.data?.taxSource || "restaurant.taxRate",
+				feePolicy:
+					result?.data?.feePolicy || "manual_tender_scerv_fee_waived",
 				totalPrice:
 					result?.data?.totalPrice !== undefined
 						? result.data.totalPrice
@@ -232,7 +325,20 @@ const ManagePartyScreen = () => {
 				console.warn("Receipt print error:", printError);
 			}
 
-			navigation.goBack();
+			setIsCloseoutModalVisible(false);
+			Alert.alert(
+				t("table_closed", "Table Closed"),
+				`${t("order", "Order")}: ${
+					result?.data?.readableOrderId || partyId
+				}${
+					selectedPaymentMethod === "cash"
+						? `\n${t("change_due", "Change Due")}: ${formatCurrencyFromDollars(
+								(result?.data?.changeDue || 0) / 100,
+							)}`
+						: ""
+				}`,
+				[{ text: t("ok", "OK"), onPress: goToActiveTables }],
+			);
 		} catch (error) {
 			console.error("Error closing table:", error);
 			Alert.alert(
@@ -266,7 +372,9 @@ const ManagePartyScreen = () => {
 				/>
 				<Text style={styles.sectionTitle}>{section.title}</Text>
 			</View>
-			<Text style={styles.sectionSubtotal}>${section.subtotal.toFixed(2)}</Text>
+			<Text style={styles.sectionSubtotal}>
+				{formatCurrencyFromDollars(section.subtotal)}
+			</Text>
 		</View>
 	);
 
@@ -309,7 +417,7 @@ const ManagePartyScreen = () => {
 								>
 									• {getLocalizedModifierName(modifier)}
 									{Number(modifier.price || 0) > 0
-										? ` (+$${Number(modifier.price).toFixed(2)})`
+										? ` (+${formatCurrencyFromDollars(modifier.price)})`
 										: ""}
 								</Text>
 							))}
@@ -334,13 +442,13 @@ const ManagePartyScreen = () => {
 					<View style={styles.priceContainer}>
 						{hasDiscount && (
 							<Text style={styles.originalPriceText}>
-								${originalTotal.toFixed(2)}
+								{formatCurrencyFromDollars(originalTotal)}
 							</Text>
 						)}
 						<Text
 							style={[styles.itemPrice, hasDiscount && styles.discountText]}
 						>
-							${finalTotal.toFixed(2)}
+							{formatCurrencyFromDollars(finalTotal)}
 						</Text>
 					</View>
 
@@ -377,7 +485,7 @@ const ManagePartyScreen = () => {
 			{/* HEADER */}
 			<View style={styles.header}>
 				<TouchableOpacity
-					onPress={() => navigation.goBack()}
+					onPress={goToActiveTables}
 					style={styles.backBtn}
 				>
 					<Ionicons name="arrow-back" size={24} color={colors.textDark} />
@@ -388,9 +496,13 @@ const ManagePartyScreen = () => {
 						{t("server", "Server")}: {partyData.server?.name}
 					</Text>
 				</View>
-				<TouchableOpacity onPress={handleAddItemManually} style={styles.addBtn}>
-					<Ionicons name="add" size={24} color={colors.primary} />
-				</TouchableOpacity>
+				{permissions.canEnterStaffOrders ? (
+					<TouchableOpacity onPress={handleAddItemManually} style={styles.addBtn}>
+						<Ionicons name="add" size={24} color={colors.primary} />
+					</TouchableOpacity>
+				) : (
+					<View style={{ width: 34 }} />
+				)}
 			</View>
 
 			{/* ORDER LIST */}
@@ -415,12 +527,16 @@ const ManagePartyScreen = () => {
 						<Text style={styles.summaryLabel}>
 							{t("subtotal", "Subtotal")}:
 						</Text>
-						<Text style={styles.summaryValue}>${tableTotal.toFixed(2)}</Text>
+						<Text style={styles.summaryValue}>
+							{formatCurrencyFromDollars(tableTotal)}
+						</Text>
 					</View>
 
 					<View style={styles.summaryRow}>
 						<Text style={styles.summaryLabel}>{t("tax", "Tax")}:</Text>
-						<Text style={styles.summaryValue}>${taxTotal.toFixed(2)}</Text>
+						<Text style={styles.summaryValue}>
+							{formatCurrencyFromDollars(taxTotal)}
+						</Text>
 					</View>
 
 					{gratuityTotal > 0 && (
@@ -429,7 +545,7 @@ const ManagePartyScreen = () => {
 								{t("gratuity", "Gratuity")}:
 							</Text>
 							<Text style={styles.summaryValue}>
-								${gratuityTotal.toFixed(2)}
+								{formatCurrencyFromDollars(gratuityTotal)}
 							</Text>
 						</View>
 					)}
@@ -440,7 +556,7 @@ const ManagePartyScreen = () => {
 								{t("service_fee", "Service Fee")}:
 							</Text>
 							<Text style={styles.summaryValue}>
-								${serviceFeeTotal.toFixed(2)}
+								{formatCurrencyFromDollars(serviceFeeTotal)}
 							</Text>
 						</View>
 					)}
@@ -451,7 +567,9 @@ const ManagePartyScreen = () => {
 						<Text style={styles.totalLabel}>
 							{t("table_total", "Table Total")}:
 						</Text>
-						<Text style={styles.totalAmount}>${grandTotal.toFixed(2)}</Text>
+						<Text style={styles.totalAmount}>
+							{formatCurrencyFromDollars(grandTotal)}
+						</Text>
 					</View>
 				</View>
 
@@ -484,10 +602,12 @@ const ManagePartyScreen = () => {
 						style={[
 							styles.closeBtn,
 							isClosing && { opacity: 0.7 },
-							!hasServer && { backgroundColor: colors.textMedium }, // Grays out the button
+							(!hasServer || !permissions.canCloseTable) && {
+								backgroundColor: colors.textMedium,
+							},
 						]}
 						onPress={handleCloseTable}
-						disabled={isClosing || !hasServer} // Disables the press action
+						disabled={isClosing || !hasServer || !permissions.canCloseTable}
 					>
 						{isClosing ? (
 							<ActivityIndicator size="small" color={colors.surfaceWhite} />
@@ -499,6 +619,228 @@ const ManagePartyScreen = () => {
 					</TouchableOpacity>
 				</View>
 			</View>
+
+			<Modal
+				visible={isCloseoutModalVisible}
+				transparent
+				animationType="slide"
+				onRequestClose={() => setIsCloseoutModalVisible(false)}
+			>
+				<KeyboardAvoidingView
+					style={styles.modalOverlay}
+					behavior={Platform.OS === "ios" ? "padding" : "height"}
+				>
+					<View style={styles.closeoutSheet}>
+						<View style={styles.modalHeader}>
+							<Text style={styles.modalTitle}>
+								{t("settle_and_close", "Settle & Close Table")}
+							</Text>
+							<TouchableOpacity
+								onPress={() => setIsCloseoutModalVisible(false)}
+								disabled={isClosing}
+							>
+								<Ionicons
+									name="close"
+									size={24}
+									color={colors.textMedium}
+								/>
+							</TouchableOpacity>
+						</View>
+
+						<View style={styles.paymentMethodRow}>
+							<TouchableOpacity
+								style={[
+									styles.paymentMethodButton,
+									selectedPaymentMethod === "cash" &&
+										styles.paymentMethodButtonActive,
+								]}
+								onPress={() => setSelectedPaymentMethod("cash")}
+							>
+								<Text
+									style={[
+										styles.paymentMethodText,
+										selectedPaymentMethod === "cash" &&
+											styles.paymentMethodTextActive,
+									]}
+								>
+									{t("cash", "Cash")}
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={[
+									styles.paymentMethodButton,
+									selectedPaymentMethod === "external_terminal" &&
+										styles.paymentMethodButtonActive,
+								]}
+								onPress={() => setSelectedPaymentMethod("external_terminal")}
+							>
+								<Text
+									style={[
+										styles.paymentMethodText,
+										selectedPaymentMethod === "external_terminal" &&
+											styles.paymentMethodTextActive,
+									]}
+								>
+									{t("card_terminal", "Card Terminal")}
+								</Text>
+							</TouchableOpacity>
+						</View>
+
+						<View style={styles.modalTotalsBox}>
+							<View style={styles.summaryRow}>
+								<Text style={styles.summaryLabel}>
+									{t("subtotal", "Subtotal")}
+								</Text>
+								<Text style={styles.summaryValue}>
+									{formatCurrencyFromDollars(tableTotal)}
+								</Text>
+							</View>
+							<View style={styles.summaryRow}>
+								<View>
+									<Text style={styles.summaryLabel}>{t("tax", "Tax")}</Text>
+									<Text style={styles.summarySubLabel}>
+										{t(
+											"restaurant_tax_rate",
+											"Restaurant tax rate",
+										)}{" "}
+										{taxRateLabel}
+									</Text>
+								</View>
+								<Text style={styles.summaryValue}>
+									{formatCurrencyFromDollars(taxTotal)}
+								</Text>
+							</View>
+							<View style={styles.summaryRow}>
+								<Text style={styles.summaryLabel}>{t("tip", "Tip")}</Text>
+								<Text style={styles.summaryValue}>
+									{formatCurrencyFromDollars(gratuityTotal)}
+								</Text>
+							</View>
+							<View style={styles.summaryRow}>
+								<View>
+									<Text style={styles.summaryLabel}>
+										{t("scerv_fee", "Scerv Fee")}
+									</Text>
+									<Text style={styles.summarySubLabel}>
+										{t(
+											"manual_tender_fee_waived",
+											"Waived for cash/external terminal",
+										)}
+									</Text>
+								</View>
+								<Text style={styles.summaryValue}>
+									{formatCurrencyFromDollars(0)}
+								</Text>
+							</View>
+							<View style={styles.summaryDivider} />
+							<View style={styles.totalsRow}>
+								<Text style={styles.totalLabel}>
+									{t("table_total", "Table Total")}
+								</Text>
+								<Text style={styles.totalAmount}>
+									{formatCurrencyFromDollars(grandTotal)}
+								</Text>
+							</View>
+						</View>
+
+						<TextInput
+							style={styles.modalInput}
+							placeholder={t("tip_optional", "Tip amount")}
+							placeholderTextColor={colors.textMedium}
+							value={tipInput}
+							onChangeText={setTipInput}
+							keyboardType="decimal-pad"
+						/>
+
+						{selectedPaymentMethod === "cash" ? (
+							<TextInput
+								style={styles.modalInput}
+								placeholder={t("cash_received", "Cash received")}
+								placeholderTextColor={colors.textMedium}
+								value={cashReceivedInput}
+								onChangeText={setCashReceivedInput}
+								keyboardType="decimal-pad"
+							/>
+						) : (
+							<TextInput
+								style={styles.modalInput}
+								placeholder={t(
+									"terminal_reference_required_placeholder",
+									"Terminal reference / auth code required",
+								)}
+								placeholderTextColor={colors.textMedium}
+								value={externalReference}
+								onChangeText={setExternalReference}
+								autoCapitalize="characters"
+							/>
+						)}
+
+						{selectedPaymentMethod === "cash" ? (
+							<View style={styles.cashSummaryBox}>
+								<View style={styles.summaryRow}>
+									<Text style={styles.summaryLabel}>
+										{t("cash_expected", "Cash Expected")}
+									</Text>
+									<Text style={styles.summaryValue}>
+										{formatCurrencyFromDollars(expectedTotalCents / 100)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={styles.summaryLabel}>
+										{t("cash_received", "Cash Received")}
+									</Text>
+									<Text style={styles.summaryValue}>
+										{formatCurrencyFromDollars(
+											cashReceivedPreviewCents / 100,
+										)}
+									</Text>
+								</View>
+								<View style={styles.summaryRow}>
+									<Text style={styles.summaryLabel}>
+										{t("change_due", "Change Due")}
+									</Text>
+									<Text style={styles.summaryValue}>
+										{formatCurrencyFromDollars(
+											changeDuePreviewCents / 100,
+										)}
+									</Text>
+								</View>
+							</View>
+						) : (
+							<Text style={styles.helperText}>
+								{t(
+									"external_terminal_reference_helper",
+									"Record the terminal auth/reference code so this closeout can be reconciled later.",
+								)}
+							</Text>
+						)}
+
+						<TextInput
+							style={[styles.modalInput, styles.notesInput]}
+							placeholder={t("closeout_notes_optional", "Closeout notes")}
+							placeholderTextColor={colors.textMedium}
+							value={closeoutNotes}
+							onChangeText={setCloseoutNotes}
+							multiline
+							textAlignVertical="top"
+						/>
+
+						<TouchableOpacity
+							style={[styles.confirmCloseButton, isClosing && { opacity: 0.7 }]}
+							onPress={executeCloseTable}
+							disabled={isClosing}
+						>
+							{isClosing ? (
+								<ActivityIndicator size="small" color={colors.surfaceWhite} />
+							) : (
+								<Text style={styles.confirmCloseButtonText}>
+									{t("confirm_closeout", "Confirm Closeout")}
+								</Text>
+							)}
+						</TouchableOpacity>
+					</View>
+				</KeyboardAvoidingView>
+			</Modal>
 		</SafeAreaView>
 	);
 };
@@ -684,6 +1026,86 @@ const styles = StyleSheet.create({
 		lineHeight: 17,
 		marginTop: 2,
 	},
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.45)",
+		justifyContent: "flex-end",
+	},
+	closeoutSheet: {
+		backgroundColor: colors.surfaceWhite,
+		borderTopLeftRadius: 18,
+		borderTopRightRadius: 18,
+		padding: 20,
+		paddingBottom: Platform.OS === "ios" ? 34 : 20,
+	},
+	modalHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 16,
+	},
+	modalTitle: {
+		fontSize: 20,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	paymentMethodRow: {
+		flexDirection: "row",
+		gap: 10,
+		marginBottom: 14,
+	},
+	paymentMethodButton: {
+		flex: 1,
+		paddingVertical: 12,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		alignItems: "center",
+		backgroundColor: colors.backgroundLight,
+	},
+	paymentMethodButtonActive: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	paymentMethodText: {
+		fontSize: 15,
+		fontWeight: "700",
+		color: colors.textMedium,
+	},
+	paymentMethodTextActive: {
+		color: colors.surfaceWhite,
+	},
+	modalTotalsBox: {
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 12,
+		padding: 12,
+		marginBottom: 14,
+	},
+	modalInput: {
+		backgroundColor: colors.backgroundMedium,
+		padding: 12,
+		borderRadius: 8,
+		marginBottom: 10,
+		fontSize: 16,
+		color: colors.textDark,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	notesInput: {
+		minHeight: 72,
+	},
+	confirmCloseButton: {
+		backgroundColor: colors.statusDanger,
+		padding: 15,
+		borderRadius: 10,
+		alignItems: "center",
+		marginTop: 4,
+	},
+	confirmCloseButtonText: {
+		color: colors.surfaceWhite,
+		fontSize: 16,
+		fontWeight: "800",
+	},
 	summaryBlock: {
 		marginBottom: 15,
 	},
@@ -697,6 +1119,11 @@ const styles = StyleSheet.create({
 		fontSize: 15,
 		color: colors.textMedium,
 	},
+	summarySubLabel: {
+		fontSize: 11,
+		color: colors.textMedium,
+		marginTop: 2,
+	},
 	summaryValue: {
 		fontSize: 15,
 		fontWeight: "600",
@@ -706,6 +1133,21 @@ const styles = StyleSheet.create({
 		height: 1,
 		backgroundColor: colors.borderLight,
 		marginVertical: 10,
+	},
+	cashSummaryBox: {
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+		marginBottom: 10,
+	},
+	helperText: {
+		color: colors.textMedium,
+		fontSize: 12,
+		lineHeight: 17,
+		marginTop: -2,
+		marginBottom: 10,
 	},
 });
 

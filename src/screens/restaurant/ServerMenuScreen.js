@@ -18,8 +18,6 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { db } from "../../config/firebase";
-import { doc, updateDoc, arrayUnion } from "@react-native-firebase/firestore";
 import { AuthContext } from "../../context/authContext";
 import { fetchMenu } from "../../utils/customerUtils";
 import MenuItemsList from "../../components/customer/MenuItemsList";
@@ -27,6 +25,8 @@ import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import { functions } from "../../config/firebase.native";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
 
 const ServerMenuScreen = () => {
 	const { t } = useTranslation();
@@ -35,30 +35,17 @@ const ServerMenuScreen = () => {
 
 	const { partyId, restaurantId, tableName, tableId, serverObj } = route.params;
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 	const [selectedItems, setSelectedItems] = useState({});
 	const [customizedItems, setCustomizedItems] = useState([]);
 	const [isAddingBulk, setIsAddingBulk] = useState(false);
+	const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
 
 	// ✅ NEW: selected category
 	const [selectedCategory, setSelectedCategory] = useState("All");
-
-	const getItbmsRateFromCategory = (categoryValue) => {
-		const category = String(categoryValue || "")
-			.trim()
-			.toLowerCase();
-
-		const isAlcohol =
-			category === "beer" ||
-			category === "wine" ||
-			category === "cocktails" ||
-			category === "spirits" ||
-			category === "alcoholic drinks";
-
-		return isAlcohol ? 10 : 7;
-	};
 
 	useEffect(() => {
 		const loadMenu = async () => {
@@ -271,108 +258,77 @@ const ServerMenuScreen = () => {
 		setIsAddingBulk(true);
 
 		const { guestName } = route.params;
-		const displayName = guestName || "Server";
-
-		const basketRef = doc(db, "shared_baskets", partyId);
-
+		const staffName =
+			activeSession?.name ||
+			`${activeSession?.firstName || ""} ${
+				activeSession?.lastName || ""
+			}`.trim() ||
+			`${currentUserData?.firstName || ""} ${
+				currentUserData?.lastName || ""
+			}`.trim() ||
+			"Server";
+		const displayName = guestName || tableName || "Table";
 		try {
-			const newItemsArray = quickAddItems.map((item) => ({
-				id: Math.random().toString(36).substr(2, 9),
+			const quickItemsPayload = quickAddItems.map((item) => ({
 				menuItemId: item.id,
-				name: item.name,
-				dishName: item.name,
-				price: item.price || 0,
-				basePrice: item.price || 0,
-				modifiersTotal: 0,
 				selectedModifiers: [],
-				category: item.category || "Uncategorized",
 				quantity: 1,
 				specialInstructions: "",
-				orderedByUserId: currentUserData.uid,
-				orderedByPipName: displayName,
-				restaurantId: restaurantId,
-				status: "new",
-				addedAt: new Date().toISOString(),
-				itbmsRate: getItbmsRateFromCategory(item.category),
 			}));
 
-			const customItemsArray = customizedItems.map((customItem) => ({
-				id: Math.random().toString(36).substr(2, 9),
+			const customItemsPayload = customizedItems.map((customItem) => ({
 				menuItemId: customItem?.menuItemDetails?.id,
-				name: customItem?.menuItemDetails?.name,
-				dishName: customItem?.menuItemDetails?.name,
-				price:
-					customItem?.menuItemDetails?.finalUnitPrice !== undefined &&
-					customItem?.menuItemDetails?.finalUnitPrice !== null
-						? customItem.menuItemDetails.finalUnitPrice
-						: customItem?.menuItemDetails?.price || 0,
-				basePrice:
-					customItem?.menuItemDetails?.basePrice !== undefined &&
-					customItem?.menuItemDetails?.basePrice !== null
-						? customItem.menuItemDetails.basePrice
-						: customItem?.menuItemDetails?.price || 0,
-				modifiersTotal:
-					customItem?.menuItemDetails?.modifiersTotal !== undefined &&
-					customItem?.menuItemDetails?.modifiersTotal !== null
-						? customItem.menuItemDetails.modifiersTotal
-						: 0,
 				selectedModifiers: Array.isArray(
 					customItem?.menuItemDetails?.selectedModifiers,
 				)
 					? customItem.menuItemDetails.selectedModifiers
 					: [],
-				category: customItem?.menuItemDetails?.category || "Uncategorized",
 				quantity: customItem?.quantity || 1,
 				specialInstructions: customItem?.specialInstructions || "",
-				orderedByUserId: currentUserData.uid,
-				orderedByPipName: displayName,
-				restaurantId: restaurantId,
-				status: "new",
-				addedAt: new Date().toISOString(),
-				itbmsRate: getItbmsRateFromCategory(
-					customItem?.menuItemDetails?.category,
-				),
 			}));
 
-			const allItemsToFire = [...newItemsArray, ...customItemsArray];
+			const allItemsToFire = [...quickItemsPayload, ...customItemsPayload];
 
 			console.log(
-				"[SERVER MENU MODIFIER DEBUG]",
+				"[SERVER MENU STAFF ORDER PAYLOAD]",
 				JSON.stringify(allItemsToFire, null, 2),
 			);
 
-			await updateDoc(basketRef, {
-				items: arrayUnion(...allItemsToFire),
-				lastUpdated: new Date(),
-			});
+			const addStaffItemsToPartyAndSendToKitchen = httpsCallable(
+				functions,
+				"addStaffItemsToPartyAndSendToKitchen",
+			);
 
-			const serverName =
-				`${currentUserData?.firstName || ""} ${
-					currentUserData?.lastName || ""
-				}`.trim() || "Server";
-
-			const sendOrderToKitchen = httpsCallable(functions, "sendOrderToKitchen");
-
-			await sendOrderToKitchen({
-				sourceId: partyId,
+			await addStaffItemsToPartyAndSendToKitchen({
+				partyId,
+				restaurantId,
 				table: { id: tableId, name: tableName },
-				server: serverObj || { id: currentUserData.uid, name: serverName },
-				allowedUserIds: [currentUserData.uid],
+				server: serverObj || {
+					id: activeSession?.id || currentUserData.uid,
+					name: staffName,
+				},
+				staff: {
+					id: activeSession?.id || currentUserData.uid,
+					name: staffName,
+				},
+				orderedForName: displayName,
+				items: allItemsToFire,
 			});
 
 			setSelectedItems({});
 			setCustomizedItems([]);
 
-			Alert.alert(
-				t("success", "Success"),
-				t("items_sent_to_kitchen_success", {
+			setSnackbar({
+				visible: true,
+				message: t("items_sent_to_kitchen_success", {
 					count: allItemsToFire.length,
 					defaultValue: `${allItemsToFire.length} items sent to kitchen!`,
 				}),
-				[{ text: t("ok", "OK") }],
-			);
+			});
 
-			navigation.goBack();
+			setTimeout(() => {
+				navigation.goBack();
+			}, 700);
 		} catch (error) {
 			console.error("Error batch adding items: ", error);
 			Alert.alert(
@@ -524,7 +480,7 @@ const ServerMenuScreen = () => {
 																	modifier.name?.original ||
 																	""}
 															{Number(modifier.price || 0) > 0
-																? ` (+$${Number(modifier.price).toFixed(2)})`
+																? ` (+${formatCurrencyFromDollars(modifier.price)})`
 																: ""}
 														</Text>
 													))}
@@ -574,6 +530,14 @@ const ServerMenuScreen = () => {
 							</>
 						)}
 					</TouchableOpacity>
+				</View>
+			)}
+
+			{snackbar.visible && (
+				<View pointerEvents="none" style={styles.toast}>
+					<Text style={styles.toastText} numberOfLines={2}>
+						{snackbar.message}
+					</Text>
 				</View>
 			)}
 		</SafeAreaView>
@@ -765,6 +729,27 @@ const styles = StyleSheet.create({
 	},
 	removePendingButton: {
 		padding: 6,
+	},
+	toast: {
+		position: "absolute",
+		left: 18,
+		right: 18,
+		bottom: 108,
+		backgroundColor: colors.statusSuccess || "#16A34A",
+		borderRadius: 10,
+		paddingHorizontal: 16,
+		paddingVertical: 13,
+		elevation: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 3 },
+		shadowOpacity: 0.18,
+		shadowRadius: 8,
+	},
+	toastText: {
+		color: "#FFFFFF",
+		fontWeight: "700",
+		fontSize: 15,
+		textAlign: "center",
 	},
 });
 

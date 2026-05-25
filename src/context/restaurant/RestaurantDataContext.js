@@ -16,6 +16,7 @@ export const RestaurantDataContext = createContext({
 	newKitchenOrderCount: 0,
 	serviceRequestCount: 0, //
 	pickupOrderCount: 0,
+	setKitchenQueueFocused: () => {},
 });
 
 export const RestaurantDataProvider = ({ children }) => {
@@ -25,6 +26,7 @@ export const RestaurantDataProvider = ({ children }) => {
 	const isCheckInInitialLoad = useRef(true);
 	const isKitchenInitialLoad = useRef(true);
 	const isServiceInitialLoad = useRef(true); // 🚨 NEW: Initial load tracker
+	const isKitchenQueueFocused = useRef(false);
 
 	/* ──────────────────────────────
      1.  State & refs
@@ -174,7 +176,11 @@ export const RestaurantDataProvider = ({ children }) => {
 						}
 
 						// Play the bell ONLY if a fresh ticket drops into the queue
-						if (change.type === "added" && isNewTicket) {
+						if (
+							change.type === "added" &&
+							isNewTicket &&
+							isKitchenQueueFocused.current
+						) {
 							console.log("New Kitchen/Bar Order! Playing Bell.");
 							kitchenPlayer.current?.seekTo(0);
 							kitchenPlayer.current?.play();
@@ -287,6 +293,9 @@ export const RestaurantDataProvider = ({ children }) => {
 		newKitchenOrderCount,
 		serviceRequestCount,
 		pickupOrderCount,
+		setKitchenQueueFocused: (isFocused) => {
+			isKitchenQueueFocused.current = isFocused === true;
+		},
 	};
 
 	return (

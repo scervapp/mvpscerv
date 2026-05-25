@@ -4,7 +4,9 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { IconButton } from "react-native-paper";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
-import formatCurrency from "../../utils/currencyFormatter";
+import formatCurrency, {
+	formatCurrencyFromDollars,
+} from "../../utils/currencyFormatter";
 
 const OrderItemCard = (props) => {
 	const { t, i18n } = useTranslation();
@@ -225,7 +227,7 @@ const OrderItemCard = (props) => {
 									>
 										• {modifierName}
 										{modifierPrice > 0
-											? ` (+$${modifierPrice.toFixed(2)})`
+											? ` (+${formatCurrencyFromDollars(modifierPrice)})`
 											: ""}
 									</Text>
 								);

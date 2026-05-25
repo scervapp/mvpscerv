@@ -14,6 +14,10 @@ import { Button, Divider, IconButton, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
+import {
+	formatCurrencyFromDollars,
+	normalizeMenuPriceToDollars,
+} from "../../utils/currencyFormatter";
 
 const PipInstructionModal = ({
 	visible,
@@ -332,7 +336,7 @@ const SelectedItemModal = ({
 		);
 	}, [selectedModifiers]);
 
-	const basePrice = Number(
+	const basePrice = normalizeMenuPriceToDollars(
 		selectedItem && selectedItem.price ? selectedItem.price : 0,
 	);
 	const unitPriceWithModifiers = basePrice + modifiersTotal;
@@ -485,7 +489,7 @@ const SelectedItemModal = ({
 
 									<Text style={styles.modifierOptionPrice}>
 										{optionPrice > 0
-											? `+$${optionPrice.toFixed(2)}`
+										? `+${formatCurrencyFromDollars(optionPrice)}`
 											: t("included_label", "Included")}
 									</Text>
 								</TouchableOpacity>
@@ -549,14 +553,14 @@ const SelectedItemModal = ({
 							)}
 
 							<Text style={styles.itemPrice}>
-								${unitPriceWithModifiers.toFixed(2)}
+								{formatCurrencyFromDollars(unitPriceWithModifiers)}
 							</Text>
 
 							{modifiersTotal > 0 && (
 								<Text style={styles.modifiersTotalText}>
 									{t("includes_modifiers_total", {
-										total: modifiersTotal.toFixed(2),
-										defaultValue: `Includes $${modifiersTotal.toFixed(2)} in selected add-ons`,
+										total: formatCurrencyFromDollars(modifiersTotal),
+										defaultValue: `Includes ${formatCurrencyFromDollars(modifiersTotal)} in selected add-ons`,
 									})}
 								</Text>
 							)}
@@ -591,7 +595,7 @@ const SelectedItemModal = ({
 									{t("item_total_label", "Item Total")}
 								</Text>
 								<Text style={styles.totalPreviewValue}>
-									${finalPrice.toFixed(2)}
+									{formatCurrencyFromDollars(finalPrice)}
 								</Text>
 							</View>
 						</View>

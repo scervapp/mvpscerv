@@ -1,65 +1,268 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Users can read/update their own profile, but not others.
-    match /customers/{userId} {
-      allow read, update: if request.auth.uid == userId;
-      allow create: if request.auth.uid != null;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Anyone can read restaurant info, but only the owner can write.
-    match /restaurants/{restaurantId} {
-      allow read: if true;
-      allow write: if request.auth.uid == restaurantId;
+    function uid() {
+      return request.auth.uid;
+    }
 
-      // Rule for the work_days subcollection.
-      match /work_days/{workDayId} {
-        allow read, write: if request.auth.uid == restaurantId;
+    function role() {
+      return signedIn() && request.auth.token.role is string
+        ? request.auth.token.role
+        : "";
+    }
+
+    function tokenRestaurantId() {
+      return signedIn() && request.auth.token.restaurantId is string
+        ? request.auth.token.restaurantId
+        : "";
+    }
+
+    function isOwner(userId) {
+      return signedIn() && uid() == userId;
+    }
+
+    function isRestaurantUser(restaurantId) {
+      return signedIn() &&
+        (uid() == restaurantId || tokenRestaurantId() == restaurantId);
+    }
+
+    function isRestaurantManager(restaurantId) {
+      return isRestaurantUser(restaurantId) &&
+        role() in ["owner", "manager", "restaurant"];
+    }
+
+    function isPartyReader(data) {
+      return signedIn() && (
+        isRestaurantUser(data.restaurantId) ||
+        uid() == data.hostUserId ||
+        uid() in data.guestUserIds ||
+        uid() in data.memberUids
+      );
+    }
+
+    function partyExists(partyId) {
+      return exists(/databases/$(database)/documents/parties/$(partyId));
+    }
+
+    function isPartyReaderById(partyId) {
+      return partyExists(partyId) &&
+        isPartyReader(get(/databases/$(database)/documents/parties/$(partyId)).data);
+    }
+
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(keys) &&
+        request.resource.data.diff(resource.data).addedKeys().hasOnly(keys) &&
+        request.resource.data.diff(resource.data).removedKeys().hasOnly([]);
+    }
+
+    function isCustomerServiceRequestUpdate() {
+      return signedIn() &&
+        isPartyReader(resource.data) &&
+        changedOnly([
+          "customerStatus",
+          "checkoutRequestedAt",
+          "fulfillmentType",
+          "pickupSpecialInstructions",
+          "serviceRequested",
+          "serviceRequestedAt",
+          "serviceTableName"
+        ]);
+    }
+
+    function isOwnBasketItem(data) {
+      return signedIn() && data.userId == uid();
+    }
+
+    function isRestaurantMenuOwner(data) {
+      return data.restaurantId is string && isRestaurantUser(data.restaurantId);
+    }
+
+    function isPendingOrderOwner(data) {
+      return signedIn() && data.customerId == uid();
+    }
+
+    function isOwnCheckInRequest(data) {
+      return signedIn() &&
+        data.customerId == uid() &&
+        data.restaurantId is string &&
+        data.status == "REQUESTED";
+    }
+
+    match /customers/{userId} {
+      allow create: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if false;
+
+      match /pips/{pipId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /savedPaymentMethods/{paymentMethodId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /baskets/{basketId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
       }
     }
 
-    // Users can only manage their own individual basket items.
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow create, update: if isRestaurantManager(restaurantId);
+      allow delete: if false;
+
+      match /tables/{tableId} {
+        allow read: if true;
+        allow create, update, delete: if isRestaurantManager(restaurantId);
+      }
+
+      match /employees/{employeeId} {
+        allow read: if isRestaurantUser(restaurantId);
+        allow write: if false;
+      }
+
+      match /work_days/{workDayId} {
+        allow read: if isRestaurantUser(restaurantId);
+        allow write: if false;
+      }
+
+      match /payment_events/{eventId} {
+        allow read: if isRestaurantManager(restaurantId);
+        allow write: if false;
+      }
+
+      match /{document=**} {
+        allow read: if isRestaurantUser(restaurantId);
+        allow write: if false;
+      }
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow create: if signedIn() &&
+        isRestaurantMenuOwner(request.resource.data) &&
+        isRestaurantManager(request.resource.data.restaurantId);
+      allow update: if signedIn() &&
+        isRestaurantMenuOwner(resource.data) &&
+        isRestaurantManager(resource.data.restaurantId) &&
+        request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if signedIn() &&
+        isRestaurantMenuOwner(resource.data) &&
+        isRestaurantManager(resource.data.restaurantId);
+
+      match /ratings/{ratingId} {
+        allow read: if true;
+        allow create: if signedIn() &&
+          request.resource.data.userId == uid();
+        allow update, delete: if false;
+      }
+    }
+
     match /baskets/{basketId} {
-      allow read, write: if request.auth.uid == request.resource.data.userId;
-    }
-
-    // Any authenticated user can interact with a shared basket document.
-    // The logic inside the Cloud Functions provides the primary security.
-    match /shared_baskets/{basketId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Handles party document access.
-    match /parties/{partyId} {
-      // Allows reading a specific document if you are a member.
-      allow get: if request.auth.uid in resource.data.memberUids;
-      
-      // Allows querying for parties. Your app must use a secure query
-      // like '.where("memberUids", "array-contains", user.uid)'.
-      allow list: if request.auth.uid != null;
-
-      // Allows writing if you are a member.
-      allow write: if request.auth.uid in resource.data.memberUids;
-    }
-
-    // Orders can only be read by the customer or the restaurant.
-    // CRITICAL: No one can create, update, or delete orders from the client.
-    // This MUST be done via your secure Cloud Functions.
-    match /orders/{orderId} {
-      allow read: if resource.data.customerId == request.auth.uid || resource.data.restaurantId == request.auth.uid;
+      allow read: if isOwnBasketItem(resource.data) ||
+        isRestaurantUser(resource.data.restaurantId);
       allow create, update, delete: if false;
     }
-    
-    // App config is public to read, but cannot be changed from the client.
+
+    match /shared_baskets/{partyId} {
+      allow read: if isPartyReaderById(partyId);
+      allow create, update, delete: if false;
+    }
+
+    match /parties/{partyId} {
+      allow read: if isPartyReader(resource.data);
+      allow create, delete: if false;
+      allow update: if isCustomerServiceRequestUpdate();
+    }
+
+    match /checkIns/{checkInId} {
+      allow read: if signedIn() && (
+        uid() == resource.data.userId ||
+        uid() == resource.data.customerId ||
+        isRestaurantUser(resource.data.restaurantId)
+      );
+      allow create: if isOwnCheckInRequest(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /kitchen_orders/{orderId} {
+      allow read: if isRestaurantUser(resource.data.restaurantId) ||
+        (resource.data.customerId is string && uid() == resource.data.customerId);
+
+      allow create, update, delete: if false;
+    }
+
+    match /orders/{orderId} {
+      allow read: if signedIn() && (
+        uid() == resource.data.customerId ||
+        uid() == resource.data.userId ||
+        isRestaurantUser(resource.data.restaurantId)
+      );
+
+      allow create, update, delete: if false;
+    }
+
+    match /pending_orders/{orderId} {
+      allow read: if isPendingOrderOwner(resource.data) ||
+        isRestaurantUser(resource.data.restaurantId);
+
+      // Legacy checkout creates pending_orders before calling payment functions.
+      // Payment functions must continue recalculating totals server-side.
+      allow create: if isPendingOrderOwner(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && (
+        uid() == resource.data.userId ||
+        uid() == resource.data.customerId ||
+        uid() == resource.data.recipientId ||
+        uid() == resource.data.recipientUserId
+      );
+      allow update: if signedIn() &&
+        (uid() == resource.data.userId ||
+          uid() == resource.data.customerId ||
+          uid() == resource.data.recipientId ||
+          uid() == resource.data.recipientUserId) &&
+        changedOnly(["isRead"]);
+      allow create, delete: if false;
+    }
+
+    match /dishRatings/{ratingId} {
+      allow read: if true;
+      allow create: if signedIn() &&
+        request.resource.data.userId == uid();
+      allow update, delete: if false;
+    }
+
+    match /dishes/{dishId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /appConfig/{docId} {
       allow read: if true;
       allow write: if false;
     }
 
-    // Check-ins can be managed by the user who created it or the restaurant.
-    match /checkIns/{checkInId} {
-      allow read, write: if request.auth.uid == resource.data.userId || request.auth.uid == resource.data.restaurantId;
+    match /admins/{adminId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

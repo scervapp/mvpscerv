@@ -1,5 +1,5 @@
 // navigation/RestaurantBottomNavigation.js (or your main restaurant nav file)
-import React, { useState, useContext, useEffect } from "react";
+import React from "react";
 import {
 	Platform,
 	View,
@@ -10,7 +10,7 @@ import {
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useTranslation } from "react-i18next";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 // --- Import all your screens ---
 // 1. Import your NEW operational dashboard and auth gate
@@ -42,6 +42,9 @@ import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext
 import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
 import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
 import OrderDetailScreen from "../screens/restaurant/OrderDetailScreen.js";
+import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
+import { getRestaurantPermissions } from "../utils/restaurantPermissions.js";
+import RestaurantLockButton from "../components/restaurant/RestaurantLockButton.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -57,7 +60,7 @@ const defaultHeaderOptions = {
 		fontWeight: "bold",
 	},
 	// 🚨 ADD THIS LINE:
-	headerRight: () => <GlobalHeaderLock />,
+	headerRight: () => <RestaurantLockButton style={styles.headerLockButton} />,
 };
 
 const TabBarBadge = ({ count }) => {
@@ -68,18 +71,6 @@ const TabBarBadge = ({ count }) => {
 		<View style={styles.badge}>
 			<Text style={styles.badgeText}>{badgeText}</Text>
 		</View>
-	);
-};
-
-const GlobalHeaderLock = () => {
-	const { endSession } = useEmployeeSession();
-	return (
-		<TouchableOpacity
-			onPress={endSession}
-			style={{ marginRight: 15, padding: 5 }}
-		>
-			<Ionicons name="lock-closed" size={24} color={colors.textDark} />
-		</TouchableOpacity>
 	);
 };
 
@@ -167,12 +158,36 @@ const ActiveTablesStack = () => (
 		<Stack.Screen
 			name="ManagePartyScreen"
 			component={ManagePartyScreen}
-			options={{ presentation: "card" }} // Optional: gives it a nice slide-in effect
+			options={({ navigation }) => ({
+				presentation: "card",
+				headerLeft: () => (
+					<TouchableOpacity
+						onPress={() =>
+							navigation.reset({
+								index: 0,
+								routes: [{ name: "RestaurantActiveTables" }],
+							})
+						}
+						style={styles.headerBackButton}
+					>
+						<MaterialCommunityIcons
+							name="arrow-left"
+							size={24}
+							color={colors.textDark}
+						/>
+					</TouchableOpacity>
+				),
+			})}
 		/>
 		<Stack.Screen
 			name="ServerMenuScreen"
 			component={ServerMenuScreen}
 			options={{ presentation: "modal" }} // Slides up nicely
+		/>
+		<Stack.Screen
+			name="ServiceRequestsScreen"
+			component={ServiceRequestsScreen}
+			options={{ headerTitle: "Service Requests" }}
 		/>
 	</Stack.Navigator>
 );
@@ -186,6 +201,8 @@ const RestaurantBottomNavigation = () => {
 		serviceRequestCount,
 		pickupOrderCount,
 	} = useRestaurantData();
+	const { activeSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
 	const insets = useSafeAreaInsets();
 
 	return (
@@ -269,14 +286,22 @@ const RestaurantBottomNavigation = () => {
 			})}
 		>
 			{/* Tab 1: The New Dashboard (Home Base) */}
-			<Tab.Screen name="Dashboard" component={RestaurantDashboardStack} />
+			{permissions.canViewDashboard && (
+				<Tab.Screen name="Dashboard" component={RestaurantDashboardStack} />
+			)}
 			{/* Tab 2: Customers Waiting */}
-			<Tab.Screen name="Checkins" component={ActiveTablesStack} />
+			{permissions.canViewTickets && (
+				<Tab.Screen name="Checkins" component={ActiveTablesStack} />
+			)}
 
 			{/* Tab 3: Chef's Queue */}
-			<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
+			{permissions.canViewKitchen && (
+				<Tab.Screen name="ChefsQ" component={ChefsQScreen} />
+			)}
 			{/* 🚨 NEW Tab 4: Pickup Queue */}
-			<Tab.Screen name="Pickups" component={PickupQueueScreen} />
+			{permissions.canViewPickupQueue && (
+				<Tab.Screen name="Pickups" component={PickupQueueScreen} />
+			)}
 		</Tab.Navigator>
 	);
 };
@@ -313,6 +338,16 @@ const styles = StyleSheet.create({
 		height: 30,
 		alignItems: "center",
 		justifyContent: "center",
+	},
+	headerLockButton: {
+		marginRight: 10,
+	},
+	headerBackButton: {
+		minWidth: 44,
+		minHeight: 44,
+		alignItems: "center",
+		justifyContent: "center",
+		marginLeft: -8,
 	},
 	badge: {
 		position: "absolute",

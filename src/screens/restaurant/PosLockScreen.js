@@ -17,6 +17,16 @@ import { fetchEmployees } from "../../utils/firebaseUtils"; // Fetch ALL employe
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import colors from "../../utils/styles/appStyles";
 
+const getEmployeeDisplayName = (employee) =>
+	employee?.name ||
+	`${employee?.firstName || ""} ${employee?.lastName || ""}`.trim() ||
+	"Staff";
+
+const getEmployeeRoleLabel = (employee) =>
+	String(employee?.jobTitle || employee?.role || "staff")
+		.trim()
+		.toUpperCase();
+
 const PosLockScreen = () => {
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
@@ -28,16 +38,16 @@ const PosLockScreen = () => {
 	// Pin Modal State
 	const [isPinModalVisible, setIsPinModalVisible] = useState(false);
 	const [employeeToVerify, setEmployeeToVerify] = useState(null);
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	// Load ALL staff for the PIN pad list
 	useEffect(() => {
-		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 		if (!restaurantId) return;
 
 		const loadStaff = async () => {
 			try {
 				const employees = await fetchEmployees(restaurantId);
-				setStaffList(employees);
+				setStaffList(employees.filter((employee) => employee.isActive !== false));
 			} catch (error) {
 				console.error("Failed to load staff list:", error);
 			} finally {
@@ -46,7 +56,7 @@ const PosLockScreen = () => {
 		};
 
 		loadStaff();
-	}, [currentUserData?.uid, currentUserData?.restaurantId]);
+	}, [restaurantId]);
 
 	// Handle initial owner setup (from your original logic)
 	useEffect(() => {
@@ -81,6 +91,7 @@ const PosLockScreen = () => {
 
 	const onPinSuccess = (verifiedEmployeeFromBackend) => {
 		setIsPinModalVisible(false);
+		setEmployeeToVerify(null);
 		// 🚨 THE FIX: Merge the fully loaded local profile with the backend confirmation
 		// This guarantees activeSession has her 'jobTitle', 'firstName', 'lastName', etc.
 		startSession({
@@ -111,6 +122,16 @@ const PosLockScreen = () => {
 				keyExtractor={(item) => item.id}
 				numColumns={2}
 				contentContainerStyle={styles.staffGrid}
+				ListEmptyComponent={
+					<View style={styles.emptyState}>
+						<Text style={styles.emptyStateText}>
+							{t(
+								"no_active_staff_pins",
+								"No active staff PINs are set up yet.",
+							)}
+						</Text>
+					</View>
+				}
 				renderItem={({ item }) => (
 					<TouchableOpacity
 						style={styles.staffCard}
@@ -123,10 +144,10 @@ const PosLockScreen = () => {
 							</Text>
 						</View>
 						<Text style={styles.staffName} numberOfLines={1}>
-							{item.firstName} {item.lastName}
+							{getEmployeeDisplayName(item)}
 						</Text>
 						<Text style={styles.staffRole}>
-							{(item.jobTitle || item.role).toUpperCase()}
+							{getEmployeeRoleLabel(item)}
 						</Text>
 					</TouchableOpacity>
 				)}
@@ -140,10 +161,13 @@ const PosLockScreen = () => {
 			{employeeToVerify && (
 				<ManagerPinModal
 					isVisible={isPinModalVisible}
-					onClose={() => setIsPinModalVisible(false)}
+					onClose={() => {
+						setIsPinModalVisible(false);
+						setEmployeeToVerify(null);
+					}}
 					onSuccess={onPinSuccess}
 					employeeToVerify={employeeToVerify}
-					restaurantId={currentUserData?.uid}
+					restaurantId={restaurantId}
 				/>
 			)}
 		</SafeAreaView>
@@ -202,6 +226,17 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		marginTop: 4,
 		fontWeight: "600",
+	},
+	emptyState: {
+		paddingHorizontal: 24,
+		paddingVertical: 30,
+		alignItems: "center",
+	},
+	emptyStateText: {
+		color: colors.textMedium,
+		fontSize: 16,
+		fontWeight: "600",
+		textAlign: "center",
 	},
 	logoutBtn: { marginBottom: 30, padding: 15 },
 	logoutText: { color: colors.statusDanger, fontWeight: "bold" },

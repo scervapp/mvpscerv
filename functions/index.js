@@ -29,6 +29,8 @@ exports.sendToChefsQ = require("./basketFunctions").sendToChefsQ;
 exports.clearBasket = require("./basketFunctions").clearBasket;
 
 exports.addItemToSharedBasket = basketFunctions.addItemToSharedBasket;
+exports.addStaffItemsToPartyAndSendToKitchen =
+	basketFunctions.addStaffItemsToPartyAndSendToKitchen;
 exports.sendItemsToChefsQ = basketFunctions.sendItemsToChefsQ;
 exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
 exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
@@ -121,6 +123,14 @@ exports.updateEmployee = restaurantFunctions.updateEmployee;
 exports.deleteEmployee = restaurantFunctions.deleteEmployee;
 exports.setEmployeeRole = restaurantFunctions.setEmployeeRole;
 exports.forceClearTable = restaurantFunctions.forceClearTable;
+exports.assignPartyServer = restaurantFunctions.assignPartyServer;
+exports.acknowledgePartyServiceRequest =
+	restaurantFunctions.acknowledgePartyServiceRequest;
+exports.updateKitchenOrderStationStatus =
+	restaurantFunctions.updateKitchenOrderStationStatus;
+exports.completePickupOrderHandoff =
+	restaurantFunctions.completePickupOrderHandoff;
+exports.markPartyTableClean = restaurantFunctions.markPartyTableClean;
 exports.autoCloseStaleWorkDays = restaurantFunctions.autoCloseStaleWorkDays;
 //exports.updateEmployee = restaurantFunctions.updateEmployee;
 

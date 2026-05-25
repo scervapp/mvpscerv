@@ -17,6 +17,7 @@ import { AuthContext } from "../../context/authContext";
 import SelectedItemModal from "./SelectedItemModal";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons";
+import { formatMenuPrice } from "../../utils/currencyFormatter";
 
 // --- IMPORT THE HELPER HERE ---
 import { getLocalizedValue } from "../../utils/localizationHelper";
@@ -73,11 +74,10 @@ const MenuItemRow = ({
 	const displayDescription = getLocalizedValue(item, "description");
 	const requiresCustomization = itemRequiresCustomization(item);
 
-	const safeFormatCurrency = (price) => {
-		if (typeof price !== "number" || isNaN(price))
-			return t("not_available_abbreviation");
-		return `$${price.toFixed(2)}`;
-	};
+	const safeFormatCurrency = (price) =>
+		Number.isFinite(Number(price))
+			? formatMenuPrice(price)
+			: t("not_available_abbreviation");
 	const { averageRating = 0, ratingCount = 0 } = item;
 
 	return (

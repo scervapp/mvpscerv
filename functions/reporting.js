@@ -24,6 +24,23 @@ const safeNumber = (value, fallback = 0) => {
 	return Number.isFinite(num) ? num : fallback;
 };
 
+const assertCanViewRestaurantReports = (context, restaurantId) => {
+	const token = context.auth && context.auth.token ? context.auth.token : {};
+	const role = String(token.role || "").toLowerCase();
+	const tokenRestaurantId = token.restaurantId || null;
+	const isRestaurantAccount = context.auth && context.auth.uid === restaurantId;
+	const isRestaurantEmployee =
+		tokenRestaurantId === restaurantId &&
+		["owner", "manager", "restaurant"].includes(role);
+
+	if (!isRestaurantAccount && !isRestaurantEmployee) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"You do not have permission to view reports for this restaurant.",
+		);
+	}
+};
+
 const parseDate = (ts) => {
 	if (!ts) return null;
 	if (typeof ts.toDate === "function") return ts.toDate();
@@ -68,6 +85,12 @@ const isBarCategory = (categoryValue) => {
 	);
 };
 
+const normalizeItemPriceDollars = (value) => {
+	const amount = safeNumber(value, 0);
+	// Current basket/order item prices are dollars. Older seeded menu prices used cents.
+	return Math.abs(amount) >= 250 ? amount / 100 : amount;
+};
+
 const getItemRevenueCents = (item) => {
 	if (!item) return 0;
 
@@ -75,8 +98,8 @@ const getItemRevenueCents = (item) => {
 
 	const priceDollars =
 		item.discountedPrice !== undefined && item.discountedPrice !== null
-			? safeNumber(item.discountedPrice, 0)
-			: safeNumber(item.price, 0);
+			? normalizeItemPriceDollars(item.discountedPrice)
+			: normalizeItemPriceDollars(item.price);
 
 	return Math.round(priceDollars * 100) * quantity;
 };
@@ -153,6 +176,15 @@ const normalizeOrderForReporting = (doc) => {
 		raw.totalPrice !== undefined && raw.totalPrice !== null
 			? safeNumber(raw.totalPrice, 0)
 			: subtotal + taxAmount + gratuityAmount + platformFee;
+	const restaurantGrossAmount =
+		raw.restaurantGrossAmount !== undefined && raw.restaurantGrossAmount !== null
+			? safeNumber(raw.restaurantGrossAmount, 0)
+			: subtotal + taxAmount + gratuityAmount;
+	const restaurantTransferAmount =
+		raw.restaurantTransferAmount !== undefined &&
+		raw.restaurantTransferAmount !== null
+			? safeNumber(raw.restaurantTransferAmount, 0)
+			: Math.max(0, totalPrice - platformFee - processorFee);
 
 	const items = Array.isArray(raw.items) ? raw.items : [];
 
@@ -163,9 +195,30 @@ const normalizeOrderForReporting = (doc) => {
 		restaurantName: raw.restaurantName || "Scerv Partner",
 
 		paymentProcessor: raw.paymentProcessor || "unknown",
+		paymentProcessorId: raw.paymentProcessorId || null,
+		paymentIntentId: raw.paymentIntentId || null,
+		stripePaymentIntentId: raw.stripePaymentIntentId || null,
+		stripeChargeId: raw.stripeChargeId || null,
+		stripeTransferId: raw.stripeTransferId || null,
+		restaurantTransferStatus: raw.restaurantTransferStatus || null,
 		paymentMethod: raw.paymentMethod || "unknown",
+		tenderType: raw.tenderType || raw.paymentMethod || "unknown",
 		paymentStatus: raw.paymentStatus || "unknown",
 		orderStatus: raw.orderStatus || "unknown",
+		closeoutSource: raw.closeoutSource || null,
+		isManualRestaurantOrder: raw.isManualRestaurantOrder === true,
+		orderEntryMode: raw.orderEntryMode || null,
+		feePolicy: raw.feePolicy || null,
+		manualFeeEligible: raw.manualFeeEligible === true,
+		manualFeeReason: raw.manualFeeReason || null,
+		externalReference: raw.externalReference || null,
+		taxRate:
+			raw.taxRate !== undefined && raw.taxRate !== null
+				? safeNumber(raw.taxRate, 0)
+				: null,
+		taxSource: raw.taxSource || null,
+		closedBy: raw.closedBy || null,
+		closedByName: raw.closedByName || null,
 
 		orderMode: getOrderModeLabel(raw),
 		fulfillmentType: raw.fulfillmentType || "table",
@@ -179,6 +232,8 @@ const normalizeOrderForReporting = (doc) => {
 		platformFee,
 		processorFee,
 		totalPrice,
+		restaurantGrossAmount,
+		restaurantTransferAmount,
 
 		items,
 		table: raw.table || null,
@@ -196,6 +251,41 @@ const normalizeOrderForReporting = (doc) => {
 	};
 };
 
+const getSnapshotSize = async (query) => {
+	const snapshot = await query.get();
+	return snapshot.size;
+};
+
+const buildOwnerPulse = async (restaurantId) => {
+	const partiesRef = db.collection("parties").where("restaurantId", "==", restaurantId);
+	const kitchenOrdersRef = db
+		.collection("kitchen_orders")
+		.where("restaurantId", "==", restaurantId)
+		.where("overallStatus", "==", "active");
+
+	const [
+		activeTables,
+		serviceRequests,
+		checksRequested,
+		openTickets,
+		pickupOrders,
+	] = await Promise.all([
+		getSnapshotSize(partiesRef.where("status", "in", ["active", "checkedOut"])),
+		getSnapshotSize(partiesRef.where("serviceRequested", "==", true)),
+		getSnapshotSize(partiesRef.where("customerStatus", "==", "ready_to_pay")),
+		getSnapshotSize(kitchenOrdersRef),
+		getSnapshotSize(kitchenOrdersRef.where("fulfillmentType", "==", "hotel_pickup")),
+	]);
+
+	return {
+		activeTables,
+		serviceRequests,
+		checksRequested,
+		openTickets,
+		pickupOrders,
+	};
+};
+
 const aggregateOrders = (orders) => {
 	let grossSales = 0;
 	let totalTax = 0;
@@ -208,6 +298,7 @@ const aggregateOrders = (orders) => {
 	let ordersWithTurnover = 0;
 	let digitalSales = 0;
 	let manualSales = 0;
+	let netPayout = 0;
 
 	const serverTips = {};
 	const topSellingItems = {};
@@ -220,6 +311,7 @@ const aggregateOrders = (orders) => {
 		totalProcessorFees += order.processorFee;
 		totalPlatformFees += order.platformFee;
 		totalDiscounts += order.discountTotal;
+		netPayout += order.restaurantTransferAmount;
 		totalOrders += 1;
 
 		if (order.paymentChannel === "manual") {
@@ -279,7 +371,6 @@ const aggregateOrders = (orders) => {
 	}
 
 	const totalFees = totalProcessorFees + totalPlatformFees;
-	const netPayout = grossSales - totalPlatformFees + totalGratuity;
 	const averageOrderValue =
 		totalOrders > 0 ? Math.round(grossSales / totalOrders) : 0;
 	const avgTurnoverRate =
@@ -330,6 +421,7 @@ exports.getReportingDashboard = functions
 		}
 
 		try {
+			assertCanViewRestaurantReports(context, restaurantId);
 			const startDate = getStartDateForPeriod(period, PANAMA_TIMEZONE);
 
 			const snapshot = await db
@@ -347,10 +439,13 @@ exports.getReportingDashboard = functions
 				normalizeOrderForReporting(doc),
 			);
 			const summary = aggregateOrders(orders);
+			const ownerPulse = await buildOwnerPulse(restaurantId);
 
 			return {
 				...summary,
+				ownerPulse,
 				period,
+				lastUpdatedAt: new Date().toISOString(),
 			};
 		} catch (error) {
 			console.error("getReportingDashboard error:", error);
@@ -390,6 +485,7 @@ exports.getOrdersLedger = functions
 		}
 
 		try {
+			assertCanViewRestaurantReports(context, restaurantId);
 			const startDate = getStartDateForPeriod(period, PANAMA_TIMEZONE);
 
 			const snapshot = await db
@@ -450,7 +546,27 @@ exports.getOrdersLedger = functions
 					readableOrderId: o.readableOrderId,
 					restaurantName: o.restaurantName,
 					paymentMethod: o.paymentMethod,
+					tenderType: o.tenderType,
 					paymentProcessor: o.paymentProcessor,
+					paymentProcessorId: o.paymentProcessorId,
+					paymentIntentId: o.paymentIntentId,
+					stripePaymentIntentId: o.stripePaymentIntentId,
+					stripeChargeId: o.stripeChargeId,
+					stripeTransferId: o.stripeTransferId,
+					restaurantTransferStatus: o.restaurantTransferStatus,
+					paymentStatus: o.paymentStatus,
+					orderStatus: o.orderStatus,
+					closeoutSource: o.closeoutSource,
+					isManualRestaurantOrder: o.isManualRestaurantOrder,
+					orderEntryMode: o.orderEntryMode,
+					feePolicy: o.feePolicy,
+					manualFeeEligible: o.manualFeeEligible,
+					manualFeeReason: o.manualFeeReason,
+					externalReference: o.externalReference,
+					taxRate: o.taxRate,
+					taxSource: o.taxSource,
+					closedBy: o.closedBy,
+					closedByName: o.closedByName,
 					orderMode: o.orderMode,
 					fulfillmentType: o.fulfillmentType,
 					subtotal: o.subtotal,
@@ -458,6 +574,8 @@ exports.getOrdersLedger = functions
 					gratuityAmount: o.gratuityAmount,
 					platformFee: o.platformFee,
 					processorFee: o.processorFee,
+					restaurantGrossAmount: o.restaurantGrossAmount,
+					restaurantTransferAmount: o.restaurantTransferAmount,
 					totalPrice: o.totalPrice,
 					customerName: o.customerName,
 					customerEmail: o.customerEmail,
@@ -504,6 +622,7 @@ exports.getOrderDetail = functions
 			}
 
 			const o = normalizeOrderForReporting(doc);
+			assertCanViewRestaurantReports(context, o.restaurantId);
 
 			return {
 				id: o.id,
@@ -512,9 +631,27 @@ exports.getOrderDetail = functions
 				restaurantName: o.restaurantName,
 
 				paymentProcessor: o.paymentProcessor,
+				paymentProcessorId: o.paymentProcessorId,
+				paymentIntentId: o.paymentIntentId,
+				stripePaymentIntentId: o.stripePaymentIntentId,
+				stripeChargeId: o.stripeChargeId,
+				stripeTransferId: o.stripeTransferId,
+				restaurantTransferStatus: o.restaurantTransferStatus,
 				paymentMethod: o.paymentMethod,
+				tenderType: o.tenderType,
 				paymentStatus: o.paymentStatus,
 				orderStatus: o.orderStatus,
+				closeoutSource: o.closeoutSource,
+				isManualRestaurantOrder: o.isManualRestaurantOrder,
+				orderEntryMode: o.orderEntryMode,
+				feePolicy: o.feePolicy,
+				manualFeeEligible: o.manualFeeEligible,
+				manualFeeReason: o.manualFeeReason,
+				externalReference: o.externalReference,
+				taxRate: o.taxRate,
+				taxSource: o.taxSource,
+				closedBy: o.closedBy,
+				closedByName: o.closedByName,
 
 				orderMode: o.orderMode,
 				fulfillmentType: o.fulfillmentType,
@@ -527,6 +664,8 @@ exports.getOrderDetail = functions
 				gratuityAmount: o.gratuityAmount,
 				platformFee: o.platformFee,
 				processorFee: o.processorFee,
+				restaurantGrossAmount: o.restaurantGrossAmount,
+				restaurantTransferAmount: o.restaurantTransferAmount,
 				totalPrice: o.totalPrice,
 
 				table: o.table,
@@ -550,3 +689,89 @@ exports.getOrderDetail = functions
 			);
 		}
 	});
+
+exports.getDailySalesReport = functions
+	.runWith({ memory: "512MB" })
+	.https.onCall(async (data, context) => {
+		if (!context.auth) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const { restaurantId, days = 30 } = data || {};
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		try {
+			assertCanViewRestaurantReports(context, restaurantId);
+
+			const safeDays = Math.min(Math.max(Number(days) || 30, 1), 90);
+			const startDate = getStartDateForPeriod("today", PANAMA_TIMEZONE);
+			startDate.setDate(startDate.getDate() - (safeDays - 1));
+
+			const snapshot = await db
+				.collection("orders")
+				.where("restaurantId", "==", restaurantId)
+				.where("paymentStatus", "==", "paid")
+				.where(
+					"fulfilledAt",
+					">=",
+					admin.firestore.Timestamp.fromDate(startDate),
+				)
+				.orderBy("fulfilledAt", "desc")
+				.limit(1000)
+				.get();
+
+			const orders = snapshot.docs.map((doc) => normalizeOrderForReporting(doc));
+			const grouped = {};
+
+			for (const order of orders) {
+				const dateObj = order.fulfilledAt || order.openedAt || new Date();
+				const date = dateObj.toLocaleDateString("en-CA", {
+					timeZone: PANAMA_TIMEZONE,
+				});
+
+				if (!grouped[date]) grouped[date] = [];
+				grouped[date].push(order);
+			}
+
+			return Object.entries(grouped)
+				.sort(([a], [b]) => (a < b ? 1 : -1))
+				.map(([date, dayOrders]) => {
+					const summary = aggregateOrders(dayOrders);
+					return {
+						date,
+						orderCount: summary.totalOrders,
+						grossSales: summary.grossSales,
+						totalDiscountApplied: summary.totalDiscounts,
+						netSales: Math.max(0, summary.grossSales - summary.totalDiscounts),
+						totalTaxCollected: summary.totalTax,
+						totalGratuityReceived: summary.totalGratuity,
+						estimatedProcessingFeesDeducted: summary.totalProcessorFees,
+						estimatedNetPayout: summary.netPayout,
+						serverTips: summary.serverTips,
+						allItemsSold: summary.topSellingItems.map((item) => ({
+							...item,
+							count: item.quantity,
+						})),
+					};
+				});
+		} catch (error) {
+			if (error instanceof functions.https.HttpsError) throw error;
+			console.error("getDailySalesReport error:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				"Failed to load daily sales reports.",
+			);
+		}
+	});
+
+exports.getDashboardReport = exports.getReportingDashboard;
+exports.getSalesReport = exports.getReportingDashboard;
+exports.getAggregatedSalesReport = exports.getDailySalesReport;

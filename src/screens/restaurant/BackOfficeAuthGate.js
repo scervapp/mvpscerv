@@ -13,13 +13,12 @@ import {
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Button } from "react-native-paper";
 import { AuthContext } from "../../context/authContext";
-import {
-	fetchEmployees,
-	fetchEmployeesByRole,
-} from "../../utils/firebaseUtils";
+import { fetchEmployeesByRole } from "../../utils/firebaseUtils";
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 // This is a simple modal to let the user select which manager is authorizing the action.
 const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => {
 	const { t } = useTranslation();
@@ -67,6 +66,9 @@ const BackOfficeAuthGate = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [isManagerListVisible, setIsManagerListVisible] = useState(false);
 	const [managers, setManagers] = useState([]);
@@ -79,13 +81,21 @@ const BackOfficeAuthGate = () => {
 	useFocusEffect(
 		React.useCallback(() => {
 			if (hasVerifiedRef.current) return;
-			if (!currentUserData?.uid) {
+			if (!restaurantId) {
 				// If for some reason user data isn't loaded, wait.
 				setIsLoading(true);
 				return;
 			}
 
 			const checkPermissions = async () => {
+				if (!permissions.canManageBackOffice) {
+					Alert.alert(t("access_denied"), t("back_office_managers_only"), [
+						{ text: t("ok"), onPress: () => navigation.goBack() },
+					]);
+					setIsLoading(false);
+					return;
+				}
+
 				const userRole = currentUserData.role;
 				const needsOnboarding = currentUserData.hasSetupEmployees === false;
 
@@ -115,10 +125,9 @@ const BackOfficeAuthGate = () => {
 				// For all other cases, start the standard PIN verification flow.
 				setIsLoading(true);
 				try {
-					const managerList = await fetchEmployeesByRole(currentUserData.uid, [
-						"manager",
-						"owner",
-					]);
+					const managerList = (
+						await fetchEmployeesByRole(restaurantId, ["manager", "owner"])
+					).filter((manager) => manager.isActive !== false);
 					if (managerList.length === 0) {
 						// This case is a fallback if an owner has somehow deleted all managers including themselves.
 						Alert.alert(
@@ -142,7 +151,15 @@ const BackOfficeAuthGate = () => {
 			};
 
 			checkPermissions();
-		}, [currentUserData?.uid, hasVerifiedRef.current]) // Rerun this check if currentUserData changes
+		}, [
+			currentUserData?.uid,
+			currentUserData?.restaurantId,
+			hasVerifiedRef.current,
+			navigation,
+			permissions.canManageBackOffice,
+			restaurantId,
+			t,
+		])
 	);
 
 	const onSelectManagerForVerification = (manager) => {
@@ -184,7 +201,7 @@ const BackOfficeAuthGate = () => {
 					onClose={onModalClose}
 					onSuccess={onPinSuccess}
 					employeeToVerify={managerToVerify}
-					restaurantId={currentUserData?.uid}
+					restaurantId={restaurantId}
 				/>
 			)}
 		</View>
