@@ -107,7 +107,7 @@ const RestaurantActiveTables = () => {
 					activeSession?.role === "worker" &&
 					activeSession?.jobTitle === "server"
 				) {
-					filteredParties = partiesData.filter((party) => {
+					filteredParties = filteredParties.filter((party) => {
 						const needsServer =
 							!party.server || party?.server?.id === "unassigned";
 						const isMyTable = party?.server?.id === activeSession.id;

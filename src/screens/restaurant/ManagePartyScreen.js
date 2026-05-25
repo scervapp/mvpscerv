@@ -48,6 +48,7 @@ const ManagePartyScreen = () => {
 	const [cashReceivedInput, setCashReceivedInput] = useState("");
 	const [externalReference, setExternalReference] = useState("");
 	const [closeoutNotes, setCloseoutNotes] = useState("");
+	const [restaurantDetails, setRestaurantDetails] = useState(null);
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
 	const goToActiveTables = () => {
@@ -99,6 +100,21 @@ const ManagePartyScreen = () => {
 		};
 	}, [partyId]);
 
+	useEffect(() => {
+		const restaurantId = partyData?.restaurantId || currentUserData?.uid;
+		if (!restaurantId) {
+			setRestaurantDetails(null);
+			return;
+		}
+
+		const restaurantRef = doc(db, "restaurants", restaurantId);
+		const unsubscribe = onSnapshot(restaurantRef, (snapshot) => {
+			setRestaurantDetails(snapshot.exists ? snapshot.data() || {} : null);
+		});
+
+		return () => unsubscribe();
+	}, [partyData?.restaurantId, currentUserData?.uid]);
+
 	// 2. Filter & Group Items
 	const officiallyOrderedItems = useMemo(() => {
 		return (basketItems || []).filter(
@@ -147,10 +163,12 @@ const ManagePartyScreen = () => {
 	};
 
 	const restaurantTaxRate = useMemo(() => {
-		const rawRate = Number(currentUserData?.taxRate || 0);
+		const rawRate = Number(
+			restaurantDetails?.taxRate ?? currentUserData?.taxRate ?? 0,
+		);
 		if (Number.isNaN(rawRate) || rawRate <= 0) return 0;
 		return rawRate > 1 ? rawRate / 100 : rawRate;
-	}, [currentUserData?.taxRate]);
+	}, [currentUserData?.taxRate, restaurantDetails?.taxRate]);
 
 	// 3. Handlers
 	const handleCloseTable = () => {
