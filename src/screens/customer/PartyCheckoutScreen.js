@@ -27,7 +27,9 @@ import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
-import formatCurrency from "../../utils/currencyFormatter";
+import formatCurrency, {
+	formatCurrencyFromDollars,
+} from "../../utils/currencyFormatter";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
 import firestore from "@react-native-firebase/firestore";
@@ -892,7 +894,7 @@ const PartyCheckoutScreen = () => {
 																		modifier.name?.original ||
 																		""}
 																{Number(modifier.price || 0) > 0
-																	? ` (+$${Number(modifier.price).toFixed(2)})`
+																	? ` (+${formatCurrencyFromDollars(modifier.price)})`
 																	: ""}
 															</Text>
 														))}

@@ -135,7 +135,12 @@ const buildReceiptModel = (order, options = {}) => {
 	);
 	const gratuityDollars = centsToDollars(order && order.gratuityAmount);
 	const platformFeeDollars = centsToDollars(order && order.platformFee);
+	const cashReceivedDollars = centsToDollars(order && order.cashReceived);
+	const changeDueDollars = centsToDollars(order && order.changeDue);
 	const totalDollars = centsToDollars(order && order.totalPrice);
+	const isManualRestaurantOrder =
+		(order && order.isManualRestaurantOrder === true) ||
+		(order && order.feePolicy === "manual_tender_scerv_fee_waived");
 
 	const items = Array.isArray(order && order.items) ? order.items : [];
 
@@ -170,7 +175,16 @@ const buildReceiptModel = (order, options = {}) => {
 		taxDollars,
 		gratuityDollars,
 		platformFeeDollars,
+		cashReceivedDollars,
+		changeDueDollars,
 		totalDollars,
+		isManualRestaurantOrder,
+		paymentMethod: (order && order.paymentMethod) || "",
+		tenderType: (order && order.tenderType) || "",
+		externalReference: (order && order.externalReference) || "",
+		taxRate: order && order.taxRate,
+		taxSource: (order && order.taxSource) || "",
+		feePolicy: (order && order.feePolicy) || "",
 		currencySymbol,
 		showBarcode: showBarcode && !!finalBarcodeValue,
 		barcodeValue: finalBarcodeValue,
@@ -212,7 +226,15 @@ const printReceipt = async (order, adapter, options = {}) => {
 		taxDollars,
 		gratuityDollars,
 		platformFeeDollars,
+		cashReceivedDollars,
+		changeDueDollars,
 		totalDollars,
+		isManualRestaurantOrder,
+		paymentMethod,
+		tenderType,
+		externalReference,
+		taxRate,
+		taxSource,
 		currencySymbol,
 		showBarcode,
 		barcodeValue,
@@ -315,6 +337,11 @@ const printReceipt = async (order, adapter, options = {}) => {
 					width,
 				),
 			);
+		} else if (isManualRestaurantOrder) {
+			await safeCall(
+				adapter.text,
+				lineItemRow("Scerv Fee", "$0.00 waived", width),
+			);
 		}
 
 		await safeCall(adapter.text, divider("=", width));
@@ -326,6 +353,46 @@ const printReceipt = async (order, adapter, options = {}) => {
 		await safeCall(adapter.bold, false);
 
 		await safeCall(adapter.newLine, 1);
+
+		if (isManualRestaurantOrder) {
+			const tenderLabel =
+				tenderType || paymentMethod
+					? String(tenderType || paymentMethod).replace(/_/g, " ")
+					: "Manual tender";
+			await safeCall(adapter.text, `Tender: ${tenderLabel}`);
+			if (paymentMethod === "cash") {
+				await safeCall(
+					adapter.text,
+					lineItemRow(
+						"Cash Received",
+						formatMoney(cashReceivedDollars, currencySymbol),
+						width,
+					),
+				);
+				await safeCall(
+					adapter.text,
+					lineItemRow(
+						"Change Due",
+						formatMoney(changeDueDollars, currencySymbol),
+						width,
+					),
+				);
+			} else if (externalReference) {
+				await safeCall(
+					adapter.text,
+					truncate(`Reference: ${externalReference}`, width),
+				);
+			}
+			if (taxRate !== undefined && taxRate !== null) {
+				await safeCall(
+					adapter.text,
+					`Tax Source: ${taxSource || "restaurant.taxRate"} (${(
+						Number(taxRate || 0) * 100
+					).toFixed(2)}%)`,
+				);
+			}
+			await safeCall(adapter.newLine, 1);
+		}
 
 		if (showBarcode) {
 			await safeCall(adapter.align, "center");

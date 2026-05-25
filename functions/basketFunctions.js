@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { assertRestaurantPermission } = require("./restaurantAccess");
 
 const db = admin.firestore();
 /**
@@ -535,6 +536,351 @@ const getLocalizedModifierName = (modifier) => {
 
 	return "Modifier";
 };
+
+const getItbmsRateFromCategory = (categoryValue) => {
+	const category = String(categoryValue || "")
+		.trim()
+		.toLowerCase();
+
+	const isAlcohol =
+		category === "beer" ||
+		category === "wine" ||
+		category === "cocktails" ||
+		category === "spirits" ||
+		category === "alcoholic drinks";
+
+	return isAlcohol ? 10 : 7;
+};
+
+const normalizeSelectedModifiers = (requestedModifiers, menuItemData) => {
+	const modifierGroups = Array.isArray(menuItemData.modifierGroups)
+		? menuItemData.modifierGroups
+		: [];
+	const optionLookup = new Map();
+
+	modifierGroups.forEach((group) => {
+		const groupId = group.id || null;
+		const groupName =
+			typeof group.name === "string"
+				? group.name
+				: group.name && typeof group.name === "object"
+					? group.name.en || group.name.es || group.name.original || ""
+					: "";
+
+		(Array.isArray(group.options) ? group.options : []).forEach((option) => {
+			if (!option || !option.id) return;
+			optionLookup.set(`${groupId}:${option.id}`, {
+				groupId,
+				groupName,
+				optionId: option.id,
+				name:
+					typeof option.name === "string"
+						? option.name
+						: option.name && typeof option.name === "object"
+							? option.name.en ||
+								option.name.es ||
+								option.name.original ||
+								"Modifier"
+							: "Modifier",
+				price:
+					option.price !== undefined && option.price !== null
+						? Number(option.price)
+						: 0,
+				category: option.category || "Extras",
+			});
+		});
+	});
+
+	return (Array.isArray(requestedModifiers) ? requestedModifiers : [])
+		.map((modifier) => {
+			const groupId = modifier && modifier.groupId ? modifier.groupId : null;
+			const optionId = modifier && modifier.optionId ? modifier.optionId : null;
+			const matchedOption = optionLookup.get(`${groupId}:${optionId}`);
+			return matchedOption || null;
+		})
+		.filter(Boolean);
+};
+
+exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const {
+			partyId,
+			restaurantId,
+			table,
+			server,
+			items,
+			orderedForName = "Table",
+			staff = {},
+		} = data || {};
+
+		if (
+			!partyId ||
+			!restaurantId ||
+			!table ||
+			!Array.isArray(items) ||
+			items.length === 0
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Missing required staff order data.",
+			);
+		}
+
+		const staffMember = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staff.id,
+			allowedRoles: ["owner", "manager"],
+			allowedJobTitles: ["server"],
+			action: "enter restaurant orders",
+		});
+
+		const partyRef = db.collection("parties").doc(partyId);
+		const basketRef = db.collection("shared_baskets").doc(partyId);
+		const partyDoc = await partyRef.get();
+
+		if (!partyDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+
+		const partyData = partyDoc.data() || {};
+		if (partyData.restaurantId !== restaurantId) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Party does not belong to this restaurant.",
+			);
+		}
+
+		if (!["active", "pending", "AWAITING_TABLE"].includes(partyData.status)) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Party is not open for staff ordering.",
+			);
+		}
+
+		const menuItemIds = [
+			...new Set(
+				items
+					.map((item) => item && item.menuItemId)
+					.filter((id) => typeof id === "string" && id.trim()),
+			),
+		];
+
+		if (menuItemIds.length === 0) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"No valid menu items were provided.",
+			);
+		}
+
+		const menuItemMap = new Map();
+		for (let i = 0; i < menuItemIds.length; i += 10) {
+			const chunk = menuItemIds.slice(i, i + 10);
+			const menuItemsSnapshot = await db
+				.collection("menuItems")
+				.where(admin.firestore.FieldPath.documentId(), "in", chunk)
+				.get();
+
+			menuItemsSnapshot.forEach((doc) => {
+				menuItemMap.set(doc.id, { id: doc.id, ...doc.data() });
+			});
+		}
+
+		const staffName =
+			String(staff.name || "").trim() || staffMember.name || "Staff";
+		const staffId = staffMember.id || staff.id || context.auth.uid;
+		const normalizedOrderedForName =
+			String(orderedForName || "").trim() ||
+			partyData.hostName ||
+			(partyData.table && partyData.table.name) ||
+			"Table";
+
+		const staffBasketItems = items.map((requestedItem) => {
+			const menuItemId = requestedItem && requestedItem.menuItemId;
+			const menuItem = menuItemMap.get(menuItemId);
+
+			if (!menuItem) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					`Menu item ${menuItemId} was not found.`,
+				);
+			}
+
+			if (menuItem.restaurantId && menuItem.restaurantId !== restaurantId) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"Menu item does not belong to this restaurant.",
+				);
+			}
+
+			if (menuItem.isAvailable === false) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					`${menuItem.name || "This item"} is not available.`,
+				);
+			}
+
+			const selectedModifiers = normalizeSelectedModifiers(
+				requestedItem.selectedModifiers,
+				menuItem,
+			);
+			const modifiersTotal = selectedModifiers.reduce(
+				(sum, modifier) => sum + Number(modifier.price || 0),
+				0,
+			);
+			const basePrice = Number(menuItem.price || 0);
+			const quantity = Math.max(
+				1,
+				Math.min(99, Number(requestedItem.quantity || 1)),
+			);
+			const specialInstructions =
+				typeof requestedItem.specialInstructions === "string"
+					? requestedItem.specialInstructions.trim().slice(0, 500)
+					: "";
+
+			return {
+				id: db.collection("dummy").doc().id,
+				menuItemId,
+				name: menuItem.name || "Item",
+				dishName: menuItem.name || "Item",
+				price: Number((basePrice + modifiersTotal).toFixed(2)),
+				basePrice: Number(basePrice.toFixed(2)),
+				modifiersTotal: Number(modifiersTotal.toFixed(2)),
+				selectedModifiers,
+				category: menuItem.category || "Uncategorized",
+				quantity,
+				specialInstructions,
+				orderedByUserId: context.auth.uid,
+				orderedByPipName: normalizedOrderedForName,
+				orderedForName: normalizedOrderedForName,
+				source: "restaurant_pos",
+				orderEntryMode: "staff",
+				paymentResponsibility: "restaurant_pos",
+				enteredByStaffId: staffId,
+				enteredByStaffName: staffName,
+				enteredByAuthUserId: context.auth.uid,
+				restaurantId,
+				status: "new",
+				addedAt: new Date().toISOString(),
+				itbmsRate: getItbmsRateFromCategory(menuItem.category),
+			};
+		});
+
+		const batch = db.batch();
+		const basketDoc = await basketRef.get();
+		const existingBasketItems =
+			basketDoc.exists && Array.isArray(basketDoc.data().items)
+				? basketDoc.data().items
+				: [];
+		const updatedBasketItems = [...existingBasketItems, ...staffBasketItems];
+
+		const kitchenOrderRef = db.collection("kitchen_orders").doc();
+		const orderId = kitchenOrderRef.id;
+		const menuItemDetailsMap = new Map(
+			staffBasketItems.map((item) => [item.menuItemId, menuItemMap.get(item.menuItemId)]),
+		);
+
+		let hasKitchen = false;
+		let hasBar = false;
+
+		const kitchenItems = staffBasketItems.map((item) => {
+			const details = menuItemDetailsMap.get(item.menuItemId) || {};
+			const category = details.category || item.category || "Other";
+			const destination = isBarCategory(category) ? "bar" : "kitchen";
+			const kitchenModifiers = [];
+			const barModifiers = [];
+
+			(Array.isArray(item.selectedModifiers)
+				? item.selectedModifiers
+				: []
+			).forEach((modifier) => {
+				if (isBarCategory(modifier.category)) {
+					barModifiers.push(modifier);
+				} else {
+					kitchenModifiers.push(modifier);
+				}
+			});
+
+			if (destination === "kitchen") hasKitchen = true;
+			if (destination === "bar") hasBar = true;
+			if (kitchenModifiers.length > 0) hasKitchen = true;
+			if (barModifiers.length > 0) hasBar = true;
+
+			return {
+				id: item.id,
+				dishName: item.dishName,
+				quantity: item.quantity,
+				specialInstructions: item.specialInstructions || "",
+				orderedFor: item.orderedForName || "Table",
+				source: item.source,
+				orderEntryMode: item.orderEntryMode,
+				paymentResponsibility: item.paymentResponsibility,
+				enteredByStaffId: item.enteredByStaffId,
+				enteredByStaffName: item.enteredByStaffName,
+				destination,
+				selectedModifiers: item.selectedModifiers,
+				kitchenModifiers,
+				barModifiers,
+			};
+		});
+
+		const initialStationStatuses = {};
+		if (hasKitchen) initialStationStatuses.kitchen = "new";
+		if (hasBar) initialStationStatuses.bar = "new";
+
+		const sentBasketItems = updatedBasketItems.map((item) =>
+			staffBasketItems.some((staffItem) => staffItem.id === item.id)
+				? { ...item, status: "sent", ticketId: orderId, sentAt: new Date() }
+				: item,
+		);
+
+		if (basketDoc.exists) {
+			batch.update(basketRef, {
+				items: sentBasketItems,
+				[`ticketStatuses.${orderId}`]: initialStationStatuses,
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+		} else {
+			batch.set(basketRef, {
+				partyId,
+				restaurantId,
+				items: sentBasketItems,
+				[`ticketStatuses.${orderId}`]: initialStationStatuses,
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+		}
+
+		batch.set(kitchenOrderRef, {
+			restaurantId,
+			orderId,
+			partyId,
+			table,
+			server: server || { id: staffId, name: staffName },
+			orderEntryMode: "staff",
+			items: kitchenItems,
+			stationStatuses: initialStationStatuses,
+			overallStatus: "active",
+			status: "new",
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+
+		await batch.commit();
+
+		return {
+			success: true,
+			orderId,
+			itemsSent: kitchenItems.length,
+		};
+	},
+);
 exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
 		throw new functions.https.HttpsError(
@@ -663,7 +1009,17 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				quantity: item.quantity,
 				specialInstructions: item.specialInstructions || "",
 				orderedFor:
-					item.orderedByPipName || item.pipName || item.customerName || "Guest",
+					item.orderedForName ||
+					item.orderedByPipName ||
+					item.pipName ||
+					item.customerName ||
+					"Guest",
+				source: item.source || "customer_app",
+				orderEntryMode: item.orderEntryMode || "customer",
+				paymentResponsibility:
+					item.paymentResponsibility || "customer_app",
+				enteredByStaffId: item.enteredByStaffId || null,
+				enteredByStaffName: item.enteredByStaffName || null,
 				destination: destination,
 				selectedModifiers: selectedModifiers,
 				kitchenModifiers: kitchenModifiers,
@@ -696,6 +1052,7 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			partyId: sourceId,
 			table: table,
 			server: server || { id: "unassigned", name: "Unassigned" },
+			orderEntryMode: data.orderEntryMode || "customer",
 			items: kitchenItems,
 			stationStatuses: initialStationStatuses, // Independent Bar/Kitchen tracking
 			overallStatus: "active", // The main switch

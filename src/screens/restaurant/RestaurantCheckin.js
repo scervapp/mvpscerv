@@ -18,8 +18,6 @@ import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
 	onSnapshot,
-	doc,
-	updateDoc,
 	collection,
 	query,
 	where,
@@ -30,7 +28,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigation } from "@react-navigation/native";
 
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
-import { clearTable } from "../../utils/firebaseUtils";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
 const RestaurantActiveTables = () => {
 	const { t } = useTranslation();
@@ -38,6 +36,7 @@ const RestaurantActiveTables = () => {
 
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession, endSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
 
 	const [activeParties, setActiveParties] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +50,18 @@ const RestaurantActiveTables = () => {
 	const [restaurantServers, setRestaurantServers] = useState([]);
 
 	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
+	const markPartyTableCleanFunction = httpsCallable(
+		functions,
+		"markPartyTableClean",
+	);
+	const assignPartyServerFunction = httpsCallable(
+		functions,
+		"assignPartyServer",
+	);
+	const acknowledgePartyServiceRequestFunction = httpsCallable(
+		functions,
+		"acknowledgePartyServiceRequest",
+	);
 
 	// 1. Listen for Active & Checked-Out Parties
 	useEffect(() => {
@@ -174,6 +185,21 @@ const RestaurantActiveTables = () => {
 
 		const needsServer = !party.server || party.server.id === "unassigned";
 		if (needsServer) {
+			if (permissions.isServer) {
+				executeServerAssignment(
+					{
+						id: activeSession?.id,
+						name:
+							activeSession?.name ||
+							`${activeSession?.firstName || ""} ${
+								activeSession?.lastName || ""
+							}`.trim(),
+					},
+					party,
+					true,
+				);
+				return;
+			}
 			setSelectedPartyForAssignment(party);
 			setIsServerModalVisible(true);
 		} else {
@@ -182,19 +208,28 @@ const RestaurantActiveTables = () => {
 	};
 
 	// 4. Assign Server
-	const executeServerAssignment = async (selectedServer) => {
-		if (!selectedPartyForAssignment || !selectedServer) return;
+	const executeServerAssignment = async (
+		selectedServer,
+		partyOverride = selectedPartyForAssignment,
+		openAfterAssign = false,
+	) => {
+		if (!partyOverride || !selectedServer) return;
 		try {
-			const partyRef = doc(db, "parties", selectedPartyForAssignment.id);
-			await updateDoc(partyRef, {
-				server: {
-					id: selectedServer.id,
-					name: `${selectedServer.firstName} ${selectedServer.lastName}`.trim(),
-				},
-				updatedAt: new Date(),
+			await assignPartyServerFunction({
+				partyId: partyOverride.id,
+				serverId: selectedServer.id,
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
 			});
 			setIsServerModalVisible(false);
 			setSelectedPartyForAssignment(null);
+			if (openAfterAssign) {
+				navigation.navigate("ManagePartyScreen", { partyId: partyOverride.id });
+			}
 		} catch (err) {
 			console.error("Error assigning server:", err);
 			Alert.alert("Error", "Could not assign server to this table.");
@@ -204,8 +239,14 @@ const RestaurantActiveTables = () => {
 	// 5. Acknowledge Service
 	const handleAcknowledge = async (partyId) => {
 		try {
-			await db.collection("parties").doc(partyId).update({
-				serviceRequested: false,
+			await acknowledgePartyServiceRequestFunction({
+				partyId,
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
 			});
 		} catch (error) {
 			console.error("Error clearing service request:", error);
@@ -242,29 +283,33 @@ const RestaurantActiveTables = () => {
 						const customerId = party.hostUserId || party.currentCustomerId;
 
 						// 🚨 1. Use YOUR utility to free up the physical table on the floor plan
-						if (tableId) {
-							await clearTable(tableId, restaurantId);
+						const staffName =
+							activeSession?.name ||
+							`${activeSession?.firstName || ""} ${
+								activeSession?.lastName || ""
+							}`.trim();
+
+						if (isDirty) {
+							await markPartyTableCleanFunction({
+								partyId: party.id,
+								staffId: activeSession?.id || null,
+								staffName,
+							});
+						} else {
+							await forceClearTableFunction({
+								restaurantId,
+								tableId,
+								checkInId: party.checkInId || party.currentCheckInId,
+								customerId,
+								partyId: party.id,
+								staffId: activeSession?.id || null,
+								staffName,
+							});
 						}
 
 						// 🚨 2. Mark the Party as "completed" so it disappears from this screen
-						const partyRef = doc(db, "parties", party.id);
-						await updateDoc(partyRef, {
-							status: "completed",
-							clearedAt: new Date(),
-						});
 
 						// 🚨 3. Free the customer's app (if they aren't a walk-in)
-						if (
-							customerId &&
-							customerId !== "walk_in_guest" &&
-							customerId !== "walk_in"
-						) {
-							const customerRef = doc(db, "customers", customerId);
-							await updateDoc(customerRef, {
-								activePartyId: null,
-								activeRestaurantId: null,
-							});
-						}
 					} catch (error) {
 						console.error("Error clearing table:", error);
 						Alert.alert(
@@ -428,25 +473,42 @@ const RestaurantActiveTables = () => {
 				{/* 🚨 DYNAMIC FOOTER: Dirty vs Active */}
 				{isDirty ? (
 					<View style={styles.dirtyFooter}>
-						<TouchableOpacity
-							style={styles.cleanActionBtn}
-							onPress={() => handleClearTableAction(item)}
-						>
-							<MaterialCommunityIcons
-								name="spray-bottle"
-								size={20}
-								color={colors.surfaceWhite}
-							/>
-							<Text style={styles.cleanActionBtnText}>
-								{t("mark_clean", "Mark Clean & Release")}
-							</Text>
-						</TouchableOpacity>
+						{permissions.canCleanTable && (
+							<TouchableOpacity
+								style={styles.cleanActionBtn}
+								onPress={() => handleClearTableAction(item)}
+							>
+								<MaterialCommunityIcons
+									name="spray-bottle"
+									size={20}
+									color={colors.surfaceWhite}
+								/>
+								<Text style={styles.cleanActionBtnText}>
+									{t("mark_clean", "Mark Clean & Release")}
+								</Text>
+							</TouchableOpacity>
+						)}
 					</View>
 				) : (
 					<View style={styles.cardFooter}>
 						<TouchableOpacity
 							style={styles.serverEditContainer}
 							onPress={() => {
+								if (needsServer && permissions.isServer) {
+									executeServerAssignment(
+										{
+											id: activeSession?.id,
+											name:
+												activeSession?.name ||
+												`${activeSession?.firstName || ""} ${
+													activeSession?.lastName || ""
+												}`.trim(),
+										},
+										item,
+										true,
+									);
+									return;
+								}
 								setSelectedPartyForAssignment(item);
 								setIsServerModalVisible(true);
 							}}
@@ -476,7 +538,7 @@ const RestaurantActiveTables = () => {
 							)}
 						</TouchableOpacity>
 
-						{!needsServer && (
+						{!needsServer && permissions.canForceClearTable && (
 							<TouchableOpacity
 								style={styles.clearTableBtn}
 								onPress={() => handleClearTableAction(item)}
@@ -571,19 +633,21 @@ const RestaurantActiveTables = () => {
 					</View>
 
 					<View style={{ flexDirection: "row", gap: 10 }}>
-						<TouchableOpacity
-							style={styles.manualSeatBtn}
-							onPress={() => navigation.navigate("ManualSeatScreen")}
-						>
-							<Ionicons
-								name="add-circle"
-								size={20}
-								color={colors.surfaceWhite}
-							/>
-							<Text style={styles.manualSeatBtnText}>
-								{t("seat_table", "Seat")}
-							</Text>
-						</TouchableOpacity>
+						{permissions.canSeatWalkIn && (
+							<TouchableOpacity
+								style={styles.manualSeatBtn}
+								onPress={() => navigation.navigate("ManualSeatScreen")}
+							>
+								<Ionicons
+									name="add-circle"
+									size={20}
+									color={colors.surfaceWhite}
+								/>
+								<Text style={styles.manualSeatBtnText}>
+									{t("seat_table", "Seat")}
+								</Text>
+							</TouchableOpacity>
+						)}
 					</View>
 				</View>
 

@@ -1767,18 +1767,49 @@ const fulfillOrder = async ({
 					const remainingItems = currentBasketItems.filter(
 						(item) => !paidItemIds.includes(item.id),
 					);
+					const remainingPosCloseoutItems = remainingItems.filter(
+						(item) =>
+							item &&
+							item.paymentResponsibility === "restaurant_pos" &&
+							item.status &&
+							item.status !== "new",
+					);
 
 					t.update(basketSnap.ref, {
 						items: remainingItems,
 						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 					});
+
+					if (remainingPosCloseoutItems.length > 0) {
+						t.set(
+							pendingOrderRef,
+							{
+								remainingPosCloseoutItemCount:
+									remainingPosCloseoutItems.length,
+							},
+							{ merge: true },
+						);
+					}
 				}
 
 				const allPaid =
 					updatedGuestPips.length > 0 &&
 					updatedGuestPips.every((pip) => pip.paymentStatus === "paid");
 
-				if (allPaid) {
+				const hasRemainingPosCloseoutItems =
+					basketSnap.exists &&
+					(basketSnap.data().items || []).some(
+						(item) =>
+							item &&
+							item.paymentResponsibility === "restaurant_pos" &&
+							item.status &&
+							item.status !== "new" &&
+							!(transactionalPendingOrderData.items || []).some(
+								(paidItem) => paidItem.id === item.id,
+							),
+					);
+
+				if (allPaid && !hasRemainingPosCloseoutItems) {
 					t.update(partySnap.ref, {
 						status: "checkedOut", // ✅ keep visible for cleaning
 						paymentStatus: "paid",

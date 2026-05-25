@@ -14,6 +14,7 @@ import {
 } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import formatCurrency from "../../utils/currencyFormatter";
 const ReportCard = ({ title, children, iconName }) => (
 	<View style={styles.card}>
 		<View style={styles.cardHeader}>
@@ -84,11 +85,6 @@ const DailySalesDetailsScreen = ({ route }) => {
 	const { dayReport } = route.params;
 	const insets = useSafeAreaInsets();
 	const [itemSortKey, setItemSortKey] = useState("totalRevenue"); // 'totalRevenue' or 'count'
-
-	const formatCurrency = (cents) => {
-		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
-		return `$${(cents / 100).toFixed(2)}`;
-	};
 
 	const transactionFeePercentage = useMemo(() => {
 		if (!dayReport.grossSales || !dayReport.estimatedProcessingFeesDeducted) {

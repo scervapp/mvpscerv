@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import AddItemModal from "./AddItemModal";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
+import { formatMenuPrice } from "../../utils/currencyFormatter";
 
 const MenuItem = ({ item, restaurantId, onEdit }) => {
 	const { t } = useTranslation();
@@ -111,7 +112,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 
 			<View style={styles.infoContainer}>
 				<Text style={[styles.title, !isAvailable && styles.textHidden]}>
-					{item.name} - ${parseFloat(item.price).toFixed(2)}
+					{item.name} - {formatMenuPrice(item.price)}
 				</Text>
 				<Text style={styles.category}>{item.category}</Text>
 				<Text style={styles.description} numberOfLines={2}>

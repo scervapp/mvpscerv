@@ -160,8 +160,23 @@ const normalizeOrderForReporting = (doc) => {
 
 		paymentProcessor: raw.paymentProcessor || "unknown",
 		paymentMethod: raw.paymentMethod || "unknown",
+		tenderType: raw.tenderType || raw.paymentMethod || "unknown",
 		paymentStatus: raw.paymentStatus || "unknown",
 		orderStatus: raw.orderStatus || "unknown",
+		closeoutSource: raw.closeoutSource || null,
+		isManualRestaurantOrder: raw.isManualRestaurantOrder === true,
+		orderEntryMode: raw.orderEntryMode || null,
+		feePolicy: raw.feePolicy || null,
+		manualFeeEligible: raw.manualFeeEligible === true,
+		manualFeeReason: raw.manualFeeReason || null,
+		externalReference: raw.externalReference || null,
+		taxRate:
+			raw.taxRate !== undefined && raw.taxRate !== null
+				? safeNumber(raw.taxRate, 0)
+				: null,
+		taxSource: raw.taxSource || null,
+		closedBy: raw.closedBy || null,
+		closedByName: raw.closedByName || null,
 
 		orderMode: getOrderModeLabel(raw),
 		fulfillmentType: raw.fulfillmentType || "table",

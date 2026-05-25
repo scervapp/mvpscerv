@@ -26,13 +26,17 @@ import {
 import { httpsCallable } from "@react-native-firebase/functions";
 import { functions } from "../../config/firebase.native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { CommonActions, useNavigation } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
 const ManualSeatScreen = () => {
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
 	const { t } = useTranslation();
 
 	const [tables, setTables] = useState([]);
@@ -46,7 +50,17 @@ const ManualSeatScreen = () => {
 	const [guestName, setGuestName] = useState("");
 
 	useEffect(() => {
-		const restaurantId = currentUserData?.uid;
+		if (!permissions.canSeatWalkIn) {
+			Alert.alert(
+				t("access_denied", "Access Denied"),
+				t("not_allowed_to_seat_tables", "You are not allowed to seat tables."),
+				[{ text: t("ok", "OK"), onPress: () => navigation.goBack() }],
+			);
+			setIsLoading(false);
+			return;
+		}
+
+		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 		if (!restaurantId) return;
 
 		const fetchTables = async () => {
@@ -94,7 +108,13 @@ const ManualSeatScreen = () => {
 
 		fetchTables();
 		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+	}, [
+		currentUserData?.uid,
+		currentUserData?.restaurantId,
+		navigation,
+		permissions.canSeatWalkIn,
+		t,
+	]);
 
 	const availableTables = tables.filter((table) => {
 		const isOccupiedByParty = activeTableIds.has(table.id);
@@ -112,6 +132,15 @@ const ManualSeatScreen = () => {
 	// 🚨 NEW: The actual function that fires when they confirm the name
 	const confirmSeatTable = async () => {
 		if (!selectedTable) return;
+		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+
+		if (!restaurantId) {
+			Alert.alert(
+				t("error", "Error"),
+				t("restaurant_profile_missing", "Restaurant profile is missing."),
+			);
+			return;
+		}
 
 		setIsModalVisible(false); // Hide modal immediately for better UX
 		setIsSeating(true);
@@ -119,17 +148,34 @@ const ManualSeatScreen = () => {
 		try {
 			const createPartySession = httpsCallable(functions, "createPartySession");
 			const result = await createPartySession({
-				restaurantId: currentUserData.uid,
+				restaurantId,
 				tableId: selectedTable.id,
 				existingPartyId: null,
 				isManualSeat: true,
 				guestName: guestName.trim() || t("guest", "Guest"),
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
+				staffRole: activeSession?.role || null,
+				staffJobTitle: activeSession?.jobTitle || null,
 			});
 
 			if (result.data.success) {
-				navigation.replace("ManagePartyScreen", {
-					partyId: result.data.partyId,
-				});
+				navigation.dispatch(
+					CommonActions.reset({
+						index: 1,
+						routes: [
+							{ name: "RestaurantActiveTables" },
+							{
+								name: "ManagePartyScreen",
+								params: { partyId: result.data.partyId },
+							},
+						],
+					}),
+				);
 			}
 		} catch (error) {
 			console.error("Manual Seat Error:", error);

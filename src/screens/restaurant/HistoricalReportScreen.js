@@ -19,11 +19,7 @@ import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
-// A reusable helper function to format currency
-const formatCurrency = (cents) => {
-	if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
-	return `$${(cents / 100).toFixed(2)}`;
-};
+import formatCurrency from "../../utils/currencyFormatter";
 
 // A reusable component for each row in the list
 const ReportRow = ({ item, onPress }) => {

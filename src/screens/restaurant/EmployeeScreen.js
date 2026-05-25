@@ -25,6 +25,7 @@ import colors from "../../utils/styles/appStyles";
 import { Picker } from "@react-native-picker/picker";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 
 // --- Reusable Add/Edit Employee Modal ---
 const AddEditEmployeeModal = ({
@@ -33,10 +34,16 @@ const AddEditEmployeeModal = ({
 	onSubmit,
 	isLoading,
 	isFirstEmployee,
+	currentActorRole,
 	initialData, // 🚨 NEW: Pass existing employee data if editing
 }) => {
 	const { t } = useTranslation();
 	const isEditing = !!initialData;
+	const initialRole = String(initialData?.role || "")
+		.trim()
+		.toLowerCase();
+	const isEditingOwner = initialRole === "owner";
+	const canAssignManager = currentActorRole === "owner";
 
 	// 🚨 Dynamic Validation: PIN is required for NEW employees, optional for EDITS
 	const validationSchema = Yup.object().shape({
@@ -86,7 +93,7 @@ const AddEditEmployeeModal = ({
 								firstName: initialData?.firstName || "",
 								lastName: initialData?.lastName || "",
 								role:
-									initialData?.role || (isFirstEmployee ? "owner" : "worker"),
+									initialRole || (isFirstEmployee ? "owner" : "worker"),
 								jobTitle: initialData?.jobTitle || "",
 								pin: "", // Always start empty for security
 							}}
@@ -126,7 +133,7 @@ const AddEditEmployeeModal = ({
 
 									<Text style={styles.inputLabel}>{t("permission_role")}</Text>
 									<View style={styles.roleSelectorContainer}>
-										{isFirstEmployee ? (
+										{isFirstEmployee || isEditingOwner ? (
 											<View style={styles.roleOption}>
 												<MaterialCommunityIcons
 													name="radiobox-marked"
@@ -156,21 +163,23 @@ const AddEditEmployeeModal = ({
 													/>
 													<Text style={styles.roleLabel}>{t("worker")}</Text>
 												</TouchableOpacity>
-												<TouchableOpacity
-													style={styles.roleOption}
-													onPress={() => setFieldValue("role", "manager")}
-												>
-													<MaterialCommunityIcons
-														name={
-															values.role === "manager"
-																? "radiobox-marked"
-																: "radiobox-blank"
-														}
-														size={24}
-														color={colors.primary}
-													/>
-													<Text style={styles.roleLabel}>{t("manager")}</Text>
-												</TouchableOpacity>
+												{canAssignManager && (
+													<TouchableOpacity
+														style={styles.roleOption}
+														onPress={() => setFieldValue("role", "manager")}
+													>
+														<MaterialCommunityIcons
+															name={
+																values.role === "manager"
+																	? "radiobox-marked"
+																	: "radiobox-blank"
+															}
+															size={24}
+															color={colors.primary}
+														/>
+														<Text style={styles.roleLabel}>{t("manager")}</Text>
+													</TouchableOpacity>
+												)}
 											</>
 										)}
 									</View>
@@ -207,6 +216,10 @@ const AddEditEmployeeModal = ({
 													<Picker.Item
 														label={t("busser_support", "Busser / Support")}
 														value="support"
+													/>
+													<Picker.Item
+														label={t("bartender", "Bartender")}
+														value="bartender"
 													/>
 												</Picker>
 											</View>
@@ -274,6 +287,7 @@ const AddEditEmployeeModal = ({
 
 const EmployeeScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const [employees, setEmployees] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
@@ -286,9 +300,19 @@ const EmployeeScreen = () => {
 	const updateEmployeeFunction = httpsCallable(functions, "updateEmployee"); // 🚨 Assume this exists in your backend
 	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
 	const { t } = useTranslation();
+	const currentActorRole = String(activeSession?.role || "")
+		.trim()
+		.toLowerCase();
+	const canActorManageEmployee = (employee) => {
+		const employeeRole = String(employee?.role || "")
+			.trim()
+			.toLowerCase();
+		if (currentActorRole === "owner") return true;
+		return currentActorRole === "manager" && employeeRole === "worker";
+	};
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	useEffect(() => {
-		const restaurantId = currentUserData?.uid;
 		if (!restaurantId) {
 			setIsLoading(false);
 			return;
@@ -316,12 +340,11 @@ const EmployeeScreen = () => {
 		);
 
 		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+	}, [restaurantId]);
 
 	// 🚨 NEW: Unified Save Handler (Add vs Edit)
 	const handleSaveEmployee = async (values) => {
 		setIsActionLoading(true);
-		const restaurantId = currentUserData?.uid;
 
 		if (!restaurantId) {
 			Alert.alert(
@@ -334,10 +357,33 @@ const EmployeeScreen = () => {
 
 		try {
 			if (selectedEmployee) {
+				if (!canActorManageEmployee(selectedEmployee)) {
+					Alert.alert(
+						t("access_denied", "Access denied"),
+						t(
+							"only_owners_can_manage_owner_or_manager_profiles",
+							"Only owners can manage owner or manager profiles.",
+						),
+					);
+					return;
+				}
+
+				if (currentActorRole === "manager" && values.role !== "worker") {
+					Alert.alert(
+						t("access_denied", "Access denied"),
+						t(
+							"managers_can_only_assign_worker_roles",
+							"Managers can only assign worker roles.",
+						),
+					);
+					return;
+				}
+
 				// --- UPDATE EXISTING EMPLOYEE ---
 				const payload = {
 					restaurantId,
 					employeeId: selectedEmployee.id,
+					staffId: activeSession?.id || null,
 					...values,
 				};
 
@@ -352,8 +398,23 @@ const EmployeeScreen = () => {
 					t("employee_updated_successfully", "Employee updated successfully."),
 				);
 			} else {
+				if (currentActorRole === "manager" && values.role !== "worker") {
+					Alert.alert(
+						t("access_denied", "Access denied"),
+						t(
+							"managers_can_only_create_worker_profiles",
+							"Managers can only create worker profiles.",
+						),
+					);
+					return;
+				}
+
 				// --- ADD NEW EMPLOYEE ---
-				const result = await addEmployeeFunction({ restaurantId, ...values });
+				const result = await addEmployeeFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+					...values,
+				});
 
 				if (employees.length === 0 && result.data.success) {
 					await db.collection("restaurants").doc(restaurantId).update({
@@ -377,6 +438,31 @@ const EmployeeScreen = () => {
 	};
 
 	const handleDelete = (employee) => {
+		const employeeRole = String(employee?.role || "")
+			.trim()
+			.toLowerCase();
+		if (employeeRole === "owner") {
+			Alert.alert(
+				t("access_denied", "Access denied"),
+				t(
+					"owner_profile_cannot_be_deleted",
+					"The owner profile cannot be deleted from the POS.",
+				),
+			);
+			return;
+		}
+
+		if (!canActorManageEmployee(employee)) {
+			Alert.alert(
+				t("access_denied", "Access denied"),
+				t(
+					"only_owners_can_manage_owner_or_manager_profiles",
+					"Only owners can manage owner or manager profiles.",
+				),
+			);
+			return;
+		}
+
 		Alert.alert(
 			t("confirm_delete"),
 			`${t("are_you_sure_you_want_to_delete")} ${employee.firstName} ${employee.lastName}? ${t("this_will_also_delete_their_login")}.`,
@@ -389,8 +475,9 @@ const EmployeeScreen = () => {
 						setIsActionLoading(true);
 						try {
 							await deleteEmployeeFunction({
-								restaurantId: currentUserData.uid,
+								restaurantId,
 								employeeId: employee.id,
+								staffId: activeSession?.id || null,
 							});
 						} catch (error) {
 							Alert.alert(
@@ -406,24 +493,31 @@ const EmployeeScreen = () => {
 		);
 	};
 
-	const renderEmployeeCard = ({ item }) => (
+	const renderEmployeeCard = ({ item }) => {
+		const employeeRole = String(item.role || "")
+			.trim()
+			.toLowerCase();
+		const canManageThisEmployee = canActorManageEmployee(item);
+		const canDeleteThisEmployee = canManageThisEmployee && employeeRole !== "owner";
+
+		return (
 		<Card style={styles.card}>
 			<Card.Title
 				title={`${item.firstName} ${item.lastName}`}
 				titleStyle={styles.employeeName}
 				subtitle={
-					(item.role || "").charAt(0).toUpperCase() + (item.role || "").slice(1)
+					employeeRole.charAt(0).toUpperCase() + employeeRole.slice(1)
 				}
 				subtitleStyle={[
 					styles.employeeRole,
-					(item.role === "manager" || item.role === "owner") &&
+					(employeeRole === "manager" || employeeRole === "owner") &&
 						styles.managerRole,
 				]}
 				left={(props) => (
 					<Avatar.Icon
 						{...props}
 						icon={
-							item.role === "manager" || item.role === "owner"
+							employeeRole === "manager" || employeeRole === "owner"
 								? "account-star"
 								: "account"
 						}
@@ -433,27 +527,32 @@ const EmployeeScreen = () => {
 				right={(props) => (
 					<View style={styles.cardActionRow}>
 						{/* 🚨 NEW: Edit Button */}
-						<IconButton
-							{...props}
-							icon="pencil-outline"
-							color={colors.primary}
-							onPress={() => {
-								setSelectedEmployee(item);
-								setIsModalVisible(true);
-							}}
-						/>
+						{canManageThisEmployee && (
+							<IconButton
+								{...props}
+								icon="pencil-outline"
+								color={colors.primary}
+								onPress={() => {
+									setSelectedEmployee(item);
+									setIsModalVisible(true);
+								}}
+							/>
+						)}
 						{/* Original Delete Button */}
-						<IconButton
-							{...props}
-							icon="trash-can-outline"
-							color={colors.statusDanger}
-							onPress={() => handleDelete(item)}
-						/>
+						{canDeleteThisEmployee && (
+							<IconButton
+								{...props}
+								icon="trash-can-outline"
+								color={colors.statusDanger}
+								onPress={() => handleDelete(item)}
+							/>
+						)}
 					</View>
 				)}
 			/>
 		</Card>
-	);
+		);
+	};
 
 	if (isLoading) {
 		return (
@@ -510,6 +609,7 @@ const EmployeeScreen = () => {
 					onSubmit={handleSaveEmployee} // 🚨 Uses unified save handler
 					isLoading={isActionLoading}
 					isFirstEmployee={employees.length === 0}
+					currentActorRole={currentActorRole}
 					initialData={selectedEmployee} // 🚨 Passes down the data if editing
 				/>
 			)}

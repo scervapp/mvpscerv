@@ -15,14 +15,23 @@ import { useTranslation } from "react-i18next";
 import moment from "moment";
 
 import colors from "../../utils/styles/appStyles";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { httpsCallable } from "@react-native-firebase/functions";
 import printOrderReceipt from "../../utils/printOrderReceipt";
 import { mockPrinterConfig } from "../../utils/printerConfigExamples";
+import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
+import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
 
 const PickupQueueScreen = () => {
 	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
+	const completePickupOrderHandoffFunction = httpsCallable(
+		functions,
+		"completePickupOrderHandoff",
+	);
 
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -166,40 +175,15 @@ const PickupQueueScreen = () => {
 					style: "default",
 					onPress: async () => {
 						try {
-							const completedAt = new Date().toISOString();
-
-							await db.collection("kitchen_orders").doc(order.id).update({
-								overallStatus: "completed",
-								status: "completed",
-								completedAt,
+							await completePickupOrderHandoffFunction({
+								orderId: order.id,
+								staffId: activeSession?.id || null,
+								staffName:
+									activeSession?.name ||
+									`${activeSession?.firstName || ""} ${
+										activeSession?.lastName || ""
+									}`.trim(),
 							});
-
-							await db
-								.collection("orders")
-								.doc(order.id)
-								.set(
-									{
-										orderStatus: "completed",
-										completedAt,
-										handedOffAt: completedAt,
-										handedOffBy: currentUserData?.uid || null,
-									},
-									{ merge: true },
-								);
-
-							if (order.partyId) {
-								await db
-									.collection("parties")
-									.doc(order.partyId)
-									.set(
-										{
-											status: "completed",
-											closedAt: completedAt,
-											closedByUserId: currentUserData?.uid || "pickup_queue",
-										},
-										{ merge: true },
-									);
-							}
 						} catch (error) {
 							console.error("Error closing out pickup order:", error);
 							Alert.alert(
@@ -304,7 +288,7 @@ const PickupQueueScreen = () => {
 											>
 												• {getModifierName(modifier)}
 												{Number(modifier.price || 0) > 0
-													? ` (+$${Number(modifier.price).toFixed(2)})`
+													? ` (+${formatCurrencyFromDollars(modifier.price)})`
 													: ""}
 											</Text>
 										))}
@@ -389,6 +373,7 @@ const PickupQueueScreen = () => {
 						<Text style={styles.counterText}>{orders.length}</Text>
 					</View>
 				)}
+				<RestaurantLockButton style={styles.headerLockButton} />
 			</View>
 
 			{isLoading ? (
@@ -428,6 +413,9 @@ const styles = StyleSheet.create({
 		backgroundColor: "#FFF",
 		borderBottomWidth: 1,
 		borderBottomColor: "#E2E8F0",
+	},
+	headerLockButton: {
+		marginLeft: "auto",
 	},
 	title: {
 		fontSize: 24,

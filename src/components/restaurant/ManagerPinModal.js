@@ -1,5 +1,5 @@
 // src/components/restaurant/ManagerPinModal.js
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect } from "react";
 import {
 	View,
 	Text,
@@ -7,13 +7,11 @@ import {
 	StyleSheet,
 	TouchableOpacity,
 	ActivityIndicator,
-	Alert,
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { functions } from "../../config/firebase"; // Adjust path
 
 import colors from "../../utils/styles/appStyles"; // Adjust path
-import { AuthContext } from "../../context/authContext";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 const PinPadButton = ({ value, onPress }) => (
@@ -35,16 +33,21 @@ const ManagerPinModal = ({
 	const [error, setError] = useState("");
 
 	const verifyPinFunction = httpsCallable(functions, "verifyEmployeePin");
-	const [hasVerified, setHasVerified] = useState(false);
+	const employeeDisplayName =
+		employeeToVerify?.name ||
+		`${employeeToVerify?.firstName || ""} ${
+			employeeToVerify?.lastName || ""
+		}`.trim() ||
+		t("staff_member", "Staff member");
 
 	// Reset PIN when modal becomes visible or employee changes
 	useEffect(() => {
-		if (hasVerified) return;
 		if (isVisible) {
 			setPin("");
 			setError("");
+			setIsLoading(false);
 		}
-	}, [isVisible]);
+	}, [employeeToVerify?.id, isVisible]);
 
 	const handleKeyPress = (value) => {
 		if (pin.length < 6) {
@@ -58,15 +61,19 @@ const ManagerPinModal = ({
 
 	const handleSubmit = async () => {
 		if (pin.length < 4) {
-			setError(t('pin_min_length_error', { length: 4 }));
+			setError(t("pin_min_length_error", { length: 4 }));
 			return;
 		}
 
 		const employeeIdToVerify = employeeToVerify?.id;
 		// Add a guard clause to ensure restaurantId was passed as a prop.
 		if (!restaurantId) {
-			setError(t('restaurant_info_missing_pin_error'));
+			setError(t("restaurant_info_missing_pin_error"));
 			console.error("ManagerPinModal: restaurantId prop is missing!");
+			return;
+		}
+		if (!employeeIdToVerify) {
+			setError(t("employee_info_missing_pin_error", "Employee information is missing."));
 			return;
 		}
 		setIsLoading(true);
@@ -83,11 +90,11 @@ const ManagerPinModal = ({
 				// and pass the verified employee's data to it.
 				onSuccess(result.data.employee);
 			} else {
-				setError(result.data.message || t('invalid_pin_error'));
+				setError(result.data.message || t("invalid_pin_error"));
 			}
 		} catch (err) {
 			console.error("PIN verification error:", err);
-			setError(t('pin_verification_error'));
+			setError(t("pin_verification_error"));
 		} finally {
 			setIsLoading(false);
 		}
@@ -102,9 +109,11 @@ const ManagerPinModal = ({
 		>
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>{t('manager_pin_required_title')}</Text>
+					<Text style={styles.modalTitle}>{t("manager_pin_required_title")}</Text>
 					<Text style={styles.modalSubtitle}>
-						{t('enter_pin_for_employee', { employeeName: employeeToVerify?.name })}
+						{t("enter_pin_for_employee", {
+							employeeName: employeeDisplayName,
+						})}
 					</Text>
 
 					<View style={styles.pinDisplay}>
@@ -145,7 +154,9 @@ const ManagerPinModal = ({
 							</View>
 							<View style={styles.pinRow}>
 								<TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-									<Text style={styles.cancelButtonText}>{t('cancel_button')}</Text>
+									<Text style={styles.cancelButtonText}>
+										{t("cancel_button")}
+									</Text>
 								</TouchableOpacity>
 								<PinPadButton value="0" onPress={handleKeyPress} />
 								<TouchableOpacity
@@ -166,7 +177,7 @@ const ManagerPinModal = ({
 						onPress={handleSubmit}
 						disabled={pin.length < 4}
 					>
-						<Text style={styles.submitButtonText}>{t('enter_button')}</Text>
+						<Text style={styles.submitButtonText}>{t("enter_button")}</Text>
 					</TouchableOpacity>
 				</View>
 			</View>

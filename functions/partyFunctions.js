@@ -4,6 +4,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 const { Translate } = require("@google-cloud/translate").v2;
+const { assertRestaurantPermission } = require("./restaurantAccess");
 
 const translate = new Translate();
 
@@ -1424,8 +1425,17 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 
 	const uid = context.auth.uid;
 	// 🚨 ADDED guestName here
-	const { restaurantId, tableId, existingPartyId, isManualSeat, guestName } =
-		data;
+	const {
+		restaurantId,
+		tableId,
+		existingPartyId,
+		isManualSeat,
+		guestName,
+		staffId,
+		staffName,
+		staffRole,
+		staffJobTitle,
+	} = data;
 
 	// 2. Input Validation
 	if (!restaurantId || !tableId) {
@@ -1453,6 +1463,37 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 	const newInviteCode = generateCode(); // Ensure this helper function exists in your scope
 
 	try {
+		let assignedServer = { id: "unassigned", name: "Self-Seated" };
+		const normalizedStaffRole = String(staffRole || "")
+			.trim()
+			.toLowerCase();
+		const normalizedStaffJobTitle = String(staffJobTitle || "")
+			.trim()
+			.toLowerCase();
+
+		if (
+			isManualSeat &&
+			staffId &&
+			(normalizedStaffRole === "owner" ||
+				normalizedStaffRole === "manager" ||
+				(normalizedStaffRole === "worker" &&
+					normalizedStaffJobTitle === "server"))
+		) {
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server"],
+				action: "seat tables",
+			});
+			assignedServer = {
+				id: staffMember.id || staffId,
+				name: staffName || staffMember.name || "Server",
+			};
+		}
+
 		return await db.runTransaction(async (transaction) => {
 			// A. Fetch all required data
 			const [tableDoc, restaurantDoc, customerDoc] = await Promise.all([
@@ -1514,7 +1555,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 				type: "party",
 				partyId: partyRef.id,
 				table: { id: tableId, name: tableName },
-				server: { id: "unassigned", name: "Self-Seated" },
+				server: assignedServer,
 				createdAt: timestamp,
 				acceptedAt: timestamp,
 			};
@@ -1527,6 +1568,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 					table: { id: tableId, name: tableName },
 					partyName: tableName,
 					checkInId: checkInRef.id,
+					server: assignedServer,
 					lastUpdated: timestamp,
 				});
 			} else {
@@ -1558,6 +1600,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 							paymentStatus: "pending",
 						},
 					],
+					server: assignedServer,
 				});
 			}
 

@@ -3,6 +3,8 @@ const admin = require("firebase-admin");
 const db = admin.firestore();
 const bcrypt = require("bcrypt");
 const { Translate } = require("@google-cloud/translate").v2;
+const { assertRestaurantPermission } = require("./restaurantAccess");
+const { generateOrderId } = require("./orderFunctions");
 
 const { Resend } = require("resend");
 
@@ -1327,7 +1329,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 });
 
 /**
- * Sets or updates a manager's PIN. This should only be callable by an owner.
+ * Sets or updates an employee's POS PIN.
  * It takes a plain-text PIN, hashes it, and saves the hash to the employee's document.
  *
  * @param {object} data
@@ -1335,23 +1337,32 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
  * @param {string} data.pin The 4 to 6-digit PIN as a string.
  */
 exports.setManagerPin = functions.https.onCall(async (data, context) => {
-	// Authentication & Authorization: Ensure the person setting the PIN is an owner
-	if (!context.auth || context.auth.token.role !== "owner") {
+	if (!context.auth) {
 		throw new functions.https.HttpsError(
-			"permission-denied",
-			"Only the owner can set manager PINs.",
+			"unauthenticated",
+			"Authentication is required.",
 		);
 	}
 
-	const { restaurantId, employeeId, pin } = data;
-	if (!restaurantId || !employeeId || !pin || pin.length < 4) {
+	const { restaurantId, employeeId, pin, staffId } = data;
+	const pinValue = String(pin || "").trim();
+	if (!restaurantId || !employeeId || !/^\d{4,6}$/.test(pinValue)) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
-			"A restaurant ID, target employee ID, and a valid PIN are required.",
+			"A restaurant ID, target employee ID, and a 4-6 digit PIN are required.",
 		);
 	}
 
 	try {
+		const requester = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			action: "reset POS PINs",
+		});
+
 		// --- THIS IS THE FIX ---
 		// Directly reference the employee document by its ID instead of querying.
 		const employeeDocRef = db
@@ -1369,21 +1380,27 @@ exports.setManagerPin = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// Ensure we are only setting PINs for managers or owners.
 		const employeeData = employeeDoc.data();
-		if (employeeData.role !== "manager" && employeeData.role !== "owner") {
+		if (
+			requester.role === "manager" &&
+			String(employeeData.role || "").toLowerCase() !== "worker"
+		) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
-				"PINs can only be set for managers or owners.",
+				"Managers can only reset worker PINs.",
 			);
 		}
 
 		// Hash the PIN with a salt. 10 rounds is a standard, secure number.
 		const salt = await bcrypt.genSalt(10);
-		const pinHash = await bcrypt.hash(pin, salt);
+		const pinHash = await bcrypt.hash(pinValue, salt);
 
 		// Store the HASH, not the plain-text PIN
-		await employeeDocRef.update({ pinHash: pinHash });
+		await employeeDocRef.update({
+			pinHash,
+			pin: admin.firestore.FieldValue.delete(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
 
 		console.log(`Successfully set PIN for employee ${employeeId}.`);
 		return { success: true };
@@ -1450,6 +1467,10 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 		}
 
 		const employeeData = employeeDoc.data();
+		if (employeeData.isActive === false) {
+			return { success: false, message: "This employee is inactive." };
+		}
+
 		if (!employeeData.pinHash) {
 			console.error(
 				`verifyEmployeePin: PIN hash does not exist for employee ${employeeId}.`,
@@ -1466,7 +1487,12 @@ exports.verifyEmployeePin = functions.https.onCall(async (data, context) => {
 				employee: {
 					id: employeeDoc.id, // The unique document ID
 					name: `${employeeData.firstName} ${employeeData.lastName}`,
+					firstName: employeeData.firstName || "",
+					lastName: employeeData.lastName || "",
 					role: employeeData.role,
+					jobTitle: employeeData.jobTitle || null,
+					restaurantId,
+					isActive: employeeData.isActive !== false,
 				},
 			};
 		} else {
@@ -1504,11 +1530,47 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 	}
 
 	// 2. Validate Input
-	const { restaurantId, firstName, lastName, role, pin, jobTitle } = data;
+	const { restaurantId, firstName, lastName, role, pin, jobTitle, staffId } =
+		data;
+	const normalizedRole = String(role || "")
+		.trim()
+		.toLowerCase();
+	const normalizedJobTitle = String(jobTitle || "")
+		.trim()
+		.toLowerCase();
+	const pinValue = String(pin || "").trim();
+
 	if (!restaurantId || !firstName || !lastName || !role) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
 			"Missing required employee details (name, role).",
+		);
+	}
+	if (!["owner", "manager", "worker"].includes(normalizedRole)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Invalid employee role.",
+		);
+	}
+	if (!/^\d{4,6}$/.test(pinValue)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A 4-6 digit POS PIN is required.",
+		);
+	}
+	if (normalizedRole === "worker" && !normalizedJobTitle) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Worker profiles require a job title.",
+		);
+	}
+	if (
+		context.auth.token.role === "manager" &&
+		normalizedRole !== "worker"
+	) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"Managers can only create worker profiles.",
 		);
 	}
 
@@ -1518,7 +1580,19 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 		.collection("employees");
 	const snapshot = await employeesRef.limit(1).get();
 	const isFirstEmployee = snapshot.empty;
-	const roleToSet = isFirstEmployee ? "owner" : role;
+	const roleToSet = isFirstEmployee ? "owner" : normalizedRole;
+	let requester = null;
+
+	if (!isFirstEmployee) {
+		requester = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			action: "add employees",
+		});
+	}
 
 	if (roleToSet === "owner" && !isFirstEmployee) {
 		throw new functions.https.HttpsError(
@@ -1526,14 +1600,20 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 			"The 'owner' role can only be assigned to the first employee.",
 		);
 	}
+	if (requester && requester.role === "manager" && roleToSet !== "worker") {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"Managers can only create worker profiles.",
+		);
+	}
 
 	try {
 		let pinHash = null;
 
 		// 🚨 THE FIX: Hash the PIN for EVERYONE, regardless of role.
-		if (pin) {
+		if (pinValue) {
 			const salt = await bcrypt.genSalt(10);
-			pinHash = await bcrypt.hash(pin, salt);
+			pinHash = await bcrypt.hash(pinValue, salt);
 		}
 
 		// 3. Create the employee document in the subcollection.
@@ -1542,7 +1622,7 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 			firstName,
 			lastName,
 			role: roleToSet,
-			jobTitle: roleToSet === "worker" ? jobTitle : null,
+			jobTitle: roleToSet === "worker" ? normalizedJobTitle : null,
 			pinHash, // Now every employee gets their secure hash saved!
 			restaurantId,
 			isActive: true,
@@ -1571,21 +1651,96 @@ exports.updateEmployee = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("unauthenticated", "Not logged in.");
 	}
 
-	const { restaurantId, employeeId, firstName, lastName, role, jobTitle, pin } =
-		data;
+	const {
+		restaurantId,
+		employeeId,
+		firstName,
+		lastName,
+		role,
+		jobTitle,
+		pin,
+		staffId,
+	} = data;
+	const roleToSet = String(role || "")
+		.trim()
+		.toLowerCase();
+	const jobTitleToSet = String(jobTitle || "")
+		.trim()
+		.toLowerCase();
 
 	if (!restaurantId || !employeeId) {
 		throw new functions.https.HttpsError("invalid-argument", "Missing IDs.");
 	}
+	if (!firstName || !lastName || !roleToSet) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required employee details.",
+		);
+	}
+	if (!["owner", "manager", "worker"].includes(roleToSet)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Invalid employee role.",
+		);
+	}
+	if (roleToSet === "worker" && !jobTitleToSet) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Worker profiles require a job title.",
+		);
+	}
 
 	try {
+		const requester = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			action: "update employees",
+		});
+		const employeeRef = admin
+			.firestore()
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(employeeId);
+		const employeeDoc = await employeeRef.get();
+
+		if (!employeeDoc.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Employee profile not found.",
+			);
+		}
+
+		const existingRole = String(employeeDoc.data().role || "")
+			.trim()
+			.toLowerCase();
+		if (roleToSet === "owner" && existingRole !== "owner") {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"The owner role cannot be assigned from employee management.",
+			);
+		}
+		if (
+			requester.role === "manager" &&
+			(existingRole !== "worker" || roleToSet !== "worker")
+		) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Managers can only update worker profiles.",
+			);
+		}
+
 		const updateData = {
 			firstName,
 			lastName,
-			role,
-			jobTitle: jobTitle || null,
+			role: roleToSet,
+			jobTitle: roleToSet === "worker" ? jobTitleToSet : null,
 			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			// Clean up legacy fields
+			pin: admin.firestore.FieldValue.delete(),
 			isManager: admin.firestore.FieldValue.delete(),
 			position: admin.firestore.FieldValue.delete(),
 		};
@@ -1593,27 +1748,26 @@ exports.updateEmployee = functions.https.onCall(async (data, context) => {
 		// 🚨 BCRYPT HASHING LOGIC
 		if (pin && pin.trim() !== "") {
 			const rawPin = String(pin).trim();
-			const saltRounds = 10; // Standard security factor for bcrypt
+			if (!/^\d{4,6}$/.test(rawPin)) {
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"A 4-6 digit POS PIN is required.",
+				);
+			}
 
 			// Generate the secure hash
-			const hashedPin = await bcrypt.hash(rawPin, saltRounds);
+			const hashedPin = await bcrypt.hash(rawPin, 10);
 
-			updateData.pin = rawPin; // Save raw pin if your app still requires it
 			updateData.pinHash = hashedPin; // Save the bcrypt hash for the login screen
 		}
 
 		// Execute Firestore Update
-		await admin
-			.firestore()
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees")
-			.doc(employeeId)
-			.update(updateData);
+		await employeeRef.update(updateData);
 
 		return { success: true };
 	} catch (error) {
 		console.error("Update Error:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError("internal", "Failed to update.");
 	}
 });
@@ -1633,7 +1787,7 @@ exports.deleteEmployee = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const { restaurantId, employeeId } = data;
+	const { restaurantId, employeeId, staffId } = data;
 	if (!restaurantId || !employeeId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
@@ -1642,11 +1796,43 @@ exports.deleteEmployee = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		const requester = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			action: "delete employees",
+		});
 		const employeeRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
 			.collection("employees")
 			.doc(employeeId);
+		const employeeDoc = await employeeRef.get();
+
+		if (!employeeDoc.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Employee profile not found.",
+			);
+		}
+
+		const employeeRole = String(employeeDoc.data().role || "")
+			.trim()
+			.toLowerCase();
+		if (employeeRole === "owner") {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"The owner profile cannot be deleted from the POS.",
+			);
+		}
+		if (requester.role === "manager" && employeeRole !== "worker") {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Managers can only delete worker profiles.",
+			);
+		}
 
 		// 2. Safely Attempt to Delete Firebase Auth User
 		try {
@@ -1676,6 +1862,7 @@ exports.deleteEmployee = functions.https.onCall(async (data, context) => {
 		return { success: true };
 	} catch (error) {
 		console.error("Error deleting employee:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not delete employee.",
@@ -1762,7 +1949,15 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const { restaurantId, tableId, checkInId, customerId, partyId } = data;
+	const {
+		restaurantId,
+		tableId,
+		checkInId,
+		customerId,
+		partyId,
+		staffId,
+		staffName,
+	} = data;
 
 	if (!restaurantId || !tableId) {
 		throw new functions.https.HttpsError(
@@ -1778,6 +1973,16 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		.doc(tableId);
 
 	try {
+		const staffMember = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			allowedJobTitles: ["support"],
+			action: "force clear tables",
+		});
+
 		// --- READ PHASE (Outside Transaction) ---
 		let basketItemsSnapshot = { empty: true };
 		let activeOrdersSnapshot = { empty: true };
@@ -1886,13 +2091,32 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 					status: "voided",
 					clearedAt: admin.firestore.FieldValue.serverTimestamp(),
 					clearedReason: "manager_force_clear",
+					clearedBy: {
+						userId: context.auth.uid,
+						staffId: staffMember.id || staffId || null,
+						name: staffName || staffMember.name || null,
+						role: staffMember.role || null,
+						jobTitle: staffMember.jobTitle || null,
+					},
 				});
 
-				// Delete the shared basket to save space
+				// Preserve the shared basket for audit instead of deleting it.
 				const sharedBasketRef = db
 					.collection("shared_baskets")
 					.doc(targetPartyId);
-				transaction.delete(sharedBasketRef);
+				transaction.set(
+					sharedBasketRef,
+					{
+						status: "archived_voided",
+						archivedForAudit: true,
+						archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+						voidedAt: admin.firestore.FieldValue.serverTimestamp(),
+						voidedReason: "manager_force_clear",
+						closeoutId: targetPartyId,
+						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
 			}
 		});
 
@@ -1907,6 +2131,508 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"An unexpected error occurred while clearing the table.",
+		);
+	}
+});
+
+exports.assignPartyServer = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be staff and authenticated.",
+		);
+	}
+
+	const { partyId, serverId, staffId, staffName } = data || {};
+
+	if (!partyId || !serverId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID and server ID are required.",
+		);
+	}
+
+	try {
+		const partyRef = db.collection("parties").doc(partyId);
+		const partyDoc = await partyRef.get();
+
+		if (!partyDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+
+		const partyData = partyDoc.data() || {};
+		const restaurantId = partyData.restaurantId;
+		const assignedBy = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			allowedJobTitles: ["host", "server"],
+			action: "assign servers",
+		});
+
+		if (!["pending", "AWAITING_TABLE", "active", "checkedOut"].includes(partyData.status)) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Server can only be assigned to an open table.",
+			);
+		}
+
+		const serverRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("employees")
+			.doc(serverId);
+		const serverDoc = await serverRef.get();
+
+		if (!serverDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Server not found.");
+		}
+
+		const serverData = serverDoc.data() || {};
+		const serverRole = String(serverData.role || "").toLowerCase();
+		const serverJobTitle = String(serverData.jobTitle || "").toLowerCase();
+
+		if (serverData.isActive === false) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Cannot assign an inactive server.",
+			);
+		}
+
+		if (
+			serverRole !== "owner" &&
+			serverRole !== "manager" &&
+			!(serverRole === "worker" && serverJobTitle === "server")
+		) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Selected employee is not eligible to serve tables.",
+			);
+		}
+
+		const serverName =
+			serverData.name ||
+			`${serverData.firstName || ""} ${serverData.lastName || ""}`.trim() ||
+			"Server";
+		const assignment = {
+			id: serverDoc.id,
+			name: serverName,
+		};
+		const assignedByAudit = {
+			userId: context.auth.uid,
+			staffId: assignedBy.id || staffId || null,
+			name: staffName || assignedBy.name || null,
+			role: assignedBy.role || null,
+			jobTitle: assignedBy.jobTitle || null,
+		};
+
+		await partyRef.set(
+			{
+				server: assignment,
+				serverAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
+				serverAssignedBy: assignedByAudit,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		return { success: true, server: assignment };
+	} catch (error) {
+		console.error(`Error assigning server for party ${partyId}:`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"An unexpected error occurred while assigning the server.",
+		);
+	}
+});
+
+exports.acknowledgePartyServiceRequest = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated.",
+			);
+		}
+
+		const { partyId, staffId, staffName } = data || {};
+
+		if (!partyId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID is required.",
+			);
+		}
+
+		try {
+			const partyRef = db.collection("parties").doc(partyId);
+			const partyDoc = await partyRef.get();
+
+			if (!partyDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Party not found.");
+			}
+
+			const partyData = partyDoc.data() || {};
+			const acknowledgedBy = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: partyData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["host", "server", "support"],
+				action: "acknowledge service requests",
+			});
+
+			await partyRef.set(
+				{
+					serviceRequested: false,
+					serviceAcknowledgedAt:
+						admin.firestore.FieldValue.serverTimestamp(),
+					serviceAcknowledgedBy: {
+						userId: context.auth.uid,
+						staffId: acknowledgedBy.id || staffId || null,
+						name: staffName || acknowledgedBy.name || null,
+						role: acknowledgedBy.role || null,
+						jobTitle: acknowledgedBy.jobTitle || null,
+					},
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			return { success: true };
+		} catch (error) {
+			console.error(
+				`Error acknowledging service request for party ${partyId}:`,
+				error,
+			);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"An unexpected error occurred while acknowledging the request.",
+			);
+		}
+	},
+);
+
+exports.updateKitchenOrderStationStatus = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated.",
+			);
+		}
+
+		const { orderId, station, status, staffId, staffName } = data || {};
+		const validStations = ["kitchen", "bar"];
+		const validStatuses = ["new", "preparing", "ready"];
+
+		if (
+			!orderId ||
+			!validStations.includes(station) ||
+			!validStatuses.includes(status)
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID, station, and valid status are required.",
+			);
+		}
+
+		try {
+			const orderRef = db.collection("kitchen_orders").doc(orderId);
+			const orderDoc = await orderRef.get();
+
+			if (!orderDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Ticket not found.");
+			}
+
+			const orderData = orderDoc.data() || {};
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: orderData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: station === "bar" ? ["bartender"] : ["chef"],
+				action: `update ${station} tickets`,
+			});
+
+			const updatePayload = {
+				[`stationStatuses.${station}`]: status,
+				[`stationUpdatedAt.${station}`]:
+					admin.firestore.FieldValue.serverTimestamp(),
+				[`stationUpdatedBy.${station}`]: {
+					userId: context.auth.uid,
+					staffId: staffMember.id || staffId || null,
+					name: staffName || staffMember.name || null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+				},
+			};
+
+			await db.runTransaction(async (transaction) => {
+				transaction.update(orderRef, updatePayload);
+
+				if (orderData.partyId && orderData.fulfillmentType !== "hotel_pickup") {
+					const basketRef = db
+						.collection("shared_baskets")
+						.doc(orderData.partyId);
+					transaction.set(
+						basketRef,
+						{
+							[`ticketStatuses.${orderId}.${station}`]: status,
+							lastKitchenUpdate: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				}
+			});
+
+			return { success: true };
+		} catch (error) {
+			console.error(`Error updating station status for ticket ${orderId}:`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"An unexpected error occurred while updating the ticket.",
+			);
+		}
+	},
+);
+
+exports.completePickupOrderHandoff = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated.",
+			);
+		}
+
+		const { orderId, staffId, staffName } = data || {};
+
+		if (!orderId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID is required.",
+			);
+		}
+
+		try {
+			const kitchenOrderRef = db.collection("kitchen_orders").doc(orderId);
+			const kitchenOrderDoc = await kitchenOrderRef.get();
+
+			if (!kitchenOrderDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Pickup ticket not found.");
+			}
+
+			const kitchenOrderData = kitchenOrderDoc.data() || {};
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: kitchenOrderData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["host", "support"],
+				action: "complete pickup handoff",
+			});
+
+			if (kitchenOrderData.fulfillmentType !== "hotel_pickup") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Only pickup orders can be handed off from this queue.",
+				);
+			}
+
+			const handedOffBy = {
+				userId: context.auth.uid,
+				staffId: staffMember.id || staffId || null,
+				name: staffName || staffMember.name || null,
+				role: staffMember.role || null,
+				jobTitle: staffMember.jobTitle || null,
+			};
+
+			await db.runTransaction(async (transaction) => {
+				transaction.set(
+					kitchenOrderRef,
+					{
+						overallStatus: "completed",
+						status: "completed",
+						completedAt: admin.firestore.FieldValue.serverTimestamp(),
+						handedOffAt: admin.firestore.FieldValue.serverTimestamp(),
+						handedOffBy,
+					},
+					{ merge: true },
+				);
+
+				const orderRef = db.collection("orders").doc(orderId);
+				transaction.set(
+					orderRef,
+					{
+						orderStatus: "completed",
+						completedAt: admin.firestore.FieldValue.serverTimestamp(),
+						handedOffAt: admin.firestore.FieldValue.serverTimestamp(),
+						handedOffBy,
+					},
+					{ merge: true },
+				);
+
+				if (kitchenOrderData.partyId) {
+					const partyRef = db.collection("parties").doc(kitchenOrderData.partyId);
+					transaction.set(
+						partyRef,
+						{
+							status: "completed",
+							closedAt: admin.firestore.FieldValue.serverTimestamp(),
+							closedByUserId: context.auth.uid,
+							closedBy: handedOffBy,
+						},
+						{ merge: true },
+					);
+				}
+			});
+
+			return { success: true };
+		} catch (error) {
+			console.error(`Error completing pickup handoff for ${orderId}:`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"An unexpected error occurred while completing pickup handoff.",
+			);
+		}
+	},
+);
+
+/**
+ * Marks a paid/checked-out party table as cleaned and ready for the next guest.
+ * This is the normal end-of-shift/table-turn cleanup path after closeout.
+ */
+exports.markPartyTableClean = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be staff and authenticated.",
+		);
+	}
+
+	const { partyId, staffId, staffName } = data || {};
+
+	if (!partyId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID is required.",
+		);
+	}
+
+	try {
+		const partyRef = db.collection("parties").doc(partyId);
+		const partyDoc = await partyRef.get();
+
+		if (!partyDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+
+		const partyData = partyDoc.data() || {};
+		const restaurantId = partyData.restaurantId;
+
+		const staffMember = await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			allowedJobTitles: ["server", "support"],
+			action: "mark tables clean",
+		});
+
+		if (partyData.status !== "checkedOut") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Only checked-out tables can be marked clean.",
+			);
+		}
+
+		const tableId =
+			partyData.table && partyData.table.id
+				? partyData.table.id
+				: partyData.tableId || null;
+		const customerId =
+			partyData.hostUserId ||
+			partyData.currentCustomerId ||
+			partyData.customerId ||
+			null;
+		const cleanedBy = {
+			userId: context.auth.uid,
+			staffId: staffMember.id || staffId || null,
+			name: staffName || staffMember.name || null,
+			role: staffMember.role || null,
+			jobTitle: staffMember.jobTitle || null,
+		};
+
+		await db.runTransaction(async (transaction) => {
+			transaction.set(
+				partyRef,
+				{
+					status: "completed",
+					clearedAt: admin.firestore.FieldValue.serverTimestamp(),
+					cleanedAt: admin.firestore.FieldValue.serverTimestamp(),
+					cleanedBy,
+				},
+				{ merge: true },
+			);
+
+			if (tableId) {
+				const tableRef = db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("tables")
+					.doc(tableId);
+				transaction.set(
+					tableRef,
+					{
+						status: "available",
+						currentCheckInId: null,
+						currentCustomerId: null,
+						seatedAt: null,
+						cleanedAt: admin.firestore.FieldValue.serverTimestamp(),
+						cleanedBy,
+					},
+					{ merge: true },
+				);
+			}
+
+			if (
+				customerId &&
+				!["walk_in_guest", "walk_in", "guest"].includes(
+					String(customerId).toLowerCase(),
+				)
+			) {
+				const customerRef = db.collection("customers").doc(customerId);
+				transaction.set(
+					customerRef,
+					{
+						activePartyId: null,
+						activeRestaurantId: null,
+						activeCheckIn: null,
+						partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
+					},
+					{ merge: true },
+				);
+			}
+		});
+
+		return { success: true };
+	} catch (error) {
+		console.error(`Error marking party ${partyId} clean:`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"An unexpected error occurred while marking the table clean.",
 		);
 	}
 });
@@ -1998,7 +2724,18 @@ exports.closePartyTable = functions
 			);
 		}
 
-		const { partyId, paymentMethod = "manual", receiptEmail } = data;
+		const {
+			partyId,
+			paymentMethod = "manual",
+			tenderType = paymentMethod,
+			receiptEmail,
+			externalReference = "",
+			cashReceived = 0,
+			tipAmount = 0,
+			closeoutNotes = "",
+			closedByName = "",
+			closedByStaffId = "",
+		} = data;
 
 		if (!partyId) {
 			throw new functions.https.HttpsError(
@@ -2008,6 +2745,28 @@ exports.closePartyTable = functions
 		}
 
 		try {
+			const permissionPartyDoc = await db.collection("parties").doc(partyId).get();
+			if (!permissionPartyDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Party document not found.",
+				);
+			}
+
+			const permissionPartyData = permissionPartyDoc.data() || {};
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: permissionPartyData.restaurantId,
+				employeeId: closedByStaffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server"],
+				action: "close tables",
+			});
+			const generatedReadableOrderId = await generateOrderId(
+				permissionPartyData.restaurantId,
+			);
+
 			return await db.runTransaction(async (transaction) => {
 				// ==========================================
 				// 1. READS
@@ -2040,6 +2799,14 @@ exports.closePartyTable = functions
 					.collection("kitchen_orders")
 					.where("partyId", "==", partyId);
 				const kitchenOrdersSnap = await transaction.get(kitchenOrdersQuery);
+				const orderRef = db.collection("orders").doc(partyId);
+				const existingOrderDoc = await transaction.get(orderRef);
+				const readableOrderId =
+					existingOrderDoc.exists &&
+					existingOrderDoc.data() &&
+					existingOrderDoc.data().readableOrderId
+						? existingOrderDoc.data().readableOrderId
+						: generatedReadableOrderId;
 
 				// ==========================================
 				// 2. DATA PREP & CALCULATIONS
@@ -2049,6 +2816,15 @@ exports.closePartyTable = functions
 					partyData.table && partyData.table.id ? partyData.table.id : null;
 				const restaurantName =
 					partyData.restaurantName || partyData.name || "Scerv Partner";
+				let restaurantData = {};
+
+				if (restaurantId) {
+					const restaurantRef = db.collection("restaurants").doc(restaurantId);
+					const restaurantDoc = await transaction.get(restaurantRef);
+					restaurantData = restaurantDoc.exists
+						? restaurantDoc.data() || {}
+						: {};
+				}
 
 				const allItems = Array.isArray(basketData.items)
 					? basketData.items
@@ -2060,6 +2836,9 @@ exports.closePartyTable = functions
 				let subtotalCents = 0;
 				let originalSubtotalCents = 0;
 				let taxAmountCents = 0;
+				let restaurantTaxRate = Number(restaurantData.taxRate || 0);
+				if (isNaN(restaurantTaxRate)) restaurantTaxRate = 0;
+				if (restaurantTaxRate > 1) restaurantTaxRate = restaurantTaxRate / 100;
 
 				officiallyOrderedItems.forEach((item) => {
 					const activePrice =
@@ -2077,16 +2856,9 @@ exports.closePartyTable = functions
 					subtotalCents += itemPriceCents * quantity;
 					originalSubtotalCents += originalPriceCents * quantity;
 
-					const rawTaxRate =
-						item.itbmsRate !== undefined && item.itbmsRate !== null
-							? Number(item.itbmsRate)
-							: item.taxRate !== undefined && item.taxRate !== null
-								? Number(item.taxRate)
-								: 0;
-
-					if (!isNaN(rawTaxRate) && rawTaxRate > 0) {
+					if (!isNaN(restaurantTaxRate) && restaurantTaxRate > 0) {
 						taxAmountCents += Math.round(
-							itemPriceCents * quantity * (rawTaxRate / 100),
+							itemPriceCents * quantity * restaurantTaxRate,
 						);
 					}
 				});
@@ -2096,19 +2868,48 @@ exports.closePartyTable = functions
 					originalSubtotalCents - subtotalCents,
 				);
 
-				// Manual closeout business rule:
+				// Manual/external closeout business rule:
 				// - No Scerv/platform fee
-				// - No processor fee
-				// - No gratuity unless you later add staff-entered gratuity
-				const gratuityAmountCents = 0;
+				// - No processor fee because payment did not run through Scerv Stripe
+				// - Staff-entered tips pass through to the restaurant
+				const gratuityAmountCents = Math.max(0, Math.round(Number(tipAmount) || 0));
 				const platformFeeCents = 0;
 				const processorFeeCents = 0;
+				const cashReceivedCents = Math.max(
+					0,
+					Math.round(Number(cashReceived) || 0),
+				);
 
 				const totalPriceCents =
 					subtotalCents +
 					taxAmountCents +
 					gratuityAmountCents +
 					platformFeeCents;
+				const restaurantGrossAmountCents = totalPriceCents;
+				const restaurantTransferAmountCents = totalPriceCents;
+				const manualPaymentProcessor =
+					paymentMethod === "cash" ? "cash" : "external";
+				const changeDueCents =
+					paymentMethod === "cash"
+						? Math.max(0, cashReceivedCents - totalPriceCents)
+						: 0;
+
+				if (paymentMethod === "cash" && cashReceivedCents < totalPriceCents) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"Cash received is less than the table total.",
+					);
+				}
+
+				if (
+					paymentMethod === "external_terminal" &&
+					!String(externalReference || "").trim()
+				) {
+					throw new functions.https.HttpsError(
+						"invalid-argument",
+						"Terminal authorization or reference code is required.",
+					);
+				}
 
 				let turnaroundTimeMinutes = 0;
 				try {
@@ -2135,9 +2936,51 @@ exports.closePartyTable = functions
 					gratuityAmountCents,
 					platformFeeCents,
 					processorFeeCents,
+					cashReceivedCents,
+					changeDueCents,
 					totalPriceCents,
 					itemCount: officiallyOrderedItems.length,
 				});
+
+				const closedBy = {
+					userId: context.auth.uid,
+					staffId: staffMember.id || closedByStaffId || null,
+					name:
+						closedByName ||
+						staffMember.name ||
+						context.auth.token.name ||
+						null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+					email: context.auth.token.email || null,
+				};
+
+				const closeout = {
+					source: "restaurant_pos",
+					orderEntryMode: "staff",
+					feePolicy: "manual_tender_scerv_fee_waived",
+					paymentMethod: paymentMethod,
+					tenderType: tenderType || paymentMethod,
+					externalReference: String(externalReference || "").trim() || null,
+					receiptEmail: receiptEmail || null,
+					closeoutNotes: String(closeoutNotes || "").trim() || null,
+					subtotal: subtotalCents,
+					originalSubtotal: originalSubtotalCents,
+					discountTotal: discountTotalCents,
+					taxAmount: taxAmountCents,
+					taxRate: restaurantTaxRate,
+					taxSource: "restaurant.taxRate",
+					gratuityAmount: gratuityAmountCents,
+					platformFee: platformFeeCents,
+					processorFee: processorFeeCents,
+					restaurantGrossAmount: restaurantGrossAmountCents,
+					restaurantTransferAmount: restaurantTransferAmountCents,
+					totalPrice: totalPriceCents,
+					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
+					changeDue: changeDueCents,
+					closedBy: closedBy,
+					closedAt: admin.firestore.FieldValue.serverTimestamp(),
+				};
 
 				// ==========================================
 				// 3. WRITES
@@ -2146,8 +2989,12 @@ exports.closePartyTable = functions
 					status: "checkedOut",
 					paymentStatus: "paid",
 					paymentMethod: paymentMethod,
+					customerStatus: "closed",
+					serviceRequested: false,
+					closeout: closeout,
 					closedAt: admin.firestore.FieldValue.serverTimestamp(),
 					closedByUserId: context.auth.uid,
+					closedByName: closedBy.name,
 				});
 
 				const usersToFree = [];
@@ -2169,6 +3016,21 @@ exports.closePartyTable = functions
 					});
 				}
 
+				[
+					...(Array.isArray(partyData.guestUserIds)
+						? partyData.guestUserIds
+						: []),
+					...(Array.isArray(partyData.memberUids) ? partyData.memberUids : []),
+				].forEach((uid) => {
+					if (
+						uid &&
+						uid !== "walk_in_guest" &&
+						!usersToFree.includes(uid)
+					) {
+						usersToFree.push(uid);
+					}
+				});
+
 				usersToFree.forEach((uid) => {
 					const customerRef = db.collection("customers").doc(uid);
 
@@ -2178,6 +3040,7 @@ exports.closePartyTable = functions
 							activeCheckIn: null,
 							activePartyId: null,
 							activeRestaurantId: null,
+							partyIds: admin.firestore.FieldValue.arrayRemove(partyId),
 						},
 						{ merge: true },
 					);
@@ -2192,23 +3055,57 @@ exports.closePartyTable = functions
 
 				if (partyData.checkInId) {
 					const checkInRef = db.collection("checkIns").doc(partyData.checkInId);
-					transaction.delete(checkInRef);
+					transaction.set(
+						checkInRef,
+						{
+							status: "COMPLETED",
+							paymentStatus: "paid",
+							completedAt: admin.firestore.FieldValue.serverTimestamp(),
+							completedBy: "restaurant_pos_closeout",
+							archivedForAudit: true,
+							closeoutId: partyId,
+						},
+						{ merge: true },
+					);
 				}
 
 				if (basketDoc.exists) {
-					transaction.delete(basketRef);
+					transaction.set(
+						basketRef,
+						{
+							status: "archived_paid",
+							archivedForAudit: true,
+							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+							archivedOrderId: partyId,
+							closeoutId: partyId,
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
 				}
 
 				if (!kitchenOrdersSnap.empty) {
 					kitchenOrdersSnap.forEach((docSnap) => {
-						transaction.delete(docSnap.ref);
+						transaction.set(
+							docSnap.ref,
+							{
+								overallStatus: "completed",
+								status: "completed",
+								closedAt: admin.firestore.FieldValue.serverTimestamp(),
+								closedBy: "restaurant_pos_closeout",
+								archivedForAudit: true,
+								archivedOrderId: partyId,
+								closeoutId: partyId,
+							},
+							{ merge: true },
+						);
 					});
 				}
 
-				const orderRef = db.collection("orders").doc(partyId);
 				transaction.set(orderRef, {
 					id: partyId,
 					partyId: partyId,
+					readableOrderId,
 					restaurantId: restaurantId,
 					restaurantName: restaurantName,
 					table: partyData.table || null,
@@ -2218,10 +3115,20 @@ exports.closePartyTable = functions
 					originalSubtotal: originalSubtotalCents,
 					discountTotal: discountTotalCents,
 					taxAmount: taxAmountCents,
+					taxRate: restaurantTaxRate,
+					taxSource: "restaurant.taxRate",
 					gratuityAmount: gratuityAmountCents,
 					platformFee: platformFeeCents,
 					processorFee: processorFeeCents,
+					restaurantGrossAmount: restaurantGrossAmountCents,
+					restaurantTransferAmount: restaurantTransferAmountCents,
+					scervGrossFee: platformFeeCents,
+					scervNet: platformFeeCents,
+					stripeFeeResponsibility: "not_applicable",
+					restaurantTransferStatus: "manual_tender",
 					totalPrice: totalPriceCents,
+					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
+					changeDue: changeDueCents,
 
 					openedAt:
 						partyData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
@@ -2229,8 +3136,35 @@ exports.closePartyTable = functions
 					turnaroundTimeMinutes: turnaroundTimeMinutes,
 
 					items: officiallyOrderedItems,
-					paymentProcessor: "external",
+					isManualRestaurantOrder: true,
+					orderEntryMode: "staff",
+					feePolicy: "manual_tender_scerv_fee_waived",
+					manualFeeEligible: false,
+					manualFeeReason: "cash_or_external_terminal_not_processed_by_scerv",
+					paymentProcessor: manualPaymentProcessor,
+					paymentProcessorId: externalReference
+						? String(externalReference || "").trim()
+						: null,
 					paymentMethod: paymentMethod,
+					tenderType: tenderType || paymentMethod,
+					externalReference: String(externalReference || "").trim() || null,
+					receiptEmail: receiptEmail || null,
+					closeoutNotes: String(closeoutNotes || "").trim() || null,
+					closeoutSource: "restaurant_pos",
+					closedByUserId: context.auth.uid,
+					closedByName: closedBy.name,
+					closedBy: closedBy,
+					closeout: closeout,
+					paymentTrace: {
+						processor: manualPaymentProcessor,
+						paymentMethod,
+						tenderType: tenderType || paymentMethod,
+						externalReference: String(externalReference || "").trim() || null,
+						source: "restaurant_pos_closeout",
+						feePolicy: "manual_tender_scerv_fee_waived",
+						taxSource: "restaurant.taxRate",
+						recordedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
 					paymentStatus: "paid",
 					orderStatus: "confirmed",
 					type: "party",
@@ -2321,6 +3255,9 @@ exports.closePartyTable = functions
 									<p style="text-align: center; color: #666; margin-top: 0; font-size: 14px;">
 										Table: ${(partyData.table && partyData.table.name) || "Table"}
 									</p>
+									<p style="text-align: center; color: #666; margin-top: 0; font-size: 13px;">
+										Order: ${readableOrderId}
+									</p>
 
 									<table style="width: 100%; border-collapse: collapse; margin-top: 25px; font-size: 15px; color: #333;">
 										${itemsHtml}
@@ -2332,12 +3269,38 @@ exports.closePartyTable = functions
 											<span>$${(subtotalCents / 100).toFixed(2)}</span>
 										</div>
 										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
-											<span>Tax</span>
+											<span>Tax (${(restaurantTaxRate * 100).toFixed(2)}%)</span>
 											<span>$${(taxAmountCents / 100).toFixed(2)}</span>
 										</div>
+										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
+											<span>Scerv Fee</span>
+											<span>$0.00 waived</span>
+										</div>
+										${
+											gratuityAmountCents > 0
+												? `<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
+											<span>Tip</span>
+											<span>$${(gratuityAmountCents / 100).toFixed(2)}</span>
+										</div>`
+												: ""
+										}
 										<h3 style="text-align: right; margin-top: 12px; color: #1a1a1a;">
 											Total: $${(totalPriceCents / 100).toFixed(2)}
 										</h3>
+									</div>
+									<div style="margin-top: 18px; padding: 12px; border-radius: 8px; background: #f7f7f7; font-size: 13px; color: #555;">
+										<div><strong>Tender:</strong> ${
+											paymentMethod === "cash"
+												? "Cash"
+												: "External terminal"
+										}</div>
+										${
+											paymentMethod === "cash"
+												? `<div><strong>Cash received:</strong> $${(cashReceivedCents / 100).toFixed(2)}</div>
+										<div><strong>Change due:</strong> $${(changeDueCents / 100).toFixed(2)}</div>`
+												: `<div><strong>Reference:</strong> ${String(externalReference || "").trim()}</div>`
+										}
+										<div><strong>Tax source:</strong> restaurant.taxRate</div>
 									</div>
 
 									<div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eaeaea;">
@@ -2361,8 +3324,18 @@ exports.closePartyTable = functions
 
 				return {
 					success: true,
+					orderId: partyId,
+					readableOrderId,
 					subtotal: subtotalCents,
 					taxAmount: taxAmountCents,
+					taxRate: restaurantTaxRate,
+					taxSource: "restaurant.taxRate",
+					gratuityAmount: gratuityAmountCents,
+					platformFee: platformFeeCents,
+					feePolicy: "manual_tender_scerv_fee_waived",
+					restaurantTransferAmount: restaurantTransferAmountCents,
+					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
+					changeDue: changeDueCents,
 					totalPrice: totalPriceCents,
 				};
 			});

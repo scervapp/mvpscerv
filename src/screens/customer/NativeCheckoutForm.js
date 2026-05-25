@@ -7,6 +7,7 @@ import {
 	TouchableOpacity,
 	ActivityIndicator,
 } from "react-native";
+import formatCurrency from "../../utils/currencyFormatter";
 
 const NativeCheckoutForm = ({ onPayPress, isProcessing, totalAmount }) => {
 	const [cardName, setCardName] = useState("");
@@ -112,7 +113,7 @@ const NativeCheckoutForm = ({ onPayPress, isProcessing, totalAmount }) => {
 					<ActivityIndicator color="#fff" />
 				) : (
 					<Text style={styles.payButtonText}>
-						Pay ${(totalAmount / 100).toFixed(2)}
+						Pay {formatCurrency(totalAmount)}
 					</Text>
 				)}
 			</TouchableOpacity>

@@ -16,6 +16,7 @@ import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
+import formatCurrency from "../../utils/currencyFormatter";
 
 // --- Reusable Helper Components ---
 const KPICard = ({ title, value, iconName, isDeduction = false }) => (
@@ -52,6 +53,39 @@ const DetailRow = ({ label, value }) => (
 	</View>
 );
 
+const PulseMetric = ({ label, value, iconName, highlight = false }) => (
+	<View style={[styles.pulseMetric, highlight && styles.pulseMetricHighlight]}>
+		<Ionicons
+			name={iconName}
+			size={18}
+			color={highlight ? colors.surfaceWhite : colors.primary}
+		/>
+		<Text style={[styles.pulseValue, highlight && styles.pulseTextHighlight]}>
+			{value}
+		</Text>
+		<Text style={[styles.pulseLabel, highlight && styles.pulseTextHighlight]}>
+			{label}
+		</Text>
+	</View>
+);
+
+const normalizeCategorySalesCents = (amount, reportData) => {
+	const value = Number(amount);
+	if (!Number.isFinite(value)) return 0;
+
+	const grossSales = Number(reportData?.grossSales || 0);
+	const digitalSales = Number(reportData?.digitalSales || 0);
+	const manualSales = Number(reportData?.manualSales || 0);
+	const benchmark = grossSales || digitalSales + manualSales;
+
+	// Older report payloads can return category revenue inflated by 100x.
+	if (benchmark > 0 && value > benchmark * 10) {
+		return Math.round(value / 100);
+	}
+
+	return value;
+};
+
 const PeriodSelector = ({ selectedPeriod, onSelectPeriod }) => {
 	const { t } = useTranslation();
 
@@ -87,11 +121,6 @@ const SalesReportScreen = ({ navigation }) => {
 	const [isFetching, setIsFetching] = useState(true);
 	const [selectedPeriod, setSelectedPeriod] = useState("Today");
 	const insets = useSafeAreaInsets();
-
-	const formatCurrency = (cents) => {
-		if (typeof cents !== "number" || isNaN(cents)) return "$0.00";
-		return `$${(cents / 100).toFixed(2)}`;
-	};
 
 	useLayoutEffect(() => {
 		navigation.setOptions({
@@ -157,6 +186,56 @@ const SalesReportScreen = ({ navigation }) => {
 
 		return (
 			<ScrollView contentContainerStyle={styles.scrollContent}>
+				<DetailedReportCard
+					title={t("owner_pulse", "Owner Pulse")}
+					iconName="pulse-outline"
+					action={
+						<Text style={styles.lastUpdatedText}>
+							{reportData.lastUpdatedAt
+								? new Date(reportData.lastUpdatedAt).toLocaleTimeString([], {
+										hour: "2-digit",
+										minute: "2-digit",
+									})
+								: ""}
+						</Text>
+					}
+				>
+					<View style={styles.pulseGrid}>
+						<PulseMetric
+							label={t("active_tables", "Active Tables")}
+							value={reportData.ownerPulse?.activeTables || 0}
+							iconName="restaurant-outline"
+						/>
+						<PulseMetric
+							label={t("open_tickets", "Open Tickets")}
+							value={reportData.ownerPulse?.openTickets || 0}
+							iconName="receipt-outline"
+						/>
+						<PulseMetric
+							label={t("service_requests", "Service Requests")}
+							value={reportData.ownerPulse?.serviceRequests || 0}
+							iconName="notifications-outline"
+							highlight={Number(reportData.ownerPulse?.serviceRequests || 0) > 0}
+						/>
+						<PulseMetric
+							label={t("checks_requested", "Checks Requested")}
+							value={reportData.ownerPulse?.checksRequested || 0}
+							iconName="cash-outline"
+							highlight={Number(reportData.ownerPulse?.checksRequested || 0) > 0}
+						/>
+						<PulseMetric
+							label={t("pickup_orders", "Pickup Orders")}
+							value={reportData.ownerPulse?.pickupOrders || 0}
+							iconName="bag-handle-outline"
+						/>
+						<PulseMetric
+							label={t("average_order", "Avg Order")}
+							value={formatCurrency(reportData.averageOrderValue)}
+							iconName="trending-up-outline"
+						/>
+					</View>
+				</DetailedReportCard>
+
 				<View style={styles.kpiContainer}>
 					<KPICard
 						title={t("gross_sales", "Gross Sales")}
@@ -255,11 +334,21 @@ const SalesReportScreen = ({ navigation }) => {
 					<View style={styles.divider} />
 					<DetailRow
 						label={t("food_sales", "Food Sales")}
-						value={formatCurrency(reportData.salesByCategory?.Food || 0)}
+						value={formatCurrency(
+							normalizeCategorySalesCents(
+								reportData.salesByCategory?.Food,
+								reportData,
+							),
+						)}
 					/>
 					<DetailRow
 						label={t("bar_sales", "Bar / Beverage Sales")}
-						value={formatCurrency(reportData.salesByCategory?.Bar || 0)}
+						value={formatCurrency(
+							normalizeCategorySalesCents(
+								reportData.salesByCategory?.Bar,
+								reportData,
+							),
+						)}
 					/>
 				</DetailedReportCard>
 			</ScrollView>
@@ -321,6 +410,46 @@ const styles = StyleSheet.create({
 	},
 	periodButtonTextActive: { color: colors.primary },
 	scrollContent: { padding: 15, paddingBottom: 30 },
+	lastUpdatedText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		fontWeight: "600",
+	},
+	pulseGrid: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		justifyContent: "space-between",
+		gap: 10,
+	},
+	pulseMetric: {
+		width: "48%",
+		minHeight: 86,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		padding: 12,
+		backgroundColor: colors.backgroundLight,
+		justifyContent: "space-between",
+	},
+	pulseMetricHighlight: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	pulseValue: {
+		fontSize: 22,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginTop: 8,
+	},
+	pulseLabel: {
+		fontSize: 11,
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		fontWeight: "700",
+	},
+	pulseTextHighlight: {
+		color: colors.surfaceWhite,
+	},
 
 	kpiContainer: {
 		flexDirection: "row",

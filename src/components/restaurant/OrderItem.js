@@ -15,6 +15,10 @@ import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons"; // Import Ionicons
+import {
+	formatCurrencyFromDollars,
+	formatMenuPrice,
+} from "../../utils/currencyFormatter";
 
 const OrderItem = ({
 	item,
@@ -99,13 +103,15 @@ const OrderItem = ({
 					<Text style={styles.itemPrice}>
 						{item.discount ? (
 							<>
-								<Text style={styles.originalPrice}>${item.dish.price}</Text>
+								<Text style={styles.originalPrice}>
+									{formatMenuPrice(item.dish.price)}
+								</Text>
 								<Text style={styles.discountedPrice}>
-									${item.discountedPrice}
+									{formatCurrencyFromDollars(item.discountedPrice)}
 								</Text>
 							</>
 						) : (
-							`$${item.dish.price}`
+							formatMenuPrice(item.dish.price)
 						)}
 					</Text>
 					{/* Order Time */}

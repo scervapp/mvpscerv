@@ -17,11 +17,12 @@ import {
 	Modal,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 
 import { Ionicons } from "@expo/vector-icons";
 import { Button, Divider, Switch, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
-import { clearTable, fetchTables } from "../../utils/firebaseUtils";
+import { fetchTables } from "../../utils/firebaseUtils";
 import TableItem from "../../components/restaurant/TableItem";
 
 import { db, functions } from "../../config/firebase";
@@ -177,6 +178,7 @@ const getStatusColor = (status) => {
 const TableManagementScreen = () => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const [tables, setTables] = useState([]);
 	const [activeTableIds, setActiveTableIds] = useState(new Set());
 	const [isLoading, setIsLoading] = useState(true);
@@ -190,6 +192,10 @@ const TableManagementScreen = () => {
 	const updateTableFunction = httpsCallable(functions, "updateTable");
 	const deleteTableFunction = httpsCallable(functions, "deleteTable");
 	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
+	const markPartyTableCleanFunction = httpsCallable(
+		functions,
+		"markPartyTableClean",
+	);
 	const [activePartyMap, setActivePartyMap] = useState({});
 
 	useEffect(() => {
@@ -354,6 +360,12 @@ const TableManagementScreen = () => {
 				partyId: targetPartyId,
 				checkInId: tableToClear.currentCheckInId || "legacy_skip",
 				customerId: tableToClear.currentCustomerId || "walk_in",
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
 			});
 
 			Alert.alert(
@@ -399,7 +411,31 @@ const TableManagementScreen = () => {
 		if (!selectedTable) return;
 		setIsActionLoading(true);
 		try {
-			await clearTable(selectedTable.id, currentUserData.uid);
+			const targetPartyId = activePartyMap[selectedTable.id] || null;
+			const staffName =
+				activeSession?.name ||
+				`${activeSession?.firstName || ""} ${
+					activeSession?.lastName || ""
+				}`.trim();
+
+			if (selectedTable.status === "checkedOut" && targetPartyId) {
+				await markPartyTableCleanFunction({
+					partyId: targetPartyId,
+					staffId: activeSession?.id || null,
+					staffName,
+				});
+			} else {
+				await forceClearTableFunction({
+					restaurantId: currentUserData.uid,
+					tableId: selectedTable.id,
+					partyId: targetPartyId,
+					checkInId: selectedTable.currentCheckInId || "legacy_skip",
+					customerId: selectedTable.currentCustomerId || "walk_in",
+					staffId: activeSession?.id || null,
+					staffName,
+				});
+			}
+
 			Alert.alert(
 				t("success"),
 				`${selectedTable.name} ${t("has_been_cleared_and_is_now_available")}`,

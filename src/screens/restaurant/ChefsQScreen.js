@@ -17,10 +17,15 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
+import { useRestaurantData } from "../../context/restaurant/RestaurantDataContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
+import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
 
 // --- Enterprise Kitchen Ticket ---
 const KitchenTicket = React.memo(
@@ -155,7 +160,7 @@ const KitchenTicket = React.memo(
 												>
 													• {getLocalizedText(modifier.name)}
 													{Number(modifier.price || 0) > 0
-														? ` (+$${Number(modifier.price).toFixed(2)})`
+														? ` (+${formatCurrencyFromDollars(modifier.price)})`
 														: ""}
 												</Text>
 											))}
@@ -215,10 +220,16 @@ const KitchenTicket = React.memo(
 const ChefsQScreen = ({ navigation }) => {
 	const { width } = useWindowDimensions();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [viewMode, setViewMode] = useState("kitchen");
 	const [currentTime, setCurrentTime] = useState(Date.now());
+	const { setKitchenQueueFocused } = useRestaurantData();
+	const updateKitchenOrderStationStatusFunction = httpsCallable(
+		functions,
+		"updateKitchenOrderStationStatus",
+	);
 
 	// 🚨 NEW: Fullscreen State
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -229,8 +240,10 @@ const ChefsQScreen = ({ navigation }) => {
 	// 1. Force Landscape Layout
 	useFocusEffect(
 		React.useCallback(() => {
+			setKitchenQueueFocused(true);
 			ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
 			return () => {
+				setKitchenQueueFocused(false);
 				ScreenOrientation.lockAsync(
 					ScreenOrientation.OrientationLock.PORTRAIT_UP,
 				);
@@ -241,7 +254,7 @@ const ChefsQScreen = ({ navigation }) => {
 					.getParent()
 					?.setOptions({ tabBarStyle: { display: "flex" } });
 			};
-		}, [navigation]),
+		}, [navigation, setKitchenQueueFocused]),
 	);
 
 	// 🚨 2. The Fullscreen Controller
@@ -307,25 +320,19 @@ const ChefsQScreen = ({ navigation }) => {
 	const handleUpdateOrderStatus = async (order, newStatus, station) => {
 		try {
 			// ✅ Always update kitchen_orders (source of truth)
-			await db
-				.collection("kitchen_orders")
-				.doc(order.id)
-				.update({
-					[`stationStatuses.${station}`]: newStatus,
-				});
+			await updateKitchenOrderStationStatusFunction({
+				orderId: order.id,
+				station,
+				status: newStatus,
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
+			});
 
 			// ❌ Skip basket updates for pickup
-			const isPickup = order.fulfillmentType === "hotel_pickup";
-
-			if (!isPickup && order.partyId) {
-				await db
-					.collection("shared_baskets")
-					.doc(order.partyId)
-					.update({
-						[`ticketStatuses.${order.id}.${station}`]: newStatus,
-						lastKitchenUpdate: new Date().toISOString(),
-					});
-			}
 		} catch (e) {
 			console.error("❌ Update failed:", e);
 			Alert.alert("Error", "Update failed");
@@ -349,16 +356,22 @@ const ChefsQScreen = ({ navigation }) => {
 		>
 			{/* 🚨 2. The Floating Exit Button (Only shows in Fullscreen) */}
 			{isFullscreen && (
-				<TouchableOpacity
-					style={styles.floatingExitBtn}
-					onPress={() => setIsFullscreen(false)}
-				>
-					<MaterialCommunityIcons
-						name="fullscreen-exit"
-						size={28}
+				<View style={styles.floatingControlStack}>
+					<TouchableOpacity
+						style={styles.floatingExitBtn}
+						onPress={() => setIsFullscreen(false)}
+					>
+						<MaterialCommunityIcons
+							name="fullscreen-exit"
+							size={28}
+							color="#FFF"
+						/>
+					</TouchableOpacity>
+					<RestaurantLockButton
 						color="#FFF"
+						style={styles.floatingLockBtn}
 					/>
-				</TouchableOpacity>
+				</View>
 			)}
 
 			{/* 🚨 3. Hide Summary Bar when in Fullscreen */}
@@ -374,6 +387,7 @@ const ChefsQScreen = ({ navigation }) => {
 					</View>
 
 					<View style={styles.controlsRow}>
+						<RestaurantLockButton style={styles.summaryLockBtn} />
 						<TouchableOpacity
 							onPress={() => setIsFullscreen(true)}
 							style={styles.fullscreenBtn}
@@ -468,6 +482,13 @@ const styles = StyleSheet.create({
 
 	// 🚨 NEW: Styling for the controls row
 	controlsRow: { flexDirection: "row", alignItems: "center" },
+	summaryLockBtn: {
+		marginRight: 8,
+		backgroundColor: "#F8FAFC",
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: "#E2E8F0",
+	},
 	fullscreenBtn: {
 		marginRight: 16,
 		padding: 8,
@@ -573,15 +594,25 @@ const styles = StyleSheet.create({
 		marginTop: 16,
 	},
 	floatingExitBtn: {
-		position: "absolute",
-		top: 20,
-		right: 20,
 		backgroundColor: "rgba(15, 23, 42, 0.75)", // Semi-transparent dark blue
 		padding: 12,
 		borderRadius: 50,
-		zIndex: 999, // Ensures it sits above the tickets
 		borderWidth: 1,
 		borderColor: "rgba(255, 255, 255, 0.2)",
+	},
+	floatingControlStack: {
+		position: "absolute",
+		top: 20,
+		right: 20,
+		zIndex: 999,
+		alignItems: "center",
+	},
+	floatingLockBtn: {
+		backgroundColor: "rgba(15, 23, 42, 0.75)",
+		borderRadius: 50,
+		borderWidth: 1,
+		borderColor: "rgba(255, 255, 255, 0.2)",
+		marginTop: 10,
 	},
 	togoBadge: {
 		flexDirection: "row",

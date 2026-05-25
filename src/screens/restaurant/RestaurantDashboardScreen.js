@@ -8,7 +8,6 @@ import {
 	Alert,
 	ScrollView,
 	TouchableOpacity,
-	Dimensions,
 } from "react-native";
 import { Button, Surface } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -21,8 +20,8 @@ import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionCont
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import i18n from "../../config/i18n";
-
-const { width } = Dimensions.get("window");
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
 
 const DashboardCard = ({
 	label,
@@ -60,17 +59,21 @@ const RestaurantDashboardScreen = () => {
 	const [isActionLoading, setIsActionLoading] = useState(false);
 
 	// 🚨 1. DEFINE ENTERPRISE ROLE GATES
-	const isManagement =
-		activeSession?.role === "owner" || activeSession?.role === "manager";
-	const isServerOrHost =
-		activeSession?.role === "worker" &&
-		["server", "host"].includes(activeSession?.jobTitle);
-	const isBackOfHouse =
-		activeSession?.role === "worker" &&
-		["support", "chef", "bartender"].includes(activeSession?.jobTitle);
+	const permissions = getRestaurantPermissions(activeSession);
 
 	const handleBackOfficePress = () => {
 		navigation.navigate("BackOfficeNavigator", { screen: "BackOffice" });
+	};
+
+	const openRestaurantTab = (tabName, screenName = null) => {
+		const targetNavigation = navigation.getParent() || navigation;
+
+		if (screenName) {
+			targetNavigation.navigate(tabName, { screen: screenName });
+			return;
+		}
+
+		targetNavigation.navigate(tabName);
 	};
 
 	const renderStatusHeader = () => {
@@ -143,7 +146,7 @@ const RestaurantDashboardScreen = () => {
 							{activeSession?.name} • {activeSession?.jobTitle?.toUpperCase()}
 						</Text>
 					</View>
-					<View style={{ alignItems: "flex-end" }}>
+					<View style={styles.headerActions}>
 						<TouchableOpacity
 							onPress={toggleLanguage}
 							style={{ marginBottom: 5 }}
@@ -152,6 +155,7 @@ const RestaurantDashboardScreen = () => {
 								{i18n.language === "en" ? "🇪🇸 Español" : "🇺🇸 English"}
 							</Text>
 						</TouchableOpacity>
+						<RestaurantLockButton style={styles.lockButton} />
 						<View style={styles.dateContainer}>
 							<Text style={styles.dateText}>
 								{moment().format("ddd, MMM Do")}
@@ -161,7 +165,7 @@ const RestaurantDashboardScreen = () => {
 				</View>
 
 				{/* 🚨 2. ONLY MANAGERS SEE IF THE RESTAURANT IS OPEN/CLOSED */}
-				{isManagement && renderStatusHeader()}
+				{permissions.isManagement && renderStatusHeader()}
 
 				<Text style={styles.sectionTitle}>
 					{t("Main Operations", "Main Operations")}
@@ -169,27 +173,55 @@ const RestaurantDashboardScreen = () => {
 
 				<View style={styles.navigationGrid}>
 					{/* 🚨 3. FRONT OF HOUSE: Servers, Hosts, and Managers */}
-					{(isManagement || isServerOrHost) && (
-						<DashboardCard
-							label={t("check_ins", "Check-ins")}
-							iconName="account-clock-outline"
-							color="#6366f1"
-							onPress={() => navigation.navigate("Checkins")}
-						/>
+					{(permissions.canSeatWalkIn || permissions.canViewServiceRequests) && (
+						<>
+							{permissions.canSeatWalkIn && (
+								<DashboardCard
+									label={t("seat_walk_in", "Seat Walk-in")}
+									iconName="table-chair"
+									color="#0ea5e9"
+									onPress={() =>
+										openRestaurantTab("Checkins", "ManualSeatScreen")
+									}
+								/>
+							)}
+							{permissions.canViewServiceRequests && (
+								<DashboardCard
+									label={t("service_requests", "Service Requests")}
+									iconName="bell-ring-outline"
+									color="#ef4444"
+									onPress={() =>
+										openRestaurantTab("Checkins", "ServiceRequestsScreen")
+									}
+								/>
+							)}
+						</>
 					)}
 
 					{/* 🚨 4. BACK OF HOUSE: Support, Chefs, Bartenders, and Managers */}
-					{(isManagement || isBackOfHouse) && (
-						<DashboardCard
-							label={t("kitchen", "Kitchen / Bar")}
-							iconName="silverware-fork-knife"
-							color="#f59e0b"
-							onPress={() => navigation.navigate("ChefsQ")}
-						/>
+					{(permissions.canViewKitchen || permissions.canViewPickupQueue) && (
+						<>
+							{permissions.canViewKitchen && (
+								<DashboardCard
+									label={t("kitchen", "Kitchen / Bar")}
+									iconName="silverware-fork-knife"
+									color="#f59e0b"
+									onPress={() => openRestaurantTab("ChefsQ")}
+								/>
+							)}
+							{permissions.canViewPickupQueue && (
+								<DashboardCard
+									label={t("pickup_queue", "Pickup Queue")}
+									iconName="bag-personal-outline"
+									color="#14b8a6"
+									onPress={() => openRestaurantTab("Pickups")}
+								/>
+							)}
+						</>
 					)}
 
 					{/* 🚨 5. BACK OFFICE: Strictly Management */}
-					{isManagement && (
+					{permissions.canManageBackOffice && (
 						<DashboardCard
 							label={t("back_office", "Back Office")}
 							iconName="shield-check-outline"
@@ -214,6 +246,12 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
 		borderBottomColor: "#E5E7EB",
+	},
+	headerActions: { alignItems: "flex-end" },
+	lockButton: {
+		marginBottom: 4,
+		minWidth: 38,
+		minHeight: 38,
 	},
 	brandName: {
 		fontSize: 22,

@@ -13,19 +13,26 @@ import moment from "moment";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 import colors from "../../utils/styles/appStyles";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 
 const ServiceRequestsScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const [requests, setRequests] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const insets = useSafeAreaInsets();
 	const { t } = useTranslation();
 
-	const restaurantId = currentUserData?.uid;
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const acknowledgePartyServiceRequestFunction = httpsCallable(
+		functions,
+		"acknowledgePartyServiceRequest",
+	);
 
 	// --- 1. Real-Time Listener for Service Requests ---
 	useEffect(() => {
@@ -61,8 +68,14 @@ const ServiceRequestsScreen = () => {
 	const handleAcknowledge = async (partyId, tableName) => {
 		try {
 			// 🚨 Flipping this to false instantly removes it from the list and clears the badge!
-			await db.collection("parties").doc(partyId).update({
-				serviceRequested: false,
+			await acknowledgePartyServiceRequestFunction({
+				partyId,
+				staffId: activeSession?.id || null,
+				staffName:
+					activeSession?.name ||
+					`${activeSession?.firstName || ""} ${
+						activeSession?.lastName || ""
+					}`.trim(),
 			});
 			console.log(`[Service] Cleared request for ${tableName}`);
 		} catch (error) {
