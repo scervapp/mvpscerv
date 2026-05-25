@@ -40,6 +40,38 @@ import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
 
 // NEW: Import our WebView Bridge Component
 
+const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return parsed > 1 ? parsed / 100 : parsed;
+};
+
+const getTierScervFeePercentage = (tierConfig) => {
+	if (!tierConfig) return DEFAULT_SCERV_FEE_PERCENTAGE;
+
+	const rawFee =
+		tierConfig.scervFeePercentage ??
+		tierConfig.platformFeePercentage ??
+		tierConfig.guestServiceFeePercentage ??
+		tierConfig.customerServiceFeePercentage;
+
+	if (rawFee !== undefined && rawFee !== null) {
+		return Math.max(0, normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE));
+	}
+
+	const rawPayout = tierConfig.payoutPercentage;
+	if (rawPayout !== undefined && rawPayout !== null) {
+		return Math.max(
+			0,
+			Math.round((1 - normalizePercentage(rawPayout, 0.97)) * 10000) / 10000,
+		);
+	}
+
+	return DEFAULT_SCERV_FEE_PERCENTAGE;
+};
+
 const CheckoutScreen = ({ route, navigation }) => {
 	const { t, i18n } = useTranslation();
 	const { restaurant, baskets } = route.params;
@@ -227,19 +259,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 		let calcSubtotal = 0;
 		let calcOriginalSubtotal = 0;
 		const restaurantTier = restaurant?.pricingTier || "basic";
-		const rawPayout =
-			pricingTiers &&
-			pricingTiers[restaurantTier] &&
-			pricingTiers[restaurantTier].payoutPercentage !== undefined &&
-			pricingTiers[restaurantTier].payoutPercentage !== null
-				? pricingTiers[restaurantTier].payoutPercentage
-				: 0.97;
-		let payoutVal = Number(rawPayout);
-		if (isNaN(payoutVal)) payoutVal = 0.97;
-		if (payoutVal > 1) payoutVal = payoutVal / 100;
-		const scervFeePercentage = Math.max(
-			0,
-			Math.round((1 - payoutVal) * 10000) / 10000,
+		const scervFeePercentage = getTierScervFeePercentage(
+			pricingTiers?.[restaurantTier],
 		);
 		let taxRate = Number(restaurant?.taxRate || 0);
 		if (isNaN(taxRate)) taxRate = 0;

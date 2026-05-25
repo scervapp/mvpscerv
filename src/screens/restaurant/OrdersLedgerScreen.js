@@ -53,11 +53,18 @@ const getRestaurantNetReceived = (order) => {
 		return Number(order.restaurantTransferAmount);
 	}
 
+	const restaurantProcessingFee = Number(
+		order.restaurantProcessingFeeAmount ||
+			order.processorFeeAppliedToRestaurantSales ||
+			order.processorFee ||
+			0,
+	);
+
 	return Math.max(
 		0,
 		Number(order.totalPrice || 0) -
 			Number(order.platformFee || 0) -
-			Number(order.processorFee || 0),
+			restaurantProcessingFee,
 	);
 };
 
@@ -205,7 +212,12 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 							? t("fee_waived", "Scerv Fee Waived")
 							: `${t("fees", "Fees")}: ${formatCurrency(
 									Number(item.platformFee || 0) +
-										Number(item.processorFee || 0),
+										Number(
+											item.restaurantProcessingFeeAmount ||
+												item.processorFeeAppliedToRestaurantSales ||
+												item.processorFee ||
+												0,
+										),
 								)}`}
 					</Text>
 				</View>

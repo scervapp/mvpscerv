@@ -39,6 +39,38 @@ import OrderItemCard from "../../components/customer/OrderItemCard";
 import formatCurrency from "../../utils/currencyFormatter";
 import { useTranslation } from "react-i18next";
 
+const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return parsed > 1 ? parsed / 100 : parsed;
+};
+
+const getTierScervFeePercentage = (tierConfig) => {
+	if (!tierConfig) return DEFAULT_SCERV_FEE_PERCENTAGE;
+
+	const rawFee =
+		tierConfig.scervFeePercentage ??
+		tierConfig.platformFeePercentage ??
+		tierConfig.guestServiceFeePercentage ??
+		tierConfig.customerServiceFeePercentage;
+
+	if (rawFee !== undefined && rawFee !== null) {
+		return Math.max(0, normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE));
+	}
+
+	const rawPayout = tierConfig.payoutPercentage;
+	if (rawPayout !== undefined && rawPayout !== null) {
+		return Math.max(
+			0,
+			Math.round((1 - normalizePercentage(rawPayout, 0.97)) * 10000) / 10000,
+		);
+	}
+
+	return DEFAULT_SCERV_FEE_PERCENTAGE;
+};
+
 const BasketScreen = ({ route, navigation }) => {
 	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
@@ -80,7 +112,7 @@ const BasketScreen = ({ route, navigation }) => {
 			setUpdatingItemId(null); // Stop loading indicator for this item
 		}
 	};
-	const [fees, setFees] = useState(0.05); // Default platform fee %
+	const [pricingTiers, setPricingTiers] = useState(null);
 
 	// Get basket for the current restaurant
 	const restaurantBasketItems = useMemo(() => {
@@ -91,10 +123,10 @@ const BasketScreen = ({ route, navigation }) => {
 	useEffect(() => {
 		const fetchFeeConfig = async () => {
 			try {
-				const docSnap = await db.collection("appConfig").doc("general").get();
+				const docSnap = await db.collection("appConfig").doc("pricingTiers").get();
 				if (docSnap.exists()) {
-					const fetchedFees = parseFloat(docSnap.data().fees);
-					if (!isNaN(fetchedFees)) setFees(fetchedFees);
+					const data = docSnap.data() || {};
+					setPricingTiers(data.pricingTiers || data);
 				}
 			} catch (error) {
 				console.error("Error fetching fee config:", error);
@@ -134,7 +166,7 @@ const BasketScreen = ({ route, navigation }) => {
 		if (
 			!restaurantBasketItems ||
 			restaurantBasketItems.length === 0 ||
-			typeof fees !== "number"
+			!Array.isArray(displayItems)
 		) {
 			return {
 				subtotal: 0,
@@ -161,11 +193,15 @@ const BasketScreen = ({ route, navigation }) => {
 		});
 
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotalAfterDiscounts;
+		const restaurantTier = restaurant?.pricingTier || "basic";
+		const scervFeePercentage = getTierScervFeePercentage(
+			pricingTiers?.[restaurantTier],
+		);
 
 		// --- THIS IS THE FIX (PART 1) ---
 		// The tax calculation is completely removed.
 		const calcPlatformFeeEstimate = Math.round(
-			calcSubtotalAfterDiscounts * fees
+			calcSubtotalAfterDiscounts * scervFeePercentage
 		);
 		const calcGrandTotalEstimate =
 			calcSubtotalAfterDiscounts + calcPlatformFeeEstimate;
@@ -183,7 +219,7 @@ const BasketScreen = ({ route, navigation }) => {
 				currentUserData?.firstName || t("your_items")
 			),
 		};
-	}, [displayItems, fees, currentUserData]);
+	}, [displayItems, pricingTiers, restaurant?.pricingTier, currentUserData]);
 
 	// --- Actions ---
 	const handleSendToChefsQ = async () => {

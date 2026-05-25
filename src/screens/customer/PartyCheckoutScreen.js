@@ -48,6 +48,38 @@ const DRINK_CATEGORIES = [
 	"Beverages",
 ];
 
+const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return parsed > 1 ? parsed / 100 : parsed;
+};
+
+const getTierScervFeePercentage = (tierConfig) => {
+	if (!tierConfig) return DEFAULT_SCERV_FEE_PERCENTAGE;
+
+	const rawFee =
+		tierConfig.scervFeePercentage ??
+		tierConfig.platformFeePercentage ??
+		tierConfig.guestServiceFeePercentage ??
+		tierConfig.customerServiceFeePercentage;
+
+	if (rawFee !== undefined && rawFee !== null) {
+		return Math.max(0, normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE));
+	}
+
+	const rawPayout = tierConfig.payoutPercentage;
+	if (rawPayout !== undefined && rawPayout !== null) {
+		return Math.max(
+			0,
+			Math.round((1 - normalizePercentage(rawPayout, 0.97)) * 10000) / 10000,
+		);
+	}
+
+	return DEFAULT_SCERV_FEE_PERCENTAGE;
+};
+
 const PartyCheckoutScreen = () => {
 	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
@@ -208,20 +240,8 @@ const PartyCheckoutScreen = () => {
 				? restaurantData.pricingTier
 				: "basic";
 
-		let rawPayout =
-			pricingTiers &&
-			pricingTiers[restaurantTier] &&
-			pricingTiers[restaurantTier].payoutPercentage !== undefined &&
-			pricingTiers[restaurantTier].payoutPercentage !== null
-				? pricingTiers[restaurantTier].payoutPercentage
-				: 0.97;
-
-		let payoutVal = Number(rawPayout);
-		if (isNaN(payoutVal)) payoutVal = 0.97;
-		if (payoutVal > 1) payoutVal = payoutVal / 100;
-
 		const calculatedPlatformFeePercentage = canAcceptPayments
-			? Math.max(0, Math.round((1 - payoutVal) * 10000) / 10000)
+			? getTierScervFeePercentage(pricingTiers?.[restaurantTier])
 			: 0;
 
 		const platformFeeInCents = Math.round(

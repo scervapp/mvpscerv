@@ -30,6 +30,10 @@ const DRINK_CATEGORIES = [
 	"Beverages",
 ];
 
+const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
+const DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE = 0.04;
+const DEFAULT_PAYOUT_PERCENTAGE = 0.97;
+
 const isBarCategory = (category) => {
 	const normalized = String(category || "")
 		.trim()
@@ -81,6 +85,22 @@ const firstDefined = (...values) => {
 const normalizeStripeFeeResponsibility = (value) =>
 	value === "scerv" ? "scerv" : "restaurant";
 
+const normalizeRestaurantProcessingFeeBasis = (value) =>
+	["subtotal", "salesAndTax", "total"].includes(value) ? value : "total";
+
+const normalizeNonNegativeCents = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	return Math.round(parsed);
+};
+
+const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
+	Math.max(
+		0,
+		Math.round(Number(amountCents || 0) * normalizePercentage(percentage)) +
+			normalizeNonNegativeCents(fixedCents),
+	);
+
 const resolvePaymentPolicy = ({
 	restaurantData = {},
 	customerData = {},
@@ -96,14 +116,24 @@ const resolvePaymentPolicy = ({
 			customerData.scervFeePercentage,
 			customerPolicy.platformFeePercentage,
 			customerData.platformFeePercentage,
+			customerPolicy.guestServiceFeePercentage,
+			customerData.guestServiceFeePercentage,
 			restaurantPolicy.scervFeePercentage,
 			restaurantData.scervFeePercentage,
 			restaurantPolicy.platformFeePercentage,
 			restaurantData.platformFeePercentage,
+			restaurantPolicy.guestServiceFeePercentage,
+			restaurantData.guestServiceFeePercentage,
 			tierPolicy.scervFeePercentage,
 			restaurantTierInfo.scervFeePercentage,
+			tierPolicy.platformFeePercentage,
+			restaurantTierInfo.platformFeePercentage,
+			tierPolicy.guestServiceFeePercentage,
+			restaurantTierInfo.guestServiceFeePercentage,
+			tierPolicy.customerServiceFeePercentage,
+			restaurantTierInfo.customerServiceFeePercentage,
 		),
-		0.03,
+		DEFAULT_SCERV_FEE_PERCENTAGE,
 	);
 
 	const scervFeeWaived =
@@ -130,6 +160,56 @@ const resolvePaymentPolicy = ({
 			restaurantTierInfo.stripeFeeResponsibility,
 		),
 	);
+	const restaurantProcessingFeePercentage = normalizePercentage(
+		firstDefined(
+			restaurantPolicy.processingFeePercentage,
+			restaurantData.processingFeePercentage,
+			restaurantPolicy.restaurantProcessingFeePercentage,
+			restaurantData.restaurantProcessingFeePercentage,
+			restaurantPolicy.stripeProcessingFeePercentage,
+			restaurantData.stripeProcessingFeePercentage,
+			restaurantPolicy.restaurantOrderingFeePercentage,
+			restaurantData.restaurantOrderingFeePercentage,
+			restaurantPolicy.paymentFacilitationFeePercentage,
+			restaurantData.paymentFacilitationFeePercentage,
+			tierPolicy.processingFeePercentage,
+			restaurantTierInfo.processingFeePercentage,
+			tierPolicy.restaurantProcessingFeePercentage,
+			restaurantTierInfo.restaurantProcessingFeePercentage,
+			tierPolicy.stripeProcessingFeePercentage,
+			restaurantTierInfo.stripeProcessingFeePercentage,
+			tierPolicy.restaurantOrderingFeePercentage,
+			restaurantTierInfo.restaurantOrderingFeePercentage,
+			tierPolicy.paymentFacilitationFeePercentage,
+			restaurantTierInfo.paymentFacilitationFeePercentage,
+		),
+		DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE,
+	);
+	const restaurantProcessingFeeFixedCents = normalizeNonNegativeCents(
+		firstDefined(
+			restaurantPolicy.processingFeeFixedCents,
+			restaurantData.processingFeeFixedCents,
+			restaurantPolicy.restaurantProcessingFeeFixedCents,
+			restaurantData.restaurantProcessingFeeFixedCents,
+			tierPolicy.processingFeeFixedCents,
+			restaurantTierInfo.processingFeeFixedCents,
+			tierPolicy.restaurantProcessingFeeFixedCents,
+			restaurantTierInfo.restaurantProcessingFeeFixedCents,
+		),
+		0,
+	);
+	const restaurantProcessingFeeBasis = normalizeRestaurantProcessingFeeBasis(
+		firstDefined(
+			restaurantPolicy.restaurantProcessingFeeBasis,
+			restaurantData.restaurantProcessingFeeBasis,
+			restaurantPolicy.processingFeeBasis,
+			restaurantData.processingFeeBasis,
+			tierPolicy.restaurantProcessingFeeBasis,
+			restaurantTierInfo.restaurantProcessingFeeBasis,
+			tierPolicy.processingFeeBasis,
+			restaurantTierInfo.processingFeeBasis,
+		),
+	);
 
 	return {
 		version: 1,
@@ -149,6 +229,9 @@ const resolvePaymentPolicy = ({
 				)
 			: null,
 		stripeFeeResponsibility,
+		restaurantProcessingFeePercentage,
+		restaurantProcessingFeeFixedCents,
+		restaurantProcessingFeeBasis,
 		customerPolicySnapshot: {
 			scervFeePercentage: firstDefined(
 				customerPolicy.scervFeePercentage,
@@ -177,6 +260,26 @@ const resolvePaymentPolicy = ({
 				restaurantData.stripeFeeResponsibility,
 				null,
 			),
+			restaurantProcessingFeePercentage: firstDefined(
+				restaurantPolicy.processingFeePercentage,
+				restaurantData.processingFeePercentage,
+				restaurantPolicy.restaurantProcessingFeePercentage,
+				restaurantData.restaurantProcessingFeePercentage,
+				restaurantPolicy.restaurantOrderingFeePercentage,
+				restaurantData.restaurantOrderingFeePercentage,
+				restaurantPolicy.paymentFacilitationFeePercentage,
+				restaurantData.paymentFacilitationFeePercentage,
+				tierPolicy.processingFeePercentage,
+				restaurantTierInfo.processingFeePercentage,
+				tierPolicy.restaurantProcessingFeePercentage,
+				restaurantTierInfo.restaurantProcessingFeePercentage,
+				tierPolicy.restaurantOrderingFeePercentage,
+				restaurantTierInfo.restaurantOrderingFeePercentage,
+				tierPolicy.paymentFacilitationFeePercentage,
+				restaurantTierInfo.paymentFacilitationFeePercentage,
+				null,
+			),
+			restaurantProcessingFeeBasis,
 		},
 	};
 };
@@ -244,8 +347,12 @@ async function getRestaurantTier(restaurantId) {
 		);
 		return {
 			tierName,
-			payoutPercentage: 0.97,
-			scervFeePercentage: 0.03,
+			payoutPercentage: DEFAULT_PAYOUT_PERCENTAGE,
+			scervFeePercentage: DEFAULT_SCERV_FEE_PERCENTAGE,
+			restaurantProcessingFeePercentage:
+				DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE,
+			restaurantProcessingFeeFixedCents: 0,
+			restaurantProcessingFeeBasis: "total",
 			source: "default_fallback",
 		};
 	}
@@ -256,26 +363,69 @@ async function getRestaurantTier(restaurantId) {
 		: allTiers[tierName];
 
 	// 4. Check for data integrity.
-	if (!tierConfig || typeof tierConfig.payoutPercentage !== "number") {
+	if (!tierConfig) {
 		console.warn(
 			`getRestaurantTier Warning: Configuration for tier "${tierName}" is missing or invalid. Falling back to default basic pricing.`,
 		);
 		return {
 			tierName,
-			payoutPercentage: 0.97,
-			scervFeePercentage: 0.03,
+			payoutPercentage: DEFAULT_PAYOUT_PERCENTAGE,
+			scervFeePercentage: DEFAULT_SCERV_FEE_PERCENTAGE,
+			restaurantProcessingFeePercentage:
+				DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE,
+			restaurantProcessingFeeFixedCents: 0,
+			restaurantProcessingFeeBasis: "total",
 			source: "default_fallback",
 		};
 	}
 
 	// 5. Return the specific configuration object for the determined tier.
-	const payoutPercentage = normalizePercentage(tierConfig.payoutPercentage, 0.97);
+	const payoutPercentage = normalizePercentage(
+		tierConfig.payoutPercentage,
+		DEFAULT_PAYOUT_PERCENTAGE,
+	);
+	const scervFeePercentage = normalizePercentage(
+		firstDefined(
+			tierConfig.scervFeePercentage,
+			tierConfig.platformFeePercentage,
+			tierConfig.guestServiceFeePercentage,
+			tierConfig.customerServiceFeePercentage,
+		),
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
+	const restaurantProcessingFeePercentage = normalizePercentage(
+		firstDefined(
+			tierConfig.restaurantProcessingFeePercentage,
+			tierConfig.processingFeePercentage,
+			tierConfig.stripeProcessingFeePercentage,
+			tierConfig.restaurantOrderingFeePercentage,
+			tierConfig.paymentFacilitationFeePercentage,
+		),
+		DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE,
+	);
+	const restaurantProcessingFeeFixedCents = normalizeNonNegativeCents(
+		firstDefined(
+			tierConfig.restaurantProcessingFeeFixedCents,
+			tierConfig.processingFeeFixedCents,
+			tierConfig.stripeProcessingFeeFixedCents,
+		),
+		0,
+	);
+	const restaurantProcessingFeeBasis = normalizeRestaurantProcessingFeeBasis(
+		firstDefined(
+			tierConfig.restaurantProcessingFeeBasis,
+			tierConfig.processingFeeBasis,
+		),
+	);
 
 	return {
 		...tierConfig,
 		tierName,
 		payoutPercentage,
-		scervFeePercentage: Math.max(0, 1 - payoutPercentage),
+		scervFeePercentage,
+		restaurantProcessingFeePercentage,
+		restaurantProcessingFeeFixedCents,
+		restaurantProcessingFeeBasis,
 	};
 }
 
@@ -450,6 +600,12 @@ const handleStripeEvent = async (event, stripeInstance) => {
 
 			// --- Get Exact Stripe Fee ---
 			let stripeFeeActual = 0;
+			let stripeApplicationFeeAmount = Number(
+				metadata.stripeApplicationFeeAmount ||
+					metadata.applicationFeeAmount ||
+					0,
+			);
+			let stripeDestinationTransferId = null;
 			try {
 				if (paymentIntent.latest_charge) {
 					const charge = await stripeInstance.charges.retrieve(
@@ -461,6 +617,10 @@ const handleStripeEvent = async (event, stripeInstance) => {
 					if (charge.balance_transaction) {
 						stripeFeeActual = charge.balance_transaction.fee;
 					}
+					if (charge.application_fee_amount) {
+						stripeApplicationFeeAmount = charge.application_fee_amount;
+					}
+					stripeDestinationTransferId = getStripeObjectId(charge.transfer);
 				}
 			} catch (feeError) {
 				console.warn(
@@ -501,6 +661,8 @@ const handleStripeEvent = async (event, stripeInstance) => {
 						liveMode: event.livemode === true,
 						stripePaymentMethodId,
 						paymentMethodSummary: stripePaymentMethodSummary,
+						stripeApplicationFeeAmount,
+						stripeDestinationTransferId,
 						receivedAt: admin.firestore.FieldValue.serverTimestamp(),
 					},
 					{ merge: true },
@@ -519,6 +681,8 @@ const handleStripeEvent = async (event, stripeInstance) => {
 							stripeLatestChargeId: paymentIntent.latest_charge || null,
 							stripePaymentMethodId,
 							paymentMethodSummary: stripePaymentMethodSummary,
+							stripeApplicationFeeAmount,
+							stripeDestinationTransferId,
 							stripeEventId: event.id,
 							amountReceived:
 								paymentIntent.amount_received || paymentIntent.amount || 0,
@@ -538,8 +702,10 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				totalPrice: paymentIntent.amount_received || paymentIntent.amount,
 				processorFeeActual: stripeFeeActual,
 				platformFeeActual: Number(metadata.platformFee || 0),
+				applicationFeeActual: stripeApplicationFeeAmount,
 				stripeInstance,
 				latestChargeId: paymentIntent.latest_charge || null,
+				stripeDestinationTransferId,
 				stripePaymentMethodId,
 				paymentMethodSummary: stripePaymentMethodSummary,
 			});
@@ -919,10 +1085,33 @@ exports.preparePayment = functions
 			);
 			const finalAmount =
 				calculatedSubtotal + calculatedTax + gratuity + calculatedPlatformFee;
-			const restaurantTransferAmount =
-				calculatedSubtotal + calculatedTax + gratuity;
 			const gratuityPassthroughAmount = gratuity;
 			const restaurantSalesAndTaxAmount = calculatedSubtotal + calculatedTax;
+			const restaurantGrossAmount =
+				restaurantSalesAndTaxAmount + gratuityPassthroughAmount;
+			const restaurantPaysStripeFee =
+				paymentPolicy.stripeFeeResponsibility === "restaurant";
+			const restaurantProcessingFeeBasisAmount =
+				paymentPolicy.restaurantProcessingFeeBasis === "subtotal"
+					? calculatedSubtotal
+					: paymentPolicy.restaurantProcessingFeeBasis === "salesAndTax"
+						? restaurantSalesAndTaxAmount
+						: finalAmount;
+			const processorFeeRecoveryAmount = restaurantPaysStripeFee
+				? calculatePercentageFee(
+						restaurantProcessingFeeBasisAmount,
+						paymentPolicy.restaurantProcessingFeePercentage,
+						paymentPolicy.restaurantProcessingFeeFixedCents,
+					)
+				: 0;
+			const applicationFeeAmount = Math.min(
+				finalAmount,
+				calculatedPlatformFee + processorFeeRecoveryAmount,
+			);
+			const restaurantTransferAmount = Math.max(
+				0,
+				finalAmount - applicationFeeAmount,
+			);
 			const clientExpectedTotal = Number(expectedTotal || 0);
 
 			if (
@@ -978,8 +1167,21 @@ exports.preparePayment = functions
 				gratuity,
 				gratuityPassthroughAmount,
 				restaurantSalesAndTaxAmount,
+				restaurantGrossAmount,
 				platformFee: calculatedPlatformFee,
 				scervFee: calculatedPlatformFee,
+				processorFeeRecoveryAmount,
+				restaurantProcessingFeeAmount: processorFeeRecoveryAmount,
+				restaurantProcessingFeePercentage:
+					paymentPolicy.restaurantProcessingFeePercentage,
+				restaurantProcessingFeeFixedCents:
+					paymentPolicy.restaurantProcessingFeeFixedCents,
+				restaurantProcessingFeeBasis:
+					paymentPolicy.restaurantProcessingFeeBasis,
+				restaurantProcessingFeeBasisAmount,
+				applicationFeeAmount,
+				stripeApplicationFeeAmount: applicationFeeAmount,
+				stripeConnectChargeType: "destination_charge",
 				restaurantTransferAmount,
 				clientExpectedTotal: clientExpectedTotal || null,
 				total: finalAmount,
@@ -1009,6 +1211,18 @@ exports.preparePayment = functions
 					baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
 					gratuityPassthroughAmount,
 					restaurantSalesAndTaxAmount,
+					restaurantGrossAmount,
+					processorFeeRecoveryAmount,
+					restaurantProcessingFeeAmount: processorFeeRecoveryAmount,
+					restaurantProcessingFeePercentage:
+						paymentPolicy.restaurantProcessingFeePercentage,
+					restaurantProcessingFeeFixedCents:
+						paymentPolicy.restaurantProcessingFeeFixedCents,
+					restaurantProcessingFeeBasis:
+						paymentPolicy.restaurantProcessingFeeBasis,
+					restaurantProcessingFeeBasisAmount,
+					stripeApplicationFeeAmount: applicationFeeAmount,
+					stripeConnectChargeType: "destination_charge",
 					scervFeeWaived: paymentPolicy.scervFeeWaived,
 					feeWaiverReason: paymentPolicy.feeWaiverReason,
 					stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
@@ -1057,6 +1271,13 @@ exports.preparePayment = functions
 					// --- THIS IS THE CRITICAL LINE FOR CARD VAULTING ---
 					setup_future_usage: "off_session",
 					automatic_payment_methods: { enabled: true },
+					...(applicationFeeAmount > 0 && {
+						application_fee_amount: applicationFeeAmount,
+					}),
+					transfer_data: {
+						destination: restaurantStripeAccountId,
+					},
+					on_behalf_of: restaurantStripeAccountId,
 					metadata: {
 						orderId: newOrderId,
 						userId,
@@ -1074,7 +1295,20 @@ exports.preparePayment = functions
 						gratuity: String(gratuity),
 						gratuityPassthroughAmount: String(gratuityPassthroughAmount),
 						restaurantSalesAndTaxAmount: String(restaurantSalesAndTaxAmount),
+						restaurantGrossAmount: String(restaurantGrossAmount),
 						platformFee: String(calculatedPlatformFee),
+						processorFeeRecoveryAmount: String(processorFeeRecoveryAmount),
+						restaurantProcessingFeeAmount: String(processorFeeRecoveryAmount),
+						restaurantProcessingFeePercentage: String(
+							paymentPolicy.restaurantProcessingFeePercentage,
+						),
+						restaurantProcessingFeeBasis:
+							paymentPolicy.restaurantProcessingFeeBasis,
+						restaurantProcessingFeeBasisAmount: String(
+							restaurantProcessingFeeBasisAmount,
+						),
+						stripeApplicationFeeAmount: String(applicationFeeAmount),
+						stripeConnectChargeType: "destination_charge",
 						restaurantTransferAmount: String(restaurantTransferAmount),
 						pricingTier: paymentPolicy.pricingTier,
 						scervFeeBasis: paymentPolicy.scervFeeBasis,
@@ -1292,8 +1526,10 @@ const fulfillOrder = async ({
 	totalPrice,
 	processorFeeActual,
 	platformFeeActual = 0,
+	applicationFeeActual = 0,
 	stripeInstance = null,
 	latestChargeId = null,
+	stripeDestinationTransferId = null,
 	stripePaymentMethodId = null,
 	paymentMethodSummary = null,
 }) => {
@@ -1371,6 +1607,27 @@ const fulfillOrder = async ({
 		platformFeeActual || pendingOrderData.platformFee || 0,
 	);
 	const processorFee = Number(processorFeeActual || 0);
+	const stripeConnectChargeType =
+		pendingOrderData.stripeConnectChargeType || "separate_charge_transfer";
+	const usesDestinationCharge = stripeConnectChargeType === "destination_charge";
+	const applicationFeeAmount = Number(
+		applicationFeeActual ||
+			pendingOrderData.stripeApplicationFeeAmount ||
+			pendingOrderData.applicationFeeAmount ||
+			0,
+	);
+	const processorFeeRecoveryAmount = Number(
+		pendingOrderData.processorFeeRecoveryAmount ||
+			pendingOrderData.restaurantProcessingFeeAmount ||
+			0,
+	);
+	const restaurantProcessingFeeBasis =
+		pendingOrderData.restaurantProcessingFeeBasis ||
+		paymentPolicy.restaurantProcessingFeeBasis ||
+		null;
+	const restaurantProcessingFeeBasisAmount = Number(
+		pendingOrderData.restaurantProcessingFeeBasisAmount || 0,
+	);
 	const taxAmount = Number(
 		pendingOrderData.taxAmount || pendingOrderData.tax || 0,
 	);
@@ -1397,23 +1654,36 @@ const fulfillOrder = async ({
 	const calculatedRestaurantGross =
 		restaurantSalesAndTaxAmount + gratuityPassthroughAmount;
 	const restaurantGrossAmount = Number(
-		pendingOrderData.restaurantTransferAmount ||
+		pendingOrderData.restaurantGrossAmount ||
 			calculatedRestaurantGross,
 	);
 	const restaurantPaysStripeFee = stripeFeeResponsibility === "restaurant";
 	const processorFeeAppliedToRestaurantSales = restaurantPaysStripeFee
-		? Math.min(processorFee, restaurantSalesAndTaxAmount)
+		? Math.min(
+				processorFeeRecoveryAmount || processorFee,
+				restaurantSalesAndTaxAmount,
+			)
 		: 0;
 	const restaurantSalesAndTaxNetAmount = Math.max(
 		0,
 		restaurantSalesAndTaxAmount - processorFeeAppliedToRestaurantSales,
 	);
-	const amountToTransfer = Math.max(
+	const calculatedAmountToTransfer = Math.max(
 		0,
 		restaurantSalesAndTaxNetAmount + gratuityPassthroughAmount,
 	);
+	const amountToTransfer = usesDestinationCharge
+		? Math.max(
+				0,
+				Number(pendingOrderData.restaurantTransferAmount || 0) ||
+					(Number(totalPrice || pendingOrderData.totalPrice || 0) -
+						applicationFeeAmount),
+			)
+		: calculatedAmountToTransfer;
 	const scervGrossFee = platformFee;
-	const scervNet = scervGrossFee - (restaurantPaysStripeFee ? 0 : processorFee);
+	const scervNet = usesDestinationCharge
+		? applicationFeeAmount - processorFee
+		: scervGrossFee - (restaurantPaysStripeFee ? 0 : processorFee);
 
 	let turnaroundTimeMinutes = 0;
 	try {
@@ -1474,6 +1744,7 @@ const fulfillOrder = async ({
 		restaurantSalesAndTaxAmount,
 		restaurantSalesAndTaxNetAmount,
 		processorFeeAppliedToRestaurantSales,
+		processorFeeRecoveryAmount,
 		platformFee,
 		scervFee: platformFee,
 		scervFeePercentage,
@@ -1483,6 +1754,16 @@ const fulfillOrder = async ({
 		scervFeeWaived: pendingOrderData.scervFeeWaived === true,
 		feeWaiverReason: pendingOrderData.feeWaiverReason || null,
 		stripeFeeResponsibility,
+		restaurantProcessingFeeAmount: processorFeeRecoveryAmount,
+		restaurantProcessingFeePercentage:
+			pendingOrderData.restaurantProcessingFeePercentage ||
+			paymentPolicy.restaurantProcessingFeePercentage ||
+			null,
+		restaurantProcessingFeeBasis,
+		restaurantProcessingFeeBasisAmount,
+		applicationFeeAmount,
+		stripeApplicationFeeAmount: applicationFeeAmount,
+		stripeConnectChargeType,
 		restaurantGrossAmount,
 		restaurantTransferAmount: amountToTransfer,
 		scervGrossFee,
@@ -1523,6 +1804,7 @@ const fulfillOrder = async ({
 					null
 				: pendingOrderData.stripePaymentIntentId || null,
 		stripeChargeId: latestChargeId || null,
+		stripeDestinationTransferId: stripeDestinationTransferId || null,
 		stripePaymentMethodId:
 			stripePaymentMethodId || pendingOrderData.stripePaymentMethodId || null,
 		paymentMethodSummary:
@@ -1538,6 +1820,7 @@ const fulfillOrder = async ({
 			processor: processor || "unknown",
 			processorTransactionId: processorTransactionId || null,
 			latestChargeId: latestChargeId || null,
+			stripeDestinationTransferId: stripeDestinationTransferId || null,
 			stripePaymentMethodId:
 				stripePaymentMethodId || pendingOrderData.stripePaymentMethodId || null,
 			processorFeeActual: processorFee,
@@ -1549,7 +1832,14 @@ const fulfillOrder = async ({
 			restaurantSalesAndTaxAmount,
 			restaurantSalesAndTaxNetAmount,
 			processorFeeAppliedToRestaurantSales,
+			processorFeeRecoveryAmount,
 			stripeFeeResponsibility,
+			restaurantProcessingFeeAmount: processorFeeRecoveryAmount,
+			restaurantProcessingFeeBasis,
+			restaurantProcessingFeeBasisAmount,
+			applicationFeeAmount,
+			stripeApplicationFeeAmount: applicationFeeAmount,
+			stripeConnectChargeType,
 			restaurantGrossAmount,
 			restaurantTransferAmount: amountToTransfer,
 			scervGrossFee,
@@ -1942,7 +2232,15 @@ const fulfillOrder = async ({
 
 	// 3. EXTERNAL API CALLS AFTER DB COMMIT
 	if (processor === "stripe" && stripeInstance) {
-		if (
+		if (usesDestinationCharge) {
+			await db.collection("orders").doc(orderId).update({
+				stripeDestinationTransferId: stripeDestinationTransferId || null,
+				restaurantTransferStatus: "stripe_destination_charge",
+				restaurantTransferAmount: amountToTransfer,
+				stripeApplicationFeeAmount: applicationFeeAmount,
+				applicationFeeAmount,
+			});
+		} else if (
 			payoutRouting === "stripe_connect" &&
 			latestChargeId &&
 			pendingOrderData.connectedAccountId
