@@ -11,6 +11,7 @@ import { Alert } from "react-native";
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../authContext";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 
 export const PartyContext = createContext({
 	currentPartyIds: {},
@@ -316,6 +317,7 @@ export const PartyProvider = ({ children }) => {
 
 	const getOrCreatePickupParty = useCallback(
 		async (restaurantId, restaurantName) => {
+			if (!PICKUP_FLOW_ENABLED) return null;
 			if (!restaurantId) return null;
 
 			const existingPartyId = currentPartyIds?.[restaurantId]?.pickup || null;

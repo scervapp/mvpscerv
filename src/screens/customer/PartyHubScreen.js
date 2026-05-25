@@ -16,6 +16,7 @@ import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { useParty } from "../../context/customer/PartyContext";
 import { AuthContext } from "../../context/authContext";
+import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { SwipeListView } from "react-native-swipe-list-view";
 import PartyLobbyScreen from "./PartyLobbyScreen"; // Ensure correct path
@@ -140,7 +141,11 @@ const PartyHubScreen = () => {
 					...details,
 				};
 			})
-			.filter((item) => item !== null)
+			.filter(
+				(item) =>
+					item !== null &&
+					(PICKUP_FLOW_ENABLED || item.orderMode !== "pickup"),
+			)
 			.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 	}, [currentPartyIds, partyDetails]);
 

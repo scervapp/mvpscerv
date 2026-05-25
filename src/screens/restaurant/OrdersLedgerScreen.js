@@ -16,6 +16,7 @@ import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import formatCurrency from "../../utils/currencyFormatter";
+import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 
 const FilterChip = ({ label, active, onPress }) => (
 	<TouchableOpacity
@@ -280,7 +281,7 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 				{[
 					["", t("all_orders", "All orders")],
 					["dineIn", t("dine_in", "Dine In")],
-					["pickup", t("pickup", "Pickup")],
+					...(PICKUP_FLOW_ENABLED ? [["pickup", t("pickup", "Pickup")]] : []),
 				].map(([value, label]) => (
 					<FilterChip
 						key={value || "all-orders"}

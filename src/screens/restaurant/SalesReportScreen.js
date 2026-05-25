@@ -17,6 +17,7 @@ import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import formatCurrency from "../../utils/currencyFormatter";
+import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 
 // --- Reusable Helper Components ---
 const KPICard = ({ title, value, iconName, isDeduction = false }) => (
@@ -223,11 +224,13 @@ const SalesReportScreen = ({ navigation }) => {
 							iconName="cash-outline"
 							highlight={Number(reportData.ownerPulse?.checksRequested || 0) > 0}
 						/>
-						<PulseMetric
-							label={t("pickup_orders", "Pickup Orders")}
-							value={reportData.ownerPulse?.pickupOrders || 0}
-							iconName="bag-handle-outline"
-						/>
+						{PICKUP_FLOW_ENABLED && (
+							<PulseMetric
+								label={t("pickup_orders", "Pickup Orders")}
+								value={reportData.ownerPulse?.pickupOrders || 0}
+								iconName="bag-handle-outline"
+							/>
+						)}
 						<PulseMetric
 							label={t("average_order", "Avg Order")}
 							value={formatCurrency(reportData.averageOrderValue)}

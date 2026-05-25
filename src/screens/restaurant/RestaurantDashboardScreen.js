@@ -22,6 +22,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "../../config/i18n";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
+import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
 
 const DashboardCard = ({
 	label,
@@ -60,6 +61,7 @@ const RestaurantDashboardScreen = () => {
 
 	// 🚨 1. DEFINE ENTERPRISE ROLE GATES
 	const permissions = getRestaurantPermissions(activeSession);
+	const pickupEnabled = isPickupEnabledForRestaurant(currentUserData);
 
 	const handleBackOfficePress = () => {
 		navigation.navigate("BackOfficeNavigator", { screen: "BackOffice" });
@@ -199,7 +201,8 @@ const RestaurantDashboardScreen = () => {
 					)}
 
 					{/* 🚨 4. BACK OF HOUSE: Support, Chefs, Bartenders, and Managers */}
-					{(permissions.canViewKitchen || permissions.canViewPickupQueue) && (
+					{(permissions.canViewKitchen ||
+						(pickupEnabled && permissions.canViewPickupQueue)) && (
 						<>
 							{permissions.canViewKitchen && (
 								<DashboardCard
@@ -209,7 +212,7 @@ const RestaurantDashboardScreen = () => {
 									onPress={() => openRestaurantTab("ChefsQ")}
 								/>
 							)}
-							{permissions.canViewPickupQueue && (
+							{pickupEnabled && permissions.canViewPickupQueue && (
 								<DashboardCard
 									label={t("pickup_queue", "Pickup Queue")}
 									iconName="bag-personal-outline"

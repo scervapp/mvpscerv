@@ -10,6 +10,7 @@ import { AuthContext } from "../authContext";
 import { db } from "../../config/firebase";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useEmployeeSession } from "./EmployeeSessionContext";
+import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
 
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
@@ -22,6 +23,7 @@ export const RestaurantDataContext = createContext({
 export const RestaurantDataProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
+	const pickupEnabled = isPickupEnabledForRestaurant(currentUserData);
 
 	const isCheckInInitialLoad = useRef(true);
 	const isKitchenInitialLoad = useRef(true);
@@ -266,7 +268,7 @@ export const RestaurantDataProvider = ({ children }) => {
 
 	// --- 🚨 NEW: PICKUP QUEUE LISTENER ---
 	useEffect(() => {
-		if (!restaurantId) {
+		if (!restaurantId || !pickupEnabled) {
 			setPickupOrderCount(0);
 			return;
 		}
@@ -283,7 +285,7 @@ export const RestaurantDataProvider = ({ children }) => {
 			});
 
 		return () => unsub();
-	}, [restaurantId]);
+	}, [restaurantId, pickupEnabled]);
 
 	/* ──────────────────────────────
      4.  Context value
