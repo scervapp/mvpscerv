@@ -61,6 +61,7 @@ exports.handleStripeEvent = paymentFunctions.handleStripeEvent;
 
 exports.createStripeCustomer = userFunctions.createStripeCustomer;
 exports.onUserCreate = userFunctions.onUserCreate;
+exports.syncCustomerSearchIndex = userFunctions.syncCustomerSearchIndex;
 exports.createUserAccount = userFunctions.createUserAccount;
 exports.updateUserCredentials = userFunctions.updateUserCredentials;
 

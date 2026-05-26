@@ -3,6 +3,29 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 
+const normalizeSearchValue = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+
+const addSearchResult = (usersMap, doc, currentUserId) => {
+	if (doc.id === currentUserId || usersMap.has(doc.id)) return;
+
+	const userData = doc.data() || {};
+	const name =
+		userData.fullName ||
+		`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
+		userData.displayName ||
+		"Unknown User";
+
+	usersMap.set(doc.id, {
+		id: doc.id,
+		name,
+		email: userData.email || null,
+	});
+};
+
 /**
  * Searches for registered customers based on a search term (email or name).
  * Limits results and excludes the calling user.
@@ -15,7 +38,7 @@ exports.searchPIPs = functions.https.onCall(async (data, context) => {
 		);
 	}
 	const currentUserId = context.auth.uid;
-	const searchTerm = data.searchTerm.trim().toLowerCase(); // Normalize search term
+	const searchTerm = normalizeSearchValue(data.searchTerm);
 
 	if (!searchTerm || searchTerm.length < 3) {
 		throw new functions.https.HttpsError(
@@ -27,47 +50,40 @@ exports.searchPIPs = functions.https.onCall(async (data, context) => {
 	const MAX_RESULTS = 10; // Limit results
 
 	try {
-		// --- Search Logic ---
-		// Option 1: Simple prefix search on email (requires lowercase email field)
-		// Assumes you store email as lowercase
-		const emailQuery = db
-			.collection("customers")
-			.where("email", ">=", searchTerm)
-			.where("email", "<=", searchTerm + "\uf8ff") // \uf8ff is a high Unicode character for prefix matching
-			.limit(MAX_RESULTS);
-
-		// Option 2: Search on name fields (more complex, might need indexing or full-text search like Algolia/Typesense for scale)
-		// This is a basic example, likely inefficient for large datasets
-		const nameQuery = db
-			.collection("customers")
-			// .where('lowercaseName', 'array-contains', searchTerm) // If you store name parts in an array
-			.limit(MAX_RESULTS); // Apply limit
-
-		// Execute queries (adjust based on your chosen search strategy)
-		const [emailResults] = await Promise.all([
-			emailQuery.get(),
-			// nameQuery.get() // Uncomment if searching by name
-		]);
-
 		const usersMap = new Map();
 
-		// Process email results
-		emailResults.docs.forEach((doc) => {
-			if (doc.id !== currentUserId && !usersMap.has(doc.id)) {
-				// Exclude self, avoid duplicates
-				const userData = doc.data();
-				usersMap.set(doc.id, {
-					id: doc.id,
-					name:
-						`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
-						"Unknown User",
-					// email: userData.email // Optionally return email
-				});
-			}
-		});
+		const searchTokensQuery = db
+			.collection("customers")
+			.where("searchTokens", "array-contains", searchTerm)
+			.limit(MAX_RESULTS);
 
-		// Process name results (if implemented)
-		// nameResults.docs.forEach(doc => { ... });
+		const emailQuery = db
+			.collection("customers")
+			.where("emailLower", ">=", searchTerm)
+			.where("emailLower", "<=", searchTerm + "\uf8ff")
+			.limit(MAX_RESULTS);
+
+		const legacyEmailQuery = db
+			.collection("customers")
+			.where("email", ">=", searchTerm)
+			.where("email", "<=", searchTerm + "\uf8ff")
+			.limit(MAX_RESULTS);
+
+		const [tokenResults, emailResults, legacyEmailResults] = await Promise.all([
+			searchTokensQuery.get(),
+			emailQuery.get(),
+			legacyEmailQuery.get(),
+		]);
+
+		tokenResults.docs.forEach((doc) =>
+			addSearchResult(usersMap, doc, currentUserId),
+		);
+		emailResults.docs.forEach((doc) =>
+			addSearchResult(usersMap, doc, currentUserId),
+		);
+		legacyEmailResults.docs.forEach((doc) =>
+			addSearchResult(usersMap, doc, currentUserId),
+		);
 
 		const users = Array.from(usersMap.values());
 

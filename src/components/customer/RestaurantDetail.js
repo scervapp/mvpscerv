@@ -400,6 +400,44 @@ const RestaurantDetailScreen = () => {
 		});
 	};
 
+	const handleStartParty = async () => {
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			return;
+		}
+
+		if (isAddingDineInItem || isLoadingParty) return;
+
+		setIsAddingDineInItem(true);
+		try {
+			const resolvedPartyId = await getOrCreateDineInParty();
+
+			if (!resolvedPartyId) {
+				Alert.alert(
+					t("error_title", "Error"),
+					t("could_not_create_party", "Could not create your party."),
+				);
+				return;
+			}
+
+			navigation.navigate("PartyTab", {
+				screen: "PartySession",
+				params: {
+					partyId: resolvedPartyId,
+					restaurantId: restaurant.id,
+				},
+			});
+		} catch (error) {
+			Alert.alert(
+				t("error_title", "Error"),
+				error?.message ||
+					t("could_not_create_party", "Could not create your party."),
+			);
+		} finally {
+			setIsAddingDineInItem(false);
+		}
+	};
+
 	const handleViewDineInParty = () => {
 		if (!dineInPartyId) return;
 
@@ -750,7 +788,7 @@ const RestaurantDetailScreen = () => {
 							</View>
 							<View style={styles.prebuiltBasketTextWrap}>
 								<Text style={styles.prebuiltBasketTitle}>
-									{t("basket_ready_title", "Basket ready")}
+									{t("party_started_title", "Party started")}
 								</Text>
 								<Text style={styles.prebuiltBasketSubtitle} numberOfLines={1}>
 									{t("items_ready_to_scan", {
@@ -758,7 +796,9 @@ const RestaurantDetailScreen = () => {
 										defaultValue:
 											dineInBasketCount === 1
 												? "1 item saved for dine-in"
-												: `${dineInBasketCount} items saved for dine-in`,
+												: dineInBasketCount > 1
+													? `${dineInBasketCount} items saved for dine-in`
+													: "Invite PIPs or build the basket before you arrive",
 									})}
 								</Text>
 							</View>
@@ -787,12 +827,12 @@ const RestaurantDetailScreen = () => {
 							activeOpacity={0.85}
 						>
 							<MaterialCommunityIcons
-								name="format-list-bulleted"
+								name="party-popper"
 								size={18}
 								color={colors.primary}
 							/>
 							<Text style={styles.compactSecondaryText} numberOfLines={1}>
-								{t("view_basket", "View Basket")}
+								{t("party_room", "Party Room")}
 							</Text>
 						</TouchableOpacity>
 
@@ -836,28 +876,47 @@ const RestaurantDetailScreen = () => {
 		// 4. DEFAULT STATE: always show both
 		return (
 			<View style={styles.actionsRow}>
-				<View style={styles.splitActionsRow}>
+				<TouchableOpacity
+					style={styles.primaryScanButton}
+					onPress={handleStartParty}
+					disabled={isAddingDineInItem}
+					activeOpacity={0.85}
+				>
+					{isAddingDineInItem ? (
+						<ActivityIndicator size="small" color="#fff" />
+					) : (
+						<>
+							<MaterialCommunityIcons
+								name="party-popper"
+								size={22}
+								color="#fff"
+							/>
+							<Text style={styles.primaryScanText} numberOfLines={1}>
+								{t("start_party", "Start Party")}
+							</Text>
+						</>
+					)}
+				</TouchableOpacity>
+
+				<View style={styles.compactActionRow}>
 					<TouchableOpacity
-						style={[styles.primaryScanButton, styles.splitActionButton]}
+						style={styles.compactSecondaryButton}
 						onPress={handleStartDineIn}
 						activeOpacity={0.85}
 					>
-						<MaterialCommunityIcons name="qrcode-scan" size={20} color="#fff" />
-						<Text
-							style={[styles.primaryScanText, styles.splitActionButtonText]}
-							numberOfLines={1}
-						>
-							{t("dine_in", "Dine In")}
+						<MaterialCommunityIcons
+							name="qrcode-scan"
+							size={18}
+							color={colors.primary}
+						/>
+						<Text style={styles.compactSecondaryText} numberOfLines={1}>
+							{t("scan_table", "Scan Table")}
 						</Text>
 					</TouchableOpacity>
 
 					{pickupEnabled && (
 						<TouchableOpacity
-							style={[
-								styles.primaryScanButton,
-								styles.splitActionButton,
-								styles.secondaryPickupButton,
-							]}
+							style={styles.compactSecondaryButton}
 							onPress={handleOpenPickupFlow}
 							disabled={isStartingPickup}
 							activeOpacity={0.85}
@@ -876,11 +935,7 @@ const RestaurantDetailScreen = () => {
 										color={colors.primary}
 									/>
 									<Text
-										style={[
-											styles.primaryScanText,
-											styles.splitActionButtonText,
-											styles.secondaryPickupText,
-										]}
+										style={styles.compactSecondaryText}
 										numberOfLines={1}
 									>
 										{pickupBasketCount > 0

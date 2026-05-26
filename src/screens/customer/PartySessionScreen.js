@@ -28,6 +28,7 @@ import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
+import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
 import formatTimeLeft from "../../utils/formatTimeLeft";
 
@@ -59,6 +60,7 @@ const PartySessionScreen = () => {
 		cancelParty,
 		activatePartyCheckIn,
 		addLocalPIPToParty,
+		inviteToParty,
 		sendMyItemsToKitchen,
 		handlePartyItemQuantityChange,
 	} = useParty();
@@ -69,6 +71,7 @@ const PartySessionScreen = () => {
 
 	const [uiLoading, setUiLoading] = useState(false);
 	const [isMembersModalVisible, setIsMembersModalVisible] = useState(false);
+	const [isPipInviteModalVisible, setIsPipInviteModalVisible] = useState(false);
 	const [isAddMembersModalVisible, setIsAddMembersModalVisible] =
 		useState(false);
 	const [userPips, setUserPips] = useState([]);
@@ -82,11 +85,14 @@ const PartySessionScreen = () => {
 
 	// UI Upgrades State
 	const [showInviteCode, setShowInviteCode] = useState(false);
+	const [localInviteCode, setLocalInviteCode] = useState(null);
 
 	const currentParty = partyDetails[currentPartyId];
 	const isHost = currentParty
 		? currentParty.hostUserId === currentUserData?.uid
 		: false;
+	const displayInviteCode = currentParty?.inviteCode || localInviteCode;
+	const displayInviteExpiry = currentParty?.inviteCodeExpiry || null;
 
 	// --- Virtual Service Bell Action ---
 	const handleCallServer = async () => {
@@ -234,7 +240,26 @@ const PartySessionScreen = () => {
 		);
 	};
 
-	const handleShareInvite = async (code) => {
+	const handleShareInvite = async (codeOverride = null) => {
+		if (!currentPartyId) return;
+
+		let code = codeOverride || currentParty?.inviteCode;
+
+		if (!code && isHost) {
+			code = await inviteToParty(currentPartyId);
+			if (code) {
+				setLocalInviteCode(code);
+			}
+		}
+
+		if (!code) {
+			Alert.alert(
+				t("invite_unavailable", "Invite Unavailable"),
+				t("could_not_generate_invite", "Could not generate an invite code."),
+			);
+			return;
+		}
+
 		const restaurantName =
 			partyDetails[currentPartyId]?.restaurantName ||
 			t("a_restaurant", "a restaurant");
@@ -246,6 +271,68 @@ const PartySessionScreen = () => {
 				t("share_failed", "Share Failed"),
 				t("could_not_share_invite", "Could not share invite."),
 			);
+		}
+	};
+
+	const handleInvitePip = () => {
+		if (!isHost) return;
+		setIsPipInviteModalVisible(true);
+	};
+
+	const sendInviteToUserPIP = async (pipUserId, pipName) => {
+		if (!currentPartyId || !pipUserId) return;
+		setUiLoading(true);
+		try {
+			const result = await inviteToParty(currentPartyId, {
+				inviteeUserId: pipUserId,
+				returnFullResult: true,
+			});
+			if (result?.inviteCode) {
+				Alert.alert(
+					t("success", "Success"),
+					`${t("invite_sent_to", "Invite sent to")} ${pipName}!`,
+				);
+				setIsPipInviteModalVisible(false);
+			}
+		} finally {
+			setUiLoading(false);
+		}
+	};
+
+	const handleShowInviteCode = async () => {
+		if (!currentPartyId) return;
+
+		if (displayInviteCode) {
+			setShowInviteCode((visible) => !visible);
+			return;
+		}
+
+		if (!isHost) return;
+
+		setUiLoading(true);
+		try {
+			const code = await inviteToParty(currentPartyId);
+			if (code) {
+				setLocalInviteCode(code);
+				setShowInviteCode(true);
+			}
+		} finally {
+			setUiLoading(false);
+		}
+	};
+
+	const addLocalPIP = async (localPIPId, localPIPName) => {
+		if (!currentPartyId || !localPIPId || !localPIPName) return;
+		setUiLoading(true);
+		try {
+			const success = await addLocalPIPToParty(currentPartyId, [
+				{ id: localPIPId, name: localPIPName },
+			]);
+			if (success) {
+				setIsPipInviteModalVisible(false);
+			}
+		} finally {
+			setUiLoading(false);
 		}
 	};
 
@@ -500,10 +587,24 @@ const PartySessionScreen = () => {
 						/>
 					</TouchableOpacity>
 
-					{currentParty?.inviteCode && (
+					{isHost && (
 						<TouchableOpacity
 							style={styles.headerIconButton}
-							onPress={() => setShowInviteCode(!showInviteCode)}
+							onPress={handleInvitePip}
+						>
+							<Ionicons
+								name="person-add-outline"
+								size={26}
+								color={colors.primary}
+							/>
+						</TouchableOpacity>
+					)}
+
+					{isHost && (
+						<TouchableOpacity
+							style={styles.headerIconButton}
+							onPress={handleShowInviteCode}
+							disabled={uiLoading}
 						>
 							<Ionicons
 								name="qr-code-outline"
@@ -535,23 +636,25 @@ const PartySessionScreen = () => {
 			</View>
 
 			{/* EXPANDABLE SMART INVITE BANNER */}
-			{currentParty?.inviteCode && showInviteCode && (
+			{displayInviteCode && showInviteCode && (
 				<View style={styles.inviteCodeBanner}>
 					<Text style={styles.inviteLabel}>
 						{t("invite_code", "Invite Code")}
 					</Text>
 					<View style={styles.inviteCodeBox}>
-						<Text style={styles.inviteCodeText}>{currentParty.inviteCode}</Text>
+						<Text style={styles.inviteCodeText}>{displayInviteCode}</Text>
 						<TouchableOpacity
-							onPress={() => handleShareInvite(currentParty.inviteCode)}
+							onPress={() => handleShareInvite(displayInviteCode)}
 						>
 							<Ionicons name="share-social" size={28} color={colors.primary} />
 						</TouchableOpacity>
 					</View>
-					<Text style={styles.expiryText}>
-						{t("expires_in", "Expires in")}{" "}
-						{formatTimeLeft(currentParty.inviteCodeExpiry)}
-					</Text>
+					{displayInviteExpiry && (
+						<Text style={styles.expiryText}>
+							{t("expires_in", "Expires in")}{" "}
+							{formatTimeLeft(displayInviteExpiry)}
+						</Text>
+					)}
 				</View>
 			)}
 
@@ -906,6 +1009,17 @@ const PartySessionScreen = () => {
 					</TouchableOpacity>
 				</TouchableOpacity>
 			</Modal>
+
+			<PipInvitationModal
+				isVisible={isPipInviteModalVisible}
+				onClose={() => setIsPipInviteModalVisible(false)}
+				pips={userPips}
+				isLoadingPips={isLoadingMembers}
+				partyDetails={currentParty || {}}
+				isActionLoading={uiLoading}
+				onSelectUserPip={sendInviteToUserPIP}
+				onSelectLocalPip={addLocalPIP}
+			/>
 		</SafeAreaView>
 	);
 };

@@ -38,29 +38,6 @@ const PIPSListScreen = () => {
 	const [searchError, setSearchError] = useState(null);
 	// --- End Search Modal State ---
 
-	// --- Cloud Function Reference ---
-	const searchPIPsFunction = httpsCallable(functions, "searchPIPs");
-	// --- End CF Reference ---
-
-	// Create a new pip
-	const createNewPip = async () => {
-		if (!newPipName) {
-			return;
-		}
-		try {
-			const pipsRef = db
-				.collection("customers")
-				.doc(currentUserData.uid)
-				.collection("pips");
-			await addDoc(pipsRef, {
-				name: newPipName,
-			});
-			setNewPipName("");
-		} catch (error) {
-			console.log("Error adding pips", error);
-		}
-	};
-
 	useEffect(() => {
 		if (!currentUserData?.uid) {
 			setIsLoading(false);
@@ -124,59 +101,6 @@ const PIPSListScreen = () => {
 		);
 	};
 
-	const fetchPIPS = async () => {
-		const pipsRef = collection(db, `customers/${currentUserData.uid}/pips`);
-		const q = query(pipsRef, orderBy("name"));
-		const unsubscribe = onSnapshot(q, (querySnapshot) => {
-			const pipsArray = querySnapshot.docs.map((doc) => ({
-				id: doc.id,
-				...doc.data(),
-			}));
-			setPIPs(pipsArray);
-		});
-		return () => unsubscribe();
-	};
-
-	// fetch pips from db
-	const usePIPsListener = (currentUserData) => {
-		const [pips, setPIPs] = useState([]);
-		const [isLoading, setIsLoading] = useState(true);
-
-		useEffect(() => {
-			if (!currentUserData?.uid) {
-				setIsLoading(false);
-				setPIPs([]);
-				return;
-			}
-			setIsLoading(true);
-
-			// --- REFACTORED FIRESTORE LISTENER ---
-			const pipsQuery = db
-				.collection(`customers/${currentUserData.uid}/pips`)
-				.orderBy("name");
-
-			const unsubscribe = pipsQuery.onSnapshot(
-				(snapshot) => {
-					const pipsList = snapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-					setPIPs(pipsList);
-					setIsLoading(false);
-				},
-				(error) => {
-					console.error("Error fetching PIPs:", error);
-					Alert.alert(t("error"), t("could_not_load_your_pips"));
-					setIsLoading(false);
-				}
-			);
-
-			return () => unsubscribe();
-		}, [currentUserData?.uid]);
-
-		return { pips, setPIPs, isLoading };
-	};
-
 	const handleAddPip = async () => {
 		if (newPipName.trim() === "" || !currentUserData?.uid) return;
 		try {
@@ -194,14 +118,10 @@ const PIPSListScreen = () => {
 		}
 	};
 
-	const handleSearchPIPs = async (
-		searchTerm,
-		currentUserData,
-		setSearchResults,
-		setSearchError,
-		setIsSearching
-	) => {
-		if (searchTerm.trim().length < 3) {
+	const handleSearchPIPs = async () => {
+		const trimmedSearchTerm = searchTerm.trim();
+
+		if (trimmedSearchTerm.length < 3) {
 			setSearchError(t("search_term_must_be_at_least_3_characters"));
 			setSearchResults([]);
 			return;
@@ -213,7 +133,7 @@ const PIPSListScreen = () => {
 			// This was already using the correct native functions API
 			const searchPIPsFunction = httpsCallable(functions, "searchPIPs");
 			const result = await searchPIPsFunction({
-				searchTerm: searchTerm.trim(),
+				searchTerm: trimmedSearchTerm,
 			});
 
 			if (result.data.success && result.data.users) {
@@ -236,12 +156,7 @@ const PIPSListScreen = () => {
 	};
 
 	// --- NEW: Handle Adding a User PIP ---
-	const handleAddUserPip = async (
-		currentUserData,
-		pips,
-		userToAdd,
-		setIsSearchModalVisible
-	) => {
+	const handleAddUserPip = async (userToAdd) => {
 		if (!currentUserData?.uid || !userToAdd?.id || !userToAdd?.name) return;
 
 		const alreadyExists = pips.some(
@@ -253,6 +168,8 @@ const PIPSListScreen = () => {
 		}
 
 		setIsSearchModalVisible(false);
+		setSearchTerm("");
+		setSearchResults([]);
 
 		try {
 			// --- REFACTORED FIRESTORE ADD ---
@@ -270,80 +187,146 @@ const PIPSListScreen = () => {
 		}
 	};
 
-	// Fucntion to render an individual PIP
-	const renderPip = ({ item }) => (
+	const renderPipItem = ({ item }) => (
 		<View style={styles.pipItem}>
-			<Ionicons name="person-circle-outline" size={24} color="gray" />
-			<Text style={styles.pipName}>{item.name}</Text>
-			<TouchableOpacity onPress={() => handleDeletePip(item.id)}>
-				<Ionicons name="trash-outline" size={24} color={"red"} />
-				{/* Use a trash icon */}
+			<View style={styles.pipIdentity}>
+				<View
+					style={[
+						styles.pipAvatar,
+						item.isUser ? styles.userPipAvatar : styles.localPipAvatar,
+					]}
+				>
+					<Ionicons
+						name={item.isUser ? "person-circle" : "person-outline"}
+						size={24}
+						color={item.isUser ? colors.primary : colors.textDark}
+					/>
+				</View>
+				<View style={styles.pipTextBlock}>
+					<Text style={styles.pipName} numberOfLines={1}>
+						{item.name}
+					</Text>
+					<Text style={styles.pipType}>
+						{item.isUser
+							? t("scerv_friend", "Scerv friend")
+							: t("guest_placeholder", "Guest placeholder")}
+					</Text>
+				</View>
+			</View>
+			<TouchableOpacity
+				style={styles.deletePipButton}
+				onPress={() => handleDeletePip(item.id)}
+			>
+				<Ionicons name="trash-outline" size={22} color={colors.statusDanger || "red"} />
 			</TouchableOpacity>
 		</View>
 	);
 
-	// --- Render Item (Modified) ---
-	const renderPipItem = ({ item }) => (
-		<View style={styles.pipItem}>
-			<Ionicons
-				name={item.isUser ? "person-circle" : "person-add-outline"} // Different icons
-				size={24}
-				color={item.isUser ? colors.primary : colors.textDark} // Different colors
-				style={styles.pipIcon}
-			/>
-			<Text style={styles.pipName}>{item.name}</Text>
-			<TouchableOpacity onPress={() => handleDeletePip(item.id)}>
-				<Ionicons name="trash-outline" size={24} color={"red"} />
-			</TouchableOpacity>
+	const renderPipsHeader = () => (
+		<View>
+			<View style={styles.heroPanel}>
+				<Text style={styles.screenTitle}>
+					{t("pips_friends_title", "PIPs / Friends")}
+				</Text>
+				<Text style={styles.screenSubtitle}>
+					{t(
+						"pips_friends_subtitle",
+						"Add people here so you can invite them to restaurant parties fast.",
+					)}
+				</Text>
+			</View>
+
+			<View style={styles.actionPanel}>
+				<TouchableOpacity
+					style={styles.primaryFriendButton}
+					onPress={() => setIsSearchModalVisible(true)}
+				>
+					<Ionicons
+						name="search-outline"
+						size={20}
+						color="white"
+						style={styles.actionIcon}
+					/>
+					<View style={styles.actionTextBlock}>
+						<Text style={styles.primaryFriendButtonText}>
+							{t("add_scerv_friend", "Add Scerv Friend")}
+						</Text>
+						<Text style={styles.primaryFriendButtonSubtext}>
+							{t(
+								"add_scerv_friend_hint",
+								"Search for someone with a Scerv account.",
+							)}
+						</Text>
+					</View>
+				</TouchableOpacity>
+			</View>
+
+			<View style={styles.actionPanel}>
+				<View style={styles.sectionHeaderRow}>
+					<Ionicons
+						name="person-add-outline"
+						size={20}
+						color={colors.primary}
+					/>
+					<Text style={styles.sectionHeaderText}>
+						{t("add_guest_placeholder", "Add Guest Placeholder")}
+					</Text>
+				</View>
+				<Text style={styles.sectionHelperText}>
+					{t(
+						"guest_placeholder_help",
+						"Use this for someone who does not have Scerv yet.",
+					)}
+				</Text>
+				<View style={styles.addPipContainer}>
+					<TextInput
+						style={styles.input}
+						placeholder={t("guest_name", "Guest name")}
+						value={newPipName}
+						onChangeText={setNewPipName}
+						placeholderTextColor={colors.textMedium}
+					/>
+					<TouchableOpacity style={styles.addButton} onPress={handleAddPip}>
+						<Ionicons name="add" size={20} color="white" />
+						<Text style={styles.addButtonText}>{t("add", "Add")}</Text>
+					</TouchableOpacity>
+				</View>
+			</View>
+
+			<Text style={styles.listTitle}>{t("your_pips", "Your PIPs")}</Text>
 		</View>
 	);
 
 	return (
 		<View style={styles.container}>
-			<Text style={styles.instructions}>
-				{t(
-					"create_a_local_pip_for_your_personal_party_or_search_for_other_scerv_users_to_add_them"
-				)}
-			</Text>
-			{/* Input for adding placeholder PIPs (Existing) */}
-			<View style={styles.addPipContainer}>
-				<TextInput
-					style={styles.input}
-					placeholder={t("enter_local_pip_name")}
-					value={newPipName}
-					onChangeText={setNewPipName}
-					placeholderTextColor={colors.textMedium}
-				/>
-				<TouchableOpacity style={styles.addButton} onPress={handleAddPip}>
-					<Text style={styles.addButtonText}>{t("add_local_pip")}</Text>
-				</TouchableOpacity>
-			</View>
-
-			{/* --- Button to Add User PIP --- */}
-			<TouchableOpacity
-				style={[styles.addButton, styles.addUserButton]} // Different style
-				onPress={() => setIsSearchModalVisible(true)}
-			>
-				<Ionicons
-					name="search-outline"
-					size={18}
-					color="white"
-					style={{ marginRight: 5 }}
-				/>
-				<Text style={styles.addButtonText}>{t("find_add_user_pip")}</Text>
-			</TouchableOpacity>
-			{/* --- End Button --- */}
-
-			{/* List of PIPs */}
 			{isLoading ? (
-				<ActivityIndicator size="large" color={colors.primary} />
+				<View style={styles.loadingContainer}>
+					<ActivityIndicator size="large" color={colors.primary} />
+				</View>
 			) : (
 				<FlatList
 					data={pips}
 					renderItem={renderPipItem}
 					keyExtractor={(item) => item.id}
+					ListHeaderComponent={renderPipsHeader()}
+					contentContainerStyle={styles.listContent}
 					ListEmptyComponent={
-						<Text style={styles.emptyText}>{t("no_pips_added_yet")}</Text>
+						<View style={styles.emptyPanel}>
+							<Ionicons
+								name="people-outline"
+								size={34}
+								color={colors.textLight}
+							/>
+							<Text style={styles.emptyTitle}>
+								{t("no_pips_added_yet", "No PIPs added yet")}
+							</Text>
+							<Text style={styles.emptyText}>
+								{t(
+									"add_pips_empty_state",
+									"Add friends or guest placeholders so party planning feels instant.",
+								)}
+							</Text>
+						</View>
 					}
 				/>
 			)}
@@ -409,8 +392,14 @@ const PIPSListScreen = () => {
 									color={colors.primary}
 									style={styles.pipIcon}
 								/>
-								<Text style={styles.searchResultName}>{item.name}</Text>
-								{/* Optionally show email: <Text style={styles.searchResultEmail}>{item.email}</Text> */}
+								<View style={styles.searchResultTextBlock}>
+									<Text style={styles.searchResultName}>{item.name}</Text>
+									{!!item.email && (
+										<Text style={styles.searchResultEmail} numberOfLines={1}>
+											{item.email}
+										</Text>
+									)}
+								</View>
 								<Ionicons
 									name="add-circle-outline"
 									size={26}
@@ -435,27 +424,96 @@ const PIPSListScreen = () => {
 
 // Stylesheet
 const styles = StyleSheet.create({
-	instructions: {
-		textAlign: "center",
-		marginBottom: 15,
-		fontSize: 14,
-		color: colors.textMedium,
-	},
 	container: {
 		flex: 1,
-		padding: 15,
 		backgroundColor: colors.background,
+	},
+	listContent: {
+		padding: 15,
+		paddingBottom: 32,
+	},
+	loadingContainer: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	heroPanel: {
+		backgroundColor: colors.surfaceWhite || "white",
+		borderRadius: 8,
+		padding: 16,
+		marginBottom: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#eee",
+	},
+	screenTitle: {
+		fontSize: 22,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginBottom: 5,
+	},
+	screenSubtitle: {
+		fontSize: 14,
+		lineHeight: 20,
+		color: colors.textMedium,
+	},
+	actionPanel: {
+		backgroundColor: colors.surfaceWhite || "white",
+		borderRadius: 8,
+		padding: 14,
+		marginBottom: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#eee",
+	},
+	primaryFriendButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.primary,
+		borderRadius: 8,
+		paddingVertical: 12,
+		paddingHorizontal: 14,
+	},
+	actionIcon: {
+		marginRight: 10,
+	},
+	actionTextBlock: {
+		flex: 1,
+	},
+	primaryFriendButtonText: {
+		color: "white",
+		fontSize: 16,
+		fontWeight: "800",
+	},
+	primaryFriendButtonSubtext: {
+		color: "rgba(255,255,255,0.82)",
+		fontSize: 12,
+		marginTop: 2,
+	},
+	sectionHeaderRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 5,
+	},
+	sectionHeaderText: {
+		fontSize: 16,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginLeft: 7,
+	},
+	sectionHelperText: {
+		fontSize: 13,
+		color: colors.textMedium,
+		marginBottom: 12,
 	},
 	addPipContainer: {
 		flexDirection: "row",
-		marginBottom: 15,
 		alignItems: "center",
 	},
 	input: {
 		flex: 1,
 		borderWidth: 1,
-		borderColor: colors.mediumGray || "#ccc",
-		padding: 10,
+		borderColor: colors.borderLight || colors.mediumGray || "#ccc",
+		paddingHorizontal: 12,
+		paddingVertical: 10,
 		borderRadius: 8,
 		marginRight: 10,
 		backgroundColor: "white",
@@ -469,44 +527,90 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 	},
-	addUserButton: {
-		// Style for the second button
-		backgroundColor: colors.secondary || "#5a6268",
-		marginBottom: 20, // Space below this button
-		justifyContent: "center",
-	},
 	addButtonText: {
 		color: "white",
 		fontWeight: "bold",
+		marginLeft: 2,
+	},
+	listTitle: {
+		fontSize: 15,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginBottom: 10,
 	},
 	pipItem: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		padding: 15,
-		backgroundColor: "white",
+		padding: 12,
+		backgroundColor: colors.surfaceWhite || "white",
 		borderRadius: 8,
 		marginBottom: 10,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.1,
-		shadowRadius: 2,
-		elevation: 2,
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#eee",
+	},
+	pipIdentity: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		minWidth: 0,
+	},
+	pipAvatar: {
+		width: 42,
+		height: 42,
+		borderRadius: 21,
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	userPipAvatar: {
+		backgroundColor: colors.primary + "14",
+	},
+	localPipAvatar: {
+		backgroundColor: colors.backgroundLight || "#f5f5f5",
+	},
+	pipTextBlock: {
+		flex: 1,
+		minWidth: 0,
+	},
+	pipName: {
+		fontSize: 16,
+		fontWeight: "700",
 		color: colors.textDark,
+	},
+	pipType: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	deletePipButton: {
+		padding: 8,
+		marginLeft: 8,
 	},
 	pipIcon: {
 		marginRight: 10,
 	},
-	pipName: {
-		flex: 1,
+	emptyPanel: {
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 28,
+		paddingHorizontal: 18,
+		backgroundColor: colors.surfaceWhite || "white",
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#eee",
+	},
+	emptyTitle: {
+		marginTop: 8,
 		fontSize: 16,
+		fontWeight: "800",
 		color: colors.textDark,
 	},
 	emptyText: {
 		textAlign: "center",
-		marginTop: 30,
+		marginTop: 6,
 		color: colors.textLight,
-		fontStyle: "italic",
+		lineHeight: 19,
 	},
 	// Modal Styles
 	modalContainer: {
@@ -561,8 +665,18 @@ const styles = StyleSheet.create({
 		borderColor: colors.lightGray || "#eee",
 	},
 	searchResultName: {
-		flex: 1,
 		fontSize: 16,
+		fontWeight: "700",
+		color: colors.textDark,
+	},
+	searchResultTextBlock: {
+		flex: 1,
+		minWidth: 0,
+	},
+	searchResultEmail: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
 	},
 	errorTextModal: {
 		color: colors.danger,

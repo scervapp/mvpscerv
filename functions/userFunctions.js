@@ -16,6 +16,82 @@ const { Resend } = require("resend");
 
 const resend = new Resend("re_c5VCacmN_N1Ynx623z8htk2jxjHR8qSJp");
 
+const normalizeSearchValue = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+
+const buildCustomerSearchTokens = ({ firstName, lastName, fullName, email }) => {
+	const sourceValues = [
+		firstName,
+		lastName,
+		fullName,
+		`${firstName || ""} ${lastName || ""}`.trim(),
+		email,
+	];
+	const tokens = new Set();
+
+	sourceValues.forEach((sourceValue) => {
+		const normalizedValue = normalizeSearchValue(sourceValue);
+		if (!normalizedValue) return;
+
+		normalizedValue.split(/[ @._-]+/).forEach((part) => {
+			if (part.length < 3) return;
+			for (let length = 3; length <= part.length; length++) {
+				tokens.add(part.slice(0, length));
+			}
+		});
+
+		if (normalizedValue.length >= 3) {
+			for (let length = 3; length <= normalizedValue.length; length++) {
+				tokens.add(normalizedValue.slice(0, length));
+			}
+		}
+	});
+
+	return Array.from(tokens).slice(0, 100);
+};
+
+const arraysEqual = (first = [], second = []) => {
+	if (first.length !== second.length) return false;
+	const firstSorted = [...first].sort();
+	const secondSorted = [...second].sort();
+	return firstSorted.every((value, index) => value === secondSorted[index]);
+};
+
+const getCustomerSearchIndexPatch = (customerData = {}) => {
+	const emailLower = normalizeSearchValue(customerData.email);
+	const firstName = customerData.firstName || "";
+	const lastName = customerData.lastName || "";
+	const fullName =
+		customerData.fullName ||
+		`${firstName || ""} ${lastName || ""}`.trim() ||
+		null;
+	const searchTokens = buildCustomerSearchTokens({
+		firstName,
+		lastName,
+		fullName,
+		email: emailLower,
+	});
+
+	const patch = {};
+
+	if ((customerData.emailLower || null) !== (emailLower || null)) {
+		patch.emailLower = emailLower || null;
+	}
+
+	if ((customerData.fullName || null) !== (fullName || null)) {
+		patch.fullName = fullName;
+	}
+
+	if (!arraysEqual(customerData.searchTokens || [], searchTokens)) {
+		patch.searchTokens = searchTokens;
+	}
+
+	return patch;
+};
+
 // Define the secret
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -538,9 +614,22 @@ exports.createUserAccount = functions
 			.setCustomUserClaims(userRecord.uid, { role, restaurantId });
 
 		const docRef = db.collection(collectionName).doc(userRecord.uid);
+		const normalizedEmail = normalizeSearchValue(email);
+		const fullName =
+			`${additionalData.firstName || ""} ${additionalData.lastName || ""}`.trim();
 		await docRef.set({
 			uid: userRecord.uid,
-			email,
+			email: normalizedEmail || email,
+			...(role === "customer" && {
+				emailLower: normalizedEmail || null,
+				fullName: fullName || null,
+				searchTokens: buildCustomerSearchTokens({
+					firstName: additionalData.firstName,
+					lastName: additionalData.lastName,
+					fullName,
+					email: normalizedEmail || email,
+				}),
+			}),
 			...additionalData,
 			...userData, // Includes role and the new flag
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -597,6 +686,9 @@ exports.onUserCreate = functions
 		user.email && typeof user.email === "string"
 			? user.email.toLowerCase().trim()
 			: null;
+	const displayName = user.displayName || "";
+	const [firstName = "", ...lastNameParts] = displayName.split(" ");
+	const lastName = lastNameParts.join(" ");
 
 	const userData = {
 		uid: user.uid,
@@ -605,6 +697,16 @@ exports.onUserCreate = functions
 		updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 
 		email: normalizedEmail,
+		emailLower: normalizedEmail,
+		fullName: displayName || null,
+		firstName: firstName || null,
+		lastName: lastName || null,
+		searchTokens: buildCustomerSearchTokens({
+			firstName,
+			lastName,
+			fullName: displayName,
+			email: normalizedEmail,
+		}),
 		phoneNumber: user.phoneNumber || null,
 
 		canViewHiddenRestaurants: false,
@@ -619,6 +721,31 @@ exports.onUserCreate = functions
 	console.log(`Successfully created customer document for user ${user.uid}`);
 	return null;
 });
+
+exports.syncCustomerSearchIndex = functions.firestore
+	.document("customers/{userId}")
+	.onWrite(async (change) => {
+		if (!change.after.exists) {
+			return null;
+		}
+
+		const customerData = change.after.data() || {};
+		const patch = getCustomerSearchIndexPatch(customerData);
+
+		if (Object.keys(patch).length === 0) {
+			return null;
+		}
+
+		await change.after.ref.set(
+			{
+				...patch,
+				searchIndexUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		return null;
+	});
 
 /**
  * A callable function to set a user's role. This should only be called

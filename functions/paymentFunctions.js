@@ -832,6 +832,7 @@ exports.preparePayment = functions
 			checkInTimestamp,
 			orderMode,
 			fulfillmentType,
+			payingForUserId,
 		} = data;
 
 		if (
@@ -938,13 +939,27 @@ exports.preparePayment = functions
 				}
 
 				const partyData = partyDoc.data();
-				const memberIds = (partyData.guestPips || []).map((p) => p.userId);
+				const memberIds = (partyData.guestPips || [])
+					.map((p) => p.userId)
+					.filter(Boolean);
+				const billableMemberIds = (partyData.guestPips || [])
+					.map((p) => p.userId || p.localPipId || p.id)
+					.filter(Boolean);
+				const targetOwnerId = payingForUserId || userId;
+
 				if (memberIds.includes(userId)) {
 					isUserVerifiedForParty = true;
 				} else {
 					throw new functions.https.HttpsError(
 						"permission-denied",
 						"User is not a member of this party.",
+					);
+				}
+
+				if (!billableMemberIds.includes(targetOwnerId)) {
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"Selected party member is not part of this party.",
 					);
 				}
 
@@ -976,7 +991,9 @@ exports.preparePayment = functions
 							itemInDb.userId ||
 							itemInDb.addedByUserId ||
 							null;
-						return clientItemIds.has(itemInDb.id) && itemOwnerId === userId;
+						return (
+							clientItemIds.has(itemInDb.id) && itemOwnerId === targetOwnerId
+						);
 					},
 				);
 			} else {
@@ -1159,6 +1176,10 @@ exports.preparePayment = functions
 				stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
 				savePaymentMethod: true,
 				savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
+				payerUserId: userId,
+				paidForUserIds: isSharedBasketPayment
+					? [payingForUserId || userId]
+					: [userId],
 				paymentPolicy: sanitizeFirestoreValue(paymentPolicy),
 				restaurantTaxRate,
 				items: sanitizeFirestoreValue(fullItemDetails),
@@ -1228,6 +1249,10 @@ exports.preparePayment = functions
 					stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
 					savePaymentMethod: true,
 					savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
+					payerUserId: userId,
+					paidForUserIds: isSharedBasketPayment
+						? [payingForUserId || userId]
+						: [userId],
 					restaurantTaxRate,
 					itemIds: fullItemDetails.map((item) => item.id),
 				}),
@@ -1281,6 +1306,10 @@ exports.preparePayment = functions
 					metadata: {
 						orderId: newOrderId,
 						userId,
+						payerUserId: userId,
+						paidForUserIds: isSharedBasketPayment
+							? String(payingForUserId || userId)
+							: String(userId),
 						restaurantId,
 						type: paymentType,
 						partyId: partyId || "",
@@ -2061,15 +2090,32 @@ const fulfillOrder = async ({
 					: [];
 				let remainingOrderedItemsAfterPayment = [];
 				let hasRemainingPosCloseoutItems = false;
+				const paidForUserIds = Array.isArray(
+					transactionalPendingOrderData.paidForUserIds,
+				)
+					? transactionalPendingOrderData.paidForUserIds.filter(Boolean)
+					: [payerUserId].filter(Boolean);
+				const paidForRealUserIds = new Set(
+					currentGuestPips
+						.filter((pip) =>
+							paidForUserIds.includes(pip.userId || pip.localPipId || pip.id),
+						)
+						.map((pip) => pip.userId)
+						.filter(Boolean),
+				);
 
 				const updatedGuestPips = currentGuestPips.map((pip) =>
-					pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip,
+					paidForUserIds.includes(pip.userId || pip.localPipId || pip.id)
+						? { ...pip, paymentStatus: "paid", paidByUserId: payerUserId }
+						: pip,
 				);
 
 				t.update(partySnap.ref, {
 					guestPips: updatedGuestPips,
-					...(payerUserId && {
-						guestUserIds: admin.firestore.FieldValue.arrayRemove(payerUserId),
+					...(paidForRealUserIds.size > 0 && {
+						guestUserIds: admin.firestore.FieldValue.arrayRemove(
+							...Array.from(paidForRealUserIds),
+						),
 					}),
 				});
 

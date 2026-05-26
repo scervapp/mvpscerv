@@ -31,6 +31,43 @@ export default function CompleteProfileScreen() {
 	const [loading, setLoading] = useState(false);
 	const { currentUser, currentUserData } = useContext(AuthContext);
 
+	const normalizeSearchValue = (value) =>
+		String(value || "")
+			.trim()
+			.toLowerCase()
+			.replace(/\s+/g, " ");
+
+	const buildCustomerSearchTokens = ({ firstName, lastName, fullName, email }) => {
+		const sourceValues = [
+			firstName,
+			lastName,
+			fullName,
+			`${firstName || ""} ${lastName || ""}`.trim(),
+			email,
+		];
+		const tokens = new Set();
+
+		sourceValues.forEach((sourceValue) => {
+			const normalizedValue = normalizeSearchValue(sourceValue);
+			if (!normalizedValue) return;
+
+			normalizedValue.split(/[ @._-]+/).forEach((part) => {
+				if (part.length < 3) return;
+				for (let length = 3; length <= part.length; length++) {
+					tokens.add(part.slice(0, length));
+				}
+			});
+
+			if (normalizedValue.length >= 3) {
+				for (let length = 3; length <= normalizedValue.length; length++) {
+					tokens.add(normalizedValue.slice(0, length));
+				}
+			}
+		});
+
+		return Array.from(tokens).slice(0, 100);
+	};
+
 	const isValidDate = (dateStr) => {
 		const regex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/(19|20)\d{2}$/;
 		return regex.test(dateStr);
@@ -78,12 +115,27 @@ export default function CompleteProfileScreen() {
 		setLoading(true);
 
 		try {
+			const trimmedFirstName = firstName.trim();
+			const trimmedLastName = lastName.trim();
+			const fullName = `${trimmedFirstName} ${trimmedLastName}`.trim();
+			const emailLower = normalizeSearchValue(
+				currentUserData?.email || currentUser?.email,
+			);
+
 			await setDoc(
 				doc(db, "customers", currentUser.uid),
 				{
 					...currentUserData,
-					firstName: firstName.trim(),
-					lastName: lastName.trim(),
+					firstName: trimmedFirstName,
+					lastName: trimmedLastName,
+					fullName,
+					emailLower: emailLower || null,
+					searchTokens: buildCustomerSearchTokens({
+						firstName: trimmedFirstName,
+						lastName: trimmedLastName,
+						fullName,
+						email: emailLower,
+					}),
 					gender: gender,
 					dateOfBirth: dobInput,
 					updatedAt: new Date(),
