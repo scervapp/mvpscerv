@@ -233,7 +233,10 @@ const PartyLobbyScreen = () => {
 		if (!partyId || !pipUserId || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			const result = await inviteToParty(partyId);
+			const result = await inviteToParty(partyId, {
+				inviteeUserId: pipUserId,
+				returnFullResult: true,
+			});
 			if (result) {
 				Alert.alert(t("success"), `${t("invite_sent_to")} ${pipName}!`);
 				setIsPipModalVisible(false);

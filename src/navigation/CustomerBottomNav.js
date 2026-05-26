@@ -396,14 +396,15 @@ const CustomerBottomNavigation = () => {
 											.collection("notifications")
 											.doc(notification.id);
 										await notifRef.update({ isRead: true });
-										const joinedPartyId = await joinParty({
+										const joinResult = await joinParty({
 											partyId: notification.partyId,
+											inviteCode: notification.inviteCode,
 										});
+										const joinedPartyId =
+											joinResult?.partyId || notification.partyId;
 										if (joinedPartyId) {
-											// Navigate to lobby - ensure PartyLobby is in a stack accessible from here
-											// Might need to navigate to the specific stack first if nested
-											navigation.navigate("CustomerDashboard", {
-												screen: "PartyLobby", // Navigate to the screen within the stack
+											navigation.navigate("PartyTab", {
+												screen: "PartySession",
 												params: { partyId: joinedPartyId },
 											});
 										}

@@ -58,7 +58,25 @@ const generateCode = () => {
 	return code;
 };
 
-const inviteCode = generateCode();
+const generateUniqueInviteCode = async () => {
+	for (let attempts = 0; attempts < 8; attempts++) {
+		const candidate = generateCode();
+		const existing = await db
+			.collection("parties")
+			.where("inviteCode", "==", candidate)
+			.limit(1)
+			.get();
+
+		if (existing.empty) {
+			return candidate;
+		}
+	}
+
+	throw new functions.https.HttpsError(
+		"internal",
+		"Could not generate a unique invite code.",
+	);
+};
 
 exports.createParty = functions.https.onCall(async (data, context) => {
 	if (!context.auth || !context.auth.uid) {
@@ -266,7 +284,7 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 		);
 	}
 	const hostUserId = context.auth.uid;
-	const { partyId } = data;
+	const { partyId, inviteeUserId = null } = data || {};
 
 	if (!partyId) {
 		throw new functions.https.HttpsError(
@@ -291,39 +309,73 @@ exports.inviteToParty = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// --- IMPROVED LOGIC IS HERE ---
-		// Check if a valid, non-expired code already exists.
-		if (
-			partyData.inviteCode &&
-			partyData.inviteCodeExpiry &&
-			partyData.inviteCodeExpiry.toDate() > new Date()
-		) {
-			console.log(
-				`inviteToParty: Returning existing valid code ${partyData.inviteCode} for party ${partyId}.`,
+		if (inviteeUserId && inviteeUserId === hostUserId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"You cannot invite yourself to your own party.",
 			);
-			return { success: true, inviteCode: partyData.inviteCode };
 		}
 
-		// If no valid code exists, generate a new one.
+		if (inviteeUserId) {
+			const inviteeSnap = await db.collection("customers").doc(inviteeUserId).get();
+			if (!inviteeSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Invitee user was not found.",
+				);
+			}
+		}
+
+		let resolvedInviteCode = partyData.inviteCode || null;
+		let resolvedExpiryTimestamp = partyData.inviteCodeExpiry || null;
+
+		if (
+			!resolvedInviteCode ||
+			!resolvedExpiryTimestamp ||
+			resolvedExpiryTimestamp.toDate() <= new Date()
+		) {
+			console.log(
+				`inviteToParty: No valid code found for party ${partyId}. Generating a new one.`,
+			);
+
+			const expiryDate = new Date();
+			expiryDate.setHours(expiryDate.getHours() + 24);
+			resolvedInviteCode = await generateUniqueInviteCode();
+			resolvedExpiryTimestamp = admin.firestore.Timestamp.fromDate(expiryDate);
+
+			await partyRef.update({
+				inviteCode: resolvedInviteCode,
+				inviteCodeExpiry: resolvedExpiryTimestamp,
+				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+			});
+		}
+
+		let notificationId = null;
+		if (inviteeUserId) {
+			const notificationRef = await db.collection("notifications").add({
+				type: "partyInvite",
+				recipientUserId: inviteeUserId,
+				senderUserId: hostUserId,
+				partyId,
+				inviteCode: resolvedInviteCode,
+				hostName: partyData.hostName || "Someone",
+				restaurantId: partyData.restaurantId || null,
+				restaurantName: partyData.restaurantName || "a restaurant",
+				isRead: false,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				expiresAt: resolvedExpiryTimestamp,
+			});
+			notificationId = notificationRef.id;
+		}
+
 		console.log(
-			`inviteToParty: No valid code found for party ${partyId}. Generating a new one.`,
+			`inviteToParty: Returned code ${resolvedInviteCode} for party ${partyId}.`,
 		);
-
-		// Set an expiry time for the code (e.g., 1 hour from now).
-		const expiryDate = new Date();
-		expiryDate.setHours(expiryDate.getHours() + 1);
-		const expiryTimestamp = admin.firestore.Timestamp.fromDate(expiryDate);
-
-		await partyRef.update({
-			inviteCode: inviteCode,
-			inviteCodeExpiry: expiryTimestamp,
-			lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-		});
-
-		console.log(
-			`inviteToParty: Generated new code ${inviteCode} for party ${partyId}.`,
-		);
-		return { success: true, inviteCode: inviteCode };
+		return {
+			success: true,
+			inviteCode: resolvedInviteCode,
+			notificationId,
+		};
 	} catch (error) {
 		console.error(`Error generating invite code for party ${partyId}:`, error);
 		if (error instanceof functions.https.HttpsError) throw error;
@@ -353,7 +405,7 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		);
 	}
 	const joinerUserId = context.auth.uid;
-	const { inviteCode, partyId } = data;
+	const { inviteCode, partyId } = data || {};
 
 	// Must have at least one of these to proceed
 	if (!inviteCode && !partyId) {
@@ -387,7 +439,6 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		else if (inviteCode) {
 			const partyQuery = await partiesRef
 				.where("inviteCode", "==", inviteCode.toUpperCase())
-				//.where("inviteCodeExpiry", ">", now)
 				.limit(1)
 				.get();
 
@@ -405,6 +456,17 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 
 		const resolvedPartyId = partyDoc.id;
 		const partyData = partyDoc.data();
+
+		if (
+			inviteCode &&
+			partyData.inviteCodeExpiry &&
+			partyData.inviteCodeExpiry.toMillis() <= now.toMillis()
+		) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This invite code has expired. Please ask the host for a new invite.",
+			);
+		}
 
 		// Additional validations
 		if (
@@ -1084,13 +1146,12 @@ exports.addLocalPipToParty = functions.https.onCall(async (data, context) => {
 			joinedAt: new Date(), // Use new Date() for array elements
 		}));
 
-		// Also prepare the IDs for the guestUserIds array for easier querying later
-		const newGuestPipIds = pipsToAdd.map((pip) => pip.id);
+		const newLocalPipIds = pipsToAdd.map((pip) => pip.id).filter(Boolean);
 
 		await partyRef.update({
 			// Use FieldValue.arrayUnion to atomically add elements to the arrays
 			guestPips: admin.firestore.FieldValue.arrayUnion(...newGuestPips),
-			guestUserIds: admin.firestore.FieldValue.arrayUnion(...newGuestPipIds),
+			localPipIds: admin.firestore.FieldValue.arrayUnion(...newLocalPipIds),
 			lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 		});
 

@@ -122,6 +122,7 @@ const PartyCheckoutScreen = () => {
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
+	const [payingForMemberId, setPayingForMemberId] = useState(null);
 
 	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
@@ -160,6 +161,47 @@ const PartyCheckoutScreen = () => {
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
+	const partyMembersForCheckout = useMemo(() => {
+		const members = Array.isArray(party?.guestPips) ? party.guestPips : [];
+		return members
+			.map((member) => {
+				const memberId = member?.userId || member?.localPipId || member?.id;
+				if (!memberId) return null;
+
+				return {
+					id: memberId,
+					name:
+						member?.name ||
+						(memberId === currentUserData?.uid
+							? t("you", "You")
+							: t("guest", "Guest")),
+					isCurrentUser: memberId === currentUserData?.uid,
+					paymentStatus: member?.paymentStatus || "pending",
+				};
+			})
+			.filter(Boolean);
+	}, [party?.guestPips, currentUserData?.uid, t]);
+
+	useEffect(() => {
+		if (!currentUserData?.uid || payingForMemberId) return;
+		const currentMember = partyMembersForCheckout.find(
+			(member) => member.id === currentUserData.uid,
+		);
+		setPayingForMemberId(currentMember?.id || partyMembersForCheckout[0]?.id || null);
+	}, [currentUserData?.uid, partyMembersForCheckout, payingForMemberId]);
+
+	const selectedCheckoutMember = useMemo(() => {
+		return (
+			partyMembersForCheckout.find((member) => member.id === payingForMemberId) ||
+			null
+		);
+	}, [partyMembersForCheckout, payingForMemberId]);
+
+	const selectedCheckoutMemberName =
+		selectedCheckoutMember?.isCurrentUser
+			? t("you", "You")
+			: selectedCheckoutMember?.name || t("guest", "Guest");
+
 	const {
 		myItemsInBasket,
 		mySubtotal,
@@ -183,8 +225,9 @@ const PartyCheckoutScreen = () => {
 			};
 		}
 
+		const targetMemberId = payingForMemberId || currentUserData.uid;
 		const items = sharedBasketItems.filter(
-			(item) => item.orderedByUserId === currentUserData.uid,
+			(item) => item.orderedByUserId === targetMemberId,
 		);
 
 		if (items.length === 0) {
@@ -303,6 +346,8 @@ const PartyCheckoutScreen = () => {
 						: null,
 				category: item.category || "",
 				specialInstructions: item.specialInstructions || "",
+				orderedByUserId: item.orderedByUserId || "",
+				orderedByPipName: item.orderedByPipName || "",
 				itbmsRate:
 					item.itbmsRate !== undefined && item.itbmsRate !== null
 						? item.itbmsRate
@@ -326,6 +371,7 @@ const PartyCheckoutScreen = () => {
 		restaurantData && restaurantData.pricingTier,
 		restaurantData && restaurantData.taxRate,
 		canAcceptPayments,
+		payingForMemberId,
 	]);
 
 	const resolvedRestaurantId =
@@ -576,6 +622,9 @@ const PartyCheckoutScreen = () => {
 				platformFee: myPlatformFee || 0,
 				totalPrice: myFinalTotal || 0,
 				items: formattedItems,
+				payerUserId: uid || "anonymous",
+				paidForUserIds: payingForMemberId ? [payingForMemberId] : [uid],
+				paidForMemberName: selectedCheckoutMemberName,
 				table: isPickupMode ? { name: "Pickup Window" } : party?.table || null,
 				server: isPickupMode ? { name: "Pickup Queue" } : party?.server || null,
 				checkInId: isPickupMode ? null : party?.checkInId || null,
@@ -746,6 +795,7 @@ const PartyCheckoutScreen = () => {
 				paymentType: isPickupMode ? "pickup" : "party",
 				restaurantId: party.restaurantId,
 				partyId: party.id,
+				payingForUserId: payingForMemberId || currentUserData.uid,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
 				taxAmount: myTax,
@@ -824,7 +874,11 @@ const PartyCheckoutScreen = () => {
 
 	const primaryTitle = isPickupMode
 		? t("complete_your_pickup_order", "Complete Your Pickup Order")
-		: t("checkout_your_portion", "Checkout Your Portion");
+		: selectedCheckoutMember?.isCurrentUser
+			? t("checkout_your_portion", "Checkout Your Portion")
+			: t("checkout_for_member", "Checkout for {{name}}", {
+					name: selectedCheckoutMemberName,
+				});
 
 	const secondaryTitle = party?.restaurantName || "";
 
@@ -873,8 +927,63 @@ const PartyCheckoutScreen = () => {
 						<Text style={styles.sectionTitle}>
 							{isPickupMode
 								? t("your_order", "Your Order")
-								: t("your_items", "Your Items")}
+								: selectedCheckoutMember?.isCurrentUser
+									? t("your_items", "Your Items")
+									: t("member_items", "{{name}}'s Items", {
+											name: selectedCheckoutMemberName,
+										})}
 						</Text>
+
+						{!isPickupMode && partyMembersForCheckout.length > 1 && (
+							<View style={styles.memberSelector}>
+								<Text style={styles.memberSelectorLabel}>
+									{t("paying_for", "Paying for")}
+								</Text>
+								<ScrollView
+									horizontal
+									showsHorizontalScrollIndicator={false}
+									contentContainerStyle={styles.memberChipRow}
+								>
+									{partyMembersForCheckout.map((member) => {
+										const selected = member.id === payingForMemberId;
+										const displayName = member.isCurrentUser
+											? t("you", "You")
+											: member.name;
+										return (
+											<TouchableOpacity
+												key={member.id}
+												style={[
+													styles.memberChip,
+													selected && styles.memberChipSelected,
+												]}
+												onPress={() => setPayingForMemberId(member.id)}
+												activeOpacity={0.8}
+											>
+												<Text
+													style={[
+														styles.memberChipText,
+														selected && styles.memberChipTextSelected,
+													]}
+												>
+													{displayName}
+												</Text>
+												{member.paymentStatus === "paid" && (
+													<Ionicons
+														name="checkmark-circle"
+														size={15}
+														color={
+															selected
+																? colors.surfaceWhite
+																: colors.statusSuccess
+														}
+													/>
+												)}
+											</TouchableOpacity>
+										);
+									})}
+								</ScrollView>
+							</View>
+						)}
 
 						{myItemsInBasket.length > 0 ? (
 							myItemsInBasket.map((item) => {
@@ -1337,6 +1446,45 @@ const styles = StyleSheet.create({
 		fontWeight: "600",
 		color: colors.primary,
 		marginBottom: 12,
+	},
+	memberSelector: {
+		marginBottom: 14,
+		paddingBottom: 12,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	memberSelectorLabel: {
+		fontSize: 13,
+		fontWeight: "600",
+		color: colors.textMedium,
+		marginBottom: 8,
+	},
+	memberChipRow: {
+		gap: 8,
+		paddingRight: 4,
+	},
+	memberChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 5,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 999,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		backgroundColor: colors.surfaceWhite,
+	},
+	memberChipSelected: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	memberChipText: {
+		fontSize: 14,
+		fontWeight: "700",
+		color: colors.textDark,
+	},
+	memberChipTextSelected: {
+		color: colors.surfaceWhite,
 	},
 	itemRow: {
 		flexDirection: "row",

@@ -15,6 +15,7 @@ import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 
 export const PartyContext = createContext({
 	currentPartyIds: {},
+	currentPartyId: null,
 	partyStatus: null,
 	partyDetails: {},
 	isLoadingParty: true,
@@ -261,6 +262,11 @@ export const PartyProvider = ({ children }) => {
 
 		return null;
 	}, [currentPartyIds]);
+
+	const currentPartyId = useMemo(
+		() => getFirstActivePartyId(),
+		[getFirstActivePartyId],
+	);
 
 	const createParty = useCallback(
 		async (restaurantId, restaurantName, options = {}) => {
@@ -568,7 +574,7 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	const inviteToParty = useCallback(
-		async (partyIdOverride = null) => {
+		async (partyIdOverride = null, options = {}) => {
 			const partyId = partyIdOverride || getFirstActivePartyId();
 			const partyData = partyId ? partyDetails?.[partyId] || {} : {};
 			const isHost = partyData.hostUserId === currentUserData?.uid;
@@ -585,10 +591,15 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 
 			try {
-				const result = await inviteToPartyFunction({ partyId });
+				const result = await inviteToPartyFunction({
+					partyId,
+					...(options.inviteeUserId && {
+						inviteeUserId: options.inviteeUserId,
+					}),
+				});
 
 				if (result?.data?.success && result?.data?.inviteCode) {
-					return result.data.inviteCode;
+					return options.returnFullResult ? result.data : result.data.inviteCode;
 				}
 
 				throw new Error(
@@ -613,9 +624,9 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	const joinParty = useCallback(
-		async ({ inviteCode }) => {
-			if (!inviteCode) {
-				Alert.alert("Error", "An invite code is required.");
+		async ({ inviteCode, partyId } = {}) => {
+			if (!inviteCode && !partyId) {
+				Alert.alert("Error", "An invite code or party link is required.");
 				return false;
 			}
 
@@ -623,10 +634,13 @@ export const PartyProvider = ({ children }) => {
 			setPartyError(null);
 
 			try {
-				const result = await joinPartyFunction({ inviteCode });
+				const result = await joinPartyFunction({
+					...(inviteCode && { inviteCode }),
+					...(partyId && { partyId }),
+				});
 
 				if (result?.data?.success && result?.data?.partyId) {
-					return true;
+					return result.data;
 				}
 
 				throw new Error(result?.data?.error || "Could not join party.");
@@ -645,7 +659,13 @@ export const PartyProvider = ({ children }) => {
 
 	const addLocalPIPToParty = useCallback(
 		async (partyId, localPIPId, localPIPName) => {
-			if (!partyId || !localPIPId || !localPIPName) {
+			const pipsToAdd = Array.isArray(localPIPId)
+				? localPIPId
+				: [{ id: localPIPId, name: localPIPName }];
+
+			const validPipsToAdd = pipsToAdd.filter((pip) => pip?.id && pip?.name);
+
+			if (!partyId || validPipsToAdd.length === 0) {
 				Alert.alert("Error", "Missing member information.");
 				return false;
 			}
@@ -656,8 +676,7 @@ export const PartyProvider = ({ children }) => {
 			try {
 				const result = await addLocalPIPToPartyFunction({
 					partyId,
-					localPIPId,
-					localPIPName,
+					pipsToAdd: validPipsToAdd,
 				});
 
 				if (result?.data?.success) {
@@ -960,6 +979,7 @@ export const PartyProvider = ({ children }) => {
 	const value = useMemo(
 		() => ({
 			currentPartyIds,
+			currentPartyId,
 			partyStatus,
 			partyDetails,
 			isLoadingParty,
@@ -984,6 +1004,7 @@ export const PartyProvider = ({ children }) => {
 		}),
 		[
 			currentPartyIds,
+			currentPartyId,
 			partyStatus,
 			partyDetails,
 			isLoadingParty,
