@@ -2091,6 +2091,48 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 				customerDoc = await transaction.get(customerRef);
 			}
 
+			const targetPartyId = partyId || associatedPartyId;
+			let partyRef = null;
+			let partyDoc = { exists: false };
+			let partyData = {};
+
+			if (targetPartyId) {
+				partyRef = db.collection("parties").doc(targetPartyId);
+				partyDoc = await transaction.get(partyRef);
+				partyData = partyDoc.exists ? partyDoc.data() || {} : {};
+			}
+
+			const usersToFree = [];
+			const addUserToFree = (uid) => {
+				if (!uid) return;
+				const normalizedUid = String(uid).toLowerCase();
+				if (
+					ignoredCustomerIds.includes(normalizedUid) ||
+					usersToFree.includes(uid)
+				) {
+					return;
+				}
+				usersToFree.push(uid);
+			};
+
+			addUserToFree(customerId);
+			addUserToFree(partyData.hostUserId);
+			addUserToFree(partyData.currentCustomerId);
+			addUserToFree(partyData.customerId);
+
+			if (Array.isArray(partyData.guestPips)) {
+				partyData.guestPips.forEach((pip) =>
+					addUserToFree(pip && pip.userId),
+				);
+			}
+
+			[
+				...(Array.isArray(partyData.guestUserIds)
+					? partyData.guestUserIds
+					: []),
+				...(Array.isArray(partyData.memberUids) ? partyData.memberUids : []),
+			].forEach(addUserToFree);
+
 			// --- All reads are now complete. Proceed with writes. ---
 
 			// WRITE 1: Delete legacy basket items
@@ -2130,29 +2172,44 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 
 			// 🚨 UPDATED WRITE 5: Only update the customer if the document exists in Firestore
 			if (customerDoc.exists && customerRef) {
-				transaction.update(customerRef, {
-					activeCheckIn: null,
-					activePartyId: null,
-					activeRestaurantId: null,
-				});
+				addUserToFree(customerRef.id);
 			}
 
-			// WRITE 6: Void the Party Document
-			const targetPartyId = partyId || associatedPartyId;
-			if (targetPartyId) {
-				const partyRef = db.collection("parties").doc(targetPartyId);
-				transaction.update(partyRef, {
-					status: "voided",
-					clearedAt: admin.firestore.FieldValue.serverTimestamp(),
-					clearedReason: "manager_force_clear",
-					clearedBy: {
-						userId: context.auth.uid,
-						staffId: staffMember.id || staffId || null,
-						name: staffName || staffMember.name || null,
-						role: staffMember.role || null,
-						jobTitle: staffMember.jobTitle || null,
+			usersToFree.forEach((uid) => {
+				transaction.set(
+					db.collection("customers").doc(uid),
+					{
+						activeCheckIn: null,
+						activePartyId: null,
+						activeRestaurantId: null,
+						...(targetPartyId && {
+							partyIds: admin.firestore.FieldValue.arrayRemove(
+								targetPartyId,
+							),
+						}),
 					},
-				});
+					{ merge: true },
+				);
+			});
+
+			// WRITE 6: Void the Party Document
+			if (targetPartyId && partyRef) {
+				transaction.set(
+					partyRef,
+					{
+						status: "voided",
+						clearedAt: admin.firestore.FieldValue.serverTimestamp(),
+						clearedReason: "manager_force_clear",
+						clearedBy: {
+							userId: context.auth.uid,
+							staffId: staffMember.id || staffId || null,
+							name: staffName || staffMember.name || null,
+							role: staffMember.role || null,
+							jobTitle: staffMember.jobTitle || null,
+						},
+					},
+					{ merge: true },
+				);
 
 				// Preserve the shared basket for audit instead of deleting it.
 				const sharedBasketRef = db

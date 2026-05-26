@@ -1610,6 +1610,7 @@ const fulfillOrder = async ({
 	const stripeConnectChargeType =
 		pendingOrderData.stripeConnectChargeType || "separate_charge_transfer";
 	const usesDestinationCharge = stripeConnectChargeType === "destination_charge";
+	const paymentPolicy = pendingOrderData.paymentPolicy || {};
 	const applicationFeeAmount = Number(
 		applicationFeeActual ||
 			pendingOrderData.stripeApplicationFeeAmount ||
@@ -1644,7 +1645,6 @@ const fulfillOrder = async ({
 		pendingOrderData.scervFeePercentage || restaurantTierInfo.scervFeePercentage,
 		0.03,
 	);
-	const paymentPolicy = pendingOrderData.paymentPolicy || {};
 	const stripeFeeResponsibility = normalizeStripeFeeResponsibility(
 		pendingOrderData.stripeFeeResponsibility ||
 			paymentPolicy.stripeFeeResponsibility,
@@ -1948,7 +1948,10 @@ const fulfillOrder = async ({
 
 			// Individual Clean
 			if (paymentType === "individual") {
-				if (transactionalPendingOrderData.table.id) {
+				if (
+					transactionalPendingOrderData.table &&
+					transactionalPendingOrderData.table.id
+				) {
 					const tableRef = db
 						.collection("restaurants")
 						.doc(normalizedRestaurantId)
@@ -1957,6 +1960,26 @@ const fulfillOrder = async ({
 
 					t.update(tableRef, { status: "checkedOut" });
 				}
+
+				if (transactionalPendingOrderData.checkInId) {
+					t.set(
+						db.collection("checkIns").doc(transactionalPendingOrderData.checkInId),
+						{
+							status: "COMPLETED",
+							paymentStatus: "paid",
+							completedAt: admin.firestore.FieldValue.serverTimestamp(),
+							completedBy: "system_digital_checkout",
+							archivedForAudit: true,
+							archivedOrderId: orderId,
+						},
+						{ merge: true },
+					);
+				}
+
+				(transactionalPendingOrderData.items || []).forEach((item) => {
+					if (!item || !item.id) return;
+					t.delete(db.collection("baskets").doc(item.id));
+				});
 			}
 
 			// Pickup Clean (party-backed, but NOT dine-in table logic)
@@ -2036,6 +2059,8 @@ const fulfillOrder = async ({
 				const currentGuestPips = Array.isArray(partyData.guestPips)
 					? partyData.guestPips
 					: [];
+				let remainingOrderedItemsAfterPayment = [];
+				let hasRemainingPosCloseoutItems = false;
 
 				const updatedGuestPips = currentGuestPips.map((pip) =>
 					pip.userId === payerUserId ? { ...pip, paymentStatus: "paid" } : pip,
@@ -2057,20 +2082,27 @@ const fulfillOrder = async ({
 					const remainingItems = currentBasketItems.filter(
 						(item) => !paidItemIds.includes(item.id),
 					);
-					const remainingPosCloseoutItems = remainingItems.filter(
-						(item) =>
-							item &&
-							item.paymentResponsibility === "restaurant_pos" &&
-							item.status &&
-							item.status !== "new",
+					remainingOrderedItemsAfterPayment = remainingItems.filter(
+						(item) => item && item.status && item.status !== "new",
 					);
+					const remainingPosCloseoutItems =
+						remainingOrderedItemsAfterPayment.filter(
+							(item) => item.paymentResponsibility === "restaurant_pos",
+						);
+					hasRemainingPosCloseoutItems = remainingPosCloseoutItems.length > 0;
+					const remainingCustomerPayableItems =
+						remainingOrderedItemsAfterPayment.filter(
+							(item) => item.paymentResponsibility !== "restaurant_pos",
+						);
 
 					t.update(basketSnap.ref, {
 						items: remainingItems,
+						remainingPayableItemCount: remainingCustomerPayableItems.length,
+						remainingPosCloseoutItemCount: remainingPosCloseoutItems.length,
 						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 					});
 
-					if (remainingPosCloseoutItems.length > 0) {
+					if (hasRemainingPosCloseoutItems) {
 						t.set(
 							pendingOrderRef,
 							{
@@ -2082,32 +2114,22 @@ const fulfillOrder = async ({
 					}
 				}
 
-				const allPaid =
+				const allGuestPipsPaid =
 					updatedGuestPips.length > 0 &&
 					updatedGuestPips.every((pip) => pip.paymentStatus === "paid");
+				const isDigitalPartyFullyPaid = basketSnap.exists
+					? remainingOrderedItemsAfterPayment.length === 0
+					: allGuestPipsPaid;
 
-				const hasRemainingPosCloseoutItems =
-					basketSnap.exists &&
-					(basketSnap.data().items || []).some(
-						(item) =>
-							item &&
-							item.paymentResponsibility === "restaurant_pos" &&
-							item.status &&
-							item.status !== "new" &&
-							!(transactionalPendingOrderData.items || []).some(
-								(paidItem) => paidItem.id === item.id,
-							),
-					);
-
-				if (allPaid && !hasRemainingPosCloseoutItems) {
+				if (isDigitalPartyFullyPaid && !hasRemainingPosCloseoutItems) {
 					t.update(partySnap.ref, {
-						status: "checkedOut", // ✅ keep visible for cleaning
+						status: "checkedOut", // keep visible for cleaning
 						paymentStatus: "paid",
 						closedAt: admin.firestore.FieldValue.serverTimestamp(),
 						closedByUserId: "system_digital_checkout",
 					});
 
-					if (partyData.table.id) {
+					if (partyData.table && partyData.table.id) {
 						const tableRef = db
 							.collection("restaurants")
 							.doc(partyData.restaurantId)
@@ -2122,9 +2144,11 @@ const fulfillOrder = async ({
 							db.collection("checkIns").doc(partyData.checkInId),
 							{
 								status: "COMPLETED",
+								paymentStatus: "paid",
 								completedAt: admin.firestore.FieldValue.serverTimestamp(),
 								completedBy: "system_digital_checkout",
 								archivedForAudit: true,
+								archivedOrderId: orderId,
 							},
 							{ merge: true },
 						);
@@ -2154,10 +2178,31 @@ const fulfillOrder = async ({
 						);
 					}
 
-					currentGuestPips.forEach((pip) => {
-						if (!pip.userId || pip.userId === "walk_in_guest") return;
+					const usersToFree = [];
+					const addUserToFree = (uid) => {
+						if (!uid || uid === "walk_in_guest" || usersToFree.includes(uid)) {
+							return;
+						}
+						usersToFree.push(uid);
+					};
+
+					addUserToFree(payerUserId);
+					addUserToFree(partyData.hostUserId);
+
+					currentGuestPips.forEach((pip) => addUserToFree(pip && pip.userId));
+
+					[
+						...(Array.isArray(partyData.guestUserIds)
+							? partyData.guestUserIds
+							: []),
+						...(Array.isArray(partyData.memberUids)
+							? partyData.memberUids
+							: []),
+					].forEach(addUserToFree);
+
+					usersToFree.forEach((uid) => {
 						t.set(
-							db.collection("customers").doc(pip.userId),
+							db.collection("customers").doc(uid),
 							{
 								activeCheckIn: null,
 								activePartyId: null,
@@ -2186,9 +2231,9 @@ const fulfillOrder = async ({
 			);
 		});
 
-		console.log(`[Fulfill] ✅ DB transaction committed for order ${orderId}.`);
+		console.log(`[Fulfill] DB transaction committed for order ${orderId}.`);
 	} catch (error) {
-		console.error(`[Fulfill] ❌ DB transaction failed for ${orderId}:`, error);
+		console.error(`[Fulfill] DB transaction failed for ${orderId}:`, error);
 		throw error;
 	}
 
@@ -2202,7 +2247,7 @@ const fulfillOrder = async ({
 				items: pendingOrderData.items || [],
 				fulfillmentType: pendingOrderData.fulfillmentType || "hotel_pickup",
 				locationName:
-					pendingOrderData.table.name ||
+					(pendingOrderData.table && pendingOrderData.table.name) ||
 					pendingOrderData.locationName ||
 					"Hotel Pickup",
 
@@ -2219,11 +2264,11 @@ const fulfillOrder = async ({
 			});
 
 			console.log(
-				`[Fulfill] ✅ Created kitchen ticket for paid pickup order ${orderId}.`,
+				`[Fulfill] Created kitchen ticket for paid pickup order ${orderId}.`,
 			);
 		} catch (pickupTicketError) {
 			console.error(
-				`[Fulfill] ❌ Failed to create kitchen ticket for pickup order ${orderId}:`,
+				`[Fulfill] Failed to create kitchen ticket for pickup order ${orderId}:`,
 				pickupTicketError,
 			);
 			throw pickupTicketError;
