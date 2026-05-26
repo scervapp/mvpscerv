@@ -2340,9 +2340,21 @@ exports.acknowledgePartyServiceRequest = functions.https.onCall(
 				action: "acknowledge service requests",
 			});
 
+			if (
+				acknowledgedBy.role === "worker" &&
+				acknowledgedBy.jobTitle === "server" &&
+				(!partyData.server || partyData.server.id !== acknowledgedBy.id)
+			) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"Servers can only acknowledge requests for their assigned tables.",
+				);
+			}
+
 			await partyRef.set(
 				{
 					serviceRequested: false,
+					serviceRequestStatus: "acknowledged",
 					serviceAcknowledgedAt:
 						admin.firestore.FieldValue.serverTimestamp(),
 					serviceAcknowledgedBy: {

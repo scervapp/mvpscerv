@@ -238,9 +238,13 @@ export const RestaurantDataProvider = ({ children }) => {
 						if (change.type === "added") {
 							const newParty = change.doc.data();
 							const isMyTable = newParty.server?.id === activeSession?.id;
-							const isManager = activeSession?.role !== "worker";
+							const canHandleAllRequests =
+								activeSession?.role !== "worker" ||
+								["host", "support", "busser", "runner"].includes(
+									activeSession?.jobTitle,
+								);
 
-							if (isMyTable || isManager) {
+							if (isMyTable || canHandleAllRequests) {
 								console.log("Service requested at MY table! Playing bell.");
 								servicePlayer.current?.seekTo(0);
 								servicePlayer.current?.play();

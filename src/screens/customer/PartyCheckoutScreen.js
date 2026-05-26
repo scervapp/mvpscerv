@@ -709,6 +709,8 @@ const PartyCheckoutScreen = () => {
 						customerStatus: "ready_to_pay",
 						checkoutRequestedAt: firestore.FieldValue.serverTimestamp(),
 						serviceRequested: true,
+						serviceRequestType: "checkout",
+						serviceRequestStatus: "new",
 						serviceRequestedAt: new Date().toISOString(),
 						serviceTableName: party?.table?.name || "A table",
 					});

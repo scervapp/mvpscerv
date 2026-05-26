@@ -69,6 +69,8 @@ service cloud.firestore {
           "fulfillmentType",
           "pickupSpecialInstructions",
           "serviceRequested",
+          "serviceRequestType",
+          "serviceRequestStatus",
           "serviceRequestedAt",
           "serviceTableName"
         ]);
