@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
 	View,
 	Text,
 	FlatList,
 	StyleSheet,
 	TouchableOpacity,
-	SafeAreaView,
 	ActivityIndicator,
 	Alert,
 } from "react-native";
@@ -19,14 +18,49 @@ import colors from "../../utils/styles/appStyles";
 import { db, functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
-const ServiceRequestsScreen = () => {
+const getStaffDisplayName = (employee) =>
+	employee?.name ||
+	`${employee?.firstName || ""} ${employee?.lastName || ""}`.trim();
+
+const getRequestDate = (value) => {
+	if (!value) return null;
+	if (value.toDate) return value.toDate();
+	if (value instanceof Date) return value;
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getRequestType = (party) => {
+	if (party?.serviceRequestType) return party.serviceRequestType;
+	if (party?.customerStatus === "ready_to_pay") return "checkout";
+	return "service";
+};
+
+const getVisibleRequestsForSession = (requests, activeSession) => {
+	if (
+		activeSession?.role === "worker" &&
+		activeSession?.jobTitle === "server"
+	) {
+		return requests.filter((party) => party.server?.id === activeSession.id);
+	}
+
+	return requests;
+};
+
+const ServiceRequestsScreen = ({ navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 	const [requests, setRequests] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [acknowledgingIds, setAcknowledgingIds] = useState({});
 	const insets = useSafeAreaInsets();
 	const { t } = useTranslation();
+	const permissions = useMemo(
+		() => getRestaurantPermissions(activeSession),
+		[activeSession],
+	);
 
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 	const acknowledgePartyServiceRequestFunction = httpsCallable(
@@ -34,25 +68,33 @@ const ServiceRequestsScreen = () => {
 		"acknowledgePartyServiceRequest",
 	);
 
-	// --- 1. Real-Time Listener for Service Requests ---
 	useEffect(() => {
 		if (!restaurantId) {
 			setIsLoading(false);
-			return;
+			return undefined;
 		}
 
 		const unsubscribe = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("serviceRequested", "==", true) // 🚨 Only fetch tables needing help
-			.orderBy("serviceRequestedAt", "asc") // Oldest requests at the top
+			.where("serviceRequested", "==", true)
 			.onSnapshot(
 				(snapshot) => {
-					const activeRequests = snapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-					setRequests(activeRequests);
+					const activeRequests = snapshot.docs
+						.map((doc) => ({
+							id: doc.id,
+							...doc.data(),
+						}))
+						.filter((party) => party.fulfillmentType !== "hotel_pickup")
+						.sort((a, b) => {
+							const aDate = getRequestDate(a.serviceRequestedAt);
+							const bDate = getRequestDate(b.serviceRequestedAt);
+							return (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
+						});
+
+					setRequests(
+						getVisibleRequestsForSession(activeRequests, activeSession),
+					);
 					setIsLoading(false);
 				},
 				(error) => {
@@ -62,108 +104,168 @@ const ServiceRequestsScreen = () => {
 			);
 
 		return () => unsubscribe();
-	}, [restaurantId]);
+	}, [
+		activeSession?.id,
+		activeSession?.jobTitle,
+		activeSession?.role,
+		restaurantId,
+	]);
 
-	// --- 2. The Resolve Action ---
-	const handleAcknowledge = async (partyId, tableName) => {
-		try {
-			// 🚨 Flipping this to false instantly removes it from the list and clears the badge!
-			await acknowledgePartyServiceRequestFunction({
-				partyId,
-				staffId: activeSession?.id || null,
-				staffName:
-					activeSession?.name ||
-					`${activeSession?.firstName || ""} ${
-						activeSession?.lastName || ""
-					}`.trim(),
-			});
-			console.log(`[Service] Cleared request for ${tableName}`);
-		} catch (error) {
-			console.error("Error clearing service request:", error);
-			Alert.alert(
-				t("error", "Error"),
-				t(
-					"could_not_clear_request",
-					"Could not clear the request. Please try again.",
-				),
-			);
-		}
-	};
+	const handleAcknowledge = useCallback(
+		async (partyId, tableName) => {
+			setAcknowledgingIds((current) => ({ ...current, [partyId]: true }));
+			try {
+				await acknowledgePartyServiceRequestFunction({
+					partyId,
+					staffId: activeSession?.id || null,
+					staffName: getStaffDisplayName(activeSession),
+				});
+				console.log(`[Service] Acknowledged request for ${tableName}`);
+			} catch (error) {
+				console.error("Error clearing service request:", error);
+				Alert.alert(
+					t("error", "Error"),
+					t(
+						"could_not_clear_request",
+						"Could not clear the request. Please try again.",
+					),
+				);
+			} finally {
+				setAcknowledgingIds((current) => {
+					const next = { ...current };
+					delete next[partyId];
+					return next;
+				});
+			}
+		},
+		[acknowledgePartyServiceRequestFunction, activeSession, t],
+	);
 
-	// --- 3. UI Components ---
+	const handleOpenTable = useCallback(
+		(partyId) => {
+			navigation.navigate("ManagePartyScreen", { partyId });
+		},
+		[navigation],
+	);
+
 	const renderRequestCard = ({ item }) => {
-		const timeWaiting = moment(item.serviceRequestedAt).fromNow();
+		const requestDate = getRequestDate(item.serviceRequestedAt);
+		const timeWaiting = requestDate
+			? moment(requestDate).fromNow()
+			: t("just_now", "Just now");
 		const tableName = item.serviceTableName || item.table?.name || "A Table";
-
-		// 🚨 NEW: Check if this is a checkout request
-		const isCheckoutRequest = item.customerStatus === "ready_to_pay";
+		const requestType = getRequestType(item);
+		const isCheckoutRequest = requestType === "checkout";
+		const iconName = isCheckoutRequest ? "cash-register" : "bell-ring";
+		const accentColor = isCheckoutRequest
+			? colors.statusSuccess
+			: colors.statusDanger;
+		const requestLabel = isCheckoutRequest
+			? t("ready_to_pay", "Ready to Pay")
+			: t("service_requested", "Service Requested");
+		const guestName = item.hostName || item.customerName || t("guest", "Guest");
+		const partySize = Array.isArray(item.guestPips)
+			? item.guestPips.length
+			: Number(item.partySize || 1);
+		const serverName = item.server?.name || t("unassigned", "Unassigned");
+		const isAcknowledging = acknowledgingIds[item.id];
 
 		return (
-			<View
-				style={[
-					styles.cardContainer,
-					isCheckoutRequest && { borderLeftColor: colors.statusSuccess },
-				]}
+			<TouchableOpacity
+				style={[styles.cardContainer, { borderLeftColor: accentColor }]}
+				activeOpacity={0.9}
+				onPress={() => handleOpenTable(item.id)}
 			>
 				<View style={styles.cardHeader}>
 					<View style={styles.tableInfoRow}>
 						<MaterialCommunityIcons
-							// Change icon based on type
-							name={isCheckoutRequest ? "cash-register" : "bell-ring"}
-							size={24}
-							color={
-								isCheckoutRequest ? colors.statusSuccess : colors.statusDanger
-							}
-							style={{ marginRight: 8 }}
+							name={iconName}
+							size={26}
+							color={accentColor}
+							style={styles.cardIcon}
 						/>
-						<Text style={styles.tableName}>{tableName}</Text>
+						<View style={styles.tableTextBlock}>
+							<Text style={styles.tableName} numberOfLines={1}>
+								{tableName}
+							</Text>
+							<Text style={[styles.requestLabel, { color: accentColor }]}>
+								{requestLabel}
+							</Text>
+						</View>
 					</View>
-					<Text
-						style={[
-							styles.timeText,
-							isCheckoutRequest && { color: colors.statusSuccess },
-						]}
-					>
+					<Text style={[styles.timeText, { color: accentColor }]}>
 						{timeWaiting}
 					</Text>
 				</View>
 
-				{/* 🚨 NEW: Show a clear label so the server knows what they want */}
-				{isCheckoutRequest && (
-					<Text
-						style={{
-							fontSize: 16,
-							fontWeight: "bold",
-							color: colors.statusSuccess,
-							marginBottom: 15,
-							paddingLeft: 32,
-						}}
-					>
-						{t("ready_to_pay", "Ready to Pay / Needs Check")}
-					</Text>
-				)}
+				<View style={styles.detailGrid}>
+					<View style={styles.detailPill}>
+						<Ionicons name="person" size={15} color={colors.textMedium} />
+						<Text style={styles.detailText} numberOfLines={1}>
+							{guestName}
+						</Text>
+					</View>
+					<View style={styles.detailPill}>
+						<Ionicons name="people" size={15} color={colors.textMedium} />
+						<Text style={styles.detailText}>{partySize}</Text>
+					</View>
+					{!permissions.isServer && (
+						<View style={styles.detailPill}>
+							<MaterialCommunityIcons
+								name="account-tie"
+								size={15}
+								color={colors.textMedium}
+							/>
+							<Text style={styles.detailText} numberOfLines={1}>
+								{serverName}
+							</Text>
+						</View>
+					)}
+				</View>
 
 				<View style={styles.cardActions}>
 					<TouchableOpacity
-						style={styles.acknowledgeButton}
-						onPress={() =>
-							handleAcknowledge(item.id, tableName, isCheckoutRequest)
-						}
+						style={styles.openButton}
+						onPress={() => handleOpenTable(item.id)}
 					>
 						<Ionicons
-							name="checkmark-done"
+							name="open-outline"
 							size={20}
-							color={colors.surfaceWhite}
-							style={{ marginRight: 6 }}
+							color={colors.primary}
+							style={styles.buttonIcon}
 						/>
+						<Text style={styles.openButtonText}>
+							{t("open_table", "Open Table")}
+						</Text>
+					</TouchableOpacity>
+					<TouchableOpacity
+						disabled={isAcknowledging}
+						style={[
+							styles.acknowledgeButton,
+							{ backgroundColor: accentColor },
+							isAcknowledging && styles.disabledButton,
+						]}
+						onPress={() => handleAcknowledge(item.id, tableName)}
+					>
+						{isAcknowledging ? (
+							<ActivityIndicator size="small" color={colors.surfaceWhite} />
+						) : (
+							<Ionicons
+								name="checkmark-done"
+								size={20}
+								color={colors.surfaceWhite}
+								style={styles.buttonIcon}
+							/>
+						)}
 						<Text style={styles.acknowledgeButtonText}>
-							{t("acknowledge", "Acknowledge")}
+							{t("on_my_way", "On My Way")}
 						</Text>
 					</TouchableOpacity>
 				</View>
-			</View>
+			</TouchableOpacity>
 		);
 	};
+
 	if (isLoading) {
 		return (
 			<View style={styles.centeredContainer}>
@@ -200,6 +302,9 @@ const ServiceRequestsScreen = () => {
 					keyExtractor={(item) => item.id}
 					renderItem={renderRequestCard}
 					contentContainerStyle={styles.listContainer}
+					removeClippedSubviews
+					initialNumToRender={12}
+					maxToRenderPerBatch={12}
 				/>
 			)}
 		</View>
@@ -224,7 +329,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 	},
 	heading: {
-		fontSize: 28,
+		fontSize: 24,
 		fontWeight: "bold",
 		color: colors.textDark,
 		marginRight: 10,
@@ -253,7 +358,7 @@ const styles = StyleSheet.create({
 	},
 	cardContainer: {
 		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
+		borderRadius: 8,
 		padding: 15,
 		marginBottom: 15,
 		borderLeftWidth: 6,
@@ -268,21 +373,54 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		marginBottom: 15,
+		marginBottom: 14,
 	},
 	tableInfoRow: {
 		flexDirection: "row",
 		alignItems: "center",
+		flex: 1,
+		minWidth: 0,
 	},
+	cardIcon: { marginRight: 10 },
+	tableTextBlock: { flex: 1, minWidth: 0 },
 	tableName: {
 		fontSize: 22,
 		fontWeight: "bold",
 		color: colors.textDark,
 	},
+	requestLabel: {
+		fontSize: 13,
+		fontWeight: "800",
+		marginTop: 2,
+	},
 	timeText: {
 		fontSize: 14,
-		color: colors.statusDanger,
-		fontWeight: "600",
+		fontWeight: "800",
+		marginLeft: 10,
+	},
+	detailGrid: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		marginBottom: 14,
+	},
+	detailPill: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "#F8FAFC",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 999,
+		paddingHorizontal: 10,
+		paddingVertical: 5,
+		marginRight: 8,
+		marginBottom: 8,
+		maxWidth: "100%",
+	},
+	detailText: {
+		color: colors.textMedium,
+		fontSize: 13,
+		fontWeight: "700",
+		marginLeft: 5,
 	},
 	cardActions: {
 		flexDirection: "row",
@@ -291,17 +429,33 @@ const styles = StyleSheet.create({
 		borderTopColor: colors.borderLight,
 		paddingTop: 12,
 	},
+	openButton: {
+		flexDirection: "row",
+		backgroundColor: "#EFF6FF",
+		paddingVertical: 10,
+		paddingHorizontal: 16,
+		borderRadius: 8,
+		alignItems: "center",
+		marginRight: 10,
+	},
+	openButtonText: {
+		color: colors.primary,
+		fontSize: 15,
+		fontWeight: "bold",
+	},
 	acknowledgeButton: {
 		flexDirection: "row",
 		backgroundColor: colors.statusSuccess,
 		paddingVertical: 10,
-		paddingHorizontal: 20,
+		paddingHorizontal: 16,
 		borderRadius: 8,
 		alignItems: "center",
 	},
+	disabledButton: { opacity: 0.75 },
+	buttonIcon: { marginRight: 6 },
 	acknowledgeButtonText: {
 		color: colors.surfaceWhite,
-		fontSize: 16,
+		fontSize: 15,
 		fontWeight: "bold",
 	},
 });

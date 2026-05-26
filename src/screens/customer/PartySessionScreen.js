@@ -112,6 +112,8 @@ const PartySessionScreen = () => {
 				.doc(currentPartyId)
 				.update({
 					serviceRequested: true,
+					serviceRequestType: "service",
+					serviceRequestStatus: "new",
 					serviceRequestedAt: new Date().toISOString(),
 					serviceTableName: currentParty?.table?.name || "A table",
 				});
