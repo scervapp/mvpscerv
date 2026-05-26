@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useContext, useMemo } from "react";
+import React, {
+	useEffect,
+	useState,
+	useContext,
+	useMemo,
+	useCallback,
+} from "react";
 import {
 	View,
 	Text,
@@ -72,6 +78,39 @@ const deriveStationStatusFromItems = (items, station, fallbackStatus = "new") =>
 	return "new";
 };
 
+const getStatusMeta = (status) => {
+	switch (status) {
+		case "ready":
+			return {
+				label: "READY",
+				color: colors.statusSuccess,
+				backgroundColor: "#ECFDF5",
+				icon: "check-circle",
+			};
+		case "preparing":
+			return {
+				label: "WORKING",
+				color: colors.statusWarning,
+				backgroundColor: "#FFF7ED",
+				icon: "fire",
+			};
+		default:
+			return {
+				label: "NEW",
+				color: colors.primary,
+				backgroundColor: "#EFF6FF",
+				icon: "clock-outline",
+			};
+	}
+};
+
+const getSeatLabel = (item) =>
+	item?.seatName ||
+	item?.orderedForSeatName ||
+	item?.orderedForName ||
+	item?.orderedFor ||
+	"";
+
 // --- Enterprise Kitchen Ticket ---
 const KitchenTicket = React.memo(
 	({
@@ -81,6 +120,7 @@ const KitchenTicket = React.memo(
 		viewMode,
 		ticketWidth,
 		currentTime,
+		updatingKeys,
 	}) => {
 		const { t, i18n } = useTranslation();
 		const currentLang = i18n.language?.substring(0, 2) || "en";
@@ -155,6 +195,13 @@ const KitchenTicket = React.memo(
 		);
 
 		// 🚨 1. Determine if this is a hotel order
+		const statusMeta = getStatusMeta(currentStatus);
+		const openCount = itemsToDisplay.filter(
+			(item) =>
+				getStationItemStatus(item, viewMode, itemStatusFallback) !== "ready",
+		).length;
+		const ticketActionKey = `${order.id}:${viewMode}:all`;
+		const isTicketUpdating = updatingKeys[ticketActionKey];
 		const isPickup = order.fulfillmentType === "hotel_pickup";
 
 		const getUrgencyColor = () => {
@@ -178,9 +225,31 @@ const KitchenTicket = React.memo(
 						<Text style={styles.ticketTable} numberOfLines={1}>
 							{order.table?.name || "Table"}
 						</Text>
-						<Text style={styles.ticketServer} numberOfLines={1}>
-							{order.server?.name || "Staff"}
-						</Text>
+						<View style={styles.ticketMetaRow}>
+							<Text style={styles.ticketServer} numberOfLines={1}>
+								{order.server?.name || "Staff"}
+							</Text>
+							<View
+								style={[
+									styles.ticketStatusChip,
+									{ backgroundColor: statusMeta.backgroundColor },
+								]}
+							>
+								<MaterialCommunityIcons
+									name={statusMeta.icon}
+									size={12}
+									color={statusMeta.color}
+								/>
+								<Text
+									style={[
+										styles.ticketStatusText,
+										{ color: statusMeta.color },
+									]}
+								>
+									{t(statusMeta.label, statusMeta.label)}
+								</Text>
+							</View>
+						</View>
 
 						{/* 🚨 2. Render the high-visibility TO-GO badge */}
 						{isPickup && (
@@ -203,9 +272,24 @@ const KitchenTicket = React.memo(
 							viewMode,
 							itemStatusFallback,
 						);
+						const itemStatusMeta = getStatusMeta(itemStatus);
 						const isItemReady = itemStatus === "ready";
 						const nextItemStatus =
 							itemStatus === "new" ? "preparing" : "ready";
+						const itemUpdateKey = `${order.id}:${viewMode}:${item.id}`;
+						const isItemUpdating = updatingKeys[itemUpdateKey];
+						const seatLabel = getSeatLabel(item);
+						const shouldShowSeatLabel =
+							seatLabel &&
+							!["myself", "table"].includes(String(seatLabel).toLowerCase());
+						const specialInstructions =
+							item.specialInstructions &&
+							typeof item.specialInstructions === "object"
+								? item.specialInstructions[currentLang] ||
+									item.specialInstructions.original ||
+									item.specialInstructions.en ||
+									""
+								: item.specialInstructions || "";
 
 						return (
 							<View
@@ -217,14 +301,34 @@ const KitchenTicket = React.memo(
 							>
 								<Text style={styles.itemQuantity}>{item.quantity}x</Text>
 								<View style={styles.itemDetails}>
-									<Text style={styles.itemName} numberOfLines={2}>
-										{item.dishName}
-									</Text>
-
-									{item.orderedFor && item.orderedFor !== "Myself" && (
-										<Text style={styles.itemFor} numberOfLines={1}>
-											{t("for", "For")}: {item.orderedFor}
+									<View style={styles.itemTitleRow}>
+										<Text style={styles.itemName} numberOfLines={2}>
+											{item.dishName}
 										</Text>
+										<View
+											style={[
+												styles.itemStatusChip,
+												{ backgroundColor: itemStatusMeta.backgroundColor },
+											]}
+										>
+											<Text
+												style={[
+													styles.itemStatusChipText,
+													{ color: itemStatusMeta.color },
+												]}
+											>
+												{t(itemStatusMeta.label, itemStatusMeta.label)}
+											</Text>
+										</View>
+									</View>
+
+									{shouldShowSeatLabel && (
+										<View style={styles.seatBadge}>
+											<Ionicons name="person" size={12} color={colors.primary} />
+											<Text style={styles.seatBadgeText} numberOfLines={1}>
+												{seatLabel}
+											</Text>
+										</View>
 									)}
 
 									{stationModifiers.length > 0 && (
@@ -234,7 +338,7 @@ const KitchenTicket = React.memo(
 													key={`${modifier.optionId || modifier.name || "modifier"}-${modifierIndex}`}
 													style={styles.modifierText}
 												>
-													• {getLocalizedText(modifier.name)}
+													- {getLocalizedText(modifier.name)}
 													{Number(modifier.price || 0) > 0
 														? ` (+${formatCurrencyFromDollars(modifier.price)})`
 														: ""}
@@ -243,26 +347,21 @@ const KitchenTicket = React.memo(
 										</View>
 									)}
 
-									{item.specialInstructions ? (
+									{specialInstructions ? (
 										<Text style={styles.itemInstructions} numberOfLines={3}>
-											"
-											{typeof item.specialInstructions === "object"
-												? item.specialInstructions[currentLang] ||
-													item.specialInstructions.original ||
-													item.specialInstructions.en
-												: item.specialInstructions}
-											"
+											"{specialInstructions}"
 										</Text>
 									) : null}
 								</View>
 
 								<TouchableOpacity
-									disabled={isItemReady}
+									disabled={isItemReady || isItemUpdating}
 									style={[
 										styles.itemStatusButton,
 										itemStatus === "new" && styles.itemStartButton,
 										itemStatus === "preparing" && styles.itemDoneButton,
 										isItemReady && styles.itemReadyButton,
+										isItemUpdating && styles.itemUpdatingButton,
 									]}
 									onPress={() =>
 										onUpdateItemStatus(
@@ -273,20 +372,24 @@ const KitchenTicket = React.memo(
 										)
 									}
 								>
-									<Text
-										style={[
-											styles.itemStatusButtonText,
-											itemStatus === "new" && styles.itemStartButtonText,
-											isItemReady && styles.itemReadyButtonText,
-										]}
-										numberOfLines={1}
-									>
-										{isItemReady
-											? t("READY")
-											: itemStatus === "new"
-												? t("START")
-												: t("DONE")}
-									</Text>
+									{isItemUpdating ? (
+										<ActivityIndicator size="small" color={colors.primary} />
+									) : (
+										<Text
+											style={[
+												styles.itemStatusButtonText,
+												itemStatus === "new" && styles.itemStartButtonText,
+												isItemReady && styles.itemReadyButtonText,
+											]}
+											numberOfLines={1}
+										>
+											{isItemReady
+												? t("READY", "READY")
+												: itemStatus === "new"
+													? t("START", "START")
+													: t("READY", "READY")}
+										</Text>
+									)}
 								</TouchableOpacity>
 							</View>
 						);
@@ -294,11 +397,13 @@ const KitchenTicket = React.memo(
 				</View>
 
 				<TouchableOpacity
+					disabled={isTicketUpdating}
 					style={[
 						styles.actionButton,
 						currentStatus === "new"
 							? styles.preparingButton
 							: styles.readyButton,
+						isTicketUpdating && styles.actionButtonDisabled,
 					]}
 					onPress={() =>
 						onUpdateStatus(
@@ -308,16 +413,28 @@ const KitchenTicket = React.memo(
 						)
 					}
 				>
-					<Text
-						style={[
-							styles.actionButtonText,
-							{
-								color: currentStatus === "new" ? colors.statusWarning : "#FFF",
-							},
-						]}
-					>
-						{currentStatus === "new" ? t("START ALL") : t("DONE ALL")}
-					</Text>
+					{isTicketUpdating ? (
+						<ActivityIndicator
+							size="small"
+							color={currentStatus === "new" ? colors.statusWarning : "#FFF"}
+						/>
+					) : (
+						<Text
+							style={[
+								styles.actionButtonText,
+								{
+									color:
+										currentStatus === "new" ? colors.statusWarning : "#FFF",
+								},
+							]}
+						>
+							{currentStatus === "new"
+								? t("START TICKET", "START TICKET")
+								: t("READY OPEN ITEMS", "READY OPEN ITEMS")}
+							{"  "}
+							<Text style={styles.actionButtonCount}>({openCount})</Text>
+						</Text>
+					)}
 				</TouchableOpacity>
 			</View>
 		);
@@ -333,6 +450,7 @@ const ChefsQScreen = ({ navigation }) => {
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [viewMode, setViewMode] = useState("kitchen");
+	const [updatingKeys, setUpdatingKeys] = useState({});
 	const [currentTime, setCurrentTime] = useState(Date.now());
 	const { setKitchenQueueFocused } = useRestaurantData();
 	const updateKitchenOrderStationStatusFunction = httpsCallable(
@@ -394,7 +512,7 @@ const ChefsQScreen = ({ navigation }) => {
 	}, []);
 
 	// 4. Mathematical Grid
-	const numColumns = Math.max(1, Math.floor(width / 260));
+	const numColumns = Math.max(1, Math.floor(width / 320));
 	const ticketWidth = width / numColumns - 16;
 
 	// 5. Firestore Sync
@@ -439,48 +557,77 @@ const ChefsQScreen = ({ navigation }) => {
 		});
 	}, [orders, viewMode]);
 
-	// 7. Action Logic
-	const handleUpdateOrderStatus = async (order, newStatus, station) => {
+	const runWithUpdatingKey = useCallback(async (key, updateFn) => {
+		setUpdatingKeys((current) => ({ ...current, [key]: true }));
 		try {
-			// ✅ Always update kitchen_orders (source of truth)
-			await updateKitchenOrderStationStatusFunction({
-				orderId: order.id,
-				station,
-				status: newStatus,
-				staffId: activeSession?.id || null,
-				staffName:
-					activeSession?.name ||
-					`${activeSession?.firstName || ""} ${
-						activeSession?.lastName || ""
-					}`.trim(),
+			await updateFn();
+		} finally {
+			setUpdatingKeys((current) => {
+				const next = { ...current };
+				delete next[key];
+				return next;
 			});
-
-			// ❌ Skip basket updates for pickup
-		} catch (e) {
-			console.error("❌ Update failed:", e);
-			Alert.alert("Error", "Update failed");
 		}
-	};
+	}, []);
 
-	const handleUpdateItemStatus = async (order, item, newStatus, station) => {
-		try {
-			await updateKitchenOrderStationStatusFunction({
-				orderId: order.id,
-				itemId: item.id,
-				station,
-				status: newStatus,
-				staffId: activeSession?.id || null,
-				staffName:
-					activeSession?.name ||
-					`${activeSession?.firstName || ""} ${
-						activeSession?.lastName || ""
-					}`.trim(),
-			});
-		} catch (e) {
-			console.error("Update item failed:", e);
-			Alert.alert("Error", "Update failed");
-		}
-	};
+	const staffName =
+		activeSession?.name ||
+		`${activeSession?.firstName || ""} ${
+			activeSession?.lastName || ""
+		}`.trim();
+
+	const handleUpdateOrderStatus = useCallback(
+		async (order, newStatus, station) => {
+			const updateKey = `${order.id}:${station}:all`;
+			try {
+				await runWithUpdatingKey(updateKey, () =>
+					updateKitchenOrderStationStatusFunction({
+						orderId: order.id,
+						station,
+						status: newStatus,
+						staffId: activeSession?.id || null,
+						staffName,
+					}),
+				);
+			} catch (e) {
+				console.error("Update ticket failed:", e);
+				Alert.alert("Error", "Update failed");
+			}
+		},
+		[
+			activeSession?.id,
+			runWithUpdatingKey,
+			staffName,
+			updateKitchenOrderStationStatusFunction,
+		],
+	);
+
+	const handleUpdateItemStatus = useCallback(
+		async (order, item, newStatus, station) => {
+			const updateKey = `${order.id}:${station}:${item.id}`;
+			try {
+				await runWithUpdatingKey(updateKey, () =>
+					updateKitchenOrderStationStatusFunction({
+						orderId: order.id,
+						itemId: item.id,
+						station,
+						status: newStatus,
+						staffId: activeSession?.id || null,
+						staffName,
+					}),
+				);
+			} catch (e) {
+				console.error("Update item failed:", e);
+				Alert.alert("Error", "Update failed");
+			}
+		},
+		[
+			activeSession?.id,
+			runWithUpdatingKey,
+			staffName,
+			updateKitchenOrderStationStatusFunction,
+		],
+	);
 
 	if (isLoading)
 		return (
@@ -522,7 +669,9 @@ const ChefsQScreen = ({ navigation }) => {
 				<View style={styles.summaryBar}>
 					<View>
 						<Text style={styles.statLabel}>
-							{viewMode.toUpperCase()} {t("RAIL")}
+							{viewMode === "kitchen"
+								? t("Kitchen Q", "Kitchen Q")
+								: t("Bar Q", "Bar Q")}
 						</Text>
 						<Text style={styles.statValue}>
 							{filteredOrders.length} {t("Active")}
@@ -549,9 +698,17 @@ const ChefsQScreen = ({ navigation }) => {
 							>
 								<MaterialCommunityIcons
 									name="chef-hat"
-									size={24}
+									size={22}
 									color={viewMode === "kitchen" ? "#FFF" : colors.textMedium}
 								/>
+								<Text
+									style={[
+										styles.tabText,
+										viewMode === "kitchen" && styles.activeTabText,
+									]}
+								>
+									{t("Kitchen", "Kitchen")}
+								</Text>
 							</TouchableOpacity>
 							<TouchableOpacity
 								onPress={() => setViewMode("bar")}
@@ -559,9 +716,17 @@ const ChefsQScreen = ({ navigation }) => {
 							>
 								<MaterialCommunityIcons
 									name="glass-cocktail"
-									size={24}
+									size={22}
 									color={viewMode === "bar" ? "#FFF" : colors.textMedium}
 								/>
+								<Text
+									style={[
+										styles.tabText,
+										viewMode === "bar" && styles.activeTabText,
+									]}
+								>
+									{t("Bar", "Bar")}
+								</Text>
 							</TouchableOpacity>
 						</View>
 					</View>
@@ -572,6 +737,10 @@ const ChefsQScreen = ({ navigation }) => {
 				data={filteredOrders}
 				numColumns={numColumns}
 				key={`${numColumns}-${viewMode}`}
+				removeClippedSubviews
+				initialNumToRender={12}
+				maxToRenderPerBatch={12}
+				windowSize={7}
 				renderItem={({ item }) => (
 					<KitchenTicket
 						order={item}
@@ -580,6 +749,7 @@ const ChefsQScreen = ({ navigation }) => {
 						viewMode={viewMode}
 						ticketWidth={ticketWidth}
 						currentTime={currentTime}
+						updatingKeys={updatingKeys}
 					/>
 				)}
 				keyExtractor={(item) => item.id}
@@ -615,13 +785,13 @@ const styles = StyleSheet.create({
 		fontSize: 11,
 		fontWeight: "900",
 		color: "#94A3B8",
-		letterSpacing: 1.5,
+		letterSpacing: 0,
 	},
 	statValue: {
 		fontSize: 22,
 		fontWeight: "900",
 		color: "#1E293B",
-		letterSpacing: -0.5,
+		letterSpacing: 0,
 	},
 
 	// 🚨 NEW: Styling for the controls row
@@ -648,15 +818,30 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		padding: 4,
 	},
-	tab: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+	tab: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingVertical: 10,
+		paddingHorizontal: 16,
+		borderRadius: 10,
+		minWidth: 112,
+		justifyContent: "center",
+	},
 	activeTab: { backgroundColor: colors.primary },
+	tabText: {
+		color: colors.textMedium,
+		fontSize: 13,
+		fontWeight: "900",
+		marginLeft: 6,
+	},
+	activeTabText: { color: "#FFF" },
 
 	grid: { padding: 8 },
 	ticketContainer: {
 		backgroundColor: "#FFF",
-		borderRadius: 12,
+		borderRadius: 8,
 		margin: 8,
-		minHeight: 290,
+		minHeight: 270,
 		borderTopWidth: 8,
 		justifyContent: "space-between",
 		elevation: 6,
@@ -672,9 +857,27 @@ const styles = StyleSheet.create({
 		fontSize: 20,
 		fontWeight: "900",
 		color: colors.primary,
-		letterSpacing: -0.5,
+		letterSpacing: 0,
 	},
 	ticketServer: { fontSize: 12, color: "#94A3B8", fontWeight: "600" },
+	ticketMetaRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 2,
+	},
+	ticketStatusChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderRadius: 999,
+		paddingHorizontal: 7,
+		paddingVertical: 3,
+		marginLeft: 8,
+	},
+	ticketStatusText: {
+		fontSize: 10,
+		fontWeight: "900",
+		marginLeft: 4,
+	},
 	timerBadge: {
 		paddingHorizontal: 8,
 		paddingVertical: 4,
@@ -682,14 +885,14 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 	},
 	timerText: { color: "#FFF", fontWeight: "900", fontSize: 14 },
-	ticketItems: { padding: 12, flex: 1 },
+	ticketItems: { padding: 10, flex: 1 },
 	ticketItemRow: {
 		flexDirection: "row",
-		marginBottom: 12,
+		marginBottom: 10,
 		alignItems: "center",
 		borderBottomWidth: 1,
 		borderBottomColor: "#F1F5F9",
-		paddingBottom: 10,
+		paddingBottom: 9,
 	},
 	ticketItemRowReady: {
 		opacity: 0.6,
@@ -701,19 +904,46 @@ const styles = StyleSheet.create({
 		width: 28,
 		marginRight: 4,
 	},
-	itemDetails: { flex: 1 },
+	itemDetails: { flex: 1, minWidth: 0 },
+	itemTitleRow: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+	},
 	itemName: {
+		flex: 1,
 		fontSize: 15,
 		fontWeight: "800",
 		color: "#1E293B",
 		textTransform: "uppercase",
 		lineHeight: 18,
 	},
-	itemFor: {
-		fontSize: 12,
-		color: colors.textMedium,
-		fontStyle: "italic",
-		marginTop: 2,
+	itemStatusChip: {
+		borderRadius: 999,
+		paddingHorizontal: 6,
+		paddingVertical: 3,
+		marginLeft: 8,
+		marginTop: 1,
+	},
+	itemStatusChipText: {
+		fontSize: 9,
+		fontWeight: "900",
+	},
+	seatBadge: {
+		flexDirection: "row",
+		alignItems: "center",
+		alignSelf: "flex-start",
+		backgroundColor: "#EFF6FF",
+		borderRadius: 999,
+		paddingHorizontal: 8,
+		paddingVertical: 3,
+		marginTop: 4,
+		maxWidth: "90%",
+	},
+	seatBadgeText: {
+		fontSize: 11,
+		color: colors.primary,
+		fontWeight: "900",
+		marginLeft: 4,
 	},
 	itemInstructions: {
 		color: colors.statusDanger,
@@ -723,8 +953,8 @@ const styles = StyleSheet.create({
 		lineHeight: 16,
 	},
 	itemStatusButton: {
-		height: 40,
-		minWidth: 70,
+		height: 42,
+		minWidth: 74,
 		paddingHorizontal: 10,
 		marginLeft: 8,
 		borderRadius: 6,
@@ -744,11 +974,15 @@ const styles = StyleSheet.create({
 		backgroundColor: "#F8FAFC",
 		borderColor: "#CBD5E1",
 	},
+	itemUpdatingButton: {
+		backgroundColor: "#F8FAFC",
+		borderColor: "#CBD5E1",
+	},
 	itemStatusButtonText: {
 		fontSize: 11,
 		fontWeight: "900",
 		color: "#FFF",
-		letterSpacing: 0.5,
+		letterSpacing: 0,
 	},
 	itemStartButtonText: {
 		color: colors.statusWarning,
@@ -757,14 +991,16 @@ const styles = StyleSheet.create({
 		color: "#64748B",
 	},
 	actionButton: {
-		padding: 16,
+		padding: 15,
 		alignItems: "center",
-		borderBottomLeftRadius: 12,
-		borderBottomRightRadius: 12,
+		borderBottomLeftRadius: 8,
+		borderBottomRightRadius: 8,
 	},
 	preparingButton: { backgroundColor: colors.statusWarning + "15" },
 	readyButton: { backgroundColor: colors.statusSuccess },
-	actionButtonText: { fontWeight: "900", fontSize: 16, letterSpacing: 1 },
+	actionButtonDisabled: { opacity: 0.75 },
+	actionButtonText: { fontWeight: "900", fontSize: 16, letterSpacing: 0 },
+	actionButtonCount: { fontSize: 14, letterSpacing: 0 },
 	emptyContainer: {
 		flex: 1,
 		justifyContent: "center",
