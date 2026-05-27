@@ -833,6 +833,7 @@ exports.preparePayment = functions
 			orderMode,
 			fulfillmentType,
 			payingForUserId,
+			payingForUserIds,
 		} = data;
 
 		if (
@@ -918,6 +919,7 @@ exports.preparePayment = functions
 			// 3. ============== FETCH BASKET ITEMS DYNAMICALLY ==============
 			let itemsToProcess = [];
 			let isUserVerifiedForParty = false;
+			let paidForOwnerIds = [userId];
 
 			const isSharedBasketPayment =
 				paymentType === "party" || paymentType === "pickup";
@@ -945,7 +947,16 @@ exports.preparePayment = functions
 				const billableMemberIds = (partyData.guestPips || [])
 					.map((p) => p.userId || p.localPipId || p.id)
 					.filter(Boolean);
-				const targetOwnerId = payingForUserId || userId;
+				const requestedOwnerIds = Array.isArray(payingForUserIds)
+					? payingForUserIds
+					: [payingForUserId || userId];
+				const targetOwnerIds = [
+					...new Set(
+						requestedOwnerIds
+							.map((id) => (id === undefined || id === null ? "" : String(id)))
+							.filter(Boolean),
+					),
+				];
 
 				if (memberIds.includes(userId)) {
 					isUserVerifiedForParty = true;
@@ -956,12 +967,23 @@ exports.preparePayment = functions
 					);
 				}
 
-				if (!billableMemberIds.includes(targetOwnerId)) {
+				if (targetOwnerIds.length === 0) {
+					throw new functions.https.HttpsError(
+						"invalid-argument",
+						"At least one party member must be selected for payment.",
+					);
+				}
+
+				const invalidTargetOwnerId = targetOwnerIds.find(
+					(ownerId) => !billableMemberIds.includes(ownerId),
+				);
+				if (invalidTargetOwnerId) {
 					throw new functions.https.HttpsError(
 						"permission-denied",
 						"Selected party member is not part of this party.",
 					);
 				}
+				paidForOwnerIds = targetOwnerIds;
 
 				const sharedBasketId = partyDoc.data().sharedBasketId;
 				if (!sharedBasketId) {
@@ -984,6 +1006,7 @@ exports.preparePayment = functions
 
 				const allItemsInBasket = sharedBasketDoc.data().items || [];
 				const clientItemIds = new Set(items.map((item) => item.id));
+				const targetOwnerIdSet = new Set(targetOwnerIds);
 				itemsToProcess = allItemsInBasket.filter(
 					(itemInDb) => {
 						const itemOwnerId =
@@ -992,7 +1015,8 @@ exports.preparePayment = functions
 							itemInDb.addedByUserId ||
 							null;
 						return (
-							clientItemIds.has(itemInDb.id) && itemOwnerId === targetOwnerId
+							clientItemIds.has(itemInDb.id) &&
+							targetOwnerIdSet.has(itemOwnerId)
 						);
 					},
 				);
@@ -1016,6 +1040,7 @@ exports.preparePayment = functions
 					partyId: partyId || null,
 					restaurantId,
 					userId,
+					paidForOwnerIds,
 					requestedItemIds: items.map((item) => item.id),
 				});
 				throw new functions.https.HttpsError(
@@ -1135,12 +1160,17 @@ exports.preparePayment = functions
 				clientExpectedTotal > 0 &&
 				Math.abs(clientExpectedTotal - finalAmount) > 1
 			) {
-				console.warn("[preparePayment] Client/server total mismatch", {
+				console.error("[preparePayment] Client/server total mismatch", {
 					orderTotalFromClient: clientExpectedTotal,
 					serverTotal: finalAmount,
 					restaurantId,
 					userId,
+					paidForOwnerIds,
 				});
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Payment total changed before checkout. Please review the total and try again.",
+				);
 			}
 
 			// 5. ============== CREATE PENDING ORDER ==============
@@ -1177,9 +1207,7 @@ exports.preparePayment = functions
 				savePaymentMethod: true,
 				savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
 				payerUserId: userId,
-				paidForUserIds: isSharedBasketPayment
-					? [payingForUserId || userId]
-					: [userId],
+				paidForUserIds: isSharedBasketPayment ? paidForOwnerIds : [userId],
 				paymentPolicy: sanitizeFirestoreValue(paymentPolicy),
 				restaurantTaxRate,
 				items: sanitizeFirestoreValue(fullItemDetails),
@@ -1250,9 +1278,7 @@ exports.preparePayment = functions
 					savePaymentMethod: true,
 					savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
 					payerUserId: userId,
-					paidForUserIds: isSharedBasketPayment
-						? [payingForUserId || userId]
-						: [userId],
+					paidForUserIds: isSharedBasketPayment ? paidForOwnerIds : [userId],
 					restaurantTaxRate,
 					itemIds: fullItemDetails.map((item) => item.id),
 				}),
@@ -1308,7 +1334,7 @@ exports.preparePayment = functions
 						userId,
 						payerUserId: userId,
 						paidForUserIds: isSharedBasketPayment
-							? String(payingForUserId || userId)
+							? paidForOwnerIds.join(",")
 							: String(userId),
 						restaurantId,
 						type: paymentType,
@@ -1369,6 +1395,12 @@ exports.preparePayment = functions
 				customerId: stripeCustomerId,
 				publishableKey: keys.publishableKey,
 				basketId: basketId,
+				total: finalAmount,
+				subtotal: calculatedSubtotal,
+				taxAmount: calculatedTax,
+				gratuity,
+				platformFee: calculatedPlatformFee,
+				paidForUserIds: isSharedBasketPayment ? paidForOwnerIds : [userId],
 			};
 		} catch (error) {
 			console.error("Error in preparePayment:", error);
@@ -2020,9 +2052,25 @@ const fulfillOrder = async ({
 					const paidItemIds = (transactionalPendingOrderData.items || []).map(
 						(item) => item.id,
 					);
+					const paidItemIdSet = new Set(paidItemIds.filter(Boolean));
+					const paidForUserIdSet = new Set(paidForUserIds);
 
 					const remainingItems = currentBasketItems.filter(
-						(item) => !paidItemIds.includes(item.id),
+						(item) => {
+							if (paidItemIdSet.has(item.id)) return false;
+
+							const itemOwnerId =
+								item.orderedByUserId ||
+								item.userId ||
+								item.addedByUserId ||
+								null;
+							const isPaidCustomerItem =
+								itemOwnerId &&
+								paidForUserIdSet.has(itemOwnerId) &&
+								item.paymentResponsibility !== "restaurant_pos";
+
+							return !isPaidCustomerItem;
+						},
 					);
 
 					if (remainingItems.length > 0) {
@@ -2103,6 +2151,23 @@ const fulfillOrder = async ({
 						.map((pip) => pip.userId)
 						.filter(Boolean),
 				);
+				const partyRealMemberIds = new Set(
+					[
+						partyData.hostUserId,
+						...(Array.isArray(partyData.guestUserIds)
+							? partyData.guestUserIds
+							: []),
+						...(Array.isArray(partyData.memberUids)
+							? partyData.memberUids
+							: []),
+						...currentGuestPips.map((pip) => pip && pip.userId),
+					].filter(Boolean),
+				);
+				paidForUserIds.forEach((paidForId) => {
+					if (partyRealMemberIds.has(paidForId)) {
+						paidForRealUserIds.add(paidForId);
+					}
+				});
 
 				const updatedGuestPips = currentGuestPips.map((pip) =>
 					paidForUserIds.includes(pip.userId || pip.localPipId || pip.id)
@@ -2118,6 +2183,34 @@ const fulfillOrder = async ({
 						),
 					}),
 				});
+
+				paidForRealUserIds.forEach((uid) => {
+					t.set(
+						db.collection("customers").doc(uid),
+						{
+							activeCheckIn: null,
+							activePartyId: null,
+							activeRestaurantId: null,
+							partyIds: admin.firestore.FieldValue.arrayRemove(
+								transactionalPendingOrderData.partyId,
+							),
+						},
+						{ merge: true },
+					);
+				});
+
+				if (partyData.checkInId && paidForRealUserIds.size > 0) {
+					t.set(
+						db.collection("checkIns").doc(partyData.checkInId),
+						{
+							paidUserIds: admin.firestore.FieldValue.arrayUnion(
+								...Array.from(paidForRealUserIds),
+							),
+							lastPaidAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				}
 
 				if (basketSnap.exists) {
 					const currentBasketItems = basketSnap.data().items || [];

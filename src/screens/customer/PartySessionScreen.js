@@ -476,15 +476,33 @@ const PartySessionScreen = () => {
 
 		const rawBasketData = sharedBaskets[currentPartyId] || {};
 		const ticketStatuses = rawBasketData.ticketStatuses || {};
+		const basketItems = Array.isArray(rawBasketData.items)
+			? rawBasketData.items
+			: [];
 
 		const ticketInfo = ticketStatuses[item.ticketId];
+
+		const category = item.category || "Other";
+		const destination = DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen";
+		const itemStationStatus = item.stationStatuses?.[destination];
+
+		if (itemStationStatus) {
+			return itemStationStatus === "new" ? "sent" : itemStationStatus;
+		}
+
+		const hasItemLevelStatusForTicket = basketItems.some(
+			(basketItem) =>
+				basketItem.ticketId === item.ticketId &&
+				basketItem.stationStatuses?.[destination],
+		);
+
+		if (hasItemLevelStatusForTicket) {
+			return item.status;
+		}
 
 		if (!ticketInfo) {
 			return item.status;
 		}
-
-		const category = item.category || "Other";
-		const destination = DRINK_CATEGORIES.includes(category) ? "bar" : "kitchen";
 
 		const liveStatus = ticketInfo[destination];
 

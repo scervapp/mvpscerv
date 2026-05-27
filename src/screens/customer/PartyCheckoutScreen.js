@@ -122,7 +122,7 @@ const PartyCheckoutScreen = () => {
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
-	const [payingForMemberId, setPayingForMemberId] = useState(null);
+	const [payingForMemberIds, setPayingForMemberIds] = useState([]);
 
 	const [pricingTiers, setPricingTiers] = useState(null);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
@@ -183,24 +183,78 @@ const PartyCheckoutScreen = () => {
 	}, [party?.guestPips, currentUserData?.uid, t]);
 
 	useEffect(() => {
-		if (!currentUserData?.uid || payingForMemberId) return;
-		const currentMember = partyMembersForCheckout.find(
-			(member) => member.id === currentUserData.uid,
-		);
-		setPayingForMemberId(currentMember?.id || partyMembersForCheckout[0]?.id || null);
-	}, [currentUserData?.uid, partyMembersForCheckout, payingForMemberId]);
+		if (!currentUserData?.uid) return;
 
-	const selectedCheckoutMember = useMemo(() => {
-		return (
-			partyMembersForCheckout.find((member) => member.id === payingForMemberId) ||
-			null
-		);
-	}, [partyMembersForCheckout, payingForMemberId]);
+		setPayingForMemberIds((currentIds) => {
+			const payableMembers = partyMembersForCheckout.filter(
+				(member) => member.paymentStatus !== "paid",
+			);
+			const payableIds = new Set(payableMembers.map((member) => member.id));
+			const stillPayableIds = currentIds.filter((id) => payableIds.has(id));
 
-	const selectedCheckoutMemberName =
-		selectedCheckoutMember?.isCurrentUser
-			? t("you", "You")
-			: selectedCheckoutMember?.name || t("guest", "Guest");
+			if (stillPayableIds.length > 0) {
+				return stillPayableIds.length === currentIds.length
+					? currentIds
+					: stillPayableIds;
+			}
+
+			const currentMember = payableMembers.find(
+				(member) => member.id === currentUserData.uid,
+			);
+			const fallbackMember = currentMember || payableMembers[0];
+			return fallbackMember?.id ? [fallbackMember.id] : [];
+		});
+	}, [currentUserData?.uid, partyMembersForCheckout]);
+
+	const selectedCheckoutMembers = useMemo(() => {
+		const selectedIds = new Set(payingForMemberIds);
+		return partyMembersForCheckout.filter((member) => selectedIds.has(member.id));
+	}, [partyMembersForCheckout, payingForMemberIds]);
+
+	const selectedCheckoutMemberNames = useMemo(
+		() =>
+			selectedCheckoutMembers.map((member) =>
+				member.isCurrentUser ? t("you", "You") : member.name,
+			),
+		[selectedCheckoutMembers, t],
+	);
+
+	const selectedCheckoutMemberName = useMemo(() => {
+		if (selectedCheckoutMemberNames.length === 0) return t("guest", "Guest");
+		if (selectedCheckoutMemberNames.length === 1) {
+			return selectedCheckoutMemberNames[0];
+		}
+		if (selectedCheckoutMemberNames.length === 2) {
+			return selectedCheckoutMemberNames.join(" & ");
+		}
+		return t("selected_members_count", "{{count}} members", {
+			count: selectedCheckoutMemberNames.length,
+		});
+	}, [selectedCheckoutMemberNames, t]);
+
+	const selectedCheckoutMemberIds = useMemo(() => {
+		if (selectedCheckoutMembers.length > 0) {
+			return selectedCheckoutMembers.map((member) => member.id);
+		}
+		return currentUserData?.uid ? [currentUserData.uid] : [];
+	}, [currentUserData?.uid, selectedCheckoutMembers]);
+
+	const isOnlyCurrentUserSelected =
+		selectedCheckoutMembers.length === 1 &&
+		selectedCheckoutMembers[0]?.isCurrentUser;
+
+	const togglePayingForMember = (member) => {
+		if (!member || member.paymentStatus === "paid") return;
+
+		setPayingForMemberIds((currentIds) => {
+			if (currentIds.includes(member.id)) {
+				if (currentIds.length <= 1) return currentIds;
+				return currentIds.filter((id) => id !== member.id);
+			}
+
+			return [...currentIds, member.id];
+		});
+	};
 
 	const {
 		myItemsInBasket,
@@ -225,9 +279,13 @@ const PartyCheckoutScreen = () => {
 			};
 		}
 
-		const targetMemberId = payingForMemberId || currentUserData.uid;
+		const targetMemberIds =
+			selectedCheckoutMemberIds.length > 0
+				? selectedCheckoutMemberIds
+				: [currentUserData.uid];
+		const targetMemberIdSet = new Set(targetMemberIds);
 		const items = sharedBasketItems.filter(
-			(item) => item.orderedByUserId === targetMemberId,
+			(item) => targetMemberIdSet.has(item.orderedByUserId),
 		);
 
 		if (items.length === 0) {
@@ -371,7 +429,7 @@ const PartyCheckoutScreen = () => {
 		restaurantData && restaurantData.pricingTier,
 		restaurantData && restaurantData.taxRate,
 		canAcceptPayments,
-		payingForMemberId,
+		selectedCheckoutMemberIds,
 	]);
 
 	const resolvedRestaurantId =
@@ -623,8 +681,12 @@ const PartyCheckoutScreen = () => {
 				totalPrice: myFinalTotal || 0,
 				items: formattedItems,
 				payerUserId: uid || "anonymous",
-				paidForUserIds: payingForMemberId ? [payingForMemberId] : [uid],
+				paidForUserIds:
+					selectedCheckoutMemberIds.length > 0
+						? selectedCheckoutMemberIds
+						: [uid],
 				paidForMemberName: selectedCheckoutMemberName,
+				paidForMemberNames: selectedCheckoutMemberNames,
 				table: isPickupMode ? { name: "Pickup Window" } : party?.table || null,
 				server: isPickupMode ? { name: "Pickup Queue" } : party?.server || null,
 				checkInId: isPickupMode ? null : party?.checkInId || null,
@@ -795,7 +857,7 @@ const PartyCheckoutScreen = () => {
 				paymentType: isPickupMode ? "pickup" : "party",
 				restaurantId: party.restaurantId,
 				partyId: party.id,
-				payingForUserId: payingForMemberId || currentUserData.uid,
+				payingForUserIds: selectedCheckoutMemberIds,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
 				taxAmount: myTax,
@@ -814,6 +876,25 @@ const PartyCheckoutScreen = () => {
 					t(
 						"failed_to_get_payment_details_from_server",
 						"Failed to get payment details from server.",
+					),
+				);
+			}
+
+			const serverPaymentTotal = Number(prepData.total || 0);
+			if (!serverPaymentTotal) {
+				throw new Error(
+					t(
+						"payment_function_needs_update",
+						"Payment setup needs to be updated before this checkout can continue.",
+					),
+				);
+			}
+
+			if (Math.abs(serverPaymentTotal - myFinalTotal) > 1) {
+				throw new Error(
+					t(
+						"payment_total_changed",
+						"Payment total changed before checkout. Please review the total and try again.",
 					),
 				);
 			}
@@ -874,7 +955,7 @@ const PartyCheckoutScreen = () => {
 
 	const primaryTitle = isPickupMode
 		? t("complete_your_pickup_order", "Complete Your Pickup Order")
-		: selectedCheckoutMember?.isCurrentUser
+		: isOnlyCurrentUserSelected
 			? t("checkout_your_portion", "Checkout Your Portion")
 			: t("checkout_for_member", "Checkout for {{name}}", {
 					name: selectedCheckoutMemberName,
@@ -927,7 +1008,7 @@ const PartyCheckoutScreen = () => {
 						<Text style={styles.sectionTitle}>
 							{isPickupMode
 								? t("your_order", "Your Order")
-								: selectedCheckoutMember?.isCurrentUser
+								: isOnlyCurrentUserSelected
 									? t("your_items", "Your Items")
 									: t("member_items", "{{name}}'s Items", {
 											name: selectedCheckoutMemberName,
@@ -945,7 +1026,8 @@ const PartyCheckoutScreen = () => {
 									contentContainerStyle={styles.memberChipRow}
 								>
 									{partyMembersForCheckout.map((member) => {
-										const selected = member.id === payingForMemberId;
+										const selected = payingForMemberIds.includes(member.id);
+										const isPaid = member.paymentStatus === "paid";
 										const displayName = member.isCurrentUser
 											? t("you", "You")
 											: member.name;
@@ -955,14 +1037,24 @@ const PartyCheckoutScreen = () => {
 												style={[
 													styles.memberChip,
 													selected && styles.memberChipSelected,
+													isPaid && styles.memberChipDisabled,
 												]}
-												onPress={() => setPayingForMemberId(member.id)}
+												onPress={() => togglePayingForMember(member)}
+												disabled={isPaid}
 												activeOpacity={0.8}
 											>
+												{selected && (
+													<Ionicons
+														name="checkmark"
+														size={14}
+														color={colors.surfaceWhite}
+													/>
+												)}
 												<Text
 													style={[
 														styles.memberChipText,
 														selected && styles.memberChipTextSelected,
+														isPaid && styles.memberChipTextDisabled,
 													]}
 												>
 													{displayName}
@@ -975,13 +1067,19 @@ const PartyCheckoutScreen = () => {
 															selected
 																? colors.surfaceWhite
 																: colors.statusSuccess
-														}
+															}
 													/>
 												)}
 											</TouchableOpacity>
 										);
 									})}
 								</ScrollView>
+								<Text style={styles.memberSelectorHint}>
+									{t(
+										"select_one_or_more_members_to_pay",
+										"Select one or more unpaid members to pay together.",
+									)}
+								</Text>
 							</View>
 						)}
 
@@ -1005,6 +1103,12 @@ const PartyCheckoutScreen = () => {
 											<Text style={styles.itemName}>
 												{item.quantity}x {item.name}
 											</Text>
+											{selectedCheckoutMemberIds.length > 1 &&
+												!!item.orderedByPipName && (
+												<Text style={styles.itemOwnerText}>
+													{t("for", "For")}: {item.orderedByPipName}
+												</Text>
+											)}
 
 											{Array.isArray(item.selectedModifiers) &&
 												item.selectedModifiers.length > 0 && (
@@ -1239,31 +1343,6 @@ const PartyCheckoutScreen = () => {
 				<View style={styles.footer}>
 					{canAcceptPayments ? (
 						<View style={{ flexDirection: "row", gap: 10 }}>
-							{!isPickupMode && (
-								<Button
-									mode="outlined"
-									onPress={handleManualCheckout}
-									disabled={
-										!isReadyToPay ||
-										isPreparing ||
-										(!isPickupMode && party?.customerStatus === "ready_to_pay")
-									}
-									loading={isPreparing}
-									style={[
-										styles.payButton,
-										{
-											flex: 1,
-											backgroundColor: colors.surfaceWhite,
-											borderColor: colors.primary,
-											borderWidth: 1,
-										},
-									]}
-									labelStyle={[styles.payButtonText, { color: colors.primary }]}
-								>
-									{manualButtonLabel}
-								</Button>
-							)}
-
 							<Button
 								mode="contained"
 								onPress={() => {
@@ -1478,6 +1557,10 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.primary,
 		borderColor: colors.primary,
 	},
+	memberChipDisabled: {
+		opacity: 0.55,
+		backgroundColor: colors.backgroundLight,
+	},
 	memberChipText: {
 		fontSize: 14,
 		fontWeight: "700",
@@ -1485,6 +1568,14 @@ const styles = StyleSheet.create({
 	},
 	memberChipTextSelected: {
 		color: colors.surfaceWhite,
+	},
+	memberChipTextDisabled: {
+		color: colors.textMedium,
+	},
+	memberSelectorHint: {
+		marginTop: 8,
+		fontSize: 12,
+		color: colors.textMedium,
 	},
 	itemRow: {
 		flexDirection: "row",
@@ -1496,6 +1587,11 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		flexShrink: 1,
 		marginRight: 10,
+	},
+	itemOwnerText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
 	},
 	itemPrice: { fontSize: 16, fontWeight: "500", color: colors.textDark },
 	noItemsText: {

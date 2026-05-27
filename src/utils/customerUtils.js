@@ -92,6 +92,17 @@ const useCheckInStatus = (restaurantId, userId) => {
 				if (!querySnapshot.empty) {
 					const checkInDoc = querySnapshot.docs[0];
 					const checkInData = { id: checkInDoc.id, ...checkInDoc.data() };
+					const paidUserIds = Array.isArray(checkInData.paidUserIds)
+						? checkInData.paidUserIds
+						: [];
+					if (paidUserIds.includes(userId)) {
+						setStatus("NONE");
+						setTableNumber(null);
+						setCheckInObj(null);
+						setError(null);
+						setIsLoading(false);
+						return;
+					}
 					setStatus(checkInData.status || "ERROR");
 					setTableNumber(checkInData.table?.name || null);
 					setCheckInObj(checkInData);
