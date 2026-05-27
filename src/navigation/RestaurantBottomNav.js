@@ -38,6 +38,7 @@ import { useRestaurantData } from "../context/restaurant/RestaurantDataContext";
 import ManagePartyScreen from "../screens/restaurant/ManagePartyScreen.js";
 import ManualSeatScreen from "../screens/restaurant/ManualSeatingScreen.js";
 import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
+import RestaurantTerminalPaymentScreen from "../screens/restaurant/RestaurantTerminalPaymentScreen.js";
 import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext.js";
 import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
 import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
@@ -185,6 +186,11 @@ const ActiveTablesStack = () => (
 			name="ServerMenuScreen"
 			component={ServerMenuScreen}
 			options={{ presentation: "modal" }} // Slides up nicely
+		/>
+		<Stack.Screen
+			name="RestaurantTerminalPaymentScreen"
+			component={RestaurantTerminalPaymentScreen}
+			options={{ headerShown: false, presentation: "card" }}
 		/>
 		<Stack.Screen
 			name="ServiceRequestsScreen"

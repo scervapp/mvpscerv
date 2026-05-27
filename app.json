@@ -63,6 +63,15 @@
           }
         }
       ],
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "bluetoothAlwaysUsagePermission": "Allow Scerv to connect to Stripe card readers.",
+          "bluetoothPeripheralPermission": "Allow Scerv to connect to Stripe card readers.",
+          "localNetworkUsagePermission": "Allow Scerv to find Stripe readers on this network.",
+          "locationWhenInUsePermission": "Allow Scerv to discover nearby Stripe card readers."
+        }
+      ],
       "expo-audio",
       [
         "expo-camera",
