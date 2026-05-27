@@ -2490,6 +2490,13 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 				const currentItems = Array.isArray(currentOrderData.items)
 					? currentOrderData.items
 					: [];
+				const shouldSyncSharedBasket =
+					currentOrderData.partyId &&
+					currentOrderData.fulfillmentType !== "hotel_pickup";
+				const basketRef = shouldSyncSharedBasket
+					? db.collection("shared_baskets").doc(currentOrderData.partyId)
+					: null;
+				const basketDoc = basketRef ? await transaction.get(basketRef) : null;
 
 				const stationItemMatcher = (item) => {
 					if (!item) return false;
@@ -2571,13 +2578,37 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 
 				transaction.update(orderRef, updatePayload);
 
-				if (orderData.partyId && orderData.fulfillmentType !== "hotel_pickup") {
-					const basketRef = db
-						.collection("shared_baskets")
-						.doc(orderData.partyId);
+				if (basketRef) {
+					const updatedItemIds = new Set(
+						updatedMatchingItems
+							.filter((item) => (itemId ? item.id === itemId : true))
+							.map((item) => item.id)
+							.filter(Boolean),
+					);
+					const basketData =
+						basketDoc && basketDoc.exists ? basketDoc.data() || {} : {};
+					const basketItems = Array.isArray(basketData.items)
+						? basketData.items
+						: [];
+					const syncedBasketItems =
+						updatedItemIds.size > 0
+							? basketItems.map((item) => {
+									if (!updatedItemIds.has(item.id)) return item;
+
+									return {
+										...item,
+										stationStatuses: {
+											...(item.stationStatuses || {}),
+											[station]: status,
+										},
+									};
+								})
+							: basketItems;
+
 					transaction.set(
 						basketRef,
 						{
+							items: syncedBasketItems,
 							[`ticketStatuses.${orderId}.${station}`]:
 								aggregateStationStatus,
 							lastKitchenUpdate: admin.firestore.FieldValue.serverTimestamp(),
