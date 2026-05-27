@@ -2956,6 +2956,7 @@ exports.closePartyTable = functions
 			tenderType = paymentMethod,
 			receiptEmail,
 			externalReference = "",
+			terminalPaymentIntentId = "",
 			cashReceived = 0,
 			tipAmount = 0,
 			closeoutNotes = "",
@@ -3139,12 +3140,13 @@ exports.closePartyTable = functions
 				);
 
 				// Manual/external closeout business rule:
-				// - No Scerv/platform fee
-				// - No processor fee because payment did not run through Scerv Stripe
-				// - Staff-entered tips pass through to the restaurant
+				// - Cash/external terminal: no Scerv/platform fee
+				// - Stripe Terminal: customer pays the bill total; restaurant absorbs
+				//   the configured terminal application fee from payout
+				// - Staff-entered tips pass through to the restaurant before fees
 				const gratuityAmountCents = Math.max(0, Math.round(Number(tipAmount) || 0));
 				const platformFeeCents = 0;
-				const processorFeeCents = 0;
+				let processorFeeCents = 0;
 				const cashReceivedCents = Math.max(
 					0,
 					Math.round(Number(cashReceived) || 0),
@@ -3156,9 +3158,12 @@ exports.closePartyTable = functions
 					gratuityAmountCents +
 					platformFeeCents;
 				const restaurantGrossAmountCents = totalPriceCents;
-				const restaurantTransferAmountCents = totalPriceCents;
 				const manualPaymentProcessor =
-					paymentMethod === "cash" ? "cash" : "external";
+					paymentMethod === "cash"
+						? "cash"
+						: paymentMethod === "stripe_terminal"
+							? "stripe"
+							: "external";
 				const changeDueCents =
 					paymentMethod === "cash"
 						? Math.max(0, cashReceivedCents - totalPriceCents)
@@ -3171,15 +3176,101 @@ exports.closePartyTable = functions
 					);
 				}
 
-				if (
-					paymentMethod === "external_terminal" &&
-					!String(externalReference || "").trim()
-				) {
+				if (paymentMethod === "external_terminal" && !String(externalReference || "").trim()) {
 					throw new functions.https.HttpsError(
 						"invalid-argument",
 						"Terminal authorization or reference code is required.",
 					);
 				}
+
+				let terminalPaymentRef = null;
+				let terminalPaymentData = null;
+				const resolvedTerminalPaymentIntentId =
+					String(terminalPaymentIntentId || externalReference || "").trim();
+				if (paymentMethod === "stripe_terminal") {
+					if (!resolvedTerminalPaymentIntentId) {
+						throw new functions.https.HttpsError(
+							"invalid-argument",
+							"Stripe Terminal payment intent ID is required.",
+						);
+					}
+
+					terminalPaymentRef = db
+						.collection("terminal_payments")
+						.doc(resolvedTerminalPaymentIntentId);
+					const terminalPaymentDoc = await transaction.get(terminalPaymentRef);
+					if (!terminalPaymentDoc.exists) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Terminal payment has not been recorded yet.",
+						);
+					}
+
+					terminalPaymentData = terminalPaymentDoc.data() || {};
+					const terminalStatus =
+						terminalPaymentData.paymentStatus || terminalPaymentData.status;
+					if (
+						terminalPaymentData.partyId !== partyId ||
+						!["paid", "succeeded"].includes(terminalStatus)
+					) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Terminal payment has not succeeded for this table.",
+						);
+					}
+
+					if (terminalPaymentData.closeoutFinalized === true) {
+						throw new functions.https.HttpsError(
+							"already-exists",
+							"Terminal payment has already been finalized.",
+						);
+					}
+
+					if (Number(terminalPaymentData.amount || 0) !== totalPriceCents) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Terminal payment amount does not match the selected closeout total.",
+						);
+					}
+
+					const terminalItemIds = new Set(
+						(Array.isArray(terminalPaymentData.itemIds)
+							? terminalPaymentData.itemIds
+							: [])
+							.map((id) => String(id || "").trim())
+							.filter(Boolean),
+					);
+					const selectedItemIdSetForTerminal = new Set(
+						selectedCloseoutItemIds.map((id) => String(id || "").trim()),
+					);
+					const itemsMatch =
+						terminalItemIds.size === selectedItemIdSetForTerminal.size &&
+						[...selectedItemIdSetForTerminal].every((id) =>
+							terminalItemIds.has(id),
+						);
+					if (!itemsMatch) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Terminal payment does not match the selected closeout items.",
+						);
+					}
+
+					processorFeeCents = Math.max(
+						0,
+						Math.round(
+							Number(
+								terminalPaymentData.stripeApplicationFeeAmount ||
+									terminalPaymentData.applicationFeeAmount ||
+									0,
+							),
+						),
+					);
+				}
+
+				const restaurantTransferAmountCents = Math.max(
+					0,
+					totalPriceCents - processorFeeCents,
+				);
 
 				let turnaroundTimeMinutes = 0;
 				try {
@@ -3238,7 +3329,14 @@ exports.closePartyTable = functions
 					seats: selectedCloseoutSeats,
 					paymentMethod: paymentMethod,
 					tenderType: tenderType || paymentMethod,
-					externalReference: String(externalReference || "").trim() || null,
+					externalReference:
+						paymentMethod === "stripe_terminal"
+							? resolvedTerminalPaymentIntentId
+							: String(externalReference || "").trim() || null,
+					stripePaymentIntentId:
+						paymentMethod === "stripe_terminal"
+							? resolvedTerminalPaymentIntentId
+							: null,
 					receiptEmail: receiptEmail || null,
 					closeoutNotes: String(closeoutNotes || "").trim() || null,
 					subtotal: subtotalCents,
@@ -3255,6 +3353,7 @@ exports.closePartyTable = functions
 					totalPrice: totalPriceCents,
 					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
 					changeDue: changeDueCents,
+					paymentProcessor: manualPaymentProcessor,
 					closedBy: closedBy,
 					closedAtIso: new Date().toISOString(),
 				};
@@ -3264,6 +3363,12 @@ exports.closePartyTable = functions
 					? partyData.closeoutPayments
 					: [];
 				const closeoutPayments = [...existingCloseoutPayments, closeout];
+				const hasStripeTerminalPayment = closeoutPayments.some(
+					(payment) => payment.paymentMethod === "stripe_terminal",
+				);
+				const closeoutFeePolicy = hasStripeTerminalPayment
+					? "stripe_terminal_restaurant_processing_fee"
+					: "manual_tender_scerv_fee_waived";
 				const aggregateCloseout = closeoutPayments.reduce(
 					(acc, payment) => {
 						acc.subtotal += Number(payment.subtotal || 0);
@@ -3370,6 +3475,21 @@ exports.closePartyTable = functions
 					);
 				}
 
+				if (terminalPaymentRef) {
+					transaction.set(
+						terminalPaymentRef,
+						{
+							closeoutFinalized: true,
+							closeoutFinalizedAt:
+								admin.firestore.FieldValue.serverTimestamp(),
+							closeoutPaymentId: paymentId,
+							closeoutPartyId: partyId,
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				}
+
 				if (!isTableFullyPaid) {
 					return {
 						success: true,
@@ -3384,7 +3504,8 @@ exports.closePartyTable = functions
 						taxSource: "restaurant.taxRate",
 						gratuityAmount: gratuityAmountCents,
 						platformFee: platformFeeCents,
-						feePolicy: "manual_tender_scerv_fee_waived",
+						processorFee: processorFeeCents,
+						feePolicy: closeoutFeePolicy,
 						restaurantTransferAmount: restaurantTransferAmountCents,
 						cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
 						changeDue: changeDueCents,
@@ -3520,10 +3641,16 @@ exports.closePartyTable = functions
 					restaurantGrossAmount: aggregateCloseout.restaurantGrossAmount,
 					restaurantTransferAmount:
 						aggregateCloseout.restaurantTransferAmount,
-					scervGrossFee: aggregateCloseout.platformFee,
-					scervNet: aggregateCloseout.platformFee,
-					stripeFeeResponsibility: "not_applicable",
-					restaurantTransferStatus: "manual_tender",
+					scervGrossFee:
+						aggregateCloseout.platformFee + aggregateCloseout.processorFee,
+					scervNet:
+						aggregateCloseout.platformFee + aggregateCloseout.processorFee,
+					stripeFeeResponsibility: hasStripeTerminalPayment
+						? "restaurant"
+						: "not_applicable",
+					restaurantTransferStatus: hasStripeTerminalPayment
+						? "stripe_terminal_processed"
+						: "manual_tender",
 					totalPrice: aggregateCloseout.totalPrice,
 					cashReceived: aggregateCloseout.cashReceived,
 					changeDue: aggregateCloseout.changeDue,
@@ -3539,16 +3666,24 @@ exports.closePartyTable = functions
 					closeoutPayments,
 					isManualRestaurantOrder: true,
 					orderEntryMode: "staff",
-					feePolicy: "manual_tender_scerv_fee_waived",
-					manualFeeEligible: false,
-					manualFeeReason: "cash_or_external_terminal_not_processed_by_scerv",
+					feePolicy: closeoutFeePolicy,
+					manualFeeEligible: hasStripeTerminalPayment,
+					manualFeeReason: hasStripeTerminalPayment
+						? null
+						: "cash_or_external_terminal_not_processed_by_scerv",
 					paymentProcessor: manualPaymentProcessor,
-					paymentProcessorId: externalReference
-						? String(externalReference || "").trim()
-						: null,
+					paymentProcessorId:
+						paymentMethod === "stripe_terminal"
+							? resolvedTerminalPaymentIntentId
+							: externalReference
+								? String(externalReference || "").trim()
+								: null,
 					paymentMethod: paymentMethod,
 					tenderType: tenderType || paymentMethod,
-					externalReference: String(externalReference || "").trim() || null,
+					externalReference:
+						paymentMethod === "stripe_terminal"
+							? resolvedTerminalPaymentIntentId
+							: String(externalReference || "").trim() || null,
 					receiptEmail: receiptEmail || null,
 					closeoutNotes: String(closeoutNotes || "").trim() || null,
 					closeoutSource: "restaurant_pos",
@@ -3560,9 +3695,12 @@ exports.closePartyTable = functions
 						processor: manualPaymentProcessor,
 						paymentMethod,
 						tenderType: tenderType || paymentMethod,
-						externalReference: String(externalReference || "").trim() || null,
+						externalReference:
+							paymentMethod === "stripe_terminal"
+								? resolvedTerminalPaymentIntentId
+								: String(externalReference || "").trim() || null,
 						source: "restaurant_pos_closeout",
-						feePolicy: "manual_tender_scerv_fee_waived",
+						feePolicy: closeoutFeePolicy,
 						taxSource: "restaurant.taxRate",
 						recordedAt: admin.firestore.FieldValue.serverTimestamp(),
 					},
@@ -3693,13 +3831,19 @@ exports.closePartyTable = functions
 										<div><strong>Tender:</strong> ${
 											paymentMethod === "cash"
 												? "Cash"
-												: "External terminal"
+												: paymentMethod === "stripe_terminal"
+													? "Stripe Terminal"
+													: "External terminal"
 										}</div>
 										${
 											paymentMethod === "cash"
 												? `<div><strong>Cash received:</strong> $${(cashReceivedCents / 100).toFixed(2)}</div>
 										<div><strong>Change due:</strong> $${(changeDueCents / 100).toFixed(2)}</div>`
-												: `<div><strong>Reference:</strong> ${String(externalReference || "").trim()}</div>`
+												: `<div><strong>Reference:</strong> ${
+														paymentMethod === "stripe_terminal"
+															? resolvedTerminalPaymentIntentId
+															: String(externalReference || "").trim()
+													}</div>`
 										}
 										<div><strong>Tax source:</strong> restaurant.taxRate</div>
 									</div>
@@ -3735,7 +3879,8 @@ exports.closePartyTable = functions
 					taxSource: "restaurant.taxRate",
 					gratuityAmount: gratuityAmountCents,
 					platformFee: platformFeeCents,
-					feePolicy: "manual_tender_scerv_fee_waived",
+					processorFee: processorFeeCents,
+					feePolicy: closeoutFeePolicy,
 					restaurantTransferAmount: restaurantTransferAmountCents,
 					cashReceived: paymentMethod === "cash" ? cashReceivedCents : 0,
 					changeDue: changeDueCents,
@@ -3744,6 +3889,7 @@ exports.closePartyTable = functions
 			});
 		} catch (error) {
 			console.error(`Error closing party ${partyId}:`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
 			throw new functions.https.HttpsError(
 				"internal",
 				"An error occurred while closing the table.",

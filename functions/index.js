@@ -15,6 +15,7 @@ const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
 const basketFunctions = require("./basketFunctions");
 const restaurantFunctions = require("./restaurantFunctions");
+const terminalFunctions = require("./terminalFunctions");
 const paypalHandlers = require("./paypalHandlers");
 const dLocalFunctions = require("./dLocalFunctions");
 // Export functions from other files
@@ -89,6 +90,10 @@ exports.setAdminClaim = setAdminClaim.setAdminClaim;
 
 // Restaurant Party Control
 exports.closePartyTable = restaurantFunctions.closePartyTable;
+exports.createTerminalConnectionToken =
+	terminalFunctions.createTerminalConnectionToken;
+exports.prepareStaffTerminalPayment =
+	terminalFunctions.prepareStaffTerminalPayment;
 
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;
