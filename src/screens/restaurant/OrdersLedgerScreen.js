@@ -279,6 +279,7 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 					["stripe", "Stripe"],
 					["cash", t("cash", "Cash")],
 					["external_terminal", t("card_terminal", "Card Terminal")],
+					["stripe_terminal", t("scerv_terminal", "Scerv Terminal")],
 				].map(([value, label]) => (
 					<FilterChip
 						key={value || "all-payments"}

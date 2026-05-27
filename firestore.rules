@@ -260,6 +260,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /terminal_payments/{paymentId} {
+      allow read: if signedIn() && isRestaurantUser(resource.data.restaurantId);
+      allow write: if false;
+    }
+
     match /notifications/{notificationId} {
       allow read: if signedIn() && (
         uid() == resource.data.userId ||

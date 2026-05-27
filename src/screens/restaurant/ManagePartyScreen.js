@@ -353,6 +353,24 @@ const ManagePartyScreen = () => {
 				return;
 			}
 
+			if (selectedPaymentMethod === "stripe_terminal") {
+				setIsCloseoutModalVisible(false);
+				setIsClosing(false);
+				navigation.navigate("RestaurantTerminalPaymentScreen", {
+					partyId,
+					restaurantId: partyData?.restaurantId || currentUserData?.uid,
+					tableName: partyData?.table?.name || t("table", "Table"),
+					closeoutSeatIds: selectedSeatIds,
+					closeoutItemIds: selectedItemIds,
+					selectedSeatBreakdown,
+					tipAmount,
+					expectedTotalCents,
+					receiptEmail: receiptEmail.trim(),
+					closeoutNotes: closeoutNotes.trim(),
+				});
+				return;
+			}
+
 			if (
 				selectedPaymentMethod === "cash" &&
 				cashReceived < expectedTotalCents
@@ -926,6 +944,24 @@ const ManagePartyScreen = () => {
 							<TouchableOpacity
 								style={[
 									styles.paymentMethodButton,
+									selectedPaymentMethod === "stripe_terminal" &&
+										styles.paymentMethodButtonActive,
+								]}
+								onPress={() => setSelectedPaymentMethod("stripe_terminal")}
+							>
+								<Text
+									style={[
+										styles.paymentMethodText,
+										selectedPaymentMethod === "stripe_terminal" &&
+											styles.paymentMethodTextActive,
+									]}
+								>
+									{t("scerv_terminal", "Scerv Terminal")}
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={[
+									styles.paymentMethodButton,
 									selectedPaymentMethod === "external_terminal" &&
 										styles.paymentMethodButtonActive,
 								]}
@@ -1055,10 +1091,15 @@ const ManagePartyScreen = () => {
 										{t("scerv_fee", "Scerv Fee")}
 									</Text>
 									<Text style={styles.summarySubLabel}>
-										{t(
-											"manual_tender_fee_waived",
-											"Waived for cash/external terminal",
-										)}
+										{selectedPaymentMethod === "stripe_terminal"
+											? t(
+													"terminal_fee_applied_to_payout",
+													"Applied to restaurant payout",
+												)
+											: t(
+													"manual_tender_fee_waived",
+													"Waived for cash/external terminal",
+												)}
 									</Text>
 								</View>
 								<Text style={styles.summaryValue}>
@@ -1094,7 +1135,7 @@ const ManagePartyScreen = () => {
 								onChangeText={setCashReceivedInput}
 								keyboardType="decimal-pad"
 							/>
-						) : (
+						) : selectedPaymentMethod === "external_terminal" ? (
 							<TextInput
 								style={styles.modalInput}
 								placeholder={t(
@@ -1106,6 +1147,20 @@ const ManagePartyScreen = () => {
 								onChangeText={setExternalReference}
 								autoCapitalize="characters"
 							/>
+						) : (
+							<View style={styles.terminalInfoBox}>
+								<Ionicons
+									name="card-outline"
+									size={20}
+									color={colors.primary}
+								/>
+								<Text style={styles.terminalInfoText}>
+									{t(
+										"scerv_terminal_info",
+										"Collect the card payment on a connected Stripe reader, then Scerv will close the selected seats automatically.",
+									)}
+								</Text>
+							</View>
 						)}
 
 						{selectedPaymentMethod === "cash" ? (
@@ -1139,11 +1194,18 @@ const ManagePartyScreen = () => {
 									</Text>
 								</View>
 							</View>
-						) : (
+						) : selectedPaymentMethod === "external_terminal" ? (
 							<Text style={styles.helperText}>
 								{t(
 									"external_terminal_reference_helper",
 									"Record the terminal auth/reference code so this closeout can be reconciled later.",
+								)}
+							</Text>
+						) : (
+							<Text style={styles.helperText}>
+								{t(
+									"scerv_terminal_helper",
+									"The customer pays the selected total here. Restaurant processing is tracked in the Stripe Terminal closeout record.",
 								)}
 							</Text>
 						)}
@@ -1168,7 +1230,9 @@ const ManagePartyScreen = () => {
 								<ActivityIndicator size="small" color={colors.surfaceWhite} />
 							) : (
 								<Text style={styles.confirmCloseButtonText}>
-									{t("confirm_closeout", "Confirm Closeout")}
+									{selectedPaymentMethod === "stripe_terminal"
+										? t("continue_to_reader", "Continue to Reader")
+										: t("confirm_closeout", "Confirm Closeout")}
 								</Text>
 							)}
 						</TouchableOpacity>
@@ -1480,9 +1544,10 @@ const styles = StyleSheet.create({
 		borderColor: colors.primary,
 	},
 	paymentMethodText: {
-		fontSize: 15,
+		fontSize: 13,
 		fontWeight: "700",
 		color: colors.textMedium,
+		textAlign: "center",
 	},
 	paymentMethodTextActive: {
 		color: colors.surfaceWhite,
@@ -1634,6 +1699,24 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		padding: 12,
 		marginBottom: 10,
+	},
+	terminalInfoBox: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.primary + "10",
+		borderWidth: 1,
+		borderColor: colors.primary + "30",
+		borderRadius: 10,
+		padding: 12,
+		marginBottom: 10,
+	},
+	terminalInfoText: {
+		flex: 1,
+		color: colors.textDark,
+		fontSize: 12,
+		fontWeight: "700",
+		lineHeight: 17,
+		marginLeft: 10,
 	},
 	helperText: {
 		color: colors.textMedium,
