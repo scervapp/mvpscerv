@@ -636,11 +636,14 @@ const handleStripeEvent = async (event, stripeInstance) => {
 			const stripePaymentMethodId = getStripeObjectId(
 				paymentIntent.payment_method,
 			);
-			const stripePaymentMethodSummary = await saveStripePaymentMethodSummary({
-				stripeInstance,
-				paymentIntent,
-				userId: metadata.userId,
-			});
+			const stripePaymentMethodSummary =
+				metadata.type === "restaurant_terminal"
+					? null
+					: await saveStripePaymentMethodSummary({
+							stripeInstance,
+							paymentIntent,
+							userId: metadata.userId,
+						});
 
 			// --- Delegate to the Fulfillment Helper ---
 			// The handler's job is simple: pass the verified data to our powerful helper.
@@ -667,6 +670,32 @@ const handleStripeEvent = async (event, stripeInstance) => {
 					},
 					{ merge: true },
 				);
+
+			if (metadata.type === "restaurant_terminal") {
+				await db
+					.collection("terminal_payments")
+					.doc(paymentIntent.id)
+					.set(
+						{
+							status: "succeeded",
+							paymentStatus: "paid",
+							paymentIntentId: paymentIntent.id,
+							stripePaymentIntentId: paymentIntent.id,
+							stripeLatestChargeId: paymentIntent.latest_charge || null,
+							stripePaymentMethodId,
+							stripeApplicationFeeAmount,
+							stripeFeeActual,
+							stripeDestinationTransferId,
+							amountReceived:
+								paymentIntent.amount_received || paymentIntent.amount || 0,
+							stripeEventId: event.id,
+							paidAt: admin.firestore.FieldValue.serverTimestamp(),
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				break;
+			}
 
 			if (metadata.orderId) {
 				await db
