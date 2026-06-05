@@ -3144,7 +3144,8 @@ exports.closePartyTable = functions
 				// - Stripe Terminal: customer pays the bill total; restaurant absorbs
 				//   the configured terminal application fee from payout
 				// - Staff-entered tips pass through to the restaurant before fees
-				const gratuityAmountCents = Math.max(0, Math.round(Number(tipAmount) || 0));
+				// - Stripe Terminal tips are selected on the reader and stored with the captured payment
+				let gratuityAmountCents = Math.max(0, Math.round(Number(tipAmount) || 0));
 				const platformFeeCents = 0;
 				let processorFeeCents = 0;
 				const cashReceivedCents = Math.max(
@@ -3152,12 +3153,12 @@ exports.closePartyTable = functions
 					Math.round(Number(cashReceived) || 0),
 				);
 
-				const totalPriceCents =
+				let totalPriceCents =
 					subtotalCents +
 					taxAmountCents +
 					gratuityAmountCents +
 					platformFeeCents;
-				const restaurantGrossAmountCents = totalPriceCents;
+				let restaurantGrossAmountCents = totalPriceCents;
 				const manualPaymentProcessor =
 					paymentMethod === "cash"
 						? "cash"
@@ -3225,6 +3226,17 @@ exports.closePartyTable = functions
 							"Terminal payment has already been finalized.",
 						);
 					}
+
+					gratuityAmountCents = Math.max(
+						0,
+						Math.round(Number(terminalPaymentData.gratuityAmount || 0)),
+					);
+					totalPriceCents =
+						subtotalCents +
+						taxAmountCents +
+						gratuityAmountCents +
+						platformFeeCents;
+					restaurantGrossAmountCents = totalPriceCents;
 
 					if (Number(terminalPaymentData.amount || 0) !== totalPriceCents) {
 						throw new functions.https.HttpsError(

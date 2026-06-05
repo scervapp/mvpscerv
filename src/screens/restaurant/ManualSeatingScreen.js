@@ -13,6 +13,7 @@ import {
 	TextInput,
 	KeyboardAvoidingView,
 	Platform,
+	BackHandler,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
@@ -48,6 +49,17 @@ const ManualSeatScreen = () => {
 	const [isModalVisible, setIsModalVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
 	const [guestName, setGuestName] = useState("");
+
+	useEffect(() => {
+		if (!isSeating) return undefined;
+
+		const subscription = BackHandler.addEventListener(
+			"hardwareBackPress",
+			() => true,
+		);
+
+		return () => subscription.remove();
+	}, [isSeating]);
 
 	useEffect(() => {
 		if (!permissions.canSeatWalkIn) {
@@ -124,6 +136,7 @@ const ManualSeatScreen = () => {
 
 	// 🚨 UPDATED: Open the modal instead of the Alert
 	const handleSeatTableClick = (table) => {
+		if (isSeating) return;
 		setSelectedTable(table);
 		setGuestName(""); // Reset the input field
 		setIsModalVisible(true);
@@ -142,8 +155,8 @@ const ManualSeatScreen = () => {
 			return;
 		}
 
-		setIsModalVisible(false); // Hide modal immediately for better UX
 		setIsSeating(true);
+		setIsModalVisible(false); // The full-screen seating overlay takes over.
 
 		try {
 			const createPartySession = httpsCallable(functions, "createPartySession");
@@ -176,6 +189,7 @@ const ManualSeatScreen = () => {
 						],
 					}),
 				);
+				return;
 			}
 		} catch (error) {
 			console.error("Manual Seat Error:", error);
@@ -183,7 +197,7 @@ const ManualSeatScreen = () => {
 				t("error", "Error"),
 				t("error_create_session", "Could not create party session."),
 			);
-		} finally {
+			setIsModalVisible(true);
 			setIsSeating(false);
 		}
 	};
@@ -220,6 +234,7 @@ const ManualSeatScreen = () => {
 				<TouchableOpacity
 					onPress={() => navigation.goBack()}
 					style={styles.backButton}
+					disabled={isSeating}
 				>
 					<Ionicons name="arrow-back" size={24} color={colors.textDark} />
 				</TouchableOpacity>
@@ -255,7 +270,9 @@ const ManualSeatScreen = () => {
 				visible={isModalVisible}
 				transparent={true}
 				animationType="fade"
-				onRequestClose={() => setIsModalVisible(false)}
+				onRequestClose={() => {
+					if (!isSeating) setIsModalVisible(false);
+				}}
 			>
 				<KeyboardAvoidingView
 					behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -266,7 +283,10 @@ const ManualSeatScreen = () => {
 							<Text style={styles.modalTitle}>
 								{t("seat_table_title", "Seat")} {selectedTable?.name}
 							</Text>
-							<TouchableOpacity onPress={() => setIsModalVisible(false)}>
+							<TouchableOpacity
+								onPress={() => setIsModalVisible(false)}
+								disabled={isSeating}
+							>
 								<Ionicons name="close" size={24} color={colors.textMedium} />
 							</TouchableOpacity>
 						</View>
@@ -290,6 +310,7 @@ const ManualSeatScreen = () => {
 							autoFocus={true}
 							returnKeyType="done"
 							onSubmitEditing={confirmSeatTable}
+							editable={!isSeating}
 						/>
 
 						<TouchableOpacity
@@ -307,6 +328,23 @@ const ManualSeatScreen = () => {
 						</TouchableOpacity>
 					</View>
 				</KeyboardAvoidingView>
+			</Modal>
+
+			<Modal visible={isSeating} transparent={true} animationType="fade">
+				<View style={styles.seatingOverlay}>
+					<View style={styles.seatingCard}>
+						<ActivityIndicator size="large" color={colors.primary} />
+						<Text style={styles.seatingTitle}>
+							{t("seating_table", "Seating table...")}
+						</Text>
+						<Text style={styles.seatingText}>
+							{t(
+								"creating_guest_tab",
+								"Creating the guest tab and opening the table.",
+							)}
+						</Text>
+					</View>
+				</View>
 			</Modal>
 		</SafeAreaView>
 	);
@@ -428,6 +466,38 @@ const styles = StyleSheet.create({
 		color: "#fff",
 		fontSize: 16,
 		fontWeight: "bold",
+	},
+	seatingOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(15, 23, 42, 0.48)",
+		alignItems: "center",
+		justifyContent: "center",
+		padding: 24,
+	},
+	seatingCard: {
+		width: "100%",
+		maxWidth: 340,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		padding: 24,
+		alignItems: "center",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	seatingTitle: {
+		fontSize: 18,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 14,
+		textAlign: "center",
+	},
+	seatingText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: colors.textMedium,
+		marginTop: 8,
+		textAlign: "center",
+		lineHeight: 20,
 	},
 });
 

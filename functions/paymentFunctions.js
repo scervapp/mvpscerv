@@ -672,6 +672,22 @@ const handleStripeEvent = async (event, stripeInstance) => {
 				);
 
 			if (metadata.type === "restaurant_terminal") {
+				const amountReceived =
+					paymentIntent.amount_received || paymentIntent.amount || 0;
+				const gratuityAmount =
+					paymentIntent.amount_details &&
+					paymentIntent.amount_details.tip &&
+					Number.isFinite(Number(paymentIntent.amount_details.tip.amount))
+						? Math.max(
+								0,
+								Math.round(Number(paymentIntent.amount_details.tip.amount)),
+							)
+						: Math.max(
+								0,
+								amountReceived -
+									Number(metadata.subtotal || 0) -
+									Number(metadata.taxAmount || 0),
+							);
 				await db
 					.collection("terminal_payments")
 					.doc(paymentIntent.id)
@@ -686,8 +702,9 @@ const handleStripeEvent = async (event, stripeInstance) => {
 							stripeApplicationFeeAmount,
 							stripeFeeActual,
 							stripeDestinationTransferId,
-							amountReceived:
-								paymentIntent.amount_received || paymentIntent.amount || 0,
+							amount: amountReceived,
+							amountReceived,
+							gratuityAmount,
 							stripeEventId: event.id,
 							paidAt: admin.firestore.FieldValue.serverTimestamp(),
 							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
