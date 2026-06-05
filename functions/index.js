@@ -94,6 +94,8 @@ exports.createTerminalConnectionToken =
 	terminalFunctions.createTerminalConnectionToken;
 exports.prepareStaffTerminalPayment =
 	terminalFunctions.prepareStaffTerminalPayment;
+exports.captureStaffTerminalPayment =
+	terminalFunctions.captureStaffTerminalPayment;
 
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;

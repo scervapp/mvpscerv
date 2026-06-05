@@ -321,6 +321,10 @@ const ManagePartyScreen = () => {
 	const expectedTotalCents = useMemo(() => Math.round(closeoutGrandTotal * 100), [
 		closeoutGrandTotal,
 	]);
+	const expectedTerminalBaseTotalCents = useMemo(
+		() => Math.round((closeoutSubtotal + closeoutTaxTotal + serviceFeeTotal) * 100),
+		[closeoutSubtotal, closeoutTaxTotal, serviceFeeTotal],
+	);
 	const cashReceivedPreviewCents = useMemo(
 		() => parseCurrencyToCents(cashReceivedInput),
 		[cashReceivedInput],
@@ -359,12 +363,18 @@ const ManagePartyScreen = () => {
 				navigation.navigate("RestaurantTerminalPaymentScreen", {
 					partyId,
 					restaurantId: partyData?.restaurantId || currentUserData?.uid,
+					stripeTerminalLocationId:
+						restaurantDetails?.stripeTerminalLocationId ||
+						restaurantDetails?.terminalLocationId ||
+						currentUserData?.stripeTerminalLocationId ||
+						currentUserData?.terminalLocationId ||
+						"",
 					tableName: partyData?.table?.name || t("table", "Table"),
 					closeoutSeatIds: selectedSeatIds,
 					closeoutItemIds: selectedItemIds,
 					selectedSeatBreakdown,
-					tipAmount,
-					expectedTotalCents,
+					tipAmount: 0,
+					expectedTotalCents: expectedTerminalBaseTotalCents,
 					receiptEmail: receiptEmail.trim(),
 					closeoutNotes: closeoutNotes.trim(),
 				});
@@ -1117,14 +1127,16 @@ const ManagePartyScreen = () => {
 							</View>
 						</View>
 
-						<TextInput
-							style={styles.modalInput}
-							placeholder={t("tip_optional", "Tip amount")}
-							placeholderTextColor={colors.textMedium}
-							value={tipInput}
-							onChangeText={setTipInput}
-							keyboardType="decimal-pad"
-						/>
+						{selectedPaymentMethod !== "stripe_terminal" ? (
+							<TextInput
+								style={styles.modalInput}
+								placeholder={t("tip_optional", "Tip amount")}
+								placeholderTextColor={colors.textMedium}
+								value={tipInput}
+								onChangeText={setTipInput}
+								keyboardType="decimal-pad"
+							/>
+						) : null}
 
 						{selectedPaymentMethod === "cash" ? (
 							<TextInput
@@ -1157,7 +1169,7 @@ const ManagePartyScreen = () => {
 								<Text style={styles.terminalInfoText}>
 									{t(
 										"scerv_terminal_info",
-										"Collect the card payment on a connected Stripe reader, then Scerv will close the selected seats automatically.",
+										"The reader will collect the card payment and prompt the guest for gratuity, then Scerv will close the selected seats automatically.",
 									)}
 								</Text>
 							</View>
@@ -1205,7 +1217,7 @@ const ManagePartyScreen = () => {
 							<Text style={styles.helperText}>
 								{t(
 									"scerv_terminal_helper",
-									"The customer pays the selected total here. Restaurant processing is tracked in the Stripe Terminal closeout record.",
+									"The reader starts with the selected bill total. Any gratuity selected on the reader is recorded in the Stripe Terminal closeout.",
 								)}
 							</Text>
 						)}

@@ -1,7 +1,15 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	ActivityIndicator,
 	Alert,
+	PermissionsAndroid,
+	Platform,
 	SafeAreaView,
 	ScrollView,
 	StyleSheet,
@@ -10,10 +18,7 @@ import {
 	View,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-	StripeTerminalProvider,
-	useStripeTerminal,
-} from "@stripe/stripe-terminal-react-native";
+import { useStripeTerminal } from "@stripe/stripe-terminal-react-native";
 import { CommonActions, useNavigation, useRoute } from "@react-navigation/native";
 import { httpsCallable } from "@react-native-firebase/functions";
 
@@ -22,6 +27,7 @@ import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionCont
 import { db, functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
+import { useRestaurantTerminal } from "../../context/restaurant/RestaurantTerminalContext";
 
 const getStaffName = (activeSession, currentUserData) =>
 	activeSession?.name ||
@@ -34,6 +40,24 @@ const getReaderName = (reader = {}) =>
 	reader.id ||
 	reader.deviceType ||
 	"Stripe reader";
+
+const requestTerminalLocationPermission = async () => {
+	if (Platform.OS !== "android") return true;
+
+	const permission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+	const hasPermission = await PermissionsAndroid.check(permission);
+	if (hasPermission) return true;
+
+	const result = await PermissionsAndroid.request(permission, {
+		title: "Location Permission",
+		message:
+			"Scerv needs location permission to discover and connect to Stripe card readers.",
+		buttonPositive: "Allow",
+		buttonNegative: "Not now",
+	});
+
+	return result === PermissionsAndroid.RESULTS.GRANTED;
+};
 
 const waitForTerminalPaymentStatus = (paymentIntentId, timeoutMs = 25000) =>
 	new Promise((resolve, reject) => {
@@ -77,6 +101,7 @@ const RestaurantTerminalPaymentContent = ({
 	activeSession,
 	currentUserData,
 	params,
+	tokenStatus,
 }) => {
 	const navigation = useNavigation();
 	const [readerList, setReaderList] = useState([]);
@@ -90,9 +115,11 @@ const RestaurantTerminalPaymentContent = ({
 
 	const {
 		initialize,
+		isInitialized,
 		discoverReaders,
 		cancelDiscovering,
 		connectReader,
+		disconnectReader,
 		connectedReader,
 		retrievePaymentIntent,
 		collectPaymentMethod,
@@ -122,11 +149,11 @@ const RestaurantTerminalPaymentContent = ({
 		closeoutItemIds = [],
 		closeoutSeatIds = [],
 		selectedSeatBreakdown = [],
-		tipAmount = 0,
 		expectedTotalCents = 0,
 		tableName = "Table",
 		receiptEmail = "",
 		closeoutNotes = "",
+		stripeTerminalLocationId = "",
 	} = params || {};
 
 	const isBusy = isDiscovering || isConnecting || isPaying || isFinalizing;
@@ -150,6 +177,7 @@ const RestaurantTerminalPaymentContent = ({
 		let mounted = true;
 
 		const initializeTerminal = async () => {
+			if (isInitialized) return;
 			const result = await initialize();
 			if (!mounted) return;
 			if (result?.error) {
@@ -165,9 +193,18 @@ const RestaurantTerminalPaymentContent = ({
 		return () => {
 			mounted = false;
 		};
-	}, [initialize]);
+	}, [initialize, isInitialized]);
 
 	const startDiscovery = async (simulated = false) => {
+		const hasLocationPermission = await requestTerminalLocationPermission();
+		if (!hasLocationPermission) {
+			setErrorText(
+				"Location permission is required before discovering Stripe readers.",
+			);
+			setStepText("Location permission required.");
+			return;
+		}
+
 		setErrorText("");
 		setReaderList([]);
 		setIsDiscovering(true);
@@ -178,10 +215,20 @@ const RestaurantTerminalPaymentContent = ({
 		);
 
 		try {
+			if (connectedReader) {
+				setStepText("Disconnecting current reader...");
+				const disconnectResult = await disconnectReader();
+				if (disconnectResult?.error) {
+					throw disconnectResult.error;
+				}
+			}
 			await cancelDiscovering();
 			const result = await discoverReaders({
 				discoveryMethod: "internet",
 				simulated,
+				...(stripeTerminalLocationId && !simulated
+					? { locationId: stripeTerminalLocationId }
+					: {}),
 			});
 
 			if (result?.error) {
@@ -237,7 +284,7 @@ const RestaurantTerminalPaymentContent = ({
 					terminalPaymentIntentId: paymentIntentId,
 					externalReference: paymentIntentId,
 					receiptEmail: String(receiptEmail || "").trim(),
-					tipAmount,
+					tipAmount: 0,
 					cashReceived: 0,
 					closeoutNotes: String(closeoutNotes || "").trim(),
 					closeoutSeatIds,
@@ -281,7 +328,6 @@ const RestaurantTerminalPaymentContent = ({
 			navigation,
 			partyId,
 			receiptEmail,
-			tipAmount,
 		],
 	);
 
@@ -306,7 +352,6 @@ const RestaurantTerminalPaymentContent = ({
 				partyId,
 				closeoutItemIds,
 				closeoutSeatIds,
-				tipAmount,
 				staffId: activeSession?.id || null,
 				staffName: getStaffName(activeSession, currentUserData),
 			});
@@ -326,17 +371,18 @@ const RestaurantTerminalPaymentContent = ({
 			const retrieved = await retrievePaymentIntent(prepData.clientSecret);
 			if (retrieved?.error) throw retrieved.error;
 
-			setStepText("Ask guest to present card.");
+			setStepText("Guest selects tip on reader, then presents card.");
 			const collected = await collectPaymentMethod({
 				paymentIntent: retrieved.paymentIntent,
-				skipTipping: true,
+				skipTipping: false,
+				tipEligibleAmount: Number(prepData.subtotal || 0),
+				updatePaymentIntent: true,
 			});
 			if (collected?.error) throw collected.error;
 
 			setStepText("Processing card...");
 			const processed = await processPaymentIntent({
 				paymentIntent: collected.paymentIntent,
-				skipTipping: true,
 			});
 			if (processed?.error) throw processed.error;
 
@@ -344,7 +390,25 @@ const RestaurantTerminalPaymentContent = ({
 				processed?.paymentIntent?.id || prepData.paymentIntentId;
 			capturedPaymentIntentId = paymentIntentId;
 			setProcessedPaymentIntentId(paymentIntentId);
-			setStepText("Payment captured. Waiting for Stripe confirmation...");
+			setStepText("Capturing reader payment...");
+			const captureStaffTerminalPayment = httpsCallable(
+				functions,
+				"captureStaffTerminalPayment",
+			);
+			const captureResult = await captureStaffTerminalPayment({
+				paymentIntentId,
+				staffId: activeSession?.id || null,
+			});
+			const captureData = captureResult?.data || {};
+			if (!captureData.success) {
+				throw new Error("Could not capture the Terminal payment.");
+			}
+
+			setStepText(
+				`Payment captured with ${formatCurrencyFromDollars(
+					Number(captureData.gratuityAmount || 0) / 100,
+				)} gratuity. Waiting for Stripe confirmation...`,
+			);
 
 			const webhookReady = await waitForTerminalPaymentStatus(paymentIntentId);
 			if (!webhookReady) {
@@ -433,6 +497,11 @@ const RestaurantTerminalPaymentContent = ({
 					</View>
 				) : null}
 
+				<View style={styles.diagnosticBox}>
+					<Text style={styles.diagnosticTitle}>Terminal Token</Text>
+					<Text style={styles.diagnosticText}>{tokenStatus || "Waiting"}</Text>
+				</View>
+
 				<View style={styles.actionGrid}>
 					<TouchableOpacity
 						style={styles.secondaryButton}
@@ -516,24 +585,13 @@ const RestaurantTerminalPaymentScreen = () => {
 	const route = useRoute();
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
+	const { tokenStatus } = useRestaurantTerminal();
 	const restaurantId = route.params?.restaurantId || currentUserData?.uid;
-
-	const tokenProvider = useCallback(async () => {
-		const createTerminalConnectionToken = httpsCallable(
-			functions,
-			"createTerminalConnectionToken",
-		);
-		const result = await createTerminalConnectionToken({
-			restaurantId,
-			staffId: activeSession?.id || null,
-		});
-
-		if (!result?.data?.secret) {
-			throw new Error("Could not create Stripe Terminal connection token.");
-		}
-
-		return result.data.secret;
-	}, [activeSession?.id, restaurantId]);
+	const stripeTerminalLocationId =
+		route.params?.stripeTerminalLocationId ||
+		currentUserData?.stripeTerminalLocationId ||
+		currentUserData?.terminalLocationId ||
+		"";
 
 	if (!restaurantId) {
 		return (
@@ -544,13 +602,15 @@ const RestaurantTerminalPaymentScreen = () => {
 	}
 
 	return (
-		<StripeTerminalProvider logLevel="error" tokenProvider={tokenProvider}>
-			<RestaurantTerminalPaymentContent
-				activeSession={activeSession}
-				currentUserData={currentUserData}
-				params={route.params || {}}
-			/>
-		</StripeTerminalProvider>
+		<RestaurantTerminalPaymentContent
+			activeSession={activeSession}
+			currentUserData={currentUserData}
+			tokenStatus={tokenStatus}
+			params={{
+				...(route.params || {}),
+				stripeTerminalLocationId,
+			}}
+		/>
 	);
 };
 
@@ -707,6 +767,26 @@ const styles = StyleSheet.create({
 		color: colors.statusDanger,
 		lineHeight: 18,
 		textAlign: "center",
+	},
+	diagnosticBox: {
+		backgroundColor: colors.backgroundMedium,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 10,
+		padding: 12,
+		marginBottom: 14,
+	},
+	diagnosticTitle: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textDark,
+		textTransform: "uppercase",
+		marginBottom: 4,
+	},
+	diagnosticText: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
 	},
 	actionGrid: {
 		flexDirection: "row",

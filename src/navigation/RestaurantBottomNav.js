@@ -38,7 +38,6 @@ import { useRestaurantData } from "../context/restaurant/RestaurantDataContext";
 import ManagePartyScreen from "../screens/restaurant/ManagePartyScreen.js";
 import ManualSeatScreen from "../screens/restaurant/ManualSeatingScreen.js";
 import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
-import RestaurantTerminalPaymentScreen from "../screens/restaurant/RestaurantTerminalPaymentScreen.js";
 import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext.js";
 import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
 import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
@@ -48,6 +47,10 @@ import { getRestaurantPermissions } from "../utils/restaurantPermissions.js";
 import RestaurantLockButton from "../components/restaurant/RestaurantLockButton.js";
 import { AuthContext } from "../context/authContext.js";
 import { isPickupEnabledForRestaurant } from "../config/featureFlags.js";
+import {
+	RestaurantTerminalIndicator,
+	RestaurantTerminalProvider,
+} from "../context/restaurant/RestaurantTerminalContext.js";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -63,7 +66,12 @@ const defaultHeaderOptions = {
 		fontWeight: "bold",
 	},
 	// 🚨 ADD THIS LINE:
-	headerRight: () => <RestaurantLockButton style={styles.headerLockButton} />,
+	headerRight: () => (
+		<View style={styles.headerActions}>
+			<RestaurantTerminalIndicator />
+			<RestaurantLockButton style={styles.headerLockButton} />
+		</View>
+	),
 };
 
 const TabBarBadge = ({ count }) => {
@@ -144,6 +152,30 @@ const BackOfficeStackNavigator = () => {
 		</Stack.Navigator>
 	);
 };
+const TerminalPaymentScreenGate = (props) => {
+	try {
+		const RestaurantTerminalPaymentScreen =
+			require("../screens/restaurant/RestaurantTerminalPaymentScreen.js").default;
+		return <RestaurantTerminalPaymentScreen {...props} />;
+	} catch (error) {
+		console.error("Stripe Terminal screen unavailable:", error);
+		return (
+			<View style={styles.nativeModuleFallback}>
+				<MaterialCommunityIcons
+					name="cellphone-cog"
+					size={38}
+					color={colors.primary}
+				/>
+				<Text style={styles.nativeModuleTitle}>App Rebuild Required</Text>
+				<Text style={styles.nativeModuleText}>
+					Stripe Terminal was added as a native module. Rebuild the dev client
+					before using Scerv Terminal payments.
+				</Text>
+			</View>
+		);
+	}
+};
+
 const ActiveTablesStack = () => (
 	<Stack.Navigator screenOptions={defaultHeaderOptions}>
 		<Stack.Screen
@@ -189,7 +221,7 @@ const ActiveTablesStack = () => (
 		/>
 		<Stack.Screen
 			name="RestaurantTerminalPaymentScreen"
-			component={RestaurantTerminalPaymentScreen}
+			component={TerminalPaymentScreenGate}
 			options={{ headerShown: false, presentation: "card" }}
 		/>
 		<Stack.Screen
@@ -211,7 +243,8 @@ const RestaurantBottomNavigation = () => {
 	const insets = useSafeAreaInsets();
 
 	return (
-		<Tab.Navigator
+		<RestaurantTerminalProvider>
+			<Tab.Navigator
 			screenOptions={({ route }) => ({
 				...defaultHeaderOptions, // Headers are handled by the inner stack navigators
 				headerShown: false,
@@ -296,7 +329,8 @@ const RestaurantBottomNavigation = () => {
 			{pickupEnabled && permissions.canViewPickupQueue && (
 				<Tab.Screen name="Pickups" component={PickupQueueScreen} />
 			)}
-		</Tab.Navigator>
+			</Tab.Navigator>
+		</RestaurantTerminalProvider>
 	);
 };
 
@@ -340,6 +374,10 @@ const styles = StyleSheet.create({
 	headerLockButton: {
 		marginRight: 10,
 	},
+	headerActions: {
+		flexDirection: "row",
+		alignItems: "center",
+	},
 	headerBackButton: {
 		minWidth: 44,
 		minHeight: 44,
@@ -365,6 +403,28 @@ const styles = StyleSheet.create({
 		color: "white",
 		fontSize: 10,
 		fontWeight: "bold",
+	},
+	nativeModuleFallback: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.backgroundLight,
+		padding: 24,
+	},
+	nativeModuleTitle: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 14,
+		textAlign: "center",
+	},
+	nativeModuleText: {
+		fontSize: 14,
+		fontWeight: "700",
+		color: colors.textMedium,
+		lineHeight: 20,
+		marginTop: 8,
+		textAlign: "center",
 	},
 });
 

@@ -149,7 +149,7 @@ exports.createTerminalConnectionToken = functions
 			);
 		}
 
-		const { restaurantId, staffId } = data || {};
+		const { restaurantId, staffId, locationId = "" } = data || {};
 		if (!restaurantId) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
@@ -168,15 +168,32 @@ exports.createTerminalConnectionToken = functions
 				action: "connect terminal reader",
 			});
 
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const restaurantData = restaurantSnap.exists
+				? restaurantSnap.data() || {}
+				: {};
+			const resolvedLocationId = String(
+				locationId ||
+					restaurantData.stripeTerminalLocationId ||
+					restaurantData.terminalLocationId ||
+					"",
+			).trim();
+
 			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
-			const token = await stripeInstance.terminal.connectionTokens.create();
+			const token = await stripeInstance.terminal.connectionTokens.create(
+				resolvedLocationId ? { location: resolvedLocationId } : {},
+			);
 
 			return {
 				secret: token.secret,
 				liveMode: !keys.isTestMode,
+				locationId: resolvedLocationId || null,
 			};
 		} catch (error) {
 			console.error("Error creating Terminal connection token:", error);
@@ -210,7 +227,6 @@ exports.prepareStaffTerminalPayment = functions
 			partyId,
 			closeoutItemIds = [],
 			closeoutSeatIds = [],
-			tipAmount = 0,
 			staffId = null,
 			staffName = "",
 		} = data || {};
@@ -318,10 +334,8 @@ exports.prepareStaffTerminalPayment = functions
 			if (restaurantTaxRate > 1) restaurantTaxRate = restaurantTaxRate / 100;
 
 			const totals = calculateCloseoutTotals(selectedItems, restaurantTaxRate);
-			const gratuityAmountCents = normalizeNonNegativeCents(tipAmount, 0);
-			const finalAmount =
-				totals.subtotalCents + totals.taxAmountCents + gratuityAmountCents;
-			if (finalAmount <= 0) {
+			const salesAndTaxAmount = totals.subtotalCents + totals.taxAmountCents;
+			if (salesAndTaxAmount <= 0) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
 					"Terminal payment amount must be greater than zero.",
@@ -334,21 +348,6 @@ exports.prepareStaffTerminalPayment = functions
 				restaurantData,
 				tierConfig,
 			});
-			const salesAndTaxAmount = totals.subtotalCents + totals.taxAmountCents;
-			const feeBasisAmount =
-				terminalPolicy.terminalProcessingFeeBasis === "subtotal"
-					? totals.subtotalCents
-					: terminalPolicy.terminalProcessingFeeBasis === "salesAndTax"
-						? salesAndTaxAmount
-						: finalAmount;
-			const applicationFeeAmount = Math.min(
-				finalAmount,
-				calculatePercentageFee(
-					feeBasisAmount,
-					terminalPolicy.terminalProcessingFeePercentage,
-					terminalPolicy.terminalProcessingFeeFixedCents,
-				),
-			);
 			const selectedItemIds = selectedItems.map((item) => item.id).filter(Boolean);
 			const selectedSeatIds = [
 				...new Set(selectedItems.map(getRestaurantSeatIdForItem)),
@@ -359,14 +358,11 @@ exports.prepareStaffTerminalPayment = functions
 			});
 			const paymentIntent = await stripeInstance.paymentIntents.create(
 				{
-					amount: finalAmount,
+					amount: salesAndTaxAmount,
 					currency: "usd",
 					payment_method_types: ["card_present"],
-					capture_method: "automatic",
+					capture_method: "manual",
 					description: `Scerv staff terminal closeout ${partyId}`,
-					...(applicationFeeAmount > 0 && {
-						application_fee_amount: applicationFeeAmount,
-					}),
 					transfer_data: {
 						destination: restaurantStripeAccountId,
 					},
@@ -379,16 +375,17 @@ exports.prepareStaffTerminalPayment = functions
 						staffId: staffMember.id || staffId || "",
 						subtotal: String(totals.subtotalCents),
 						taxAmount: String(totals.taxAmountCents),
-						gratuity: String(gratuityAmountCents),
-						total: String(finalAmount),
-						platformFee: String(applicationFeeAmount),
-						terminalApplicationFeeAmount: String(applicationFeeAmount),
+						gratuity: "0",
+						total: String(salesAndTaxAmount),
+						platformFee: "0",
+						terminalApplicationFeeAmount: "0",
+						onReaderTipping: "true",
 						pricingTier,
 						selectedItemIds: selectedItemIds.join(","),
 						selectedSeatIds: selectedSeatIds.join(","),
 					},
 				},
-				{ idempotencyKey: `terminal:${partyId}:${selectedItemIds.join("_")}:${finalAmount}` },
+				{ idempotencyKey: `terminal:${partyId}:${selectedItemIds.join("_")}:${salesAndTaxAmount}:reader_tip` },
 			);
 
 			await db.collection("terminal_payments").doc(paymentIntent.id).set({
@@ -401,19 +398,21 @@ exports.prepareStaffTerminalPayment = functions
 				paymentMethod: "stripe_terminal",
 				source: "restaurant_pos_terminal",
 				liveMode: !keys.isTestMode,
-				amount: finalAmount,
+				amount: salesAndTaxAmount,
+				preTipAmount: salesAndTaxAmount,
 				subtotal: totals.subtotalCents,
 				originalSubtotal: totals.originalSubtotalCents,
 				discountTotal: totals.discountTotalCents,
 				taxAmount: totals.taxAmountCents,
 				taxRate: restaurantTaxRate,
-				gratuityAmount: gratuityAmountCents,
-				applicationFeeAmount,
-				restaurantTransferAmount: Math.max(0, finalAmount - applicationFeeAmount),
+				gratuityAmount: 0,
+				applicationFeeAmount: 0,
+				restaurantTransferAmount: salesAndTaxAmount,
 				itemIds: selectedItemIds,
 				seatIds: selectedSeatIds,
 				pricingTier,
 				terminalPolicy,
+				onReaderTipping: true,
 				closeoutFinalized: false,
 				createdBy: {
 					userId: context.auth.uid,
@@ -429,11 +428,12 @@ exports.prepareStaffTerminalPayment = functions
 			return {
 				paymentIntentId: paymentIntent.id,
 				clientSecret: paymentIntent.client_secret,
-				amount: finalAmount,
+				amount: salesAndTaxAmount,
 				subtotal: totals.subtotalCents,
 				taxAmount: totals.taxAmountCents,
-				gratuityAmount: gratuityAmountCents,
-				applicationFeeAmount,
+				gratuityAmount: 0,
+				applicationFeeAmount: 0,
+				onReaderTipping: true,
 				itemIds: selectedItemIds,
 				seatIds: selectedSeatIds,
 				liveMode: !keys.isTestMode,
@@ -444,6 +444,207 @@ exports.prepareStaffTerminalPayment = functions
 			throw new functions.https.HttpsError(
 				"internal",
 				"Could not prepare staff Terminal payment.",
+			);
+		}
+	});
+
+exports.captureStaffTerminalPayment = functions
+	.runWith({
+		memory: "512MB",
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const { paymentIntentId, staffId = null } = data || {};
+		if (!paymentIntentId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"PaymentIntent ID is required.",
+			);
+		}
+
+		try {
+			const terminalPaymentRef = db
+				.collection("terminal_payments")
+				.doc(paymentIntentId);
+			const terminalPaymentSnap = await terminalPaymentRef.get();
+			if (!terminalPaymentSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Terminal payment was not found.",
+				);
+			}
+
+			const terminalPaymentData = terminalPaymentSnap.data() || {};
+			const restaurantId = terminalPaymentData.restaurantId;
+			if (!restaurantId) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Terminal payment is missing restaurant ID.",
+				);
+			}
+
+			await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server", "bartender"],
+				action: "capture terminal payment",
+			});
+
+			const keys = await getStripeKeys(restaurantId);
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+
+			let paymentIntent = await stripeInstance.paymentIntents.retrieve(
+				paymentIntentId,
+			);
+			const preTipAmount = Math.max(
+				0,
+				Math.round(
+					Number(
+						terminalPaymentData.preTipAmount ||
+							terminalPaymentData.subtotal + terminalPaymentData.taxAmount ||
+							terminalPaymentData.amount ||
+							0,
+					),
+				),
+			);
+			const stripeTipAmount =
+				paymentIntent.amount_details &&
+				paymentIntent.amount_details.tip &&
+				Number.isFinite(Number(paymentIntent.amount_details.tip.amount))
+					? Math.max(
+							0,
+							Math.round(Number(paymentIntent.amount_details.tip.amount)),
+						)
+					: null;
+			const finalAmount = Math.max(
+				preTipAmount,
+				Math.round(
+					Number(
+						paymentIntent.amount_capturable ||
+							paymentIntent.amount_received ||
+							paymentIntent.amount ||
+							preTipAmount,
+					),
+				),
+			);
+			const gratuityAmount =
+				stripeTipAmount !== null
+					? stripeTipAmount
+					: Math.max(0, finalAmount - preTipAmount);
+			const terminalPolicy =
+				terminalPaymentData.terminalPolicy ||
+				resolveTerminalPolicy({ restaurantData: {}, tierConfig: {} });
+			const subtotal = normalizeNonNegativeCents(
+				terminalPaymentData.subtotal,
+				0,
+			);
+			const taxAmount = normalizeNonNegativeCents(
+				terminalPaymentData.taxAmount,
+				0,
+			);
+			const salesAndTaxAmount = subtotal + taxAmount;
+			const feeBasisAmount =
+				terminalPolicy.terminalProcessingFeeBasis === "subtotal"
+					? subtotal
+					: terminalPolicy.terminalProcessingFeeBasis === "salesAndTax"
+						? salesAndTaxAmount
+						: finalAmount;
+			const applicationFeeAmount = Math.min(
+				finalAmount,
+				calculatePercentageFee(
+					feeBasisAmount,
+					terminalPolicy.terminalProcessingFeePercentage,
+					terminalPolicy.terminalProcessingFeeFixedCents,
+				),
+			);
+
+			if (paymentIntent.status === "requires_capture") {
+				await stripeInstance.paymentIntents.update(paymentIntentId, {
+					metadata: {
+						...(paymentIntent.metadata || {}),
+						gratuity: String(gratuityAmount),
+						total: String(finalAmount),
+						platformFee: String(applicationFeeAmount),
+						terminalApplicationFeeAmount: String(applicationFeeAmount),
+					},
+				});
+				paymentIntent = await stripeInstance.paymentIntents.capture(
+					paymentIntentId,
+					{
+						amount_to_capture: finalAmount,
+						...(applicationFeeAmount > 0 && {
+							application_fee_amount: applicationFeeAmount,
+						}),
+					},
+					{ idempotencyKey: `terminal_capture:${paymentIntentId}:${finalAmount}` },
+				);
+			}
+
+			if (paymentIntent.status !== "succeeded") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Terminal payment is not ready to capture.",
+				);
+			}
+
+			await terminalPaymentRef.set(
+				{
+					status: "succeeded",
+					paymentStatus: "paid",
+					paymentIntentId,
+					stripePaymentIntentId: paymentIntentId,
+					stripeLatestChargeId: paymentIntent.latest_charge || null,
+					amount: finalAmount,
+					amountReceived:
+						paymentIntent.amount_received || paymentIntent.amount || finalAmount,
+					gratuityAmount,
+					applicationFeeAmount,
+					stripeApplicationFeeAmount: applicationFeeAmount,
+					restaurantTransferAmount: Math.max(
+						0,
+						finalAmount - applicationFeeAmount,
+					),
+					capturedBy: {
+						userId: context.auth.uid,
+						staffId: staffId || null,
+					},
+					capturedAt: admin.firestore.FieldValue.serverTimestamp(),
+					paidAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			return {
+				success: true,
+				paymentIntentId,
+				amount: finalAmount,
+				gratuityAmount,
+				applicationFeeAmount,
+			};
+		} catch (error) {
+			console.error("Error capturing staff Terminal payment:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not capture staff Terminal payment.",
 			);
 		}
 	});
