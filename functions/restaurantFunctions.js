@@ -6,10 +6,6 @@ const { Translate } = require("@google-cloud/translate").v2;
 const { assertRestaurantPermission } = require("./restaurantAccess");
 const { generateOrderId } = require("./orderFunctions");
 
-const { Resend } = require("resend");
-
-const resend = new Resend("re_c5VCacmN_N1Ynx623z8htk2jxjHR8qSJp");
-
 const translate = new Translate();
 
 const generateTableId = (name) => {
@@ -1285,7 +1281,7 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 		name: context.auth.token.name || "Manager",
 	};
 
-	const { partyId, checkInId, itemId, discountAmount, reason } = data;
+	const { partyId, checkInId, itemId, discountAmount, reason, staffId } = data;
 
 	if (!itemId || typeof discountAmount !== "number" || !reason) {
 		throw new functions.https.HttpsError(
@@ -1304,6 +1300,20 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 
 	try {
 		if (isPartyOrder) {
+			const partySnap = await db.collection("parties").doc(partyId).get();
+			if (!partySnap.exists) {
+				throw new functions.https.HttpsError("not-found", "Party not found.");
+			}
+			const partyData = partySnap.data() || {};
+			await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: partyData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				action: "discount order items",
+			});
+
 			// --- HANDLE PARTY ORDER ---
 			const docRef = db.collection("shared_baskets").doc(partyId);
 			await db.runTransaction(async (transaction) => {
@@ -1344,6 +1354,14 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 				transaction.update(docRef, { items: updatedItems });
 			});
 		} else {
+			let restaurantId = null;
+			if (checkInId) {
+				const checkInSnap = await db.collection("checkIns").doc(checkInId).get();
+				if (checkInSnap.exists) {
+					restaurantId = (checkInSnap.data() || {}).restaurantId || null;
+				}
+			}
+
 			// --- HANDLE INDIVIDUAL ORDER ---
 			// For an individual order, the 'itemId' is the document ID in the 'baskets' collection.
 			const docRef = db.collection("baskets").doc(itemId);
@@ -1357,6 +1375,16 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 			}
 
 			const item = docSnap.data();
+			restaurantId = restaurantId || item.restaurantId || null;
+			await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				action: "discount order items",
+			});
+
 			const originalPrice = parseFloat(item.dish.price || 0);
 			const finalDiscount = Math.min(originalPrice, discountAmount);
 			const discountedPrice = originalPrice - finalDiscount;

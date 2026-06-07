@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 const ProtectedRoute = ({ children, requiredRole }) => {
 	// accept an array of roles
-	const [user, loading, error] = useAuthState(auth);
+	const [user, loading] = useAuthState(auth);
 	const [userRole, setUserRole] = useState(null);
 	const [roleChecked, setRoleChecked] = useState(false);
 

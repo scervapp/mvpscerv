@@ -81,6 +81,18 @@ const PartyLobbyScreen = () => {
 		return currentUserData.uid === partyDetails[partyId]?.hostUserId;
 	}, [currentUserData?.uid, partyDetails, partyId]);
 
+	const activePartyIds = useMemo(
+		() =>
+			Object.values(currentPartyIds || {})
+				.flatMap((sessionGroup) =>
+					typeof sessionGroup === "string"
+						? [sessionGroup]
+						: [sessionGroup?.dineIn, sessionGroup?.pickup],
+				)
+				.filter(Boolean),
+		[currentPartyIds],
+	);
+
 	// Memoized values for check-in status
 	const restaurantIdForCheckIn = useMemo(() => {
 		return isHost && partyDetails[partyId]?.restaurantId
@@ -121,7 +133,7 @@ const PartyLobbyScreen = () => {
 		if (
 			!isLoadingParty &&
 			partyId &&
-			!Object.values(currentPartyIds).includes(partyId)
+			!activePartyIds.includes(partyId)
 		) {
 			console.log(
 				`PartyLobby: Party ID ${partyId} not found in currentPartyIds. Navigating back.`
@@ -138,21 +150,21 @@ const PartyLobbyScreen = () => {
 				);
 			}
 		}
-	}, [isLoadingParty, partyId, currentPartyIds, navigation]);
+	}, [isLoadingParty, partyId, activePartyIds, navigation, t]);
 
 	// Effect to clear state on back navigation (optional)
 	useEffect(() => {
 		const unsubscribe = navigation.addListener("beforeRemove", (e) => {
 			if (
 				e.data.action.type === "GO_BACK" &&
-				Object.values(currentPartyIds).includes(partyId)
+				activePartyIds.includes(partyId)
 			) {
 				console.log("PartyLobby: Navigating back, clearing party state.");
 				// clearPartyState(); // Uncomment if you want to clear state on back
 			}
 		});
 		return unsubscribe;
-	}, [navigation, currentPartyIds, partyId, clearPartyState]);
+	}, [navigation, activePartyIds, partyId, clearPartyState]);
 
 	useEffect(() => {
 		const partyDetail = partyDetails[partyId];
@@ -252,17 +264,21 @@ const PartyLobbyScreen = () => {
 		console.log(
 			`PartyLobby: addLocalPip - Adding local PIP: ID=${localPIPId}, Name=${localPIPName}`
 		);
-		if (!partyId || !localPIPId || !localPIPName || isActionLoading) return;
+		const pipsToAdd = Array.isArray(localPIPId)
+			? localPIPId
+			: [{ id: localPIPId, name: localPIPName }];
+		const validPipsToAdd = pipsToAdd.filter((pip) => pip?.id && pip?.name);
+
+		if (!partyId || validPipsToAdd.length === 0 || isActionLoading) return;
 		setIsActionLoading(true);
 		try {
-			const result = await addLocalPIPToParty(partyId, [
-				{ id: localPIPId, name: localPIPName },
-			]);
+			const result = await addLocalPIPToParty(partyId, validPipsToAdd);
 			if (result) {
 				console.log(
 					"PartyLobby: addLocalPip - addLocalPipToParty call successful."
 				);
 				setIsPipModalVisible(false);
+				setIsAddMembersModalVisible(false);
 			}
 		} catch (error) {
 			console.error("PartyLobby: Error adding local PIP:", error);
@@ -629,6 +645,17 @@ const PartyLobbyScreen = () => {
 				isActionLoading={isActionLoading}
 				onSelectUserPip={sendInviteToUserPIP}
 				onSelectLocalPip={() => setIsAddMembersModalVisible(true)}
+				onAddLocalMembers={() => {
+					setIsPipModalVisible(false);
+					setIsAddMembersModalVisible(true);
+				}}
+				onManagePips={() => {
+					setIsPipModalVisible(false);
+					const rootNavigation = navigation.getParent() || navigation;
+					rootNavigation.navigate("AccountScreen", {
+						screen: "PipsScreenInner",
+					});
+				}}
 			/>
 			<AddMembersModal
 				isVisible={isAddMembersModalVisible}

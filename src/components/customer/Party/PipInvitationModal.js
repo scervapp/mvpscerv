@@ -21,13 +21,15 @@ const PipInvitationModal = ({
 	isActionLoading,
 	onSelectUserPip,
 	onSelectLocalPip,
+	onAddLocalMembers = () => {},
+	onManagePips = () => {},
 }) => {
 	const { t } = useTranslation();
 	const renderPipSelectionItem = ({ item: pip }) => {
 		const isAlreadyGuest = partyDetails?.guestPips?.some(
 			(guestPip) =>
 				(pip.isUser && guestPip.userId === pip.userId) || // Check by userId if it's a user PIP
-				(!pip.isUser && guestPip.pipId === pip.id) // Check by pipId if it's a local/placeholder PIP
+				(!pip.isUser && guestPip.localPipId === pip.id) // Check by localPipId if it's a local/placeholder PIP
 		);
 
 		const isDisabled =
@@ -67,7 +69,9 @@ const PipInvitationModal = ({
 					<Text style={styles.alreadyInvitedText}>{t('already_in_party_status')}</Text>
 				)}
 				{!pip.isUser && !isAlreadyGuest && (
-					<Text style={styles.alreadyInvitedText}>{t('local_status')}</Text>
+					<Text style={styles.alreadyInvitedText}>
+						{t("local_on_host_bill_status", "Local - host pays")}
+					</Text>
 				)}
 				{pip.isUser && !pip.userId && !isAlreadyGuest && (
 					<Text style={styles.alreadyInvitedText}>{t('invalid_user_data_status')}</Text>
@@ -86,6 +90,12 @@ const PipInvitationModal = ({
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
 					<Text style={styles.modalTitle}>{t('select_pip_to_invite_add_title')}</Text>
+					<Text style={styles.modalHelpText}>
+						{t(
+							"party_pip_invite_help",
+							"Invite platform PIPs so they can join and pay separately. Add local guests only when they are ordering on your bill.",
+						)}
+					</Text>
 					{isLoadingPips ? (
 						<ActivityIndicator size="small" color={colors.primary} />
 					) : pips.length === 0 ? (
@@ -100,6 +110,32 @@ const PipInvitationModal = ({
 							style={styles.pipModalList}
 						/>
 					)}
+					<View style={styles.secondaryActions}>
+						<TouchableOpacity
+							style={styles.secondaryActionButton}
+							onPress={onManagePips}
+							disabled={isActionLoading}
+						>
+							<Ionicons name="search-outline" size={20} color={colors.primary} />
+							<Text style={styles.secondaryActionText}>
+								{t("find_platform_pips", "Find platform PIPs")}
+							</Text>
+						</TouchableOpacity>
+						<TouchableOpacity
+							style={styles.secondaryActionButton}
+							onPress={onAddLocalMembers}
+							disabled={isActionLoading}
+						>
+							<Ionicons
+								name="person-add-outline"
+								size={20}
+								color={colors.primary}
+							/>
+							<Text style={styles.secondaryActionText}>
+								{t("add_local_guest", "Add local guest")}
+							</Text>
+						</TouchableOpacity>
+					</View>
 					<TouchableOpacity style={styles.closeButton} onPress={onClose}>
 						<Text style={styles.closeButtonText}>{t('close_button')}</Text>
 					</TouchableOpacity>
@@ -131,6 +167,14 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		color: colors.textDark,
 	},
+	modalHelpText: {
+		fontSize: 13,
+		color: colors.textMedium,
+		textAlign: "center",
+		lineHeight: 18,
+		marginTop: -6,
+		marginBottom: 14,
+	},
 	pipModalList: { marginBottom: 15, width: "100%" },
 	pipSelectionItem: {
 		flexDirection: "row",
@@ -159,6 +203,29 @@ const styles = StyleSheet.create({
 		color: colors.textLight,
 		marginVertical: 20,
 		fontStyle: "italic",
+	},
+	secondaryActions: {
+		width: "100%",
+		gap: 10,
+		marginTop: 4,
+		marginBottom: 8,
+	},
+	secondaryActionButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+		borderColor: colors.primary,
+		borderRadius: 10,
+		paddingVertical: 11,
+		paddingHorizontal: 12,
+		backgroundColor: colors.primary + "10",
+	},
+	secondaryActionText: {
+		marginLeft: 8,
+		fontSize: 14,
+		fontWeight: "700",
+		color: colors.primary,
 	},
 	closeButton: {
 		backgroundColor: colors.mediumGray || "#ccc",

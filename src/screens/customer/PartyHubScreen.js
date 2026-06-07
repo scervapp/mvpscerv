@@ -72,6 +72,7 @@ const getStatusColor = (status, scheme) => {
 };
 
 const getStatusLabel = (status) => {
+	if (!status) return "Active";
 	return status === "AWAITING_TABLE"
 		? "Waiting for Table"
 		: status.charAt(0).toUpperCase() + status.slice(1);
@@ -84,20 +85,6 @@ const Stat = ({ icon, label, value }) => (
 		<Text style={[styles.statLabel, { color: colors.textMedium }]}>
 			{label}: {value}
 		</Text>
-	</View>
-);
-
-// Hidden delete row for swipe
-const renderHiddenItem = ({ item }) => (
-	<View style={[styles.hiddenItem, { backgroundColor: colors.danger }]}>
-		<TouchableOpacity
-			style={[styles.deleteButton, { backgroundColor: colors.danger }]}
-			onPress={() => handleDeleteParty(item.partyId)}
-			accessibilityRole="button"
-			accessibilityLabel="Delete party"
-		>
-			<Ionicons name="trash-outline" size={scale(24)} color={colors.white} />
-		</TouchableOpacity>
 	</View>
 );
 
@@ -120,12 +107,21 @@ const PartyHubScreen = () => {
 	const [uiJoinLoading, setUiJoinLoading] = useState(false);
 	const [uiError, setUiError] = useState(null);
 	const [refreshing, setRefreshing] = useState(false);
-	const [searchQuery, setSearchQuery] = useState("");
 
 	// Memoized parties with sorting
 	const parties = useMemo(() => {
 		return Object.entries(currentPartyIds)
-			.map(([restaurantId, partyId]) => {
+			.flatMap(([restaurantId, sessions]) => {
+				if (typeof sessions === "string") {
+					return [{ restaurantId, partyId: sessions }];
+				}
+
+				return [
+					{ restaurantId, partyId: sessions?.dineIn },
+					{ restaurantId, partyId: sessions?.pickup },
+				].filter((session) => session.partyId);
+			})
+			.map(({ restaurantId, partyId }) => {
 				const details = partyDetails[partyId];
 
 				// 🚨 STRICT FILTER: Because our backend is bulletproof now,
@@ -148,15 +144,6 @@ const PartyHubScreen = () => {
 			)
 			.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 	}, [currentPartyIds, partyDetails]);
-
-	// Filtered parties based on search
-	const filteredParties = useMemo(() => {
-		return parties.filter((party) => {
-			console.log("This is the party from filtered", party.restaurantName);
-			const name = party.restaurantName || "";
-			return name.toLowerCase().includes(searchQuery.toLowerCase());
-		});
-	}, [parties, searchQuery]);
 
 	const onRefresh = useCallback(() => {
 		setRefreshing(true);
@@ -225,13 +212,26 @@ const PartyHubScreen = () => {
 		]);
 	};
 
+	const renderHiddenItem = ({ item }) => (
+		<View style={[styles.hiddenItem, { backgroundColor: colors.danger }]}>
+			<TouchableOpacity
+				style={[styles.deleteButton, { backgroundColor: colors.danger }]}
+				onPress={() => handleDeleteParty(item.partyId)}
+				accessibilityRole="button"
+				accessibilityLabel={t("delete_party", "Delete party")}
+			>
+				<Ionicons name="trash-outline" size={scale(24)} color={colors.white} />
+			</TouchableOpacity>
+		</View>
+	);
+
 	// Render party item
 	const renderParty = ({ item }) => {
 		if (!item.restaurantName) {
 			console.warn("Party item missing restaurantName", item);
 			return null; // or fallback UI
 		}
-		const basketItems = sharedBaskets[item.partyId] || [];
+		const basketItems = sharedBaskets[item.partyId]?.items || [];
 		return (
 			<Animated.View entering={FadeInDown.duration(300).delay(100)}>
 				<TouchableOpacity

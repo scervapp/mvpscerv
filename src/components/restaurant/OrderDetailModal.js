@@ -17,6 +17,7 @@ import { Button } from "react-native-paper";
 import { db, functions } from "../../config/firebase";
 import formatCurrency from "../../utils/currencyFormatter";
 import colors from "../../utils/styles/appStyles";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 
 import DiscountModal from "./DiscountModal";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -61,6 +62,7 @@ const normalizeIndividualItem = (docSnap) => {
 
 const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 	const { t } = useTranslation();
+	const { activeSession } = useEmployeeSession();
 	const [orderedItems, setOrderedItems] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState(null);
@@ -183,6 +185,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				itemId: item.id,
 				discountAmount,
 				reason,
+				staffId: activeSession?.id || null,
 			};
 
 			if (!payload.partyId && !payload.checkInId) {

@@ -125,8 +125,11 @@ const AddMembersModal = ({
 						style={styles.addNewPipButton}
 						onPress={() => {
 							onClose();
-							navigation.navigate("AccountScreen", {
-								screen: "PipScreenInner",
+							const rootNavigation = navigation?.getParent
+								? navigation.getParent() || navigation
+								: navigation;
+							rootNavigation?.navigate("AccountScreen", {
+								screen: "PipsScreenInner",
 							});
 						}}
 					>

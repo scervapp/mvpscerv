@@ -1,22 +1,14 @@
 import React, { useEffect, useState } from "react";
-import InitialSetup from "./InitialSetup";
 import {
 	getAuth,
-	getIdToken,
-	getIdTokenResult,
-	onAuthStateChanged,
 	signOut,
 } from "firebase/auth";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import "./styles/Dashboard.css";
 import { collection, getCountFromServer, query } from "firebase/firestore";
 import { db } from "../config/firebase";
 
 const Dashboard = () => {
-	const [isGodMode, setIsGodMode] = useState(false);
-	const [isBizDev, setIsBizDev] = useState(false);
-	const [isSales, setIsSales] = useState(false);
-	const [isAdmin, setIsAdmin] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState(false);
 	const navigate = useNavigate();
@@ -32,11 +24,6 @@ const Dashboard = () => {
 			setError(null); // Clear previous errors
 			if (auth.currentUser) {
 				try {
-					const idTokenResult = await getIdTokenResult(auth.currentUser);
-					const role = idTokenResult.claims.role;
-					setIsGodMode(role === "godmode");
-					setIsAdmin(role === "admin" || role === "godmode");
-
 					// Get user's display name (or email if name is not available)
 					setUserName(auth.currentUser.displayName || auth.currentUser.email);
 
@@ -88,11 +75,6 @@ const Dashboard = () => {
 
 			<section className="dashboard-section">
 				<h2>Quick Actions</h2>
-				{isAdmin && (
-					<Link to="/invite-users" className="dashboard-button">
-						Invite Users
-					</Link>
-				)}
 				<button className="dashboard-button" onClick={handleSignOut}>
 					Sign Out
 				</button>

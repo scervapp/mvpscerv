@@ -7,9 +7,6 @@ const paymentFunctions = require("./paymentFunctions");
 const userFunctions = require("./userFunctions");
 const reportingFunctions = require("./reporting");
 const stripeOnboardingFunctions = require("./stripeOnboardingFunctions");
-const generateCustomToken = require("./generateCustomTokenFunction");
-const sendInvite = require("./sendInvite");
-const setAdminClaim = require("./SetAdminClaimFunction");
 const dishRatingFunction = require("./dishRatingFunction");
 const partyFunctions = require("./partyFunctions");
 const userSearchFunctions = require("./userSearchFunctions");
@@ -64,16 +61,10 @@ exports.createStripeCustomer = userFunctions.createStripeCustomer;
 exports.onUserCreate = userFunctions.onUserCreate;
 exports.syncCustomerSearchIndex = userFunctions.syncCustomerSearchIndex;
 exports.createUserAccount = userFunctions.createUserAccount;
-exports.updateUserCredentials = userFunctions.updateUserCredentials;
 
-exports.sendWhatsAppOTP = userFunctions.sendWhatsAppOTP;
-exports.verifyWhatsAppOTP = userFunctions.verifyWhatsAppOTP;
-exports.sendWhatsAppCode = userFunctions.sendWhatsAppCode;
-exports.verifyWhatsAppCode = userFunctions.verifyWhatsAppCode;
 exports.sendEmailOtp = userFunctions.sendEmailOtp;
 exports.verifyEmailOtp = userFunctions.verifyEmailOtp;
 
-exports.setUserRole = userFunctions.setUserRole;
 exports.createConnectedAccount =
 	stripeOnboardingFunctions.createConnectedAccount;
 exports.createLoginLink = stripeOnboardingFunctions.createLoginLink;
@@ -83,10 +74,6 @@ exports.getAggregatedSalesReport = reportingFunctions.getAggregatedSalesReport;
 exports.getDashboardReport = reportingFunctions.getDashboardReport;
 
 exports.getSalesReport = reportingFunctions.getSalesReport;
-
-exports.generateCustomToken = generateCustomToken.generateCustomToken;
-exports.sendInvite = sendInvite.sendInvite;
-exports.setAdminClaim = setAdminClaim.setAdminClaim;
 
 // Restaurant Party Control
 exports.closePartyTable = restaurantFunctions.closePartyTable;

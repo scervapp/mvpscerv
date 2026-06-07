@@ -11,7 +11,6 @@ import { auth } from "./config/firebase";
 import { useAuthState } from "react-firebase-hooks/auth";
 import Unauthorized from "./components/Unauthorized";
 import HandleInvite from "./components/HandleInvite";
-import InviteUsers from "./components/InviteUsers";
 import RestaurantDetails from "./components/RestaurantDetails";
 import RestaurantMenu from "./components/RestaurantMenu";
 
@@ -63,16 +62,6 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Customers />
-							</ProtectedRoute>
-						}
-					/>
-
-					{/* Routes accessible ONLY to godmode */}
-					<Route
-						path="/invite-users"
-						element={
-							<ProtectedRoute requiredRole="godmode">
-								<InviteUsers />
 							</ProtectedRoute>
 						}
 					/>

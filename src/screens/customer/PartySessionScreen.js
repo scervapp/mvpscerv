@@ -29,6 +29,7 @@ import { db } from "../../config/firebase";
 import OrderItemCard from "../../components/customer/OrderItemCard";
 import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
 import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
+import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
 import formatTimeLeft from "../../utils/formatTimeLeft";
 
@@ -322,14 +323,18 @@ const PartySessionScreen = () => {
 	};
 
 	const addLocalPIP = async (localPIPId, localPIPName) => {
-		if (!currentPartyId || !localPIPId || !localPIPName) return;
+		const pipsToAdd = Array.isArray(localPIPId)
+			? localPIPId
+			: [{ id: localPIPId, name: localPIPName }];
+		const validPipsToAdd = pipsToAdd.filter((pip) => pip?.id && pip?.name);
+
+		if (!currentPartyId || validPipsToAdd.length === 0) return;
 		setUiLoading(true);
 		try {
-			const success = await addLocalPIPToParty(currentPartyId, [
-				{ id: localPIPId, name: localPIPName },
-			]);
+			const success = await addLocalPIPToParty(currentPartyId, validPipsToAdd);
 			if (success) {
 				setIsPipInviteModalVisible(false);
+				setIsAddMembersModalVisible(false);
 			}
 		} finally {
 			setUiLoading(false);
@@ -1037,6 +1042,26 @@ const PartySessionScreen = () => {
 				isActionLoading={uiLoading}
 				onSelectUserPip={sendInviteToUserPIP}
 				onSelectLocalPip={addLocalPIP}
+				onAddLocalMembers={() => {
+					setIsPipInviteModalVisible(false);
+					setIsAddMembersModalVisible(true);
+				}}
+				onManagePips={() => {
+					setIsPipInviteModalVisible(false);
+					const rootNavigation = navigation.getParent() || navigation;
+					rootNavigation.navigate("AccountScreen", {
+						screen: "PipsScreenInner",
+					});
+				}}
+			/>
+			<AddMembersModal
+				isVisible={isAddMembersModalVisible}
+				onClose={() => setIsAddMembersModalVisible(false)}
+				onConfirmAdd={addLocalPIP}
+				hostPips={userPips.filter((pip) => !pip.isUser)}
+				partyMembers={currentParty?.guestPips || []}
+				isLoading={uiLoading}
+				navigation={navigation}
 			/>
 		</SafeAreaView>
 	);

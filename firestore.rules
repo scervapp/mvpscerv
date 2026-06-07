@@ -179,6 +179,11 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /private/{docId} {
+        allow read: if isRestaurantUser(restaurantId);
+        allow write: if false;
+      }
+
       match /{document=**} {
         allow read: if isRestaurantUser(restaurantId);
         allow write: if false;
