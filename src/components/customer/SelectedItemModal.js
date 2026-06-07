@@ -161,6 +161,9 @@ const SelectedItemModal = ({
 							id,
 							name: pip?.name || pip?.fullName || t("guest", "Guest"),
 							specialInstructions: pip?.specialInstructions || "",
+							isCurrentUser: pip?.userId === currentUserData?.uid,
+							isPlatformUser: !!pip?.userId,
+							isLocalGuest: !!pip?.localPipId || pip?.isLocal === true,
 						};
 					})
 					.filter(Boolean)
@@ -168,7 +171,7 @@ const SelectedItemModal = ({
 
 		if (normalizedPips.length > 0) return normalizedPips;
 		return currentUserTarget ? [currentUserTarget] : [];
-	}, [pips, currentUserTarget, t]);
+	}, [pips, currentUserTarget, currentUserData?.uid, t]);
 
 	useEffect(() => {
 		if (visible && selectedItem) {
@@ -235,6 +238,24 @@ const SelectedItemModal = ({
 		const newTarget = { ...targetOption, specialInstructions: "" };
 		setPartyModeTarget(newTarget);
 		setOrderTargets([newTarget]);
+	};
+
+	const getPartyTargetCaption = (target) => {
+		if (target?.isCurrentUser || target?.id === currentUserData?.uid) {
+			return t("you_pay_for_this_item", "You pay for this item");
+		}
+
+		if (target?.isPlatformUser) {
+			return t(
+				"platform_pip_pays_separately",
+				"They can join Scerv and pay their own bill",
+			);
+		}
+
+		return t(
+			"local_guest_on_host_bill",
+			"Local guest - this stays on your bill",
+		);
 	};
 
 	const getSelectionsForGroup = (groupId) =>
@@ -628,8 +649,8 @@ const SelectedItemModal = ({
 									const uniqueKey = option.id;
 									const isSelected = orderTargets[0]?.id === uniqueKey;
 									const targetObject = {
+										...option,
 										id: uniqueKey,
-										name: option.name,
 									};
 
 									return (
@@ -647,7 +668,12 @@ const SelectedItemModal = ({
 													size={24}
 													color={colors.primary}
 												/>
-												<Text style={styles.pipNameText}>{option.name}</Text>
+												<View style={styles.pipTargetTextWrap}>
+													<Text style={styles.pipNameText}>{option.name}</Text>
+													<Text style={styles.pipCaptionText}>
+														{getPartyTargetCaption(option)}
+													</Text>
+												</View>
 											</TouchableOpacity>
 
 											{isSelected && (
@@ -985,6 +1011,15 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: colors.textDark,
 		marginLeft: 10,
+	},
+	pipTargetTextWrap: {
+		flex: 1,
+		marginLeft: 10,
+	},
+	pipCaptionText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
 	},
 	editInstructionsButton: {
 		flexDirection: "row",

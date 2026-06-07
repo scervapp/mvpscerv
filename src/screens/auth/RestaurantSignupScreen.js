@@ -16,29 +16,297 @@ import { Formik } from "formik";
 import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
+import { Picker } from "@react-native-picker/picker";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons"; // Ensure you have this installed
+
+const COUNTRY_OPTIONS = [
+	["US", "United States"],
+	["AF", "Afghanistan"],
+	["AX", "Aland Islands"],
+	["AL", "Albania"],
+	["DZ", "Algeria"],
+	["AS", "American Samoa"],
+	["AD", "Andorra"],
+	["AO", "Angola"],
+	["AI", "Anguilla"],
+	["AQ", "Antarctica"],
+	["AG", "Antigua and Barbuda"],
+	["AR", "Argentina"],
+	["AM", "Armenia"],
+	["AW", "Aruba"],
+	["AU", "Australia"],
+	["AT", "Austria"],
+	["AZ", "Azerbaijan"],
+	["BS", "Bahamas"],
+	["BH", "Bahrain"],
+	["BD", "Bangladesh"],
+	["BB", "Barbados"],
+	["BY", "Belarus"],
+	["BE", "Belgium"],
+	["BZ", "Belize"],
+	["BJ", "Benin"],
+	["BM", "Bermuda"],
+	["BT", "Bhutan"],
+	["BO", "Bolivia"],
+	["BQ", "Bonaire, Sint Eustatius and Saba"],
+	["BA", "Bosnia and Herzegovina"],
+	["BW", "Botswana"],
+	["BR", "Brazil"],
+	["IO", "British Indian Ocean Territory"],
+	["BN", "Brunei Darussalam"],
+	["BG", "Bulgaria"],
+	["BF", "Burkina Faso"],
+	["BI", "Burundi"],
+	["KH", "Cambodia"],
+	["CM", "Cameroon"],
+	["CA", "Canada"],
+	["CV", "Cape Verde"],
+	["KY", "Cayman Islands"],
+	["CF", "Central African Republic"],
+	["TD", "Chad"],
+	["CL", "Chile"],
+	["CN", "China"],
+	["CX", "Christmas Island"],
+	["CC", "Cocos Islands"],
+	["CO", "Colombia"],
+	["KM", "Comoros"],
+	["CG", "Congo"],
+	["CD", "Congo, Democratic Republic"],
+	["CK", "Cook Islands"],
+	["CR", "Costa Rica"],
+	["CI", "Cote d'Ivoire"],
+	["HR", "Croatia"],
+	["CU", "Cuba"],
+	["CW", "Curacao"],
+	["CY", "Cyprus"],
+	["CZ", "Czech Republic"],
+	["DK", "Denmark"],
+	["DJ", "Djibouti"],
+	["DM", "Dominica"],
+	["DO", "Dominican Republic"],
+	["EC", "Ecuador"],
+	["EG", "Egypt"],
+	["SV", "El Salvador"],
+	["GQ", "Equatorial Guinea"],
+	["ER", "Eritrea"],
+	["EE", "Estonia"],
+	["SZ", "Eswatini"],
+	["ET", "Ethiopia"],
+	["FK", "Falkland Islands"],
+	["FO", "Faroe Islands"],
+	["FJ", "Fiji"],
+	["FI", "Finland"],
+	["FR", "France"],
+	["GF", "French Guiana"],
+	["PF", "French Polynesia"],
+	["TF", "French Southern Territories"],
+	["GA", "Gabon"],
+	["GM", "Gambia"],
+	["GE", "Georgia"],
+	["DE", "Germany"],
+	["GH", "Ghana"],
+	["GI", "Gibraltar"],
+	["GR", "Greece"],
+	["GL", "Greenland"],
+	["GD", "Grenada"],
+	["GP", "Guadeloupe"],
+	["GU", "Guam"],
+	["GT", "Guatemala"],
+	["GG", "Guernsey"],
+	["GN", "Guinea"],
+	["GW", "Guinea-Bissau"],
+	["GY", "Guyana"],
+	["HT", "Haiti"],
+	["VA", "Holy See"],
+	["HN", "Honduras"],
+	["HK", "Hong Kong"],
+	["HU", "Hungary"],
+	["IS", "Iceland"],
+	["IN", "India"],
+	["ID", "Indonesia"],
+	["IR", "Iran"],
+	["IQ", "Iraq"],
+	["IE", "Ireland"],
+	["IM", "Isle of Man"],
+	["IL", "Israel"],
+	["IT", "Italy"],
+	["JM", "Jamaica"],
+	["JP", "Japan"],
+	["JE", "Jersey"],
+	["JO", "Jordan"],
+	["KZ", "Kazakhstan"],
+	["KE", "Kenya"],
+	["KI", "Kiribati"],
+	["KP", "Korea, North"],
+	["KR", "Korea, South"],
+	["KW", "Kuwait"],
+	["KG", "Kyrgyzstan"],
+	["LA", "Laos"],
+	["LV", "Latvia"],
+	["LB", "Lebanon"],
+	["LS", "Lesotho"],
+	["LR", "Liberia"],
+	["LY", "Libya"],
+	["LI", "Liechtenstein"],
+	["LT", "Lithuania"],
+	["LU", "Luxembourg"],
+	["MO", "Macao"],
+	["MG", "Madagascar"],
+	["MW", "Malawi"],
+	["MY", "Malaysia"],
+	["MV", "Maldives"],
+	["ML", "Mali"],
+	["MT", "Malta"],
+	["MH", "Marshall Islands"],
+	["MQ", "Martinique"],
+	["MR", "Mauritania"],
+	["MU", "Mauritius"],
+	["YT", "Mayotte"],
+	["MX", "Mexico"],
+	["FM", "Micronesia"],
+	["MD", "Moldova"],
+	["MC", "Monaco"],
+	["MN", "Mongolia"],
+	["ME", "Montenegro"],
+	["MS", "Montserrat"],
+	["MA", "Morocco"],
+	["MZ", "Mozambique"],
+	["MM", "Myanmar"],
+	["NA", "Namibia"],
+	["NR", "Nauru"],
+	["NP", "Nepal"],
+	["NL", "Netherlands"],
+	["NC", "New Caledonia"],
+	["NZ", "New Zealand"],
+	["NI", "Nicaragua"],
+	["NE", "Niger"],
+	["NG", "Nigeria"],
+	["NU", "Niue"],
+	["NF", "Norfolk Island"],
+	["MK", "North Macedonia"],
+	["MP", "Northern Mariana Islands"],
+	["NO", "Norway"],
+	["OM", "Oman"],
+	["PK", "Pakistan"],
+	["PW", "Palau"],
+	["PS", "Palestine"],
+	["PA", "Panama"],
+	["PG", "Papua New Guinea"],
+	["PY", "Paraguay"],
+	["PE", "Peru"],
+	["PH", "Philippines"],
+	["PN", "Pitcairn"],
+	["PL", "Poland"],
+	["PT", "Portugal"],
+	["PR", "Puerto Rico"],
+	["QA", "Qatar"],
+	["RE", "Reunion"],
+	["RO", "Romania"],
+	["RU", "Russian Federation"],
+	["RW", "Rwanda"],
+	["BL", "Saint Barthelemy"],
+	["SH", "Saint Helena"],
+	["KN", "Saint Kitts and Nevis"],
+	["LC", "Saint Lucia"],
+	["MF", "Saint Martin"],
+	["PM", "Saint Pierre and Miquelon"],
+	["VC", "Saint Vincent and the Grenadines"],
+	["WS", "Samoa"],
+	["SM", "San Marino"],
+	["ST", "Sao Tome and Principe"],
+	["SA", "Saudi Arabia"],
+	["SN", "Senegal"],
+	["RS", "Serbia"],
+	["SC", "Seychelles"],
+	["SL", "Sierra Leone"],
+	["SG", "Singapore"],
+	["SX", "Sint Maarten"],
+	["SK", "Slovakia"],
+	["SI", "Slovenia"],
+	["SB", "Solomon Islands"],
+	["SO", "Somalia"],
+	["ZA", "South Africa"],
+	["GS", "South Georgia and Sandwich Islands"],
+	["SS", "South Sudan"],
+	["ES", "Spain"],
+	["LK", "Sri Lanka"],
+	["SD", "Sudan"],
+	["SR", "Suriname"],
+	["SJ", "Svalbard and Jan Mayen"],
+	["SE", "Sweden"],
+	["CH", "Switzerland"],
+	["SY", "Syrian Arab Republic"],
+	["TW", "Taiwan"],
+	["TJ", "Tajikistan"],
+	["TZ", "Tanzania"],
+	["TH", "Thailand"],
+	["TL", "Timor-Leste"],
+	["TG", "Togo"],
+	["TK", "Tokelau"],
+	["TO", "Tonga"],
+	["TT", "Trinidad and Tobago"],
+	["TN", "Tunisia"],
+	["TR", "Turkey"],
+	["TM", "Turkmenistan"],
+	["TC", "Turks and Caicos Islands"],
+	["TV", "Tuvalu"],
+	["UG", "Uganda"],
+	["UA", "Ukraine"],
+	["AE", "United Arab Emirates"],
+	["GB", "United Kingdom"],
+	["UM", "United States Minor Outlying Islands"],
+	["UY", "Uruguay"],
+	["UZ", "Uzbekistan"],
+	["VU", "Vanuatu"],
+	["VE", "Venezuela"],
+	["VN", "Viet Nam"],
+	["VG", "Virgin Islands, British"],
+	["VI", "Virgin Islands, U.S."],
+	["WF", "Wallis and Futuna"],
+	["EH", "Western Sahara"],
+	["YE", "Yemen"],
+	["ZM", "Zambia"],
+	["ZW", "Zimbabwe"],
+].map(([code, label]) => ({ code, label }));
+
+const getCountryOption = (countryCode) =>
+	COUNTRY_OPTIONS.find((country) => country.code === countryCode) ||
+	COUNTRY_OPTIONS[0];
 
 const RestaurantSignupScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const { signup, isLoading, authError } = useContext(AuthContext);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
+	const normalizePhoneNumber = (value) => {
+		const cleaned = String(value || "")
+			.trim()
+			.replace(/[^\d+]/g, "");
+		if (!cleaned) return "";
+		return cleaned.startsWith("+")
+			? `+${cleaned.replace(/[^\d]/g, "")}`
+			: cleaned.replace(/[^\d]/g, "");
+	};
+
 	const handleSignupSubmit = async (values) => {
 		if (isLoading) return;
 		setIsSubmitting(true);
 		try {
-			await signup(values.email, values.password, "owner", {
-				restaurantName: values.restaurantName,
-				firstName: values.firstName,
-				lastName: values.lastName,
-				phoneNumber: values.phoneNumber,
-				address: values.address,
-				city: values.city,
-				state: values.state,
-				zipcode: values.zipcode,
-				country: values.country, // Pass the selected country
+			const email = String(values.email || "").trim().toLowerCase();
+			const selectedCountry = getCountryOption(values.countryCode);
+			await signup(email, values.password, "owner", {
+				restaurantName: values.restaurantName.trim(),
+				firstName: values.firstName.trim(),
+				lastName: values.lastName.trim(),
+				phoneNumber: normalizePhoneNumber(values.phoneNumber),
+				address: values.address.trim(),
+				city: values.city.trim(),
+				state: values.state.trim(),
+				zipcode: values.zipcode.trim(),
+				country: selectedCountry.label,
+				countryCode: selectedCountry.code,
 			});
 		} catch (error) {
 			console.log("Restaurant signup failed on screen:", error.message);
@@ -56,21 +324,29 @@ const RestaurantSignupScreen = ({ navigation }) => {
 			.email(t("please_enter_a_valid_email"))
 			.required(t("email_is_required")),
 		phoneNumber: Yup.string()
-			// Updated: Accepts 7 to 15 digits to cover US (10) and Panama (7-8)
-			.matches(/^[0-9]{7,15}$/, t("must_be_a_valid_phone_number"))
+			.matches(/^\+?[0-9\s().-]{7,24}$/, t("must_be_a_valid_phone_number"))
 			.required(t("phone_number_is_required")),
 		password: Yup.string()
-			.min(6, t("password_must_be_at_least_6_characters"))
+			.min(
+				8,
+				t(
+					"password_must_be_at_least_8_characters",
+					"Password must be at least 8 characters.",
+				),
+			)
 			.required(t("password_is_required")),
 		address: Yup.string().required(t("street_address_is_required")),
 		city: Yup.string().required(t("city_is_required")),
-		// Updated: Removed length restriction for international provinces
 		state: Yup.string().required(t("state_is_required")),
-		// Updated: Allows alphanumeric for international postal codes
 		zipcode: Yup.string()
-			.matches(/^[0-9a-zA-Z\s-]{3,10}$/, t("must_be_a_valid_zip_code"))
+			.matches(/^[0-9a-zA-Z\s-]{2,20}$/, t("must_be_a_valid_zip_code"))
 			.required(t("zip_code_is_required")),
-		country: Yup.string().required(),
+		countryCode: Yup.string()
+			.oneOf(
+				COUNTRY_OPTIONS.map((country) => country.code),
+				t("country_is_required", "Country is required."),
+			)
+			.required(t("country_is_required", "Country is required.")),
 	});
 
 	return (
@@ -83,13 +359,45 @@ const RestaurantSignupScreen = ({ navigation }) => {
 					<View style={styles.header}>
 						<Text style={styles.title}>{t("join_as_a_partner")}</Text>
 						<Text style={styles.subtitle}>
-							{t("create_your_restaurants_account")}
+							{t(
+								"restaurant_signup_subtitle",
+								"Create your owner account. You can finish menu, staff, payments, and profile setup after sign in.",
+							)}
 						</Text>
+					</View>
+
+					<View style={styles.stepPanel}>
+						<View style={styles.stepItem}>
+							<Ionicons
+								name="person-check-outline"
+								size={18}
+								color={colors.primary}
+							/>
+							<Text style={styles.stepText}>
+								{t("owner_account_step", "Owner account")}
+							</Text>
+						</View>
+						<View style={styles.stepItem}>
+							<Ionicons
+								name="storefront-outline"
+								size={18}
+								color={colors.primary}
+							/>
+							<Text style={styles.stepText}>
+								{t("restaurant_profile_step", "Restaurant profile")}
+							</Text>
+						</View>
+						<View style={styles.stepItem}>
+							<Ionicons name="card-outline" size={18} color={colors.primary} />
+							<Text style={styles.stepText}>
+								{t("payments_later_step", "Payments later")}
+							</Text>
+						</View>
 					</View>
 
 					<Formik
 						initialValues={{
-							country: "US", // Default to US
+							countryCode: "US",
 							restaurantName: "",
 							firstName: "",
 							lastName: "",
@@ -108,50 +416,32 @@ const RestaurantSignupScreen = ({ navigation }) => {
 							handleChange,
 							handleBlur,
 							handleSubmit,
-							setFieldValue, // Needed for custom country toggle
 							values,
 							errors,
 							touched,
+							setFieldValue,
 						}) => (
 							<View style={styles.form}>
-								{/* --- NEW: COUNTRY SELECTOR --- */}
-								<View style={styles.countrySelectorContainer}>
-									<Text style={styles.label}>{t("country")}</Text>
-									<View style={styles.countryToggleWrapper}>
-										<TouchableOpacity
-											style={[
-												styles.countryButton,
-												values.country === "US" && styles.countryButtonActive,
-											]}
-											onPress={() => setFieldValue("country", "US")}
-										>
-											<Text
-												style={[
-													styles.countryText,
-													values.country === "US" && styles.countryTextActive,
-												]}
-											>
-												🇺🇸 United States
-											</Text>
-										</TouchableOpacity>
-										<TouchableOpacity
-											style={[
-												styles.countryButton,
-												values.country === "PA" && styles.countryButtonActive,
-											]}
-											onPress={() => setFieldValue("country", "PA")}
-										>
-											<Text
-												style={[
-													styles.countryText,
-													values.country === "PA" && styles.countryTextActive,
-												]}
-											>
-												🇵🇦 Panamá
-											</Text>
-										</TouchableOpacity>
-									</View>
+								<View style={styles.pickerShell}>
+									<Picker
+										selectedValue={values.countryCode}
+										onValueChange={(selectedCode) =>
+											setFieldValue("countryCode", selectedCode)
+										}
+										style={styles.picker}
+									>
+										{COUNTRY_OPTIONS.map((country) => (
+											<Picker.Item
+												key={country.code}
+												label={country.label}
+												value={country.code}
+											/>
+										))}
+									</Picker>
 								</View>
+								{touched.countryCode && errors.countryCode && (
+									<Text style={styles.errorText}>{errors.countryCode}</Text>
+								)}
 
 								<TextInput
 									style={styles.input}
@@ -202,26 +492,24 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									onChangeText={handleChange("email")}
 									keyboardType="email-address"
 									autoCapitalize="none"
+									autoCorrect={false}
 								/>
 								{touched.email && errors.email && (
 									<Text style={styles.errorText}>{errors.email}</Text>
 								)}
 
 								<View style={styles.phoneInputContainer}>
-									{/* Show Country Code Prefix */}
-									<View style={styles.countryCodeBadge}>
-										<Text style={styles.countryCodeText}>
-											{values.country === "US" ? "+1" : "+507"}
-										</Text>
-									</View>
 									<TextInput
 										style={[styles.input, styles.phoneInput]}
-										placeholder={t("business_phone")}
+										placeholder={t(
+											"business_phone_international",
+											"Business phone, including country code",
+										)}
 										placeholderTextColor={colors.textMedium}
 										value={values.phoneNumber}
 										onChangeText={handleChange("phoneNumber")}
 										keyboardType="phone-pad"
-										maxLength={15} // Increased length
+										maxLength={24}
 									/>
 								</View>
 								{touched.phoneNumber && errors.phoneNumber && (
@@ -235,6 +523,8 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									value={values.password}
 									onChangeText={handleChange("password")}
 									secureTextEntry
+									autoCapitalize="none"
+									autoCorrect={false}
 								/>
 								{touched.password && errors.password && (
 									<Text style={styles.errorText}>{errors.password}</Text>
@@ -267,14 +557,13 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									<View style={styles.stateInput}>
 										<TextInput
 											style={styles.input}
-											// Dynamic Placeholder
-											placeholder={
-												values.country === "US" ? "State (FL)" : "Provincia"
-											}
+											placeholder={t(
+												"state_region_province",
+												"State, region, or province",
+											)}
 											placeholderTextColor={colors.textMedium}
 											value={values.state}
 											onChangeText={handleChange("state")}
-											// Removed maxLength={2} to allow Panama Provinces
 											autoCapitalize="words"
 										/>
 										{touched.state && errors.state && (
@@ -289,7 +578,6 @@ const RestaurantSignupScreen = ({ navigation }) => {
 									placeholderTextColor={colors.textMedium}
 									value={values.zipcode}
 									onChangeText={handleChange("zipcode")}
-									// Default numeric, but allow normal if needed
 									keyboardType="default"
 								/>
 								{touched.zipcode && errors.zipcode && (
@@ -297,6 +585,12 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								)}
 
 								{authError && <Text style={styles.errorText}>{authError}</Text>}
+								<Text style={styles.securityNote}>
+									{t(
+										"restaurant_signup_security_note",
+										"We will send setup guidance to this email. Use an address your owner team controls.",
+									)}
+								</Text>
 
 								<Button
 									mode="contained"
@@ -339,30 +633,28 @@ const styles = StyleSheet.create({
 		marginBottom: 8,
 	},
 	subtitle: { fontSize: 16, color: colors.textMedium, textAlign: "center" },
-	form: { width: "100%" },
-
-	// Country Selector Styles
-	countrySelectorContainer: { marginBottom: 15 },
-	label: { marginBottom: 8, fontWeight: "600", color: colors.textDark },
-	countryToggleWrapper: {
+	stepPanel: {
 		flexDirection: "row",
-		justifyContent: "space-between",
-	},
-	countryButton: {
-		flex: 0.48,
-		paddingVertical: 10,
-		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
-		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		padding: 10,
+		marginBottom: 18,
+		gap: 8,
+	},
+	stepItem: {
+		flex: 1,
 		alignItems: "center",
+		gap: 5,
 	},
-	countryButtonActive: {
-		borderColor: colors.primary,
-		backgroundColor: colors.primary + "15", // Light opacity primary
+	stepText: {
+		fontSize: 11,
+		fontWeight: "800",
+		color: colors.textDark,
+		textAlign: "center",
 	},
-	countryText: { fontSize: 14, color: colors.textMedium },
-	countryTextActive: { fontWeight: "bold", color: colors.primary },
+	form: { width: "100%" },
 
 	input: {
 		height: 55,
@@ -375,26 +667,25 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginBottom: 8,
 	},
+	pickerShell: {
+		height: 55,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		marginBottom: 8,
+		justifyContent: "center",
+		overflow: "hidden",
+	},
+	picker: {
+		color: colors.textDark,
+		backgroundColor: colors.surfaceWhite,
+	},
 
 	// Phone Input Styles
 	phoneInputContainer: { flexDirection: "row", marginBottom: 8 },
-	countryCodeBadge: {
-		width: 60,
-		height: 55,
-		backgroundColor: "#eee",
-		borderTopLeftRadius: 8,
-		borderBottomLeftRadius: 8,
-		borderWidth: 1,
-		borderColor: colors.borderLight,
-		borderRightWidth: 0,
-		justifyContent: "center",
-		alignItems: "center",
-	},
-	countryCodeText: { fontSize: 16, fontWeight: "bold", color: "#555" },
 	phoneInput: {
 		flex: 1,
-		borderTopLeftRadius: 0,
-		borderBottomLeftRadius: 0,
 	},
 
 	row: {
@@ -420,6 +711,13 @@ const styles = StyleSheet.create({
 		marginBottom: 10,
 		marginLeft: 5,
 		fontSize: 13,
+	},
+	securityNote: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: colors.textMedium,
+		lineHeight: 17,
+		marginTop: 2,
 	},
 	footer: {
 		flexDirection: "row",

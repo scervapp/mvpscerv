@@ -11,6 +11,8 @@ web-build/
 
 # EAS Submit Key
 eas-submit-key.json
+*-service-account.json
+scervmvp-*.json
 
 # Native
 *.orig.*

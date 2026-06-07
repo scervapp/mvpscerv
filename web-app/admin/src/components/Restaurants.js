@@ -8,7 +8,7 @@ import {
 	query,
 	startAfter,
 } from "firebase/firestore";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import "./styles/Restaurants.css";
 
 const Restaurants = () => {

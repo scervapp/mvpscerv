@@ -1532,8 +1532,21 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 			.trim()
 			.toLowerCase();
 
-		if (
-			isManualSeat &&
+		if (isManualSeat) {
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server"],
+				action: "seat tables",
+			});
+			assignedServer = {
+				id: staffMember.id || staffId,
+				name: staffName || staffMember.name || "Server",
+			};
+		} else if (
 			staffId &&
 			(normalizedStaffRole === "owner" ||
 				normalizedStaffRole === "manager" ||

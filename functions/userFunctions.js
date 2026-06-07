@@ -8,19 +8,406 @@ const {
 	ensureStripeCustomerForMode,
 	ensureStripeCustomersForCustomer,
 } = require("./stripeUtils");
-const twilio = require("twilio");
 const db = admin.firestore();
-const crypto = require("crypto");
 
 const { Resend } = require("resend");
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 
-const resend = new Resend("re_c5VCacmN_N1Ynx623z8htk2jxjHR8qSJp");
+const getResendClient = () => {
+	const apiKey = RESEND_API_KEY.value();
+	if (!apiKey) {
+		throw new Error("RESEND_API_KEY is not configured.");
+	}
+	return new Resend(apiKey);
+};
 
 const normalizeSearchValue = (value) =>
 	String(value || "")
 		.trim()
 		.toLowerCase()
 		.replace(/\s+/g, " ");
+
+const sanitizeString = (value) =>
+	String(value || "")
+		.trim()
+		.replace(/\s+/g, " ");
+
+const normalizeInternationalPhone = (value) => {
+	const cleaned = String(value || "")
+		.trim()
+		.replace(/[^\d+]/g, "");
+	if (!cleaned) return "";
+	return cleaned.startsWith("+")
+		? `+${cleaned.replace(/[^\d]/g, "")}`
+		: cleaned.replace(/[^\d]/g, "");
+};
+
+const SUPPORTED_COUNTRIES = Object.fromEntries([
+	["US", "United States"],
+	["AF", "Afghanistan"],
+	["AX", "Aland Islands"],
+	["AL", "Albania"],
+	["DZ", "Algeria"],
+	["AS", "American Samoa"],
+	["AD", "Andorra"],
+	["AO", "Angola"],
+	["AI", "Anguilla"],
+	["AQ", "Antarctica"],
+	["AG", "Antigua and Barbuda"],
+	["AR", "Argentina"],
+	["AM", "Armenia"],
+	["AW", "Aruba"],
+	["AU", "Australia"],
+	["AT", "Austria"],
+	["AZ", "Azerbaijan"],
+	["BS", "Bahamas"],
+	["BH", "Bahrain"],
+	["BD", "Bangladesh"],
+	["BB", "Barbados"],
+	["BY", "Belarus"],
+	["BE", "Belgium"],
+	["BZ", "Belize"],
+	["BJ", "Benin"],
+	["BM", "Bermuda"],
+	["BT", "Bhutan"],
+	["BO", "Bolivia"],
+	["BQ", "Bonaire, Sint Eustatius and Saba"],
+	["BA", "Bosnia and Herzegovina"],
+	["BW", "Botswana"],
+	["BR", "Brazil"],
+	["IO", "British Indian Ocean Territory"],
+	["BN", "Brunei Darussalam"],
+	["BG", "Bulgaria"],
+	["BF", "Burkina Faso"],
+	["BI", "Burundi"],
+	["KH", "Cambodia"],
+	["CM", "Cameroon"],
+	["CA", "Canada"],
+	["CV", "Cape Verde"],
+	["KY", "Cayman Islands"],
+	["CF", "Central African Republic"],
+	["TD", "Chad"],
+	["CL", "Chile"],
+	["CN", "China"],
+	["CX", "Christmas Island"],
+	["CC", "Cocos Islands"],
+	["CO", "Colombia"],
+	["KM", "Comoros"],
+	["CG", "Congo"],
+	["CD", "Congo, Democratic Republic"],
+	["CK", "Cook Islands"],
+	["CR", "Costa Rica"],
+	["CI", "Cote d'Ivoire"],
+	["HR", "Croatia"],
+	["CU", "Cuba"],
+	["CW", "Curacao"],
+	["CY", "Cyprus"],
+	["CZ", "Czech Republic"],
+	["DK", "Denmark"],
+	["DJ", "Djibouti"],
+	["DM", "Dominica"],
+	["DO", "Dominican Republic"],
+	["EC", "Ecuador"],
+	["EG", "Egypt"],
+	["SV", "El Salvador"],
+	["GQ", "Equatorial Guinea"],
+	["ER", "Eritrea"],
+	["EE", "Estonia"],
+	["SZ", "Eswatini"],
+	["ET", "Ethiopia"],
+	["FK", "Falkland Islands"],
+	["FO", "Faroe Islands"],
+	["FJ", "Fiji"],
+	["FI", "Finland"],
+	["FR", "France"],
+	["GF", "French Guiana"],
+	["PF", "French Polynesia"],
+	["TF", "French Southern Territories"],
+	["GA", "Gabon"],
+	["GM", "Gambia"],
+	["GE", "Georgia"],
+	["DE", "Germany"],
+	["GH", "Ghana"],
+	["GI", "Gibraltar"],
+	["GR", "Greece"],
+	["GL", "Greenland"],
+	["GD", "Grenada"],
+	["GP", "Guadeloupe"],
+	["GU", "Guam"],
+	["GT", "Guatemala"],
+	["GG", "Guernsey"],
+	["GN", "Guinea"],
+	["GW", "Guinea-Bissau"],
+	["GY", "Guyana"],
+	["HT", "Haiti"],
+	["VA", "Holy See"],
+	["HN", "Honduras"],
+	["HK", "Hong Kong"],
+	["HU", "Hungary"],
+	["IS", "Iceland"],
+	["IN", "India"],
+	["ID", "Indonesia"],
+	["IR", "Iran"],
+	["IQ", "Iraq"],
+	["IE", "Ireland"],
+	["IM", "Isle of Man"],
+	["IL", "Israel"],
+	["IT", "Italy"],
+	["JM", "Jamaica"],
+	["JP", "Japan"],
+	["JE", "Jersey"],
+	["JO", "Jordan"],
+	["KZ", "Kazakhstan"],
+	["KE", "Kenya"],
+	["KI", "Kiribati"],
+	["KP", "Korea, North"],
+	["KR", "Korea, South"],
+	["KW", "Kuwait"],
+	["KG", "Kyrgyzstan"],
+	["LA", "Laos"],
+	["LV", "Latvia"],
+	["LB", "Lebanon"],
+	["LS", "Lesotho"],
+	["LR", "Liberia"],
+	["LY", "Libya"],
+	["LI", "Liechtenstein"],
+	["LT", "Lithuania"],
+	["LU", "Luxembourg"],
+	["MO", "Macao"],
+	["MG", "Madagascar"],
+	["MW", "Malawi"],
+	["MY", "Malaysia"],
+	["MV", "Maldives"],
+	["ML", "Mali"],
+	["MT", "Malta"],
+	["MH", "Marshall Islands"],
+	["MQ", "Martinique"],
+	["MR", "Mauritania"],
+	["MU", "Mauritius"],
+	["YT", "Mayotte"],
+	["MX", "Mexico"],
+	["FM", "Micronesia"],
+	["MD", "Moldova"],
+	["MC", "Monaco"],
+	["MN", "Mongolia"],
+	["ME", "Montenegro"],
+	["MS", "Montserrat"],
+	["MA", "Morocco"],
+	["MZ", "Mozambique"],
+	["MM", "Myanmar"],
+	["NA", "Namibia"],
+	["NR", "Nauru"],
+	["NP", "Nepal"],
+	["NL", "Netherlands"],
+	["NC", "New Caledonia"],
+	["NZ", "New Zealand"],
+	["NI", "Nicaragua"],
+	["NE", "Niger"],
+	["NG", "Nigeria"],
+	["NU", "Niue"],
+	["NF", "Norfolk Island"],
+	["MK", "North Macedonia"],
+	["MP", "Northern Mariana Islands"],
+	["NO", "Norway"],
+	["OM", "Oman"],
+	["PK", "Pakistan"],
+	["PW", "Palau"],
+	["PS", "Palestine"],
+	["PA", "Panama"],
+	["PG", "Papua New Guinea"],
+	["PY", "Paraguay"],
+	["PE", "Peru"],
+	["PH", "Philippines"],
+	["PN", "Pitcairn"],
+	["PL", "Poland"],
+	["PT", "Portugal"],
+	["PR", "Puerto Rico"],
+	["QA", "Qatar"],
+	["RE", "Reunion"],
+	["RO", "Romania"],
+	["RU", "Russian Federation"],
+	["RW", "Rwanda"],
+	["BL", "Saint Barthelemy"],
+	["SH", "Saint Helena"],
+	["KN", "Saint Kitts and Nevis"],
+	["LC", "Saint Lucia"],
+	["MF", "Saint Martin"],
+	["PM", "Saint Pierre and Miquelon"],
+	["VC", "Saint Vincent and the Grenadines"],
+	["WS", "Samoa"],
+	["SM", "San Marino"],
+	["ST", "Sao Tome and Principe"],
+	["SA", "Saudi Arabia"],
+	["SN", "Senegal"],
+	["RS", "Serbia"],
+	["SC", "Seychelles"],
+	["SL", "Sierra Leone"],
+	["SG", "Singapore"],
+	["SX", "Sint Maarten"],
+	["SK", "Slovakia"],
+	["SI", "Slovenia"],
+	["SB", "Solomon Islands"],
+	["SO", "Somalia"],
+	["ZA", "South Africa"],
+	["GS", "South Georgia and Sandwich Islands"],
+	["SS", "South Sudan"],
+	["ES", "Spain"],
+	["LK", "Sri Lanka"],
+	["SD", "Sudan"],
+	["SR", "Suriname"],
+	["SJ", "Svalbard and Jan Mayen"],
+	["SE", "Sweden"],
+	["CH", "Switzerland"],
+	["SY", "Syrian Arab Republic"],
+	["TW", "Taiwan"],
+	["TJ", "Tajikistan"],
+	["TZ", "Tanzania"],
+	["TH", "Thailand"],
+	["TL", "Timor-Leste"],
+	["TG", "Togo"],
+	["TK", "Tokelau"],
+	["TO", "Tonga"],
+	["TT", "Trinidad and Tobago"],
+	["TN", "Tunisia"],
+	["TR", "Turkey"],
+	["TM", "Turkmenistan"],
+	["TC", "Turks and Caicos Islands"],
+	["TV", "Tuvalu"],
+	["UG", "Uganda"],
+	["UA", "Ukraine"],
+	["AE", "United Arab Emirates"],
+	["GB", "United Kingdom"],
+	["UM", "United States Minor Outlying Islands"],
+	["UY", "Uruguay"],
+	["UZ", "Uzbekistan"],
+	["VU", "Vanuatu"],
+	["VE", "Venezuela"],
+	["VN", "Viet Nam"],
+	["VG", "Virgin Islands, British"],
+	["VI", "Virgin Islands, U.S."],
+	["WF", "Wallis and Futuna"],
+	["EH", "Western Sahara"],
+	["YE", "Yemen"],
+	["ZM", "Zambia"],
+	["ZW", "Zimbabwe"],
+]);
+
+const validateOwnerSignupData = (additionalData = {}) => {
+	const countryCode = sanitizeString(additionalData.countryCode).toUpperCase();
+	const ownerData = {
+		restaurantName: sanitizeString(additionalData.restaurantName),
+		firstName: sanitizeString(additionalData.firstName),
+		lastName: sanitizeString(additionalData.lastName),
+		phoneNumber: normalizeInternationalPhone(additionalData.phoneNumber),
+		address: sanitizeString(additionalData.address),
+		city: sanitizeString(additionalData.city),
+		state: sanitizeString(additionalData.state),
+		zipcode: sanitizeString(additionalData.zipcode),
+		country: SUPPORTED_COUNTRIES[countryCode],
+		countryCode,
+	};
+
+	if (
+		!ownerData.restaurantName ||
+		!ownerData.firstName ||
+		!ownerData.lastName ||
+		!ownerData.phoneNumber ||
+		!ownerData.address ||
+		!ownerData.city ||
+		!ownerData.state ||
+		!ownerData.zipcode ||
+		!ownerData.country ||
+		!ownerData.countryCode
+	) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Missing required restaurant signup fields.",
+		);
+	}
+
+	if (!/^\+?\d{7,15}$/.test(ownerData.phoneNumber)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A valid business phone number is required.",
+		);
+	}
+
+	if (!/^[0-9a-zA-Z\s-]{2,20}$/.test(ownerData.zipcode)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A valid postal code is required.",
+		);
+	}
+
+	return ownerData;
+};
+
+const getPublicRestaurantSignupData = (ownerData = {}) => ({
+	restaurantName: ownerData.restaurantName,
+	phone: ownerData.phoneNumber,
+	address: ownerData.address,
+	city: ownerData.city,
+	state: ownerData.state,
+	zipcode: ownerData.zipcode,
+	country: ownerData.country,
+	...(ownerData.countryCode && { countryCode: ownerData.countryCode }),
+});
+
+const getPrivateOwnerSignupData = ({
+	ownerData = {},
+	email,
+	fullName,
+}) => ({
+	email,
+	firstName: ownerData.firstName,
+	lastName: ownerData.lastName,
+	fullName,
+	phoneNumber: ownerData.phoneNumber,
+	createdAt: admin.firestore.FieldValue.serverTimestamp(),
+	updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+});
+
+const escapeHtml = (value) =>
+	String(value || "")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
+
+const sendRestaurantWelcomeEmail = async ({ email, ownerName, restaurantName }) => {
+	const cleanEmail = normalizeSearchValue(email);
+	if (!cleanEmail) return;
+
+	const safeOwnerName = escapeHtml(ownerName || "there");
+	const safeRestaurantName = escapeHtml(restaurantName || "your restaurant");
+
+	try {
+		await getResendClient().emails.send({
+			from: "Scerv <noreply@scerv.com>",
+			to: cleanEmail,
+			subject: `Welcome to Scerv, ${restaurantName || "partner"}`,
+			html: `
+				<div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+					<h2 style="color: #006d77;">Welcome to Scerv</h2>
+					<p>Hi ${safeOwnerName},</p>
+					<p>Your restaurant account for <strong>${safeRestaurantName}</strong> is ready.</p>
+					<p>Here is the recommended setup path:</p>
+					<ol>
+						<li>Create your owner employee profile and PIN.</li>
+						<li>Add managers and staff who will use the POS.</li>
+						<li>Finish your restaurant profile, tables, and menu.</li>
+						<li>Connect Stripe payouts before accepting live payments.</li>
+					</ol>
+					<p>If you did not create this account, reply to this email so we can help secure it.</p>
+					<p style="margin-top: 24px;">The Scerv team</p>
+				</div>
+			`,
+		});
+	} catch (error) {
+		console.warn("Restaurant welcome email failed:", error);
+	}
+};
 
 const buildCustomerSearchTokens = ({ firstName, lastName, fullName, email }) => {
 	const sourceValues = [
@@ -100,20 +487,10 @@ const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 const STRIPE_WEBHOOK_SECRET_TEST = defineSecret("STRIPE_WEBHOOK_SECRET_TEST");
 const STRIPE_WEBHOOK_SECRET_LIVE = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
-// TODO: Replace these with your actual Twilio credentials from the console
-const TWILIO_ACCOUNT_SID = "TWILIO_ACCOUNT_SID_REMOVED";
-const TWILIO_AUTH_TOKEN = "c3935a626b638abcd8e249a29c0d55f7";
-const TWILIO_VERIFY_SERVICE_SID = "VA648e8c5da5ad84e802fed74f39ed9854";
-
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-
-exports.sendEmailOtp = functions.https.onCall(async (data, context) => {
-	const email = data.email;
-
-	if (email === "apple@scerv.com") {
-		console.log("Apple Test Account requested OTP. Bypassing email send.");
-		return { success: true, message: "Apple bypass active." };
-	}
+exports.sendEmailOtp = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+	const email = normalizeSearchValue(data && data.email);
 
 	if (!email) {
 		throw new functions.https.HttpsError(
@@ -135,7 +512,7 @@ exports.sendEmailOtp = functions.https.onCall(async (data, context) => {
 		});
 
 		// Fire the email via Resend
-		const { data: emailData, error } = await resend.emails.send({
+		const { data: emailData, error } = await getResendClient().emails.send({
 			// 🚨 CRITICAL: The "from" email MUST end in the domain you verified in Phase 1
 			from: "Scerv Verification <noreply@scerv.com>",
 			to: email,
@@ -172,30 +549,12 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 	const cleanEmail = email.toLowerCase().trim();
 	const cleanCode = code.trim();
 
-	if (cleanEmail === "apple@scerv.com" && cleanCode === "123456") {
-		console.log("Apple Test Account logging in.");
-		let userRecord;
-		try {
-			userRecord = await admin.auth().getUserByEmail(cleanEmail);
-		} catch (error) {
-			// Create the Apple user in Firebase Auth the very first time they log in
-			if (error.code === "auth/user-not-found") {
-				userRecord = await admin.auth().createUser({ email: cleanEmail });
-			} else {
-				throw error;
-			}
-		}
-
-		const customToken = await admin.auth().createCustomToken(userRecord.uid);
-		return { token: customToken };
-	}
-
 	try {
 		// 1. Fetch the saved code from the vault
 		const doc = await admin
 			.firestore()
 			.collection("otp_codes")
-			.doc(email)
+			.doc(cleanEmail)
 			.get();
 
 		if (!doc.exists) {
@@ -206,9 +565,21 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 		}
 
 		const storedData = doc.data();
+		const createdAtMillis =
+			storedData.createdAt &&
+			typeof storedData.createdAt.toMillis === "function"
+				? storedData.createdAt.toMillis()
+				: 0;
+		if (!createdAtMillis || createdAtMillis < Date.now() - 10 * 60 * 1000) {
+			await admin.firestore().collection("otp_codes").doc(cleanEmail).delete();
+			throw new functions.https.HttpsError(
+				"deadline-exceeded",
+				"This code has expired. Please request a new one.",
+			);
+		}
 
 		// 2. Check if the code matches
-		if (storedData.code !== code.trim()) {
+		if (storedData.code !== cleanCode) {
 			throw new functions.https.HttpsError(
 				"unauthenticated",
 				"Invalid verification code.",
@@ -218,11 +589,11 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 		// 3. Find or Create the Firebase Auth User
 		let userRecord;
 		try {
-			userRecord = await admin.auth().getUserByEmail(email);
+			userRecord = await admin.auth().getUserByEmail(cleanEmail);
 		} catch (error) {
 			if (error.code === "auth/user-not-found") {
 				// First time user? Create them an account under the hood
-				userRecord = await admin.auth().createUser({ email: email });
+				userRecord = await admin.auth().createUser({ email: cleanEmail });
 			} else {
 				throw error;
 			}
@@ -232,225 +603,19 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 		const customToken = await admin.auth().createCustomToken(userRecord.uid);
 
 		// 5. Burn the OTP code so it cannot be reused
-		await admin.firestore().collection("otp_codes").doc(email).delete();
+		await admin.firestore().collection("otp_codes").doc(cleanEmail).delete();
 
 		// 6. Send the token back to the frontend to log them in
 		return { token: customToken };
 	} catch (error) {
 		console.error("Verification Error:", error);
-		// Do not throw raw errors to the frontend, wrap them in HttpsError
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
 		throw new functions.https.HttpsError("internal", error.message);
 	}
 });
 
-/**
- * 1. Sends the 6-digit OTP via WhatsApp
- */
-exports.sendWhatsAppOTP = functions.https.onCall(async (data, context) => {
-	const { phoneNumber } = data; // Must be E.164 format (e.g., +50761234567)
-
-	if (!phoneNumber) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Phone number required.",
-		);
-	}
-
-	try {
-		console.log("This is the phone number being sent", phoneNumber);
-		const verification = await twilioClient.verify.v2
-			.services(TWILIO_VERIFY_SERVICE_SID)
-			.verifications.create({
-				to: phoneNumber,
-				channel: "whatsapp", // 🚨 Forces Twilio to route via WhatsApp
-			});
-
-		console.log(
-			"TWILIO RAW JSON RESPONSE:\n",
-			JSON.stringify(verification, null, 2),
-		);
-
-		return { success: true, status: verification.status };
-	} catch (error) {
-		console.error("Twilio Send Error:", error);
-		throw new functions.https.HttpsError(
-			"internal",
-			"Could not send WhatsApp code.",
-		);
-	}
-});
-
-exports.sendWhatsAppCode = functions.https.onCall(async (data, context) => {
-	const phoneNumber = data.phoneNumber; // Ensure the frontend sends this in E.164 format (e.g., "+507...")
-
-	if (!phoneNumber) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Phone number is required.",
-		);
-	}
-
-	// 1. Generate a cryptographically secure 6-digit code
-	const otpCode = crypto.randomInt(100000, 999999).toString();
-
-	// 2. Set an expiration time (10 minutes from now)
-	const expiresAt = admin.firestore.Timestamp.fromDate(
-		new Date(Date.now() + 10 * 60 * 1000),
-	);
-
-	try {
-		// 3. Save the code and expiration to Firestore
-		await admin.firestore().collection("otps").doc(phoneNumber).set({
-			code: otpCode,
-			expiresAt: expiresAt,
-		});
-
-		// 4. Fire the approved WhatsApp template via Twilio Programmable Messaging
-		await twilioClient.messages.create({
-			from: "whatsapp:+16812756693",
-			to: `whatsapp:${phoneNumber}`,
-			contentSid: "HX7e3c52b2b488126767456d41e4786d1c",
-			contentVariables: JSON.stringify({ 1: otpCode }),
-		});
-
-		return { success: true, message: "WhatsApp OTP sent successfully." };
-	} catch (error) {
-		console.error("Error sending WhatsApp OTP:", error);
-		throw new functions.https.HttpsError(
-			"internal",
-			"Failed to send verification code.",
-		);
-	}
-});
-
-/**
- * 2. Checks the OTP and generates a Firebase Custom Token
- */
-exports.verifyWhatsAppOTP = functions.https.onCall(async (data, context) => {
-	const { phoneNumber, code } = data;
-
-	if (!phoneNumber || !code) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Phone number and code required.",
-		);
-	}
-
-	try {
-		// A. Check if the code matches what Twilio sent
-		const verificationCheck = await twilioClient.verify.v2
-			.services(TWILIO_VERIFY_SERVICE_SID)
-			.verificationChecks.create({ to: phoneNumber, code: code });
-
-		if (verificationCheck.status === "approved") {
-			// B. Find the Firebase User, or create one if they are brand new
-			let uid;
-			try {
-				const userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
-				uid = userRecord.uid;
-			} catch (e) {
-				if (e.code === "auth/user-not-found") {
-					const newUser = await admin
-						.auth()
-						.createUser({ phoneNumber: phoneNumber });
-					uid = newUser.uid;
-				} else {
-					throw e;
-				}
-			}
-
-			// C. Generate the golden ticket: The Custom Token
-			const customToken = await admin.auth().createCustomToken(uid);
-
-			return { success: true, customToken: customToken };
-		} else {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Invalid or expired OTP code.",
-			);
-		}
-	} catch (error) {
-		console.error("Twilio Verify Error:", error);
-		throw new functions.https.HttpsError("internal", "Verification failed.");
-	}
-});
-
-exports.verifyWhatsAppCode = functions.https.onCall(async (data, context) => {
-	const phoneNumber = data.phoneNumber;
-	const userCode = data.code; // The 6 digits the user typed into the app
-
-	if (!phoneNumber || !userCode) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Phone number and code are required.",
-		);
-	}
-
-	const otpRef = admin.firestore().collection("otps").doc(phoneNumber);
-	const doc = await otpRef.get();
-
-	// 1. Check if an OTP exists for this number
-	if (!doc.exists) {
-		throw new functions.https.HttpsError(
-			"not-found",
-			"No OTP request found for this number.",
-		);
-	}
-
-	const otpData = doc.data();
-
-	// 2. Check if the 10-minute timer has expired
-	if (otpData.expiresAt.toDate() < new Date()) {
-		await otpRef.delete(); // Delete the expired document
-		throw new functions.https.HttpsError(
-			"deadline-exceeded",
-			"This code has expired. Please request a new one.",
-		);
-	}
-
-	// 3. Check if the code matches
-	if (otpData.code !== userCode) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Incorrect verification code.",
-		);
-	}
-
-	// 4. Success! Delete the OTP document so it cannot be reused
-	await otpRef.delete();
-
-	// 5. 🚨 THE FIX: Create a native Firebase user FIRST
-	let uid;
-	try {
-		// Check if this phone number already has a Firebase account
-		const userRecord = await admin.auth().getUserByPhoneNumber(phoneNumber);
-		uid = userRecord.uid; // Grab their existing random UID
-	} catch (error) {
-		if (error.code === "auth/user-not-found") {
-			// If they are brand new, create a native Firebase Auth user.
-			// Firebase will automatically generate a standard alphanumeric UID!
-			const newUser = await admin.auth().createUser({
-				phoneNumber: phoneNumber,
-			});
-			uid = newUser.uid;
-		} else {
-			console.error("Error fetching user:", error);
-			throw new functions.https.HttpsError(
-				"internal",
-				"Error looking up user.",
-			);
-		}
-	}
-
-	// 6. Mint the Firebase Custom Token using the standard UID (not the phone number)
-	try {
-		const customToken = await admin.auth().createCustomToken(uid);
-		return { success: true, token: customToken };
-	} catch (error) {
-		console.error("Error creating custom token:", error);
-		throw new functions.https.HttpsError("internal", "Failed to log in user.");
-	}
-});
 /**
  * An internal helper function to generate a new, unique, sequential restaurant number.
  * It uses a distributed counter to handle potential race conditions.
@@ -545,39 +710,62 @@ exports.createUserAccount = functions
 			STRIPE_SECRET_KEY_TEST,
 			STRIPE_PUBLISHABLE_KEY_LIVE,
 			STRIPE_PUBLISHABLE_KEY_TEST,
+			RESEND_API_KEY,
 		],
 	})
 	.https.onCall(async (data, context) => {
-	const { email, password, role, additionalData } = data;
+	const { email, password, role, additionalData } = data || {};
+	const normalizedEmail = normalizeSearchValue(email);
+	const normalizedRole = normalizeSearchValue(role);
+	let ownerSignupData = null;
 
-	if (!email || !password || !role || !additionalData) {
+	if (!normalizedEmail || !password || !normalizedRole || !additionalData) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
 			"Missing required fields.",
 		);
 	}
 
+	if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A valid email address is required.",
+		);
+	}
+
+	if (String(password).length < 8) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Password must be at least 8 characters.",
+		);
+	}
+
+	if (normalizedRole === "owner") {
+		ownerSignupData = validateOwnerSignupData(additionalData);
+	}
+
 	try {
 		const userRecord = await admin.auth().createUser({
-			email,
+			email: normalizedEmail,
 			password,
-			displayName:
-				`${additionalData.firstName} ${additionalData.lastName}`.trim() ||
-				additionalData.restaurantName,
+			displayName: ownerSignupData
+				? `${ownerSignupData.firstName} ${ownerSignupData.lastName}`.trim() ||
+					ownerSignupData.restaurantName
+				: `${additionalData.firstName || ""} ${additionalData.lastName || ""}`.trim(),
 		});
 
 		let collectionName;
 		let restaurantId = null;
 		let userData = {};
 
-		if (role === "customer") {
+		if (normalizedRole === "customer") {
 			collectionName = "customers";
 			userData = {
 				role: "customer",
 				stripeCustomerId_test: null,
 				stripeCustomerId_live: null,
 			}; // Claims handle the role primarily
-		} else if (role === "owner") {
+		} else if (normalizedRole === "owner") {
 			collectionName = "restaurants";
 			restaurantId = userRecord.uid;
 			const uniqueNumber = await generateUniqueRestaurantNumber();
@@ -611,16 +799,16 @@ exports.createUserAccount = functions
 
 		await admin
 			.auth()
-			.setCustomUserClaims(userRecord.uid, { role, restaurantId });
+			.setCustomUserClaims(userRecord.uid, { role: normalizedRole, restaurantId });
 
 		const docRef = db.collection(collectionName).doc(userRecord.uid);
-		const normalizedEmail = normalizeSearchValue(email);
-		const fullName =
-			`${additionalData.firstName || ""} ${additionalData.lastName || ""}`.trim();
+		const fullName = ownerSignupData
+			? `${ownerSignupData.firstName} ${ownerSignupData.lastName}`.trim()
+			: `${additionalData.firstName || ""} ${additionalData.lastName || ""}`.trim();
 		await docRef.set({
 			uid: userRecord.uid,
-			email: normalizedEmail || email,
-			...(role === "customer" && {
+			...(normalizedRole === "customer" && {
+				email: normalizedEmail,
 				emailLower: normalizedEmail || null,
 				fullName: fullName || null,
 				searchTokens: buildCustomerSearchTokens({
@@ -630,19 +818,40 @@ exports.createUserAccount = functions
 					email: normalizedEmail || email,
 				}),
 			}),
-			...additionalData,
+			...(normalizedRole === "owner"
+				? getPublicRestaurantSignupData(ownerSignupData)
+				: additionalData),
 			...userData, // Includes role and the new flag
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
 
-		if (role === "customer") {
+		if (normalizedRole === "customer") {
 			await ensureStripeCustomersForCustomer(userRecord.uid, {
 				bestEffort: true,
 			});
+		} else if (normalizedRole === "owner") {
+			await sendRestaurantWelcomeEmail({
+				email: normalizedEmail,
+				ownerName: fullName,
+				restaurantName: ownerSignupData.restaurantName,
+			});
+			await docRef
+				.collection("private")
+				.doc("owner")
+				.set(
+					getPrivateOwnerSignupData({
+						ownerData: ownerSignupData,
+						email: normalizedEmail,
+						fullName,
+					}),
+				);
 		}
 
 		return { success: true, uid: userRecord.uid };
 	} catch (error) {
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
 		console.error("Error creating new user account:", error);
 		throw new functions.https.HttpsError("internal", error.message);
 	}
@@ -747,88 +956,5 @@ exports.syncCustomerSearchIndex = functions.firestore
 		return null;
 	});
 
-/**
- * A callable function to set a user's role. This should only be called
- * by an authorized admin/owner from a secure environment (like your employee management screen).
- * This replaces the need for the old setEmployeeRole function as it's more generic.
- */
-exports.setUserRole = functions.https.onCall(async (data, context) => {
-	if (
-		!context.auth ||
-		!["owner", "manager"].includes(context.auth.token.role)
-	) {
-		throw new functions.https.HttpsError(
-			"permission-denied",
-			"You must be an owner or manager to change roles.",
-		);
-	}
-	const { targetUserId, role, restaurantId } = data;
-	if (!targetUserId || !role || !restaurantId) {
-		throw new functions.https.HttpsError(
-			"invalid-argument",
-			"Target user, role, and restaurantId are required.",
-		);
-	}
 
-	try {
-		await admin
-			.auth()
-			.setCustomUserClaims(targetUserId, { role, restaurantId });
-		// Also update Firestore for consistency
-		const userRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees")
-			.doc(targetUserId);
-		await userRef.update({ role });
 
-		return {
-			success: true,
-			message: `Role for ${targetUserId} updated to ${role}.`,
-		};
-	} catch (error) {
-		console.error("Error setting user role:", error);
-		throw new functions.https.HttpsError(
-			"internal",
-			"Could not set user role.",
-		);
-	}
-});
-
-exports.updateUserCredentials = functions.https.onCall(
-	async (data, context) => {
-		const { uid, email, password, adminCode } = data;
-
-		if (adminCode !== "TEMP_FIX_2026") {
-			throw new functions.https.HttpsError("permission-denied", "Not allowed.");
-		}
-
-		if (!uid || !email || !password) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"uid, email and password are required.",
-			);
-		}
-
-		const cleanEmail = email.toLowerCase().trim();
-
-		await admin.auth().updateUser(uid, {
-			email: cleanEmail,
-			password,
-			emailVerified: true,
-		});
-
-		await db.collection("restaurants").doc(uid).set(
-			{
-				email: cleanEmail,
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-			},
-			{ merge: true },
-		);
-
-		return {
-			success: true,
-			message: "Credentials updated successfully.",
-		};
-	},
-);
