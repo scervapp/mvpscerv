@@ -21,7 +21,7 @@ import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons"; // Ensure you have this installed
 
-const COUNTRY_OPTIONS = [
+export const COUNTRY_OPTIONS = [
 	["US", "United States"],
 	["AF", "Afghanistan"],
 	["AX", "Aland Islands"],
@@ -302,6 +302,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 				lastName: values.lastName.trim(),
 				phoneNumber: normalizePhoneNumber(values.phoneNumber),
 				address: values.address.trim(),
+				area: values.area.trim(),
 				city: values.city.trim(),
 				state: values.state.trim(),
 				zipcode: values.zipcode.trim(),
@@ -336,6 +337,10 @@ const RestaurantSignupScreen = ({ navigation }) => {
 			)
 			.required(t("password_is_required")),
 		address: Yup.string().required(t("street_address_is_required")),
+		area: Yup.string().max(
+			80,
+			t("area_must_be_short", "Area or neighborhood must be 80 characters or less."),
+		),
 		city: Yup.string().required(t("city_is_required")),
 		state: Yup.string().required(t("state_is_required")),
 		zipcode: Yup.string()
@@ -405,6 +410,7 @@ const RestaurantSignupScreen = ({ navigation }) => {
 							password: "",
 							phoneNumber: "",
 							address: "",
+							area: "",
 							city: "",
 							state: "",
 							zipcode: "",
@@ -539,6 +545,20 @@ const RestaurantSignupScreen = ({ navigation }) => {
 								/>
 								{touched.address && errors.address && (
 									<Text style={styles.errorText}>{errors.address}</Text>
+								)}
+
+								<TextInput
+									style={styles.input}
+									placeholder={t(
+										"area_neighborhood_optional",
+										"Area or neighborhood, optional",
+									)}
+									placeholderTextColor={colors.textMedium}
+									value={values.area}
+									onChangeText={handleChange("area")}
+								/>
+								{touched.area && errors.area && (
+									<Text style={styles.errorText}>{errors.area}</Text>
 								)}
 
 								<View style={styles.row}>

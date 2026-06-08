@@ -30,6 +30,20 @@ import { useNavigation } from "@react-navigation/native";
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
+const getPartyPriority = (party) => {
+	const isDirty = party.status === "checkedOut";
+	const needsServer =
+		(!party.server || party.server.id === "unassigned") && !isDirty;
+	const needsService = party.serviceRequested === true && !isDirty;
+	const isCheckoutRequest = party.customerStatus === "ready_to_pay" && !isDirty;
+
+	if (needsService) return 0;
+	if (isCheckoutRequest) return 1;
+	if (needsServer) return 2;
+	if (!isDirty) return 3;
+	return 4;
+};
+
 const RestaurantActiveTables = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
@@ -115,7 +129,20 @@ const RestaurantActiveTables = () => {
 					});
 				}
 
-				setActiveParties(filteredParties);
+				const sortedParties = filteredParties.sort((a, b) => {
+					const priorityDifference = getPartyPriority(a) - getPartyPriority(b);
+					if (priorityDifference !== 0) return priorityDifference;
+
+					const aCreatedAt = a.createdAt?.toMillis
+						? a.createdAt.toMillis()
+						: 0;
+					const bCreatedAt = b.createdAt?.toMillis
+						? b.createdAt.toMillis()
+						: 0;
+					return aCreatedAt - bCreatedAt;
+				});
+
+				setActiveParties(sortedParties);
 				setError(null);
 				setIsLoading(false);
 				setIsRefreshing(false);
@@ -348,13 +375,52 @@ const RestaurantActiveTables = () => {
 			? moment(item.serviceRequestedAt).fromNow()
 			: "";
 
-		// UI Logic: If dirty or needs server, we use inverted white text
-		const useWhiteText = isDirty || needsServer;
+		const isAssignedToMe = item?.server?.id === activeSession?.id;
+		const statusConfig = isDirty
+			? {
+					label: t("needs_cleaning_status", "Needs Cleaning"),
+					icon: "spray-bottle",
+					color: "#334155",
+					actionLabel: t("clean", "Clean"),
+				}
+			: needsService
+				? {
+						label: t("service_requested", "Service Requested"),
+						icon: "bell-ring-outline",
+						color: colors.statusDanger,
+						actionLabel: t("acknowledge", "Ack"),
+					}
+				: isCheckoutRequest
+					? {
+							label: t("ready_to_pay", "Ready to Pay"),
+							icon: "cash-register",
+							color: colors.statusSuccess,
+							actionLabel: t("open", "Open"),
+						}
+					: needsServer
+						? {
+								label: t("needs_server", "Needs Server"),
+								icon: "account-plus-outline",
+								color: colors.brandOrange || "#E67E22",
+								actionLabel: permissions.isServer
+									? t("claim", "Claim")
+									: t("assign", "Assign"),
+							}
+						: {
+								label: isAssignedToMe
+									? t("your_table", "Your Table")
+									: t("active_table", "Active Table"),
+								icon: "silverware-fork-knife",
+								color: colors.primary,
+								actionLabel: t("open", "Open"),
+							};
+		const useWhiteText = false;
 
 		return (
 			<TouchableOpacity
 				style={[
 					styles.cardContainer,
+					{ borderLeftColor: statusConfig.color },
 					needsServer && styles.cardNeedsAttention,
 					needsService && styles.cardNeedsService,
 					isCheckoutRequest && styles.cardNeedsCheckout,
@@ -525,7 +591,7 @@ const RestaurantActiveTables = () => {
 							>
 								{" "}
 								{needsServer
-									? t("needs_server", "ACTION: ASSIGN SERVER")
+									? t("needs_server", "Needs Server")
 									: item.server?.name}
 							</Text>
 							{!needsServer && (
@@ -728,23 +794,28 @@ const styles = StyleSheet.create({
 		elevation: 2,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
+		borderLeftWidth: 6,
 	},
 
 	cardNeedsAttention: {
-		backgroundColor: colors.brandOrange || "#E67E22",
-		borderColor: colors.brandOrange || "#E67E22",
+		backgroundColor: "#FFF7ED",
+		borderColor: "#FED7AA",
+		borderLeftColor: colors.brandOrange || "#E67E22",
 	},
 	cardNeedsService: {
-		borderLeftWidth: 6,
 		borderLeftColor: colors.statusDanger,
 	},
 	cardNeedsCheckout: {
-		borderLeftWidth: 6,
 		borderLeftColor: colors.statusSuccess,
 	},
 
 	// 🚨 NEW: Dirty Slate Styling
-	cardNeedsCleaning: { backgroundColor: "#334155", borderColor: "#1E293B" }, // Dark Slate Grey
+	cardNeedsCleaning: {
+		backgroundColor: "#F8FAFC",
+		borderColor: "#CBD5E1",
+		borderLeftColor: "#334155",
+	},
+	cardDimmed: { opacity: 0.98 },
 
 	cardHeader: {
 		flexDirection: "row",
@@ -857,7 +928,7 @@ const styles = StyleSheet.create({
 	dirtyFooter: {
 		paddingTop: 10,
 		borderTopWidth: 1,
-		borderTopColor: "rgba(255,255,255,0.2)",
+		borderTopColor: colors.borderLight,
 	},
 	cleanActionBtn: {
 		flexDirection: "row",
