@@ -20,10 +20,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
 import { uploadImageAndGetDownloadURL, pickImage } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
-import { stateOptions } from "../../utils/data/states"; // Assuming you have this
 import { Picker } from "@react-native-picker/picker";
 import { db } from "../../config/firebase";
 import { useTranslation } from "react-i18next";
+import { COUNTRY_OPTIONS } from "../auth/RestaurantSignupScreen";
 // A reusable card component for sectioning the form
 const InfoCard = ({ title, children }) => (
 	<View style={styles.card}>
@@ -38,9 +38,10 @@ const LabeledInput = ({
 	value,
 	onChangeText,
 	placeholder,
+	containerStyle,
 	...props
 }) => (
-	<View style={styles.inputGroup}>
+	<View style={[styles.inputGroup, containerStyle]}>
 		<Text style={styles.inputLabel}>{label}</Text>
 		<TextInput
 			style={styles.inputField}
@@ -52,6 +53,51 @@ const LabeledInput = ({
 		/>
 	</View>
 );
+
+const getCountryOption = (countryCode) =>
+	COUNTRY_OPTIONS.find((country) => country.code === countryCode) ||
+	COUNTRY_OPTIONS[0];
+
+const cleanString = (value) => String(value || "").trim().replace(/\s+/g, " ");
+
+const normalizeWebsite = (value) => {
+	const cleaned = cleanString(value).toLowerCase();
+	if (!cleaned) return "";
+	if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) {
+		return cleaned;
+	}
+	return `https://${cleaned}`;
+};
+
+const buildSearchTokens = (profile) => {
+	const words = [
+		profile.restaurantName,
+		profile.cuisineType,
+		profile.description,
+		profile.address,
+		profile.city,
+		profile.state,
+		profile.zipcode,
+		profile.country,
+		profile.countryCode,
+		profile.area,
+		profile.neighborhood,
+	]
+		.filter(Boolean)
+		.join(" ")
+		.toLowerCase()
+		.split(/[^a-z0-9]+/i)
+		.filter((word) => word.length >= 2);
+
+	return [...new Set(words)].slice(0, 80);
+};
+
+const parseOptionalCoordinate = (value, min, max) => {
+	if (value === "" || value === null || value === undefined) return null;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < min || parsed > max) return undefined;
+	return parsed;
+};
 
 const RestaurantProfile = () => {
 	const { t } = useTranslation();
@@ -68,8 +114,14 @@ const RestaurantProfile = () => {
 		website: "",
 		address: "",
 		city: "",
-		state: "California",
+		state: "",
 		zipcode: "",
+		country: "United States",
+		countryCode: "US",
+		area: "",
+		neighborhood: "",
+		latitude: "",
+		longitude: "",
 		hours: {
 			Monday: { open: "9:00 AM", close: "10:00 PM", active: true },
 			Tuesday: { open: "9:00 AM", close: "10:00 PM", active: true },
@@ -127,15 +179,82 @@ const RestaurantProfile = () => {
 	};
 
 	const saveRestaurantProfile = async () => {
-		if (!formData.restaurantName) {
+		const selectedCountry = getCountryOption(formData.countryCode);
+		const latitude = parseOptionalCoordinate(formData.latitude, -90, 90);
+		const longitude = parseOptionalCoordinate(formData.longitude, -180, 180);
+
+		if (!cleanString(formData.restaurantName)) {
 			Alert.alert(
 				t("missing_name"),
 				t("please_enter_your_restaurants_name")
 			);
 			return;
 		}
+		if (
+			!cleanString(formData.cuisineType) ||
+			!cleanString(formData.address) ||
+			!cleanString(formData.city) ||
+			!cleanString(formData.state) ||
+			!cleanString(formData.zipcode) ||
+			!selectedCountry?.code
+		) {
+			Alert.alert(
+				t("missing_information", "Missing information"),
+				t(
+					"complete_restaurant_location_profile",
+					"Please complete cuisine, address, city, region, postal code, and country.",
+				),
+			);
+			return;
+		}
+		if (latitude === undefined || longitude === undefined) {
+			Alert.alert(
+				t("invalid_location", "Invalid location"),
+				t(
+					"latitude_longitude_invalid",
+					"Latitude must be between -90 and 90, and longitude must be between -180 and 180.",
+				),
+			);
+			return;
+		}
 		setIsSaving(true);
-		let finalData = { ...formData };
+		let finalData = {
+			...formData,
+			restaurantName: cleanString(formData.restaurantName),
+			description: cleanString(formData.description),
+			cuisineType: cleanString(formData.cuisineType),
+			phone: cleanString(formData.phone),
+			website: normalizeWebsite(formData.website),
+			address: cleanString(formData.address),
+			city: cleanString(formData.city),
+			state: cleanString(formData.state),
+			zipcode: cleanString(formData.zipcode),
+			country: selectedCountry.label,
+			countryCode: selectedCountry.code,
+			area: cleanString(formData.area),
+			neighborhood: cleanString(formData.neighborhood),
+		};
+
+		finalData.fullAddress = [
+			finalData.address,
+			finalData.city,
+			finalData.state,
+			finalData.zipcode,
+			finalData.country,
+		]
+			.filter(Boolean)
+			.join(", ");
+		finalData.searchTokens = buildSearchTokens(finalData);
+
+		if (latitude !== null && longitude !== null) {
+			finalData.latitude = latitude;
+			finalData.longitude = longitude;
+			finalData.location = { latitude, longitude };
+		} else {
+			finalData.latitude = null;
+			finalData.longitude = null;
+			finalData.location = null;
+		}
 
 		try {
 			// Check if the imageUri is a local file (starts with 'file://')
@@ -250,6 +369,15 @@ const RestaurantProfile = () => {
 							onChangeText={(val) => handleInputChange("address", val)}
 							placeholder="123 Main St"
 						/>
+						<LabeledInput
+							label={t("area_neighborhood", "Area or neighborhood")}
+							value={formData.area}
+							onChangeText={(val) => handleInputChange("area", val)}
+							placeholder={t(
+								"area_neighborhood_placeholder",
+								"Downtown, Casco Viejo, Midtown, etc.",
+							)}
+						/>
 						<View style={styles.row}>
 							<LabeledInput
 								label={t("city")}
@@ -265,23 +393,57 @@ const RestaurantProfile = () => {
 								containerStyle={{ flex: 0.5 }}
 							/>
 						</View>
-						<Text style={styles.inputLabel}>{t("state")}</Text>
+						<LabeledInput
+							label={t("state_region_province", "State, region, or province")}
+							value={formData.state}
+							onChangeText={(val) => handleInputChange("state", val)}
+							placeholder={t("state_region_province", "State, region, or province")}
+						/>
+						<Text style={styles.inputLabel}>{t("country", "Country")}</Text>
 						<View style={styles.pickerContainer}>
 							<Picker
-								selectedValue={formData.state}
-								onValueChange={(val) => handleInputChange("state", val)}
+								selectedValue={formData.countryCode}
+								onValueChange={(val) => {
+									const country = getCountryOption(val);
+									handleInputChange("countryCode", country.code);
+									handleInputChange("country", country.label);
+								}}
 								style={styles.picker}
 								placeHolderTextColor={colors.textDark}
 							>
-								{stateOptions.map((state) => (
+								{COUNTRY_OPTIONS.map((country) => (
 									<Picker.Item
-										label={state.label}
-										value={state.value}
-										key={state.value}
+										label={country.label}
+										value={country.code}
+										key={country.code}
 										style={{ color: colors.textDark }}
 									/>
 								))}
 							</Picker>
+						</View>
+						<View style={styles.row}>
+							<LabeledInput
+								label={t("latitude_optional", "Latitude (optional)")}
+								value={
+									formData.latitude === null || formData.latitude === undefined
+										? ""
+										: String(formData.latitude)
+								}
+								onChangeText={(val) => handleInputChange("latitude", val)}
+								keyboardType="decimal-pad"
+								containerStyle={{ flex: 1, marginRight: 10 }}
+							/>
+							<LabeledInput
+								label={t("longitude_optional", "Longitude (optional)")}
+								value={
+									formData.longitude === null || formData.longitude === undefined
+										? ""
+										: String(formData.longitude)
+								}
+								onChangeText={(val) => handleInputChange("longitude", val)}
+								keyboardType="decimal-pad"
+								containerStyle={{ flex: 1 }}
+							/>
 						</View>
 					</InfoCard>
 
