@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useContext, useCallback } from "react";
+import React, {
+	useEffect,
+	useState,
+	useContext,
+	useCallback,
+	useMemo,
+} from "react";
 import {
 	View,
 	Text,
@@ -36,12 +42,74 @@ const getPartyPriority = (party) => {
 		(!party.server || party.server.id === "unassigned") && !isDirty;
 	const needsService = party.serviceRequested === true && !isDirty;
 	const isCheckoutRequest = party.customerStatus === "ready_to_pay" && !isDirty;
+	const hasFoodReady = Number(party.foodReadyCount || 0) > 0 && !isDirty;
 
 	if (needsService) return 0;
 	if (isCheckoutRequest) return 1;
 	if (needsServer) return 2;
-	if (!isDirty) return 3;
-	return 4;
+	if (hasFoodReady) return 3;
+	if (!isDirty) return 4;
+	return 5;
+};
+
+const ticketHasKitchenItems = (ticket) => {
+	if (ticket?.stationStatuses?.kitchen) return true;
+	if (!Array.isArray(ticket?.items)) return false;
+	return ticket.items.some((item) => kitchenItemBelongsToKitchen(item));
+};
+
+const kitchenItemBelongsToKitchen = (item) => {
+	if (!item) return false;
+	if (item.destination === "kitchen") return true;
+	return (
+		Array.isArray(item.kitchenModifiers) && item.kitchenModifiers.length > 0
+	);
+};
+
+const ticketKitchenStatus = (ticket) => {
+	if (ticket?.stationStatuses?.kitchen) return ticket.stationStatuses.kitchen;
+	if (ticketHasKitchenItems(ticket)) return ticket.status || "new";
+	return null;
+};
+
+const getTicketKitchenItemStatus = (ticket, item) => {
+	const ticketFallback = ticketKitchenStatus(ticket) || "new";
+	return item?.stationStatuses?.kitchen || ticketFallback;
+};
+
+const buildKitchenReadyInfo = (tickets = []) => {
+	let foodReadyCount = 0;
+	let foodServedCount = 0;
+	let foodItemCount = 0;
+	const readyTicketIds = new Set();
+
+	tickets.filter(ticketHasKitchenItems).forEach((ticket) => {
+		const ticketItems = Array.isArray(ticket.items) ? ticket.items : [];
+		ticketItems.forEach((item) => {
+			if (!kitchenItemBelongsToKitchen(item)) return;
+
+			const status = getTicketKitchenItemStatus(ticket, item);
+			if (status === "served") {
+				foodServedCount += 1;
+				return;
+			}
+
+			foodItemCount += 1;
+			if (status === "ready") {
+				foodReadyCount += 1;
+				readyTicketIds.add(ticket.id);
+			}
+		});
+	});
+
+	return {
+		foodReadyCount,
+		foodServedCount,
+		foodItemCount,
+		readyTicketIds: [...readyTicketIds],
+		hasFoodReady: foodReadyCount > 0,
+		allFoodReady: foodItemCount > 0 && foodReadyCount === foodItemCount,
+	};
 };
 
 const RestaurantActiveTables = () => {
@@ -51,10 +119,13 @@ const RestaurantActiveTables = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession, endSession } = useEmployeeSession();
 	const permissions = getRestaurantPermissions(activeSession);
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
-	const [activeParties, setActiveParties] = useState([]);
+	const [rawActiveParties, setRawActiveParties] = useState([]);
+	const [kitchenTicketsByParty, setKitchenTicketsByParty] = useState({});
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
+	const [runningFoodPartyId, setRunningFoodPartyId] = useState(null);
 	const [error, setError] = useState(null);
 	const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -76,11 +147,13 @@ const RestaurantActiveTables = () => {
 		functions,
 		"acknowledgePartyServiceRequest",
 	);
+	const markReadyKitchenItemsServedFunction = httpsCallable(
+		functions,
+		"markReadyKitchenItemsServed",
+	);
 
 	// 1. Listen for Active & Checked-Out Parties
 	useEffect(() => {
-		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
-
 		if (!restaurantId) {
 			setError(
 				t(
@@ -129,20 +202,7 @@ const RestaurantActiveTables = () => {
 					});
 				}
 
-				const sortedParties = filteredParties.sort((a, b) => {
-					const priorityDifference = getPartyPriority(a) - getPartyPriority(b);
-					if (priorityDifference !== 0) return priorityDifference;
-
-					const aCreatedAt = a.createdAt?.toMillis
-						? a.createdAt.toMillis()
-						: 0;
-					const bCreatedAt = b.createdAt?.toMillis
-						? b.createdAt.toMillis()
-						: 0;
-					return aCreatedAt - bCreatedAt;
-				});
-
-				setActiveParties(sortedParties);
+				setRawActiveParties(filteredParties);
 				setError(null);
 				setIsLoading(false);
 				setIsRefreshing(false);
@@ -162,19 +222,74 @@ const RestaurantActiveTables = () => {
 
 		return () => unsubscribe();
 	}, [
-		currentUserData?.uid,
-		currentUserData?.restaurantId,
+		restaurantId,
 		activeSession?.id,
 		activeSession?.role,
 		activeSession?.jobTitle,
 		t,
 	]);
 
+	const activeParties = useMemo(
+		() =>
+			rawActiveParties
+				.map((party) => ({
+					...party,
+					...buildKitchenReadyInfo(kitchenTicketsByParty[party.id] || []),
+				}))
+				.sort((a, b) => {
+					const priorityDifference = getPartyPriority(a) - getPartyPriority(b);
+					if (priorityDifference !== 0) return priorityDifference;
+
+					const aCreatedAt = a.createdAt?.toMillis
+						? a.createdAt.toMillis()
+						: 0;
+					const bCreatedAt = b.createdAt?.toMillis
+						? b.createdAt.toMillis()
+						: 0;
+					return aCreatedAt - bCreatedAt;
+				}),
+		[rawActiveParties, kitchenTicketsByParty],
+	);
+
+	useEffect(() => {
+		if (!restaurantId) {
+			setKitchenTicketsByParty({});
+			return;
+		}
+
+		const unsubscribe = db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
+			.onSnapshot(
+				(snapshot) => {
+					const nextTicketsByParty = {};
+
+					snapshot.docs.forEach((doc) => {
+						const ticket = { id: doc.id, ...doc.data() };
+						if (!ticket.partyId || ticket.fulfillmentType === "hotel_pickup") {
+							return;
+						}
+						if (!nextTicketsByParty[ticket.partyId]) {
+							nextTicketsByParty[ticket.partyId] = [];
+						}
+						nextTicketsByParty[ticket.partyId].push(ticket);
+					});
+
+					setKitchenTicketsByParty(nextTicketsByParty);
+				},
+				(err) => {
+					console.error("RestaurantActiveTables: Kitchen snapshot error:", err);
+					setKitchenTicketsByParty({});
+				},
+			);
+
+		return () => unsubscribe();
+	}, [restaurantId]);
+
 	// 2. Fetch Servers for Assignment Modal
 	useEffect(() => {
 		const fetchServers = async () => {
-			const restaurantId =
-				currentUserData?.restaurantId || currentUserData?.uid;
 			if (!restaurantId) return;
 
 			try {
@@ -193,7 +308,7 @@ const RestaurantActiveTables = () => {
 			}
 		};
 		fetchServers();
-	}, [currentUserData?.uid, currentUserData?.restaurantId]);
+	}, [restaurantId]);
 
 	const onRefresh = useCallback(() => {
 		setIsRefreshing(true);
@@ -284,6 +399,37 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
+	const handleRunFood = async (party) => {
+		const readyTicketIds = Array.isArray(party.readyTicketIds)
+			? party.readyTicketIds
+			: [];
+		if (readyTicketIds.length === 0) return;
+
+		setRunningFoodPartyId(party.id);
+		try {
+			const staffName =
+				activeSession?.name ||
+				`${activeSession?.firstName || ""} ${
+					activeSession?.lastName || ""
+				}`.trim();
+
+			await markReadyKitchenItemsServedFunction({
+				partyId: party.id,
+				ticketIds: readyTicketIds,
+				staffId: activeSession?.id || null,
+				staffName,
+			});
+		} catch (error) {
+			console.error("Error marking food as run:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_mark_food_served", "Could not mark food as served."),
+			);
+		} finally {
+			setRunningFoodPartyId(null);
+		}
+	};
+
 	// 6. Clear / Clean Table (Smart Handler)
 	const handleClearTableAction = (party) => {
 		const isDirty = party.status === "checkedOut";
@@ -364,6 +510,8 @@ const RestaurantActiveTables = () => {
 		const needsService = item.serviceRequested === true && !isDirty;
 		const isCheckoutRequest =
 			item.customerStatus === "ready_to_pay" && !isDirty;
+		const hasFoodReady = item.hasFoodReady === true && !isDirty;
+		const isRunningFood = runningFoodPartyId === item.id;
 
 		const seatedTime = item.createdAt?.toDate
 			? item.createdAt
@@ -406,6 +554,13 @@ const RestaurantActiveTables = () => {
 									? t("claim", "Claim")
 									: t("assign", "Assign"),
 							}
+						: hasFoodReady
+							? {
+									label: t("food_ready", "Food Ready"),
+									icon: "food-takeout-box-outline",
+									color: colors.statusSuccess,
+									actionLabel: t("open", "Open"),
+								}
 						: {
 								label: isAssignedToMe
 									? t("your_table", "Your Table")
@@ -424,6 +579,7 @@ const RestaurantActiveTables = () => {
 					needsServer && styles.cardNeedsAttention,
 					needsService && styles.cardNeedsService,
 					isCheckoutRequest && styles.cardNeedsCheckout,
+					hasFoodReady && styles.cardFoodReady,
 					isDirty && styles.cardNeedsCleaning, // 🚨 Apply Dirty Slate Style
 				]}
 				activeOpacity={0.9}
@@ -537,6 +693,51 @@ const RestaurantActiveTables = () => {
 				)}
 
 				{/* 🚨 DYNAMIC FOOTER: Dirty vs Active */}
+				{hasFoodReady && (
+					<View style={styles.foodReadyBanner}>
+						<View style={styles.serviceBannerLeft}>
+							<MaterialCommunityIcons
+								name="food-takeout-box-outline"
+								size={20}
+								color={colors.statusSuccess}
+							/>
+							<View style={{ marginLeft: 8 }}>
+								<Text style={styles.foodReadyTitle}>
+									{t("food_ready", "Food Ready")}
+								</Text>
+								<Text style={styles.serviceBannerTime}>
+									{item.allFoodReady
+										? t("all_kitchen_items_ready", "All kitchen items are ready")
+										: t(
+												"kitchen_items_ready_count",
+												"{{ready}} of {{total}} kitchen items ready",
+												{
+													ready: item.foodReadyCount,
+													total: item.foodItemCount,
+												},
+											)}
+								</Text>
+							</View>
+						</View>
+						<TouchableOpacity
+							style={styles.readyBadge}
+							onPress={(event) => {
+								event.stopPropagation();
+								handleRunFood(item);
+							}}
+							disabled={isRunningFood}
+						>
+							{isRunningFood ? (
+								<ActivityIndicator size="small" color={colors.surfaceWhite} />
+							) : (
+								<Text style={styles.readyBadgeText}>
+									{t("run_food", "Run Food")}
+								</Text>
+							)}
+						</TouchableOpacity>
+					</View>
+				)}
+
 				{isDirty ? (
 					<View style={styles.dirtyFooter}>
 						{permissions.canCleanTable && (
@@ -808,6 +1009,10 @@ const styles = StyleSheet.create({
 	cardNeedsCheckout: {
 		borderLeftColor: colors.statusSuccess,
 	},
+	cardFoodReady: {
+		borderColor: "#BBF7D0",
+		borderLeftColor: colors.statusSuccess,
+	},
 
 	// 🚨 NEW: Dirty Slate Styling
 	cardNeedsCleaning: {
@@ -885,6 +1090,31 @@ const styles = StyleSheet.create({
 	serviceBannerLeft: { flexDirection: "row", alignItems: "center" },
 	serviceBannerTitle: { fontSize: 14, fontWeight: "bold" },
 	serviceBannerTime: { fontSize: 12, color: colors.textMedium },
+	foodReadyBanner: {
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+		padding: 10,
+		borderRadius: 8,
+		marginBottom: 12,
+		backgroundColor: colors.statusSuccess + "15",
+	},
+	foodReadyTitle: {
+		fontSize: 14,
+		fontWeight: "bold",
+		color: colors.statusSuccess,
+	},
+	readyBadge: {
+		backgroundColor: colors.statusSuccess,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		borderRadius: 6,
+	},
+	readyBadgeText: {
+		color: colors.surfaceWhite,
+		fontWeight: "bold",
+		fontSize: 12,
+	},
 	acknowledgeBtn: {
 		paddingHorizontal: 12,
 		paddingVertical: 6,

@@ -169,6 +169,15 @@ const ManagePartyScreen = () => {
 	const isItemPaid = (item = {}) =>
 		item.paymentStatus === "paid" || item.closeoutStatus === "paid";
 
+	const getKitchenItemStatus = (item = {}) => {
+		const status = item.stationStatuses?.kitchen || item.status || "new";
+		if (status === "served" || item.foodRunStatus === "served") return "served";
+		if (status === "ready") return "ready";
+		if (status === "preparing") return "preparing";
+		if (status === "sent") return "sent";
+		return item.status || "new";
+	};
+
 	const unpaidOrderedItems = useMemo(
 		() => officiallyOrderedItems.filter((item) => !isItemPaid(item)),
 		[officiallyOrderedItems],
@@ -599,10 +608,16 @@ const ManagePartyScreen = () => {
 	);
 
 	const renderOrderItem = ({ item }) => {
+		const kitchenStatus = getKitchenItemStatus(item);
 		const isSent =
 			item.status === "sent" ||
 			item.status === "preparing" ||
-			item.status === "ready";
+			item.status === "ready" ||
+			kitchenStatus === "preparing" ||
+			kitchenStatus === "ready" ||
+			kitchenStatus === "served";
+		const isReady = kitchenStatus === "ready";
+		const isServed = kitchenStatus === "served";
 
 		const hasDiscount =
 			item.discountedPrice !== null &&
@@ -679,6 +694,10 @@ const ManagePartyScreen = () => {
 							styles.statusBadge,
 							paid
 								? styles.badgePaid
+								: isServed
+									? styles.badgeServed
+									: isReady
+										? styles.badgeReady
 								: isSent
 									? styles.badgeSent
 									: styles.badgeNew,
@@ -689,6 +708,10 @@ const ManagePartyScreen = () => {
 								styles.badgeText,
 								paid
 									? styles.badgeTextPaid
+									: isServed
+										? styles.badgeTextServed
+										: isReady
+											? styles.badgeTextReady
 									: isSent
 										? styles.badgeTextSent
 										: styles.badgeTextNew,
@@ -696,6 +719,10 @@ const ManagePartyScreen = () => {
 						>
 							{paid
 								? t("paid", "Paid")
+								: isServed
+									? t("served", "Served")
+									: isReady
+										? t("ready", "Ready")
 								: isSent
 									? t("sent", "Sent")
 									: t("new", "New")}
@@ -1318,6 +1345,18 @@ const styles = StyleSheet.create({
 	badgeSent: { backgroundColor: colors.statusSuccess + "20" },
 	badgeTextSent: {
 		color: colors.statusSuccess,
+		fontSize: 12,
+		fontWeight: "bold",
+	},
+	badgeReady: { backgroundColor: colors.statusSuccess + "24" },
+	badgeTextReady: {
+		color: colors.statusSuccess,
+		fontSize: 12,
+		fontWeight: "bold",
+	},
+	badgeServed: { backgroundColor: colors.primary + "18" },
+	badgeTextServed: {
+		color: colors.primary,
 		fontSize: 12,
 		fontWeight: "bold",
 	},

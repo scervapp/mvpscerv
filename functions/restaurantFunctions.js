@@ -34,6 +34,61 @@ const getRestaurantSeatNameForItem = (item = {}) => {
 	);
 };
 
+const kitchenOrderItemBelongsToStation = (item, station) => {
+	if (!item) return false;
+	if (item.destination === station) return true;
+
+	if (station === "kitchen") {
+		return (
+			Array.isArray(item.kitchenModifiers) && item.kitchenModifiers.length > 0
+		);
+	}
+
+	if (station === "bar") {
+		return Array.isArray(item.barModifiers) && item.barModifiers.length > 0;
+	}
+
+	return false;
+};
+
+const getKitchenOrderItemStationStatus = (
+	item,
+	station,
+	fallbackStatus = "new",
+) => {
+	const stationStatuses = item && item.stationStatuses ? item.stationStatuses : {};
+	return stationStatuses[station] || fallbackStatus || "new";
+};
+
+const deriveKitchenOrderStationStatus = (
+	items,
+	station,
+	fallbackStatus = "new",
+) => {
+	const stationItems = (items || []).filter((item) =>
+		kitchenOrderItemBelongsToStation(item, station),
+	);
+
+	if (stationItems.length === 0) return null;
+
+	const statuses = stationItems.map((item) =>
+		getKitchenOrderItemStationStatus(item, station, fallbackStatus),
+	);
+
+	if (statuses.every((status) => status === "ready" || status === "served")) {
+		return "ready";
+	}
+	if (
+		statuses.some(
+			(status) =>
+				status === "preparing" || status === "ready" || status === "served",
+		)
+	) {
+		return "preparing";
+	}
+	return "new";
+};
+
 const calculateRestaurantCloseoutTotals = (items, restaurantTaxRate) => {
 	let subtotalCents = 0;
 	let originalSubtotalCents = 0;
@@ -2847,6 +2902,210 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 			throw new functions.https.HttpsError(
 				"internal",
 				"An unexpected error occurred while updating the ticket.",
+			);
+		}
+	},
+);
+
+exports.markReadyKitchenItemsServed = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated.",
+			);
+		}
+
+		const { partyId, ticketIds, staffId, staffName } = data || {};
+		if (!partyId || !Array.isArray(ticketIds) || ticketIds.length === 0) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Party ID and ready ticket IDs are required.",
+			);
+		}
+
+		const uniqueTicketIds = [
+			...new Set(
+				ticketIds.map((id) => String(id || "").trim()).filter(Boolean),
+			),
+		];
+
+		if (uniqueTicketIds.length === 0 || uniqueTicketIds.length > 25) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Provide between 1 and 25 ready ticket IDs.",
+			);
+		}
+
+		try {
+			const ticketRefs = uniqueTicketIds.map((ticketId) =>
+				db.collection("kitchen_orders").doc(ticketId),
+			);
+			const basketRef = db.collection("shared_baskets").doc(partyId);
+			const firstTicketDoc = await ticketRefs[0].get();
+			if (!firstTicketDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Ready kitchen ticket was not found.",
+				);
+			}
+
+			const firstTicketData = firstTicketDoc.data() || {};
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: firstTicketData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server", "runner", "host", "chef"],
+				action: "run ready food",
+			});
+
+			const result = await db.runTransaction(async (transaction) => {
+				const ticketDocs = [];
+				for (const ticketRef of ticketRefs) {
+					ticketDocs.push(await transaction.get(ticketRef));
+				}
+				const basketDoc = await transaction.get(basketRef);
+
+				const firstExistingTicket = ticketDocs.find((doc) => doc.exists);
+				if (!firstExistingTicket) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"Ready kitchen tickets were not found.",
+					);
+				}
+
+				const servedAt = admin.firestore.FieldValue.serverTimestamp();
+				const servedAtIso = new Date().toISOString();
+				const servedBy = {
+					userId: context.auth.uid,
+					staffId: staffMember.id || staffId || null,
+					name: staffName || staffMember.name || null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+				};
+				const servedItemIds = new Set();
+				let servedItemCount = 0;
+
+				for (const ticketDoc of ticketDocs) {
+					if (!ticketDoc.exists) continue;
+
+					const ticketData = ticketDoc.data() || {};
+					if (ticketData.partyId !== partyId) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Ready ticket does not belong to this table.",
+						);
+					}
+					if (ticketData.restaurantId !== firstTicketData.restaurantId) {
+						throw new functions.https.HttpsError(
+							"failed-precondition",
+							"Ready tickets must belong to the same restaurant.",
+						);
+					}
+
+					const fallbackStatus =
+						(ticketData.stationStatuses &&
+							ticketData.stationStatuses.kitchen) ||
+						"new";
+					const currentItems = Array.isArray(ticketData.items)
+						? ticketData.items
+						: [];
+					let ticketServedCount = 0;
+					const updatedItems = currentItems.map((item) => {
+						const isReadyKitchenItem =
+							kitchenOrderItemBelongsToStation(item, "kitchen") &&
+							getKitchenOrderItemStationStatus(
+								item,
+								"kitchen",
+								fallbackStatus,
+							) === "ready";
+
+						if (!isReadyKitchenItem) return item;
+
+						ticketServedCount += 1;
+						servedItemCount += 1;
+						if (item.id) servedItemIds.add(item.id);
+
+						return {
+							...item,
+							stationStatuses: {
+								...(item.stationStatuses || {}),
+								kitchen: "served",
+							},
+							foodRunStatus: "served",
+							servedAtIso,
+							servedBy,
+						};
+					});
+
+					if (ticketServedCount === 0) continue;
+
+					const nextKitchenStatus = deriveKitchenOrderStationStatus(
+						updatedItems,
+						"kitchen",
+						fallbackStatus,
+					);
+
+					transaction.update(ticketDoc.ref, {
+						items: updatedItems,
+						...(nextKitchenStatus && {
+							"stationStatuses.kitchen": nextKitchenStatus,
+						}),
+						"stationUpdatedAt.kitchen": servedAt,
+						"stationUpdatedBy.kitchen": servedBy,
+						lastFoodRunAt: servedAt,
+						lastFoodRunBy: servedBy,
+					});
+				}
+
+				if (servedItemCount === 0) {
+					return { servedItemCount: 0 };
+				}
+
+				if (basketDoc.exists && servedItemIds.size > 0) {
+					const basketData = basketDoc.data() || {};
+					const basketItems = Array.isArray(basketData.items)
+						? basketData.items
+						: [];
+					const updatedBasketItems = basketItems.map((item) => {
+						if (!servedItemIds.has(item.id)) return item;
+
+						return {
+							...item,
+							stationStatuses: {
+								...(item.stationStatuses || {}),
+								kitchen: "served",
+							},
+							foodRunStatus: "served",
+							servedAtIso,
+							servedBy,
+						};
+					});
+
+					transaction.set(
+						basketRef,
+						{
+							items: updatedBasketItems,
+							lastKitchenUpdate: servedAt,
+							lastFoodRunAt: servedAt,
+							lastFoodRunBy: servedBy,
+						},
+						{ merge: true },
+					);
+				}
+
+				return { servedItemCount };
+			});
+
+			return { success: true, ...result };
+		} catch (error) {
+			console.error(`markReadyKitchenItemsServed error (${partyId}):`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not mark ready food as served.",
 			);
 		}
 	},
