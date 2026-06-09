@@ -149,6 +149,27 @@ const normalizeOrderForReporting = (doc) => {
 		raw.totalPrice !== undefined && raw.totalPrice !== null
 			? safeNumber(raw.totalPrice, 0)
 			: subtotal + taxAmount + gratuityAmount + platformFee;
+	const restaurantGrossAmount =
+		raw.restaurantGrossAmount !== undefined && raw.restaurantGrossAmount !== null
+			? safeNumber(raw.restaurantGrossAmount, 0)
+			: subtotal + taxAmount + gratuityAmount;
+	const storedRestaurantTransferAmount =
+		raw.restaurantTransferAmount !== undefined &&
+		raw.restaurantTransferAmount !== null
+			? safeNumber(raw.restaurantTransferAmount, 0)
+			: Math.max(0, totalPrice - platformFee - processorFee);
+	const isStripeTerminalRestaurantCloseout =
+		raw.paymentMethod === "stripe_terminal" ||
+		raw.restaurantTransferStatus === "stripe_terminal_processed" ||
+		raw.feePolicy === "stripe_terminal_restaurant_processing_fee";
+	const derivedRestaurantTransferAmount = Math.max(
+		0,
+		totalPrice - platformFee - processorFee,
+	);
+	const restaurantTransferAmount =
+		isStripeTerminalRestaurantCloseout && platformFee + processorFee > 0
+			? derivedRestaurantTransferAmount
+			: storedRestaurantTransferAmount;
 
 	const items = Array.isArray(raw.items) ? raw.items : [];
 
@@ -190,6 +211,8 @@ const normalizeOrderForReporting = (doc) => {
 		platformFee,
 		processorFee,
 		totalPrice,
+		restaurantGrossAmount,
+		restaurantTransferAmount,
 
 		items,
 		table: raw.table || null,
@@ -219,6 +242,7 @@ const aggregateOrders = (orders) => {
 	let ordersWithTurnover = 0;
 	let digitalSales = 0;
 	let manualSales = 0;
+	let netPayout = 0;
 
 	const serverTips = {};
 	const topSellingItems = {};
@@ -231,6 +255,7 @@ const aggregateOrders = (orders) => {
 		totalProcessorFees += order.processorFee;
 		totalPlatformFees += order.platformFee;
 		totalDiscounts += order.discountTotal;
+		netPayout += order.restaurantTransferAmount;
 		totalOrders += 1;
 
 		if (order.paymentChannel === "manual") {
@@ -290,7 +315,6 @@ const aggregateOrders = (orders) => {
 	}
 
 	const totalFees = totalProcessorFees + totalPlatformFees;
-	const netPayout = grossSales - totalPlatformFees + totalGratuity;
 	const averageOrderValue =
 		totalOrders > 0 ? Math.round(grossSales / totalOrders) : 0;
 	const avgTurnoverRate =

@@ -28,6 +28,31 @@ import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionCont
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
 
+const getItemEffectivePriceCents = (item = {}) => {
+	const activePrice =
+		item.discountedPrice !== null && item.discountedPrice !== undefined
+			? item.discountedPrice
+			: item.price || 0;
+	return Math.round(Number(activePrice || 0) * 100);
+};
+
+const getItemQuantity = (item = {}) =>
+	Math.max(1, parseInt(item.quantity || 1, 10));
+
+const calculateCloseoutTotalsCents = (items = [], taxRate = 0) => {
+	let subtotalCents = 0;
+	let taxAmountCents = 0;
+
+	items.forEach((item) => {
+		const lineSubtotalCents =
+			getItemEffectivePriceCents(item) * getItemQuantity(item);
+		subtotalCents += lineSubtotalCents;
+		taxAmountCents += Math.round(lineSubtotalCents * taxRate);
+	});
+
+	return { subtotalCents, taxAmountCents };
+};
+
 const ManagePartyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
@@ -44,10 +69,10 @@ const ManagePartyScreen = () => {
 	const [isClosing, setIsClosing] = useState(false);
 	const [receiptEmail, setReceiptEmail] = useState("");
 	const [isCloseoutModalVisible, setIsCloseoutModalVisible] = useState(false);
-	const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash");
+	const [selectedPaymentMethod, setSelectedPaymentMethod] =
+		useState("stripe_terminal");
 	const [tipInput, setTipInput] = useState("");
 	const [cashReceivedInput, setCashReceivedInput] = useState("");
-	const [externalReference, setExternalReference] = useState("");
 	const [closeoutNotes, setCloseoutNotes] = useState("");
 	const [restaurantDetails, setRestaurantDetails] = useState(null);
 	const [selectedCloseoutSeatIds, setSelectedCloseoutSeatIds] = useState([]);
@@ -229,16 +254,6 @@ const ManagePartyScreen = () => {
 		return Object.values(groups);
 	}, [officiallyOrderedItems, partyData, t]);
 
-	const tableTotal = useMemo(() => {
-		return unpaidOrderedItems.reduce((sum, item) => {
-			const effectivePrice =
-				item.discountedPrice !== null && item.discountedPrice !== undefined
-					? parseFloat(item.discountedPrice)
-					: parseFloat(item.price || 0);
-			return sum + effectivePrice * parseInt(item.quantity || 1, 10);
-		}, 0);
-	}, [unpaidOrderedItems]);
-
 	const parseCurrencyToCents = (value) => {
 		const normalized = String(value || "").replace(/[^0-9.]/g, "");
 		const parsed = Number(normalized);
@@ -254,6 +269,13 @@ const ManagePartyScreen = () => {
 		return rawRate > 1 ? rawRate / 100 : rawRate;
 	}, [currentUserData?.taxRate, restaurantDetails?.taxRate]);
 
+	const tableTotalsCents = useMemo(
+		() => calculateCloseoutTotalsCents(unpaidOrderedItems, restaurantTaxRate),
+		[restaurantTaxRate, unpaidOrderedItems],
+	);
+	const tableTotal = tableTotalsCents.subtotalCents / 100;
+	const taxTotal = tableTotalsCents.taxAmountCents / 100;
+
 	// 3. Handlers
 	const handleCloseTable = () => {
 		if (unpaidOrderedItems.length === 0) {
@@ -263,23 +285,20 @@ const ManagePartyScreen = () => {
 			);
 			return;
 		}
-		setSelectedPaymentMethod("cash");
+		setSelectedPaymentMethod("stripe_terminal");
 		setTipInput("");
 		setCashReceivedInput("");
-		setExternalReference("");
 		setCloseoutNotes("");
 		setSelectedCloseoutSeatIds(seatSummaries.map((seat) => seat.id));
 		setIsCloseoutModalVisible(true);
 	};
 
-	const taxTotal = useMemo(() => {
-		return tableTotal * restaurantTaxRate;
-	}, [restaurantTaxRate, tableTotal]);
 	const taxRateLabel = `${(restaurantTaxRate * 100).toFixed(2)}%`;
 
-	const gratuityTotal = useMemo(() => parseCurrencyToCents(tipInput) / 100, [
+	const gratuityTotalCents = useMemo(() => parseCurrencyToCents(tipInput), [
 		tipInput,
 	]);
+	const gratuityTotal = gratuityTotalCents / 100;
 
 	const selectedCloseoutItems = useMemo(() => {
 		const selectedSet = new Set(selectedCloseoutSeatIds);
@@ -288,19 +307,12 @@ const ManagePartyScreen = () => {
 		);
 	}, [selectedCloseoutSeatIds, unpaidOrderedItems]);
 
-	const closeoutSubtotal = useMemo(() => {
-		return selectedCloseoutItems.reduce((sum, item) => {
-			const effectivePrice =
-				item.discountedPrice !== null && item.discountedPrice !== undefined
-					? parseFloat(item.discountedPrice)
-					: parseFloat(item.price || 0);
-			return sum + effectivePrice * parseInt(item.quantity || 1, 10);
-		}, 0);
-	}, [selectedCloseoutItems]);
-
-	const closeoutTaxTotal = useMemo(() => {
-		return closeoutSubtotal * restaurantTaxRate;
-	}, [closeoutSubtotal, restaurantTaxRate]);
+	const closeoutTotalsCents = useMemo(
+		() => calculateCloseoutTotalsCents(selectedCloseoutItems, restaurantTaxRate),
+		[restaurantTaxRate, selectedCloseoutItems],
+	);
+	const closeoutSubtotal = closeoutTotalsCents.subtotalCents / 100;
+	const closeoutTaxTotal = closeoutTotalsCents.taxAmountCents / 100;
 
 	const selectedSeatBreakdown = useMemo(() => {
 		const selectedSet = new Set(selectedCloseoutSeatIds);
@@ -311,19 +323,36 @@ const ManagePartyScreen = () => {
 		// placeholder for now unless you want to calculate based on pricing tier here too
 		return 0;
 	}, []);
+	const serviceFeeTotalCents = Math.round(serviceFeeTotal * 100);
 
 	const grandTotal = useMemo(() => {
 		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
 	}, [tableTotal, taxTotal, gratuityTotal, serviceFeeTotal]);
-	const closeoutGrandTotal = useMemo(() => {
-		return closeoutSubtotal + closeoutTaxTotal + gratuityTotal + serviceFeeTotal;
-	}, [closeoutSubtotal, closeoutTaxTotal, gratuityTotal, serviceFeeTotal]);
-	const expectedTotalCents = useMemo(() => Math.round(closeoutGrandTotal * 100), [
-		closeoutGrandTotal,
-	]);
+	const closeoutGrandTotalCents = useMemo(
+		() =>
+			closeoutTotalsCents.subtotalCents +
+			closeoutTotalsCents.taxAmountCents +
+			gratuityTotalCents +
+			serviceFeeTotalCents,
+		[
+			closeoutTotalsCents.subtotalCents,
+			closeoutTotalsCents.taxAmountCents,
+			gratuityTotalCents,
+			serviceFeeTotalCents,
+		],
+	);
+	const closeoutGrandTotal = closeoutGrandTotalCents / 100;
+	const expectedTotalCents = closeoutGrandTotalCents;
 	const expectedTerminalBaseTotalCents = useMemo(
-		() => Math.round((closeoutSubtotal + closeoutTaxTotal + serviceFeeTotal) * 100),
-		[closeoutSubtotal, closeoutTaxTotal, serviceFeeTotal],
+		() =>
+			closeoutTotalsCents.subtotalCents +
+			closeoutTotalsCents.taxAmountCents +
+			serviceFeeTotalCents,
+		[
+			closeoutTotalsCents.subtotalCents,
+			closeoutTotalsCents.taxAmountCents,
+			serviceFeeTotalCents,
+		],
 	);
 	const cashReceivedPreviewCents = useMemo(
 		() => parseCurrencyToCents(cashReceivedInput),
@@ -395,21 +424,6 @@ const ManagePartyScreen = () => {
 				setIsClosing(false);
 				return;
 			}
-			if (
-				selectedPaymentMethod === "external_terminal" &&
-				!externalReference.trim()
-			) {
-				Alert.alert(
-					t("reference_required", "Reference Required"),
-					t(
-						"terminal_reference_required",
-						"Enter the terminal authorization or reference code before closing.",
-					),
-				);
-				setIsClosing(false);
-				return;
-			}
-
 			const closeTableCloudFunction = httpsCallable(
 				functions,
 				"closePartyTable",
@@ -423,7 +437,7 @@ const ManagePartyScreen = () => {
 				tipAmount,
 				cashReceived:
 					selectedPaymentMethod === "cash" ? cashReceived : 0,
-				externalReference: externalReference.trim(),
+				externalReference: "",
 				closeoutNotes: closeoutNotes.trim(),
 				closeoutSeatIds: selectedSeatIds,
 				closeoutItemIds: selectedItemIds,
@@ -464,7 +478,7 @@ const ManagePartyScreen = () => {
 				isManualRestaurantOrder: true,
 				paymentMethod: selectedPaymentMethod,
 				tenderType: selectedPaymentMethod,
-				externalReference: externalReference.trim(),
+				externalReference: "",
 				cashReceived:
 					result?.data?.cashReceived !== undefined
 						? result.data.cashReceived
@@ -936,24 +950,6 @@ const ManagePartyScreen = () => {
 							<TouchableOpacity
 								style={[
 									styles.paymentMethodButton,
-									selectedPaymentMethod === "cash" &&
-										styles.paymentMethodButtonActive,
-								]}
-								onPress={() => setSelectedPaymentMethod("cash")}
-							>
-								<Text
-									style={[
-										styles.paymentMethodText,
-										selectedPaymentMethod === "cash" &&
-											styles.paymentMethodTextActive,
-									]}
-								>
-									{t("cash", "Cash")}
-								</Text>
-							</TouchableOpacity>
-							<TouchableOpacity
-								style={[
-									styles.paymentMethodButton,
 									selectedPaymentMethod === "stripe_terminal" &&
 										styles.paymentMethodButtonActive,
 								]}
@@ -966,25 +962,25 @@ const ManagePartyScreen = () => {
 											styles.paymentMethodTextActive,
 									]}
 								>
-									{t("scerv_terminal", "Scerv Terminal")}
+									{t("card_reader", "Card Reader")}
 								</Text>
 							</TouchableOpacity>
 							<TouchableOpacity
 								style={[
 									styles.paymentMethodButton,
-									selectedPaymentMethod === "external_terminal" &&
+									selectedPaymentMethod === "cash" &&
 										styles.paymentMethodButtonActive,
 								]}
-								onPress={() => setSelectedPaymentMethod("external_terminal")}
+								onPress={() => setSelectedPaymentMethod("cash")}
 							>
 								<Text
 									style={[
 										styles.paymentMethodText,
-										selectedPaymentMethod === "external_terminal" &&
+										selectedPaymentMethod === "cash" &&
 											styles.paymentMethodTextActive,
 									]}
 								>
-									{t("card_terminal", "Card Terminal")}
+									{t("cash_payment_option", "Cash")}
 								</Text>
 							</TouchableOpacity>
 						</View>
@@ -1095,27 +1091,6 @@ const ManagePartyScreen = () => {
 									{formatCurrencyFromDollars(gratuityTotal)}
 								</Text>
 							</View>
-							<View style={styles.summaryRow}>
-								<View>
-									<Text style={styles.summaryLabel}>
-										{t("scerv_fee", "Scerv Fee")}
-									</Text>
-									<Text style={styles.summarySubLabel}>
-										{selectedPaymentMethod === "stripe_terminal"
-											? t(
-													"terminal_fee_applied_to_payout",
-													"Applied to restaurant payout",
-												)
-											: t(
-													"manual_tender_fee_waived",
-													"Waived for cash/external terminal",
-												)}
-									</Text>
-								</View>
-								<Text style={styles.summaryValue}>
-									{formatCurrencyFromDollars(0)}
-								</Text>
-							</View>
 							<View style={styles.summaryDivider} />
 							<View style={styles.totalsRow}>
 								<Text style={styles.totalLabel}>
@@ -1147,18 +1122,6 @@ const ManagePartyScreen = () => {
 								onChangeText={setCashReceivedInput}
 								keyboardType="decimal-pad"
 							/>
-						) : selectedPaymentMethod === "external_terminal" ? (
-							<TextInput
-								style={styles.modalInput}
-								placeholder={t(
-									"terminal_reference_required_placeholder",
-									"Terminal reference / auth code required",
-								)}
-								placeholderTextColor={colors.textMedium}
-								value={externalReference}
-								onChangeText={setExternalReference}
-								autoCapitalize="characters"
-							/>
 						) : (
 							<View style={styles.terminalInfoBox}>
 								<Ionicons
@@ -1169,7 +1132,7 @@ const ManagePartyScreen = () => {
 								<Text style={styles.terminalInfoText}>
 									{t(
 										"scerv_terminal_info",
-										"The reader will collect the card payment and prompt the guest for gratuity, then Scerv will close the selected seats automatically.",
+										"The card reader will collect payment, prompt the guest for gratuity, and close the selected seats automatically.",
 									)}
 								</Text>
 							</View>
@@ -1206,18 +1169,11 @@ const ManagePartyScreen = () => {
 									</Text>
 								</View>
 							</View>
-						) : selectedPaymentMethod === "external_terminal" ? (
-							<Text style={styles.helperText}>
-								{t(
-									"external_terminal_reference_helper",
-									"Record the terminal auth/reference code so this closeout can be reconciled later.",
-								)}
-							</Text>
 						) : (
 							<Text style={styles.helperText}>
 								{t(
 									"scerv_terminal_helper",
-									"The reader starts with the selected bill total. Any gratuity selected on the reader is recorded in the Stripe Terminal closeout.",
+									"The reader starts with the selected bill total. Any gratuity selected by the guest is recorded with the closeout.",
 								)}
 							</Text>
 						)}

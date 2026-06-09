@@ -34,6 +34,8 @@ export const getRestaurantPermissions = (activeSession) => {
 		canViewKitchen: isBackOfHouse,
 		canViewPickupQueue: isManagement || isSupport || isHost,
 		canCloseTable: isManagement || isServer,
+		canUseTerminal:
+			isManagement || isServer || isBartender || isChef || isHost || isSupport,
 		canCleanTable: isManagement || isServer || isSupport,
 		canForceClearTable: isManagement || isSupport,
 		canEnterStaffOrders: isManagement || isServer,

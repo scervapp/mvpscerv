@@ -76,6 +76,64 @@ const getStartDateForPeriod = (period, timeZone = PANAMA_TIMEZONE) => {
 	return startDate;
 };
 
+const getWorkDayBounds = async (restaurantId) => {
+	const workDaysRef = db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("work_days");
+
+	const openSnapshot = await workDaysRef
+		.where("status", "==", "OPEN")
+		.limit(1)
+		.get();
+
+	if (!openSnapshot.empty) {
+		const doc = openSnapshot.docs[0];
+		const data = doc.data() || {};
+		return {
+			workDayId: doc.id,
+			status: data.status || "OPEN",
+			startDate: parseDate(data.startTime),
+			endDate: new Date(),
+		};
+	}
+
+	const latestSnapshot = await workDaysRef
+		.orderBy("startTime", "desc")
+		.limit(1)
+		.get();
+
+	if (latestSnapshot.empty) return null;
+
+	const doc = latestSnapshot.docs[0];
+	const data = doc.data() || {};
+	const startDate = parseDate(data.startTime);
+	const endDate = parseDate(data.endTime) || new Date();
+
+	if (!startDate) return null;
+
+	return {
+		workDayId: doc.id,
+		status: data.status || "CLOSED",
+		startDate,
+		endDate,
+	};
+};
+
+const getReportingBounds = async (restaurantId, period) => {
+	if (period === "today") {
+		const workDayBounds = await getWorkDayBounds(restaurantId);
+		if (workDayBounds) return workDayBounds;
+	}
+
+	return {
+		workDayId: null,
+		status: null,
+		startDate: getStartDateForPeriod(period, PANAMA_TIMEZONE),
+		endDate: new Date(),
+	};
+};
+
 const isBarCategory = (categoryValue) => {
 	const normalized = String(categoryValue || "")
 		.trim()
@@ -180,11 +238,23 @@ const normalizeOrderForReporting = (doc) => {
 		raw.restaurantGrossAmount !== undefined && raw.restaurantGrossAmount !== null
 			? safeNumber(raw.restaurantGrossAmount, 0)
 			: subtotal + taxAmount + gratuityAmount;
-	const restaurantTransferAmount =
+	const storedRestaurantTransferAmount =
 		raw.restaurantTransferAmount !== undefined &&
 		raw.restaurantTransferAmount !== null
 			? safeNumber(raw.restaurantTransferAmount, 0)
 			: Math.max(0, totalPrice - platformFee - processorFee);
+	const isStripeTerminalRestaurantCloseout =
+		raw.paymentMethod === "stripe_terminal" ||
+		raw.restaurantTransferStatus === "stripe_terminal_processed" ||
+		raw.feePolicy === "stripe_terminal_restaurant_processing_fee";
+	const derivedRestaurantTransferAmount = Math.max(
+		0,
+		totalPrice - platformFee - processorFee,
+	);
+	const restaurantTransferAmount =
+		isStripeTerminalRestaurantCloseout && platformFee + processorFee > 0
+			? derivedRestaurantTransferAmount
+			: storedRestaurantTransferAmount;
 
 	const items = Array.isArray(raw.items) ? raw.items : [];
 
@@ -193,6 +263,7 @@ const normalizeOrderForReporting = (doc) => {
 		readableOrderId: raw.readableOrderId || id,
 		restaurantId: raw.restaurantId || null,
 		restaurantName: raw.restaurantName || "Scerv Partner",
+		workDayId: raw.workDayId || null,
 
 		paymentProcessor: raw.paymentProcessor || "unknown",
 		paymentProcessorId: raw.paymentProcessorId || null,
@@ -422,7 +493,7 @@ exports.getReportingDashboard = functions
 
 		try {
 			assertCanViewRestaurantReports(context, restaurantId);
-			const startDate = getStartDateForPeriod(period, PANAMA_TIMEZONE);
+			const reportingBounds = await getReportingBounds(restaurantId, period);
 
 			const snapshot = await db
 				.collection("orders")
@@ -431,7 +502,12 @@ exports.getReportingDashboard = functions
 				.where(
 					"fulfilledAt",
 					">=",
-					admin.firestore.Timestamp.fromDate(startDate),
+					admin.firestore.Timestamp.fromDate(reportingBounds.startDate),
+				)
+				.where(
+					"fulfilledAt",
+					"<=",
+					admin.firestore.Timestamp.fromDate(reportingBounds.endDate),
 				)
 				.get();
 
@@ -445,6 +521,10 @@ exports.getReportingDashboard = functions
 				...summary,
 				ownerPulse,
 				period,
+				workDayId: reportingBounds.workDayId,
+				businessDayStatus: reportingBounds.status,
+				businessDayStart: reportingBounds.startDate.toISOString(),
+				businessDayEnd: reportingBounds.endDate.toISOString(),
 				lastUpdatedAt: new Date().toISOString(),
 			};
 		} catch (error) {
@@ -486,7 +566,7 @@ exports.getOrdersLedger = functions
 
 		try {
 			assertCanViewRestaurantReports(context, restaurantId);
-			const startDate = getStartDateForPeriod(period, PANAMA_TIMEZONE);
+			const reportingBounds = await getReportingBounds(restaurantId, period);
 
 			const snapshot = await db
 				.collection("orders")
@@ -495,7 +575,12 @@ exports.getOrdersLedger = functions
 				.where(
 					"fulfilledAt",
 					">=",
-					admin.firestore.Timestamp.fromDate(startDate),
+					admin.firestore.Timestamp.fromDate(reportingBounds.startDate),
+				)
+				.where(
+					"fulfilledAt",
+					"<=",
+					admin.firestore.Timestamp.fromDate(reportingBounds.endDate),
 				)
 				.orderBy("fulfilledAt", "desc")
 				.limit(Math.min(Number(limit) || 100, 300))
@@ -586,6 +671,10 @@ exports.getOrdersLedger = functions
 					itemCount: Array.isArray(o.items) ? o.items.length : 0,
 				})),
 				count: orders.length,
+				workDayId: reportingBounds.workDayId,
+				businessDayStatus: reportingBounds.status,
+				businessDayStart: reportingBounds.startDate.toISOString(),
+				businessDayEnd: reportingBounds.endDate.toISOString(),
 			};
 		} catch (error) {
 			console.error("getOrdersLedger error:", error);
@@ -712,8 +801,37 @@ exports.getDailySalesReport = functions
 			assertCanViewRestaurantReports(context, restaurantId);
 
 			const safeDays = Math.min(Math.max(Number(days) || 30, 1), 90);
-			const startDate = getStartDateForPeriod("today", PANAMA_TIMEZONE);
-			startDate.setDate(startDate.getDate() - (safeDays - 1));
+			const workDaysSnapshot = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.collection("work_days")
+				.orderBy("startTime", "desc")
+				.limit(safeDays)
+				.get();
+
+			const workDayWindows = workDaysSnapshot.docs
+				.map((doc) => {
+					const data = doc.data() || {};
+					const startDate = parseDate(data.startTime);
+					if (!startDate) return null;
+					return {
+						id: doc.id,
+						status: data.status || null,
+						startDate,
+						endDate: parseDate(data.endTime) || new Date(),
+					};
+				})
+				.filter(Boolean)
+				.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+			const startDate =
+				workDayWindows.length > 0
+					? workDayWindows[0].startDate
+					: getStartDateForPeriod("today", PANAMA_TIMEZONE);
+
+			if (workDayWindows.length === 0) {
+				startDate.setDate(startDate.getDate() - (safeDays - 1));
+			}
 
 			const snapshot = await db
 				.collection("orders")
@@ -730,30 +848,63 @@ exports.getDailySalesReport = functions
 
 			const orders = snapshot.docs.map((doc) => normalizeOrderForReporting(doc));
 			const grouped = {};
+			const workDayById = new Map(
+				workDayWindows.map((workDay) => [workDay.id, workDay]),
+			);
 
 			for (const order of orders) {
 				const dateObj = order.fulfilledAt || order.openedAt || new Date();
-				const date = dateObj.toLocaleDateString("en-CA", {
-					timeZone: PANAMA_TIMEZONE,
-				});
+				const matchingWorkDay =
+					(order.workDayId && workDayById.get(order.workDayId)) ||
+					workDayWindows.find(
+						(workDay) =>
+							dateObj >= workDay.startDate && dateObj <= workDay.endDate,
+					);
+				const date = matchingWorkDay
+					? matchingWorkDay.startDate.toLocaleDateString("en-CA", {
+							timeZone: PANAMA_TIMEZONE,
+						})
+					: dateObj.toLocaleDateString("en-CA", {
+							timeZone: PANAMA_TIMEZONE,
+						});
 
-				if (!grouped[date]) grouped[date] = [];
-				grouped[date].push(order);
+				if (!grouped[date]) {
+					grouped[date] = {
+						workDay: matchingWorkDay || null,
+						orders: [],
+					};
+				}
+				if (!grouped[date].workDay && matchingWorkDay) {
+					grouped[date].workDay = matchingWorkDay;
+				}
+				grouped[date].orders.push(order);
 			}
 
 			return Object.entries(grouped)
 				.sort(([a], [b]) => (a < b ? 1 : -1))
-				.map(([date, dayOrders]) => {
+				.map(([date, group]) => {
+					const dayOrders = group.orders;
 					const summary = aggregateOrders(dayOrders);
 					return {
 						date,
+						workDayId: group.workDay ? group.workDay.id : null,
+						businessDayStatus: group.workDay ? group.workDay.status : null,
+						businessDayStart: group.workDay
+							? group.workDay.startDate.toISOString()
+							: null,
+						businessDayEnd: group.workDay
+							? group.workDay.endDate.toISOString()
+							: null,
 						orderCount: summary.totalOrders,
 						grossSales: summary.grossSales,
 						totalDiscountApplied: summary.totalDiscounts,
 						netSales: Math.max(0, summary.grossSales - summary.totalDiscounts),
 						totalTaxCollected: summary.totalTax,
 						totalGratuityReceived: summary.totalGratuity,
-						estimatedProcessingFeesDeducted: summary.totalProcessorFees,
+						totalPlatformFees: summary.totalPlatformFees,
+						totalProcessorFees: summary.totalProcessorFees,
+						totalFees: summary.totalFees,
+						estimatedProcessingFeesDeducted: summary.totalFees,
 						estimatedNetPayout: summary.netPayout,
 						serverTips: summary.serverTips,
 						allItemsSold: summary.topSellingItems.map((item) => ({

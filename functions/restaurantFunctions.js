@@ -79,7 +79,13 @@ const commitBatches = async (operations) => {
 	for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
 		const chunk = operations.slice(i, i + CHUNK_SIZE);
 		const batch = db.batch();
-		chunk.forEach((op) => batch[op.type](op.ref, op.data));
+		chunk.forEach((op) => {
+			if (op.options) {
+				batch[op.type](op.ref, op.data, op.options);
+				return;
+			}
+			batch[op.type](op.ref, op.data);
+		});
 		await batch.commit();
 	}
 };
@@ -816,7 +822,7 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const { restaurantId } = data;
+	const { restaurantId, staffId, staffName } = data;
 	if (!restaurantId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
@@ -828,6 +834,23 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 	const workDaysRef = restaurantRef.collection("work_days");
 
 	try {
+		const staffMember =
+			context.auth.uid === restaurantId
+				? {
+						id: staffId || context.auth.uid,
+						name: staffName || context.auth.token.name || "Owner",
+						role: "owner",
+						jobTitle: "owner",
+					}
+				: await assertRestaurantPermission({
+						db,
+						context,
+						restaurantId,
+						employeeId: staffId,
+						allowedRoles: ["owner", "manager"],
+						action: "open the work day",
+					});
+
 		// 1. Prevent overlapping work days
 		const openDaysSnapshot = await workDaysRef
 			.where("status", "==", "OPEN")
@@ -894,7 +917,14 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 			endTime: null,
 			managerWhoOpened: {
 				uid: context.auth.uid,
-				name: context.auth.token.name || "Manager",
+				staffId: staffMember.id || staffId || null,
+				name:
+					staffName ||
+					staffMember.name ||
+					context.auth.token.name ||
+					"Manager",
+				role: staffMember.role || null,
+				jobTitle: staffMember.jobTitle || null,
 			},
 		});
 
@@ -909,6 +939,7 @@ exports.startWorkDay = functions.https.onCall(async (data, context) => {
 		return { success: true, workDayId: newWorkDayRef.id };
 	} catch (error) {
 		console.error(`Start Day Error (${restaurantId}):`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			error.message || "Could not start day.",
@@ -927,7 +958,7 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		);
 	}
 
-	const { restaurantId, workDayId } = data;
+	const { restaurantId, workDayId, staffId, staffName } = data;
 	if (!restaurantId || !workDayId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
@@ -939,18 +970,22 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 	const workDayRef = restaurantRef.collection("work_days").doc(workDayId);
 
 	try {
-		// 1. Strict Enterprise Validation: No tables can be occupied
-		const unresolvedTables = await restaurantRef
-			.collection("tables")
-			.where("status", "!=", "available")
-			.limit(1)
-			.get();
-		if (!unresolvedTables.empty) {
-			throw new functions.https.HttpsError(
-				"failed-precondition",
-				"Cannot close the day. All tables must be settled and cleared first.",
-			);
-		}
+		const staffMember =
+			context.auth.uid === restaurantId
+				? {
+						id: staffId || context.auth.uid,
+						name: staffName || context.auth.token.name || "Owner",
+						role: "owner",
+						jobTitle: "owner",
+					}
+				: await assertRestaurantPermission({
+						db,
+						context,
+						restaurantId,
+						employeeId: staffId,
+						allowedRoles: ["owner", "manager"],
+						action: "close the work day",
+					});
 
 		const workDayDoc = await workDayRef.get();
 		if (!workDayDoc.exists || workDayDoc.data().status !== "OPEN") {
@@ -960,14 +995,79 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 			);
 		}
 
-		// 2. Fetch active kitchen orders to ARCHIVE (Never delete)
+		const closedBy = {
+			uid: context.auth.uid,
+			staffId: staffMember.id || staffId || null,
+			name:
+				staffName ||
+				staffMember.name ||
+				context.auth.token.name ||
+				"Manager",
+			role: staffMember.role || null,
+			jobTitle: staffMember.jobTitle || null,
+		};
+
+		// 1. Fetch every operational surface that must be cleared for tomorrow.
+		const unresolvedTables = await restaurantRef
+			.collection("tables")
+			.where("status", "!=", "available")
+			.get();
+
 		const activeKitchenOrders = await db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
 			.where("overallStatus", "==", "active")
 			.get();
 
+		const activeParties = await db
+			.collection("parties")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "in", [
+				"pending",
+				"AWAITING_TABLE",
+				"active",
+				"checkedOut",
+			])
+			.get();
+
+		const activeCheckIns = await db
+			.collection("checkIns")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "in", ["PENDING", "REQUESTED", "ACCEPTED"])
+			.get();
+
 		const batchOperations = [];
+		const usersToFree = new Set();
+		const partyIdsToArchive = new Set();
+
+		const addUserToFree = (uid) => {
+			if (!uid) return;
+			const normalized = String(uid).toLowerCase();
+			if (
+				["walk_in", "walk_in_guest", "guest", "null", "undefined"].includes(
+					normalized,
+				)
+			) {
+				return;
+			}
+			usersToFree.add(uid);
+		};
+
+		unresolvedTables.forEach((doc) => {
+			batchOperations.push({
+				type: "update",
+				ref: doc.ref,
+				data: {
+					status: "available",
+					currentCheckInId: null,
+					currentCustomerId: null,
+					seatedAt: null,
+					clearedAt: admin.firestore.FieldValue.serverTimestamp(),
+					clearedByWorkDay: workDayId,
+					clearedReason: "end_of_day_close",
+				},
+			});
+		});
 
 		activeKitchenOrders.forEach((doc) => {
 			batchOperations.push({
@@ -975,13 +1075,95 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 				ref: doc.ref,
 				data: {
 					overallStatus: "archived_eod",
+					status: "archived_eod",
 					archivedAt: admin.firestore.FieldValue.serverTimestamp(),
 					closedByWorkDay: workDayId,
+					closedBy,
 				},
 			});
 		});
 
-		// Execute archiving safely
+		activeParties.forEach((doc) => {
+			const partyData = doc.data() || {};
+			partyIdsToArchive.add(doc.id);
+			addUserToFree(partyData.hostUserId);
+			addUserToFree(partyData.currentCustomerId);
+			addUserToFree(partyData.customerId);
+
+			if (Array.isArray(partyData.guestPips)) {
+				partyData.guestPips.forEach((pip) => addUserToFree(pip && pip.userId));
+			}
+			[
+				...(Array.isArray(partyData.guestUserIds)
+					? partyData.guestUserIds
+					: []),
+				...(Array.isArray(partyData.memberUids) ? partyData.memberUids : []),
+			].forEach(addUserToFree);
+
+			batchOperations.push({
+				type: "set",
+				ref: doc.ref,
+				data: {
+					status: "closed_eod",
+					closedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByWorkDay: workDayId,
+					closedReason: "end_of_day_close",
+					closedBy,
+				},
+				options: { merge: true },
+			});
+		});
+
+		activeCheckIns.forEach((doc) => {
+			const checkInData = doc.data() || {};
+			addUserToFree(checkInData.customerId);
+			if (checkInData.associatedPartyId) {
+				partyIdsToArchive.add(checkInData.associatedPartyId);
+			}
+
+			batchOperations.push({
+				type: "update",
+				ref: doc.ref,
+				data: {
+					status: "COMPLETED",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByWorkDay: workDayId,
+					closedReason: "end_of_day_close",
+				},
+			});
+		});
+
+		partyIdsToArchive.forEach((partyId) => {
+			batchOperations.push({
+				type: "set",
+				ref: db.collection("shared_baskets").doc(partyId),
+				data: {
+					status: "archived_eod",
+					archivedForAudit: true,
+					archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+					closedByWorkDay: workDayId,
+					closedReason: "end_of_day_close",
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				options: { merge: true },
+			});
+		});
+
+		usersToFree.forEach((uid) => {
+			batchOperations.push({
+				type: "set",
+				ref: db.collection("customers").doc(uid),
+				data: {
+					activeCheckIn: null,
+					activePartyId: null,
+					activeRestaurantId: null,
+				},
+				options: { merge: true },
+			});
+		});
+
+		// 2. Execute operational cleanup safely in chunks.
 		if (batchOperations.length > 0) await commitBatches(batchOperations);
 
 		// 3. Finalize the Work Day
@@ -990,9 +1172,13 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 		endBatch.update(workDayRef, {
 			status: "CLOSED",
 			endTime: admin.firestore.FieldValue.serverTimestamp(),
-			managerWhoClosed: {
-				uid: context.auth.uid,
-				name: context.auth.token.name || "Manager",
+			managerWhoClosed: closedBy,
+			closeoutSummary: {
+				tablesCleared: unresolvedTables.size,
+				ordersArchived: activeKitchenOrders.size,
+				partiesClosed: activeParties.size,
+				checkInsClosed: activeCheckIns.size,
+				customersReleased: usersToFree.size,
 			},
 		});
 
@@ -1004,9 +1190,17 @@ exports.endWorkDay = functions.https.onCall(async (data, context) => {
 
 		await endBatch.commit();
 
-		return { success: true, ordersArchived: activeKitchenOrders.size };
+		return {
+			success: true,
+			tablesCleared: unresolvedTables.size,
+			ordersArchived: activeKitchenOrders.size,
+			partiesClosed: activeParties.size,
+			checkInsClosed: activeCheckIns.size,
+			customersReleased: usersToFree.size,
+		};
 	} catch (error) {
 		console.error(`End Day Error (${workDayId}):`, error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError(
 			"internal",
 			error.message || "Could not end day.",
@@ -3167,14 +3361,14 @@ exports.closePartyTable = functions
 					restaurantTaxRate,
 				);
 
-				// Manual/external closeout business rule:
-				// - Cash/external terminal: no Scerv/platform fee
+				// Staff closeout business rule:
+				// - Cash: no Scerv/platform fee
 				// - Stripe Terminal: customer pays the bill total; restaurant absorbs
 				//   the configured terminal application fee from payout
 				// - Staff-entered tips pass through to the restaurant before fees
 				// - Stripe Terminal tips are selected on the reader and stored with the captured payment
 				let gratuityAmountCents = Math.max(0, Math.round(Number(tipAmount) || 0));
-				const platformFeeCents = 0;
+				let platformFeeCents = 0;
 				let processorFeeCents = 0;
 				const cashReceivedCents = Math.max(
 					0,
@@ -3295,10 +3489,12 @@ exports.closePartyTable = functions
 						);
 					}
 
-					processorFeeCents = Math.max(
+					platformFeeCents = Math.max(
 						0,
 						Math.round(
 							Number(
+								terminalPaymentData.platformFee ||
+									terminalPaymentData.scervFee ||
 								terminalPaymentData.stripeApplicationFeeAmount ||
 									terminalPaymentData.applicationFeeAmount ||
 									0,
@@ -3309,7 +3505,7 @@ exports.closePartyTable = functions
 
 				const restaurantTransferAmountCents = Math.max(
 					0,
-					totalPriceCents - processorFeeCents,
+					totalPriceCents - platformFeeCents - processorFeeCents,
 				);
 
 				let turnaroundTimeMinutes = 0;
@@ -3388,6 +3584,34 @@ exports.closePartyTable = functions
 					gratuityAmount: gratuityAmountCents,
 					platformFee: platformFeeCents,
 					processorFee: processorFeeCents,
+					applicationFeeAmount:
+						paymentMethod === "stripe_terminal" ? platformFeeCents : 0,
+					stripeApplicationFeeAmount:
+						paymentMethod === "stripe_terminal" ? platformFeeCents : 0,
+					terminalProcessingFeePercentage:
+						paymentMethod === "stripe_terminal"
+							? (terminalPaymentData &&
+									terminalPaymentData.terminalProcessingFeePercentage) ||
+								null
+							: null,
+					terminalProcessingFeeFixedCents:
+						paymentMethod === "stripe_terminal"
+							? (terminalPaymentData &&
+									terminalPaymentData.terminalProcessingFeeFixedCents) ||
+								0
+							: 0,
+					terminalProcessingFeeBasis:
+						paymentMethod === "stripe_terminal"
+							? (terminalPaymentData &&
+									terminalPaymentData.terminalProcessingFeeBasis) ||
+								null
+							: null,
+					terminalProcessingFeeBasisAmount:
+						paymentMethod === "stripe_terminal"
+							? (terminalPaymentData &&
+									terminalPaymentData.terminalProcessingFeeBasisAmount) ||
+								0
+							: 0,
 					restaurantGrossAmount: restaurantGrossAmountCents,
 					restaurantTransferAmount: restaurantTransferAmountCents,
 					totalPrice: totalPriceCents,
@@ -3666,6 +3890,8 @@ exports.closePartyTable = functions
 					readableOrderId,
 					restaurantId: restaurantId,
 					restaurantName: restaurantName,
+					workDayId:
+						partyData.workDayId || restaurantData.currentWorkDayId || null,
 					table: partyData.table || null,
 					server: partyData.server || null,
 

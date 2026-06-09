@@ -85,19 +85,28 @@ const DailySalesDetailsScreen = ({ route }) => {
 	const { dayReport } = route.params;
 	const insets = useSafeAreaInsets();
 	const [itemSortKey, setItemSortKey] = useState("totalRevenue"); // 'totalRevenue' or 'count'
+	const totalPlatformFees = Number(dayReport.totalPlatformFees || 0);
+	const totalProcessorFees = Number(
+		dayReport.totalProcessorFees || dayReport.estimatedProcessorFeesDeducted || 0,
+	);
+	const totalFees = Number(
+		dayReport.totalFees ||
+			dayReport.estimatedProcessingFeesDeducted ||
+			totalPlatformFees + totalProcessorFees ||
+			0,
+	);
 
 	const transactionFeePercentage = useMemo(() => {
-		if (!dayReport.grossSales || !dayReport.estimatedProcessingFeesDeducted) {
+		if (!dayReport.grossSales || !totalFees) {
 			return "0.00%";
 		}
 		// Avoid division by zero
 		if (dayReport.grossSales === 0) {
 			return "0.00%";
 		}
-		const percentage =
-			(dayReport.estimatedProcessingFeesDeducted / dayReport.grossSales) * 100;
+		const percentage = (totalFees / dayReport.grossSales) * 100;
 		return `${percentage.toFixed(2)}%`;
-	}, [dayReport.grossSales, dayReport.estimatedProcessingFeesDeducted]);
+	}, [dayReport.grossSales, totalFees]);
 	return (
 		<SafeAreaView style={[styles.safeArea, { paddingBottom: insets.bottom }]}>
 			<ScrollView contentContainerStyle={styles.scrollContent}>
@@ -132,10 +141,8 @@ const DailySalesDetailsScreen = ({ route }) => {
 						value={formatCurrency(dayReport.totalGratuityReceived)}
 					/>
 					<SummaryRow
-						label={`${t("transaction_fees")} (${transactionFeePercentage})`}
-						value={`-${formatCurrency(
-							dayReport.estimatedProcessingFeesDeducted
-						)}`}
+						label={`${t("processing_fees", "Processing Fees")} (${transactionFeePercentage})`}
+						value={`-${formatCurrency(totalFees)}`}
 						isDeduction
 					/>
 					<View style={styles.divider} />

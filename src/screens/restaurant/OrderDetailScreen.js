@@ -105,21 +105,12 @@ const OrderDetailScreen = ({ route }) => {
 			processorFee ||
 			0,
 	);
-	const applicationFeeAmount = Number(
-		order.applicationFeeAmount ||
-			order.stripeApplicationFeeAmount ||
-			platformFee + restaurantProcessingFee,
-	);
-	const restaurantGrossAfterPlatformFee = Number.isFinite(
-		Number(order.restaurantGrossAmount),
-	)
-		? Number(order.restaurantGrossAmount)
-		: Math.max(0, customerPaid - platformFee);
+	const totalProcessingFees = platformFee + restaurantProcessingFee;
 	const restaurantNetReceived = Number.isFinite(
 		Number(order.restaurantTransferAmount),
 	)
 		? Number(order.restaurantTransferAmount)
-		: Math.max(0, restaurantGrossAfterPlatformFee - restaurantProcessingFee);
+		: Math.max(0, customerPaid - totalProcessingFees);
 	const stripePaymentIntentId =
 		order.stripePaymentIntentId || order.paymentIntentId || order.paymentProcessorId;
 	const isManualRestaurantOrder =
@@ -154,7 +145,7 @@ const OrderDetailScreen = ({ route }) => {
 					<Text style={styles.sourceBannerTitle}>{sourceLabel}</Text>
 					<Text style={styles.sourceBannerText}>
 						{isManualRestaurantOrder
-							? "Manual tender recorded in Scerv. Scerv fee waived for cash/external terminal."
+							? "Manual tender recorded in Scerv. Processing fees waived for cash/external terminal."
 							: "Paid through customer checkout."}
 					</Text>
 				</View>
@@ -208,17 +199,8 @@ const OrderDetailScreen = ({ route }) => {
 					<Text style={styles.cardTitle}>Restaurant Payout</Text>
 					<MoneyRow label="Customer payment" value={order.totalPrice} />
 					<MoneyRow
-						label="Less Scerv fee"
-						value={order.platformFee}
-						isDeduction
-					/>
-					<MoneyRow
-						label="Amount available to restaurant"
-						value={restaurantGrossAfterPlatformFee}
-					/>
-					<MoneyRow
-						label="Less restaurant processing fee"
-						value={restaurantProcessingFee}
+						label="Less processing fees"
+						value={totalProcessingFees}
 						isDeduction
 					/>
 					<MoneyRow
@@ -236,12 +218,8 @@ const OrderDetailScreen = ({ route }) => {
 						value={order.stripeTransferId || order.stripeDestinationTransferId}
 					/>
 					<TraceRow
-						label="Stripe application fee"
-						value={formatCurrency(applicationFeeAmount)}
-					/>
-					<TraceRow
-						label="Actual Stripe processor cost"
-						value={formatCurrency(processorFee)}
+						label="Processing fees"
+						value={formatCurrency(totalProcessingFees)}
 					/>
 					<TraceRow
 						label="Transfer status"

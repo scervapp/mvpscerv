@@ -1,7 +1,6 @@
 import React, {
 	useCallback,
 	useContext,
-	useEffect,
 	useMemo,
 	useState,
 } from "react";
@@ -18,7 +17,6 @@ import {
 	View,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useStripeTerminal } from "@stripe/stripe-terminal-react-native";
 import { CommonActions, useNavigation, useRoute } from "@react-navigation/native";
 import { httpsCallable } from "@react-native-firebase/functions";
 
@@ -97,6 +95,11 @@ const waitForTerminalPaymentStatus = (paymentIntentId, timeoutMs = 25000) =>
 		}
 	});
 
+const isConnectionTokenTimeout = (error) =>
+	String(error?.message || error || "")
+		.toLowerCase()
+		.includes("timed out waiting for connection token");
+
 const RestaurantTerminalPaymentContent = ({
 	activeSession,
 	currentUserData,
@@ -104,7 +107,6 @@ const RestaurantTerminalPaymentContent = ({
 	tokenStatus,
 }) => {
 	const navigation = useNavigation();
-	const [readerList, setReaderList] = useState([]);
 	const [stepText, setStepText] = useState("Connect a Stripe reader to start.");
 	const [errorText, setErrorText] = useState("");
 	const [isDiscovering, setIsDiscovering] = useState(false);
@@ -114,8 +116,8 @@ const RestaurantTerminalPaymentContent = ({
 	const [processedPaymentIntentId, setProcessedPaymentIntentId] = useState("");
 
 	const {
-		initialize,
-		isInitialized,
+		liveMode,
+		readerList,
 		discoverReaders,
 		cancelDiscovering,
 		connectReader,
@@ -124,25 +126,7 @@ const RestaurantTerminalPaymentContent = ({
 		retrievePaymentIntent,
 		collectPaymentMethod,
 		processPaymentIntent,
-	} = useStripeTerminal({
-		onUpdateDiscoveredReaders: (readers) => {
-			setReaderList(readers || []);
-			if ((readers || []).length === 0) {
-				setStepText("No readers found yet.");
-			}
-		},
-		onDidChangeConnectionStatus: (status) => {
-			if (status === "connected") {
-				setStepText("Reader connected. Ready to collect payment.");
-			}
-		},
-		onDidRequestReaderInput: (input) => {
-			if (input) setStepText("Waiting for card.");
-		},
-		onDidRequestReaderDisplayMessage: (message) => {
-			if (message) setStepText("Follow the prompt on the reader.");
-		},
-	});
+	} = useRestaurantTerminal();
 
 	const {
 		partyId,
@@ -158,6 +142,8 @@ const RestaurantTerminalPaymentContent = ({
 
 	const isBusy = isDiscovering || isConnecting || isPaying || isFinalizing;
 	const selectedItemCount = closeoutItemIds.length;
+	const isSimulatedReader = connectedReader?.simulated === true;
+	const canUseTestReader = liveMode === false;
 
 	const totalLabel = useMemo(
 		() => formatCurrencyFromDollars(Number(expectedTotalCents || 0) / 100),
@@ -173,29 +159,7 @@ const RestaurantTerminalPaymentContent = ({
 		);
 	}, [navigation]);
 
-	useEffect(() => {
-		let mounted = true;
-
-		const initializeTerminal = async () => {
-			if (isInitialized) return;
-			const result = await initialize();
-			if (!mounted) return;
-			if (result?.error) {
-				setErrorText(
-					result.error.message ||
-						"Stripe Terminal could not initialize on this device.",
-				);
-			}
-		};
-
-		initializeTerminal();
-
-		return () => {
-			mounted = false;
-		};
-	}, [initialize, isInitialized]);
-
-	const startDiscovery = async (simulated = false) => {
+	const startDiscovery = async ({ simulated = false } = {}) => {
 		const hasLocationPermission = await requestTerminalLocationPermission();
 		if (!hasLocationPermission) {
 			setErrorText(
@@ -206,17 +170,25 @@ const RestaurantTerminalPaymentContent = ({
 		}
 
 		setErrorText("");
-		setReaderList([]);
 		setIsDiscovering(true);
 		setStepText(
 			simulated
-				? "Searching for simulated readers..."
+				? "Searching for test readers..."
 				: "Searching for internet readers...",
 		);
 
 		try {
 			if (connectedReader) {
-				setStepText("Disconnecting current reader...");
+				if (connectedReader.simulated === simulated) {
+					setStepText("Reader already connected. Ready to collect payment.");
+					return;
+				}
+
+				setStepText(
+					simulated
+						? "Disconnecting real reader for test mode..."
+						: "Disconnecting test reader...",
+				);
 				const disconnectResult = await disconnectReader();
 				if (disconnectResult?.error) {
 					throw disconnectResult.error;
@@ -248,11 +220,19 @@ const RestaurantTerminalPaymentContent = ({
 		setStepText(`Connecting to ${getReaderName(reader)}...`);
 
 		try {
-			const result = await connectReader({
-				reader,
-				discoveryMethod: "internet",
-				failIfInUse: true,
-			});
+			const connectToSelectedReader = () =>
+				connectReader({
+					reader,
+					discoveryMethod: "internet",
+					failIfInUse: true,
+				});
+
+			let result = await connectToSelectedReader();
+
+			if (result?.error && isConnectionTokenTimeout(result.error)) {
+				setStepText("Refreshing reader connection...");
+				result = await connectToSelectedReader();
+			}
 
 			if (result?.error) {
 				throw result.error;
@@ -341,25 +321,52 @@ const RestaurantTerminalPaymentContent = ({
 		setIsPaying(true);
 		setProcessedPaymentIntentId("");
 		let capturedPaymentIntentId = "";
+		let terminalStage = "start";
+		let preparedPaymentIntentId = "";
 
 		try {
+			terminalStage = "prepare";
 			setStepText("Preparing payment...");
 			const prepareStaffTerminalPayment = httpsCallable(
 				functions,
 				"prepareStaffTerminalPayment",
 			);
-			const prepResult = await prepareStaffTerminalPayment({
-				partyId,
-				closeoutItemIds,
-				closeoutSeatIds,
-				staffId: activeSession?.id || null,
-				staffName: getStaffName(activeSession, currentUserData),
-			});
+			let prepResult;
+			try {
+				prepResult = await prepareStaffTerminalPayment({
+					partyId,
+					closeoutItemIds,
+					closeoutSeatIds,
+					staffId: activeSession?.id || null,
+					staffName: getStaffName(activeSession, currentUserData),
+				});
+			} catch (error) {
+				console.error("[TERMINAL PAYMENT] prepareStaffTerminalPayment failed", {
+					code: error?.code,
+					message: error?.message,
+					details: error?.details,
+					partyId,
+					staffId: activeSession?.id || null,
+					closeoutItemIds,
+					closeoutSeatIds,
+				});
+				throw new Error(
+					"Could not prepare the card reader payment. Try again or reopen the closeout.",
+				);
+			}
 			const prepData = prepResult?.data || {};
 
 			if (!prepData.clientSecret || !prepData.paymentIntentId) {
 				throw new Error("The payment could not be prepared.");
 			}
+			preparedPaymentIntentId = prepData.paymentIntentId;
+			console.log("[TERMINAL PAYMENT] Prepared payment intent", {
+				paymentIntentId: prepData.paymentIntentId,
+				amount: prepData.amount,
+				subtotal: prepData.subtotal,
+				taxAmount: prepData.taxAmount,
+				onReaderTipping: prepData.onReaderTipping,
+			});
 
 			if (Number(prepData.amount || 0) !== Number(expectedTotalCents || 0)) {
 				throw new Error(
@@ -367,29 +374,68 @@ const RestaurantTerminalPaymentContent = ({
 				);
 			}
 
+			terminalStage = "retrievePaymentIntent";
 			setStepText("Loading payment on reader...");
+			console.log("[TERMINAL PAYMENT] Retrieving payment intent", {
+				paymentIntentId: prepData.paymentIntentId,
+			});
 			const retrieved = await retrievePaymentIntent(prepData.clientSecret);
 			if (retrieved?.error) throw retrieved.error;
+			console.log("[TERMINAL PAYMENT] Payment intent retrieved", {
+				paymentIntentId:
+					retrieved?.paymentIntent?.id || prepData.paymentIntentId,
+				status: retrieved?.paymentIntent?.status || null,
+			});
 
-			setStepText("Guest selects tip on reader, then presents card.");
+			terminalStage = "collectPaymentMethod";
+			setStepText(
+				isSimulatedReader
+					? "Running simulated card payment..."
+					: "Guest selects tip on reader, then presents card.",
+			);
+			console.log("[TERMINAL PAYMENT] Collecting payment method", {
+				paymentIntentId: prepData.paymentIntentId,
+				isSimulatedReader,
+				tipEligibleAmount: isSimulatedReader
+					? null
+					: Number(prepData.subtotal || 0),
+			});
 			const collected = await collectPaymentMethod({
 				paymentIntent: retrieved.paymentIntent,
-				skipTipping: false,
-				tipEligibleAmount: Number(prepData.subtotal || 0),
+				skipTipping: isSimulatedReader,
+				...(isSimulatedReader
+					? {}
+					: { tipEligibleAmount: Number(prepData.subtotal || 0) }),
 				updatePaymentIntent: true,
 			});
 			if (collected?.error) throw collected.error;
+			console.log("[TERMINAL PAYMENT] Payment method collected", {
+				paymentIntentId:
+					collected?.paymentIntent?.id || prepData.paymentIntentId,
+				status: collected?.paymentIntent?.status || null,
+			});
 
+			terminalStage = "processPaymentIntent";
 			setStepText("Processing card...");
+			console.log("[TERMINAL PAYMENT] Processing payment intent", {
+				paymentIntentId:
+					collected?.paymentIntent?.id || prepData.paymentIntentId,
+			});
 			const processed = await processPaymentIntent({
 				paymentIntent: collected.paymentIntent,
 			});
 			if (processed?.error) throw processed.error;
+			console.log("[TERMINAL PAYMENT] Payment intent processed", {
+				paymentIntentId:
+					processed?.paymentIntent?.id || prepData.paymentIntentId,
+				status: processed?.paymentIntent?.status || null,
+			});
 
 			const paymentIntentId =
 				processed?.paymentIntent?.id || prepData.paymentIntentId;
 			capturedPaymentIntentId = paymentIntentId;
 			setProcessedPaymentIntentId(paymentIntentId);
+			terminalStage = "captureStaffTerminalPayment";
 			setStepText("Capturing reader payment...");
 			const captureStaffTerminalPayment = httpsCallable(
 				functions,
@@ -419,7 +465,18 @@ const RestaurantTerminalPaymentContent = ({
 
 			await finalizeCloseout(paymentIntentId);
 		} catch (error) {
-			setErrorText(error.message || "Terminal payment failed.");
+			console.error("[TERMINAL PAYMENT] Terminal flow failed", {
+				stage: terminalStage,
+				message: error?.message,
+				code: error?.code,
+				details: error?.details,
+				paymentIntentId: capturedPaymentIntentId || preparedPaymentIntentId,
+			});
+			setErrorText(
+				capturedPaymentIntentId
+					? "Payment captured. Closeout still needs finalizing."
+					: "Card reader payment could not be completed. Try again.",
+			);
 			if (capturedPaymentIntentId) {
 				setStepText("Payment captured. Closeout still needs finalizing.");
 			}
@@ -440,7 +497,7 @@ const RestaurantTerminalPaymentContent = ({
 						<Ionicons name="arrow-back" size={22} color={colors.textDark} />
 					</TouchableOpacity>
 					<View style={styles.headerText}>
-						<Text style={styles.title}>Scerv Terminal</Text>
+						<Text style={styles.title}>Card Reader</Text>
 						<Text style={styles.subtitle}>{tableName}</Text>
 					</View>
 				</View>
@@ -505,18 +562,20 @@ const RestaurantTerminalPaymentContent = ({
 				<View style={styles.actionGrid}>
 					<TouchableOpacity
 						style={styles.secondaryButton}
-						onPress={() => startDiscovery(false)}
+						onPress={() => startDiscovery({ simulated: false })}
 						disabled={isBusy}
 					>
 						<Text style={styles.secondaryButtonText}>Find Readers</Text>
 					</TouchableOpacity>
-					<TouchableOpacity
-						style={styles.secondaryButton}
-						onPress={() => startDiscovery(true)}
-						disabled={isBusy}
-					>
-						<Text style={styles.secondaryButtonText}>Test Reader</Text>
-					</TouchableOpacity>
+					{canUseTestReader ? (
+						<TouchableOpacity
+							style={styles.secondaryButton}
+							onPress={() => startDiscovery({ simulated: true })}
+							disabled={isBusy}
+						>
+							<Text style={styles.secondaryButtonText}>Test Reader</Text>
+						</TouchableOpacity>
+					) : null}
 				</View>
 
 				{isDiscovering ? (

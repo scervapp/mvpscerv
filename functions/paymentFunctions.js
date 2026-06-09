@@ -1836,6 +1836,8 @@ const fulfillOrder = async ({
 		restaurantId: normalizedRestaurantId,
 		restaurantName:
 			restaurantData.restaurantName || restaurantData.name || "Scerv Partner",
+		workDayId:
+			pendingOrderData.workDayId || restaurantData.currentWorkDayId || null,
 
 		customerId: resolvedCustomerId,
 		customerEmail: resolvedCustomerEmail,

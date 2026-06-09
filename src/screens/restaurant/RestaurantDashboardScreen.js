@@ -130,15 +130,39 @@ const RestaurantDashboardScreen = () => {
 	};
 
 	const handleEndDay = () => {
-		Alert.alert(t("end_work_day"), t("confirm?"), [
+		Alert.alert(
+			t("close_day_title", "Close out the day?"),
+			t(
+				"close_day_message",
+				"This closes the books, clears active tables, archives Chef Q and Bar Q tickets, and prepares the restaurant for the next open day.",
+			),
+			[
 			{ text: t("cancel") },
 			{
-				text: t("end"),
+				text: t("close_day_confirm", "Close Day"),
+				style: "destructive",
 				onPress: async () => {
-					await endWorkDay();
+					setIsActionLoading(true);
+					const result = await endWorkDay();
+					setIsActionLoading(false);
+					if (result?.success) {
+						Alert.alert(
+							t("day_closed", "Day Closed"),
+							t(
+								"day_closed_summary",
+								"Books closed. Cleared {{tables}} table(s), archived {{orders}} kitchen/bar ticket(s), and closed {{parties}} active party record(s).",
+								{
+									tables: result.tablesCleared || 0,
+									orders: result.ordersArchived || 0,
+									parties: result.partiesClosed || 0,
+								},
+							),
+						);
+					}
 				},
 			},
-		]);
+			],
+		);
 	};
 
 	const toggleLanguage = () => {
