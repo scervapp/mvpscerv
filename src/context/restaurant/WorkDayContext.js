@@ -9,6 +9,7 @@ import React, {
 import { Alert } from "react-native";
 
 import { AuthContext } from "../authContext";
+import { useEmployeeSession } from "./EmployeeSessionContext";
 import { db, functions } from "../../config/firebase";
 import { httpsCallable } from "@react-native-firebase/functions";
 
@@ -22,6 +23,7 @@ export const WorkDayContext = createContext({
 
 export const WorkDayProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 
 	const [currentWorkDay, setCurrentWorkDay] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -76,14 +78,18 @@ export const WorkDayProvider = ({ children }) => {
 			return false;
 		}
 		try {
-			await startWorkDayFunction({ restaurantId });
+			await startWorkDayFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+				staffName: activeSession?.name || null,
+			});
 			// The listener will automatically update the state
 			return true;
 		} catch (error) {
 			Alert.alert("Error Starting Day", error.message);
 			return false;
 		}
-	}, [currentUserData?.uid, startWorkDayFunction]);
+	}, [activeSession?.id, activeSession?.name, currentUserData?.uid, startWorkDayFunction]);
 
 	const endWorkDay = useCallback(async () => {
 		const restaurantId = currentUserData?.uid;
@@ -93,14 +99,25 @@ export const WorkDayProvider = ({ children }) => {
 			return false;
 		}
 		try {
-			await endWorkDayFunction({ restaurantId, workDayId });
+			const result = await endWorkDayFunction({
+				restaurantId,
+				workDayId,
+				staffId: activeSession?.id || null,
+				staffName: activeSession?.name || null,
+			});
 			// The listener will automatically clear the state
-			return true;
+			return result?.data || { success: true };
 		} catch (error) {
 			Alert.alert("Error Ending Day", error.message);
 			return false;
 		}
-	}, [currentUserData?.uid, currentWorkDay?.id, endWorkDayFunction]);
+	}, [
+		activeSession?.id,
+		activeSession?.name,
+		currentUserData?.uid,
+		currentWorkDay?.id,
+		endWorkDayFunction,
+	]);
 
 	const value = {
 		currentWorkDay,

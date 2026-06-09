@@ -4,6 +4,7 @@ import React, {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { NativeModules, StyleSheet, Text, View } from "react-native";
@@ -18,9 +19,21 @@ import { AuthContext } from "../authContext";
 import { useEmployeeSession } from "./EmployeeSessionContext";
 import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
 const TerminalContext = createContext({
 	tokenStatus: "Token not requested yet",
+	liveMode: null,
+	readerList: [],
+	connectedReader: null,
+	loading: false,
+	discoverReaders: async () => ({ error: null }),
+	cancelDiscovering: async () => ({ error: null }),
+	connectReader: async () => ({ error: null }),
+	disconnectReader: async () => ({ error: null }),
+	retrievePaymentIntent: async () => ({ error: null }),
+	collectPaymentMethod: async () => ({ error: null }),
+	processPaymentIntent: async () => ({ error: null }),
 });
 
 const getReaderName = (reader = {}) =>
@@ -50,24 +63,57 @@ const setNativeConnectionToken = async ({ token, error }) => {
 	await terminalNativeModule.setConnectionToken({ token, error });
 };
 
-const TerminalLifecycle = ({ children, enabled, setTokenStatus }) => {
-	const { initialize, isInitialized } = useStripeTerminal({
+const TerminalLifecycle = ({
+	children,
+	enabled,
+	stripeTerminalLocationId,
+	liveMode,
+	tokenStatus,
+	setTokenStatus,
+}) => {
+	const autoConnectAttemptedRef = useRef(false);
+	const [readerList, setReaderList] = useState([]);
+	const {
+		initialize,
+		isInitialized,
+		easyConnect,
+		connectedReader,
+		loading,
+		discoverReaders,
+		cancelDiscovering,
+		connectReader,
+		disconnectReader,
+		retrievePaymentIntent,
+		collectPaymentMethod,
+		processPaymentIntent,
+	} = useStripeTerminal({
+		onUpdateDiscoveredReaders: (readers) => {
+			setReaderList(readers || []);
+		},
 		onDidChangeConnectionStatus: (status) => {
 			if (status === "connected") {
 				setTokenStatus("Reader connected");
+			} else if (status === "connecting" || status === "discovering") {
+				setTokenStatus("Connecting reader...");
+			} else if (status === "reconnecting") {
+				setTokenStatus("Reconnecting reader...");
 			}
 		},
 		onDidDisconnect: () => {
 			setTokenStatus("Reader disconnected");
+			autoConnectAttemptedRef.current = false;
 		},
 	});
+
+	useEffect(() => {
+		autoConnectAttemptedRef.current = false;
+	}, [enabled, stripeTerminalLocationId]);
 
 	useEffect(() => {
 		let mounted = true;
 
 		const initializeTerminal = async () => {
-			if (!enabled) return;
-			if (isInitialized) return;
+			if (!enabled || isInitialized) return;
 			const result = await initialize();
 			if (!mounted) return;
 			if (result?.error) {
@@ -75,9 +121,9 @@ const TerminalLifecycle = ({ children, enabled, setTokenStatus }) => {
 					result.error.message ||
 						"Stripe Terminal could not initialize on this device.",
 				);
-			} else {
-				setTokenStatus("Terminal ready");
+				return;
 			}
+			setTokenStatus("Terminal ready");
 		};
 
 		initializeTerminal();
@@ -87,14 +133,102 @@ const TerminalLifecycle = ({ children, enabled, setTokenStatus }) => {
 		};
 	}, [enabled, initialize, isInitialized, setTokenStatus]);
 
-	return children;
+	useEffect(() => {
+		let mounted = true;
+
+		const connectAvailableInternetReader = async () => {
+			if (!enabled || !isInitialized || connectedReader) return;
+			if (autoConnectAttemptedRef.current) return;
+			autoConnectAttemptedRef.current = true;
+			setTokenStatus("Looking for reader...");
+
+			try {
+				const result = await easyConnect({
+					discoveryMethod: "internet",
+					timeout: 8,
+					failIfInUse: true,
+					...(stripeTerminalLocationId
+						? { locationId: stripeTerminalLocationId }
+						: {}),
+				});
+
+				if (!mounted) return;
+				if (result?.error) {
+					setTokenStatus("No available reader");
+					return;
+				}
+
+				setTokenStatus(
+					result?.reader
+						? `Reader connected: ${getReaderName(result.reader)}`
+						: "Reader connected",
+				);
+			} catch (error) {
+				if (!mounted) return;
+				setTokenStatus("No available reader");
+			}
+		};
+
+		connectAvailableInternetReader();
+
+		return () => {
+			mounted = false;
+		};
+	}, [
+		connectedReader,
+		easyConnect,
+		enabled,
+		isInitialized,
+		setTokenStatus,
+		stripeTerminalLocationId,
+	]);
+
+	const value = useMemo(
+		() => ({
+			tokenStatus,
+			liveMode,
+			readerList,
+			connectedReader,
+			loading,
+			discoverReaders,
+			cancelDiscovering,
+			connectReader,
+			disconnectReader,
+			retrievePaymentIntent,
+			collectPaymentMethod,
+			processPaymentIntent,
+		}),
+		[
+			cancelDiscovering,
+			collectPaymentMethod,
+			connectReader,
+			connectedReader,
+			disconnectReader,
+			discoverReaders,
+			loading,
+			liveMode,
+			processPaymentIntent,
+			readerList,
+			retrievePaymentIntent,
+			tokenStatus,
+		],
+	);
+
+	return (
+		<TerminalContext.Provider value={value}>
+			{children}
+		</TerminalContext.Provider>
+	);
 };
 
 export const RestaurantTerminalProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 	const [tokenStatus, setTokenStatus] = useState("Token not requested yet");
+	const permissions = getRestaurantPermissions(activeSession);
+	const terminalEnabled = !!activeSession && permissions.canUseTerminal;
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const [liveMode, setLiveMode] = useState(null);
 	const stripeTerminalLocationId =
 		currentUserData?.stripeTerminalLocationId ||
 		currentUserData?.terminalLocationId ||
@@ -103,6 +237,9 @@ export const RestaurantTerminalProvider = ({ children }) => {
 	const fetchConnectionTokenFromServer = useCallback(async () => {
 		if (!restaurantId) {
 			throw new Error("Restaurant context is missing for Terminal connection.");
+		}
+		if (!terminalEnabled) {
+			throw new Error("This staff role is not allowed to connect a reader.");
 		}
 
 		const startedAt = Date.now();
@@ -133,9 +270,16 @@ export const RestaurantTerminalProvider = ({ children }) => {
 			locationId: result.data.locationId || stripeTerminalLocationId || null,
 			durationMs: Date.now() - startedAt,
 		});
+		setLiveMode(result.data.liveMode === true);
 
 		return result.data.secret;
-	}, [activeSession?.id, restaurantId, stripeTerminalLocationId]);
+	}, [
+		activeSession?.id,
+		restaurantId,
+		setLiveMode,
+		stripeTerminalLocationId,
+		terminalEnabled,
+	]);
 
 	const tokenProvider = useCallback(async () => {
 		console.log("[TERMINAL TOKEN] tokenProvider called");
@@ -158,28 +302,37 @@ export const RestaurantTerminalProvider = ({ children }) => {
 		}
 	}, [fetchConnectionTokenFromServer]);
 
-	const value = useMemo(() => ({ tokenStatus }), [tokenStatus]);
-
 	return (
-		<TerminalContext.Provider value={value}>
-			<StripeTerminalProvider logLevel="error" tokenProvider={tokenProvider}>
-				<TerminalLifecycle
-					enabled={!!restaurantId}
-					setTokenStatus={setTokenStatus}
-				>
+		<>
+			{terminalEnabled ? (
+				<StripeTerminalProvider logLevel="error" tokenProvider={tokenProvider}>
+					<TerminalLifecycle
+						enabled={!!restaurantId}
+						stripeTerminalLocationId={stripeTerminalLocationId}
+						liveMode={liveMode}
+						tokenStatus={tokenStatus}
+						setTokenStatus={setTokenStatus}
+					>
+						{children}
+					</TerminalLifecycle>
+				</StripeTerminalProvider>
+			) : (
+				<TerminalContext.Provider value={{ tokenStatus }}>
 					{children}
-				</TerminalLifecycle>
-			</StripeTerminalProvider>
-		</TerminalContext.Provider>
+				</TerminalContext.Provider>
+			)}
+		</>
 	);
 };
 
 export const useRestaurantTerminal = () => useContext(TerminalContext);
 
-export const RestaurantTerminalIndicator = () => {
-	const { connectedReader, loading } = useStripeTerminal();
+const RestaurantTerminalIndicatorContent = () => {
+	const { connectedReader, loading, tokenStatus } = useRestaurantTerminal();
 	const isConnected = !!connectedReader;
-	const label = isConnected ? getReaderName(connectedReader) : "No reader";
+	const label = isConnected
+		? getReaderName(connectedReader)
+		: tokenStatus || "No reader";
 
 	return (
 		<View
@@ -204,6 +357,15 @@ export const RestaurantTerminalIndicator = () => {
 			</Text>
 		</View>
 	);
+};
+
+export const RestaurantTerminalIndicator = () => {
+	const { activeSession } = useEmployeeSession();
+	const permissions = getRestaurantPermissions(activeSession);
+	const terminalEnabled = !!activeSession && permissions.canUseTerminal;
+	if (!terminalEnabled) return null;
+
+	return <RestaurantTerminalIndicatorContent />;
 };
 
 const styles = StyleSheet.create({

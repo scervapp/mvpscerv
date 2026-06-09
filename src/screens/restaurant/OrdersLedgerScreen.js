@@ -53,6 +53,12 @@ const getRestaurantNetReceived = (order) => {
 		return Number(order.restaurantTransferAmount);
 	}
 
+	const processingFees = getProcessingFees(order);
+
+	return Math.max(0, Number(order.totalPrice || 0) - processingFees);
+};
+
+const getProcessingFees = (order) => {
 	const restaurantProcessingFee = Number(
 		order.restaurantProcessingFeeAmount ||
 			order.processorFeeAppliedToRestaurantSales ||
@@ -60,12 +66,7 @@ const getRestaurantNetReceived = (order) => {
 			0,
 	);
 
-	return Math.max(
-		0,
-		Number(order.totalPrice || 0) -
-			Number(order.platformFee || 0) -
-			restaurantProcessingFee,
-	);
+	return Math.max(0, Number(order.platformFee || 0) + restaurantProcessingFee);
 };
 
 const humanizeValue = (value) =>
@@ -79,6 +80,13 @@ const getOrderSourceLabel = (order) => {
 	}
 	if (order.paymentProcessor === "stripe") return "Customer App / Stripe";
 	return humanizeValue(order.orderEntryMode || order.paymentProcessor || "Order");
+};
+
+const getTransferStatusLabel = (status) => {
+	const normalized = String(status || "").toLowerCase();
+	if (normalized === "stripe_terminal_processed") return "Processed";
+	if (normalized === "manual_tender") return "Recorded";
+	return humanizeValue(status);
 };
 
 const LedgerMoneyMetric = ({ label, value, highlight = false }) => (
@@ -134,6 +142,7 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 
 	const renderOrder = ({ item }) => {
 		const netReceived = getRestaurantNetReceived(item);
+		const processingFees = getProcessingFees(item);
 
 		return (
 			<TouchableOpacity
@@ -197,7 +206,9 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 					/>
 					{item.restaurantTransferStatus ? (
 						<StatusChip
-							label={`${t("transfer", "Transfer")}: ${item.restaurantTransferStatus}`}
+							label={`${t("transfer", "Transfer")}: ${getTransferStatusLabel(
+								item.restaurantTransferStatus,
+							)}`}
 							tone={getStatusTone(item.restaurantTransferStatus)}
 						/>
 					) : null}
@@ -208,16 +219,10 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 						{t("subtotal", "Subtotal")}: {formatCurrency(item.subtotal)}
 					</Text>
 					<Text style={styles.financialText}>
-						{item.isManualRestaurantOrder
-							? t("fee_waived", "Scerv Fee Waived")
-							: `${t("fees", "Fees")}: ${formatCurrency(
-									Number(item.platformFee || 0) +
-										Number(
-											item.restaurantProcessingFeeAmount ||
-												item.processorFeeAppliedToRestaurantSales ||
-												item.processorFee ||
-												0,
-										),
+						{processingFees <= 0
+							? t("processing_fees_waived", "Processing Fees Waived")
+							: `${t("processing_fees", "Processing Fees")}: ${formatCurrency(
+									processingFees,
 								)}`}
 					</Text>
 				</View>
@@ -277,9 +282,8 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 				{[
 					["", t("all_payments", "All payments")],
 					["stripe", "Stripe"],
-					["cash", t("cash", "Cash")],
-					["external_terminal", t("card_terminal", "Card Terminal")],
-					["stripe_terminal", t("scerv_terminal", "Scerv Terminal")],
+					["cash", t("cash_payment_option", "Cash")],
+					["stripe_terminal", t("card_reader", "Card Reader")],
 				].map(([value, label]) => (
 					<FilterChip
 						key={value || "all-payments"}

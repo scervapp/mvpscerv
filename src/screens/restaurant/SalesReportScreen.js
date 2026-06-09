@@ -309,15 +309,7 @@ const SalesReportScreen = ({ navigation }) => {
 						{t("fee_breakdown", "Fee Breakdown")}
 					</Text>
 					<DetailRow
-						label={t("platform_fees", "Scerv Platform Fees")}
-						value={`-${formatCurrency(reportData.totalPlatformFees)}`}
-					/>
-					<DetailRow
-						label={t("payment_processing", "Payment Processing")}
-						value={`-${formatCurrency(reportData.totalProcessorFees)}`}
-					/>
-					<DetailRow
-						label={t("total_fees", "Total Fees")}
+						label={t("processing_fees", "Processing Fees")}
 						value={`-${formatCurrency(reportData.totalFees)}`}
 					/>
 				</DetailedReportCard>

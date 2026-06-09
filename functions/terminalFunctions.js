@@ -164,7 +164,17 @@ exports.createTerminalConnectionToken = functions
 				restaurantId,
 				employeeId: staffId,
 				allowedRoles: ["owner", "manager"],
-				allowedJobTitles: ["server", "bartender"],
+				allowedJobTitles: [
+					"server",
+					"bartender",
+					"bar",
+					"chef",
+					"kitchen",
+					"host",
+					"support",
+					"busser",
+					"runner",
+				],
 				action: "connect terminal reader",
 			});
 
@@ -259,7 +269,7 @@ exports.prepareStaffTerminalPayment = functions
 				restaurantId,
 				employeeId: staffId,
 				allowedRoles: ["owner", "manager"],
-				allowedJobTitles: ["server", "bartender"],
+				allowedJobTitles: ["server", "bartender", "bar"],
 				action: "prepare terminal payment",
 			});
 
@@ -381,11 +391,19 @@ exports.prepareStaffTerminalPayment = functions
 						terminalApplicationFeeAmount: "0",
 						onReaderTipping: "true",
 						pricingTier,
+						terminalProcessingFeePercentage: String(
+							terminalPolicy.terminalProcessingFeePercentage,
+						),
+						terminalProcessingFeeFixedCents: String(
+							terminalPolicy.terminalProcessingFeeFixedCents,
+						),
+						terminalProcessingFeeBasis:
+							terminalPolicy.terminalProcessingFeeBasis,
 						selectedItemIds: selectedItemIds.join(","),
 						selectedSeatIds: selectedSeatIds.join(","),
 					},
 				},
-				{ idempotencyKey: `terminal:${partyId}:${selectedItemIds.join("_")}:${salesAndTaxAmount}:reader_tip` },
+				{ idempotencyKey: `terminal:v2:${partyId}:${selectedItemIds.join("_")}:${salesAndTaxAmount}:reader_tip` },
 			);
 
 			await db.collection("terminal_payments").doc(paymentIntent.id).set({
@@ -407,6 +425,13 @@ exports.prepareStaffTerminalPayment = functions
 				taxRate: restaurantTaxRate,
 				gratuityAmount: 0,
 				applicationFeeAmount: 0,
+				terminalProcessingFeePercentage:
+					terminalPolicy.terminalProcessingFeePercentage,
+				terminalProcessingFeeFixedCents:
+					terminalPolicy.terminalProcessingFeeFixedCents,
+				terminalProcessingFeeBasis:
+					terminalPolicy.terminalProcessingFeeBasis,
+				terminalProcessingFeeBasisAmount: 0,
 				restaurantTransferAmount: salesAndTaxAmount,
 				itemIds: selectedItemIds,
 				seatIds: selectedSeatIds,
@@ -443,7 +468,13 @@ exports.prepareStaffTerminalPayment = functions
 			if (error instanceof functions.https.HttpsError) throw error;
 			throw new functions.https.HttpsError(
 				"internal",
-				"Could not prepare staff Terminal payment.",
+				error && error.message
+					? error.message
+					: "Could not prepare staff Terminal payment.",
+				{
+					code: error && error.code ? error.code : null,
+					type: error && error.type ? error.type : null,
+				},
 			);
 		}
 	});
@@ -574,6 +605,10 @@ exports.captureStaffTerminalPayment = functions
 					terminalPolicy.terminalProcessingFeeFixedCents,
 				),
 			);
+			const restaurantTransferAmount = Math.max(
+				0,
+				finalAmount - applicationFeeAmount,
+			);
 
 			if (paymentIntent.status === "requires_capture") {
 				await stripeInstance.paymentIntents.update(paymentIntentId, {
@@ -583,6 +618,15 @@ exports.captureStaffTerminalPayment = functions
 						total: String(finalAmount),
 						platformFee: String(applicationFeeAmount),
 						terminalApplicationFeeAmount: String(applicationFeeAmount),
+						terminalProcessingFeePercentage: String(
+							terminalPolicy.terminalProcessingFeePercentage,
+						),
+						terminalProcessingFeeFixedCents: String(
+							terminalPolicy.terminalProcessingFeeFixedCents,
+						),
+						terminalProcessingFeeBasis:
+							terminalPolicy.terminalProcessingFeeBasis,
+						terminalProcessingFeeBasisAmount: String(feeBasisAmount),
 					},
 				});
 				paymentIntent = await stripeInstance.paymentIntents.capture(
@@ -617,10 +661,16 @@ exports.captureStaffTerminalPayment = functions
 					gratuityAmount,
 					applicationFeeAmount,
 					stripeApplicationFeeAmount: applicationFeeAmount,
-					restaurantTransferAmount: Math.max(
-						0,
-						finalAmount - applicationFeeAmount,
-					),
+					platformFee: applicationFeeAmount,
+					scervFee: applicationFeeAmount,
+					terminalProcessingFeePercentage:
+						terminalPolicy.terminalProcessingFeePercentage,
+					terminalProcessingFeeFixedCents:
+						terminalPolicy.terminalProcessingFeeFixedCents,
+					terminalProcessingFeeBasis:
+						terminalPolicy.terminalProcessingFeeBasis,
+					terminalProcessingFeeBasisAmount: feeBasisAmount,
+					restaurantTransferAmount,
 					capturedBy: {
 						userId: context.auth.uid,
 						staffId: staffId || null,
