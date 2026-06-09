@@ -41,3 +41,6 @@ yarn-error.*
 *.tsbuildinfo
 
 .codegpt
+
+# Generated/print-ready assets should not be committed to app source history.
+src/utils/*.pdf
