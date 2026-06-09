@@ -70,8 +70,15 @@ const deriveStationStatusFromItems = (items, station, fallbackStatus = "new") =>
 		getStationItemStatus(item, station, fallbackStatus),
 	);
 
-	if (statuses.every((status) => status === "ready")) return "ready";
-	if (statuses.some((status) => status === "preparing" || status === "ready")) {
+	if (statuses.every((status) => status === "ready" || status === "served")) {
+		return "ready";
+	}
+	if (
+		statuses.some(
+			(status) =>
+				status === "preparing" || status === "ready" || status === "served",
+		)
+	) {
 		return "preparing";
 	}
 
@@ -80,6 +87,7 @@ const deriveStationStatusFromItems = (items, station, fallbackStatus = "new") =>
 
 const getStatusMeta = (status) => {
 	switch (status) {
+		case "served":
 		case "ready":
 			return {
 				label: "READY",
@@ -198,7 +206,9 @@ const KitchenTicket = React.memo(
 		const statusMeta = getStatusMeta(currentStatus);
 		const openCount = itemsToDisplay.filter(
 			(item) =>
-				getStationItemStatus(item, viewMode, itemStatusFallback) !== "ready",
+				!["ready", "served"].includes(
+					getStationItemStatus(item, viewMode, itemStatusFallback),
+				),
 		).length;
 		const ticketActionKey = `${order.id}:${viewMode}:all`;
 		const isTicketUpdating = updatingKeys[ticketActionKey];
@@ -273,7 +283,8 @@ const KitchenTicket = React.memo(
 							itemStatusFallback,
 						);
 						const itemStatusMeta = getStatusMeta(itemStatus);
-						const isItemReady = itemStatus === "ready";
+						const isItemReady =
+							itemStatus === "ready" || itemStatus === "served";
 						const nextItemStatus =
 							itemStatus === "new" ? "preparing" : "ready";
 						const itemUpdateKey = `${order.id}:${viewMode}:${item.id}`;

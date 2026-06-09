@@ -123,6 +123,8 @@ exports.acknowledgePartyServiceRequest =
 	restaurantFunctions.acknowledgePartyServiceRequest;
 exports.updateKitchenOrderStationStatus =
 	restaurantFunctions.updateKitchenOrderStationStatus;
+exports.markReadyKitchenItemsServed =
+	restaurantFunctions.markReadyKitchenItemsServed;
 exports.completePickupOrderHandoff =
 	restaurantFunctions.completePickupOrderHandoff;
 exports.markPartyTableClean = restaurantFunctions.markPartyTableClean;
