@@ -511,6 +511,10 @@ const RestaurantActiveTables = () => {
 		const isCheckoutRequest =
 			item.customerStatus === "ready_to_pay" && !isDirty;
 		const hasFoodReady = item.hasFoodReady === true && !isDirty;
+		const hasCustomerAppOrder =
+			(item.hasCustomerAppOrder === true ||
+				item.customerServiceFeeEligible === true) &&
+			!isDirty;
 		const isRunningFood = runningFoodPartyId === item.id;
 
 		const seatedTime = item.createdAt?.toDate
@@ -642,6 +646,19 @@ const RestaurantActiveTables = () => {
 						</Text>
 					</View>
 				</View>
+
+				{hasCustomerAppOrder && (
+					<View style={styles.appOrderFeeBanner}>
+						<MaterialCommunityIcons
+							name="cellphone-check"
+							size={18}
+							color={colors.primary}
+						/>
+						<Text style={styles.appOrderFeeText}>
+							{t("app_order_service_fee_applies", "App order fee applies")}
+						</Text>
+					</View>
+				)}
 
 				{(needsService || isCheckoutRequest) && !isDirty && (
 					<View
@@ -1051,6 +1068,24 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 		alignItems: "center",
 		marginBottom: 10,
+	},
+	appOrderFeeBanner: {
+		flexDirection: "row",
+		alignItems: "center",
+		alignSelf: "flex-start",
+		backgroundColor: colors.primary + "12",
+		borderColor: colors.primary + "30",
+		borderWidth: 1,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		marginBottom: 10,
+	},
+	appOrderFeeText: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "800",
+		marginLeft: 6,
 	},
 	hostInfo: { flexDirection: "row", alignItems: "center" },
 	hostNameText: {

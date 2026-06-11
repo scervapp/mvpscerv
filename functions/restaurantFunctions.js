@@ -51,6 +51,8 @@ const kitchenOrderItemBelongsToStation = (item, station) => {
 	return false;
 };
 
+const PREP_TICKET_JOB_TITLES = ["chef", "kitchen", "bartender", "bar"];
+
 const getKitchenOrderItemStationStatus = (
 	item,
 	station,
@@ -58,6 +60,67 @@ const getKitchenOrderItemStationStatus = (
 ) => {
 	const stationStatuses = item && item.stationStatuses ? item.stationStatuses : {};
 	return stationStatuses[station] || fallbackStatus || "new";
+};
+
+const DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE = 0.03;
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	const decimal = parsed > 1 ? parsed / 100 : parsed;
+	return Math.min(Math.max(decimal, 0), 1);
+};
+
+const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
+	Math.max(
+		0,
+		Math.round(Number(amountCents || 0) * normalizePercentage(percentage)) +
+			Math.max(0, Math.round(Number(fixedCents || 0))),
+	);
+
+const isCustomerAppInitiatedItem = (item = {}) =>
+	item.source === "customer_app" ||
+	item.orderEntryMode === "customer" ||
+	item.paymentResponsibility === "customer_app" ||
+	!(
+		item.source === "restaurant_pos" ||
+		item.orderEntryMode === "staff" ||
+		item.paymentResponsibility === "restaurant_pos" ||
+		item.enteredByStaffId ||
+		String(item.orderedByPipName || "").startsWith("Server:")
+	);
+
+const resolveCustomerServiceFeePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
+	const restaurantPolicy = restaurantData.paymentPolicy || {};
+	const tierPolicy = tierConfig.paymentPolicy || {};
+	const firstDefined = (...values) => {
+		const match = values.find((value) => value !== undefined && value !== null);
+		return match === undefined ? null : match;
+	};
+
+	return {
+		customerServiceFeePercentage: normalizePercentage(
+			firstDefined(
+				restaurantPolicy.customerServiceFeePercentage,
+				restaurantData.customerServiceFeePercentage,
+				restaurantPolicy.scervFeePercentage,
+				restaurantData.scervFeePercentage,
+				restaurantPolicy.platformFeePercentage,
+				restaurantData.platformFeePercentage,
+				tierPolicy.customerServiceFeePercentage,
+				tierConfig.customerServiceFeePercentage,
+				tierPolicy.guestServiceFeePercentage,
+				tierConfig.guestServiceFeePercentage,
+				tierPolicy.scervFeePercentage,
+				tierConfig.scervFeePercentage,
+				tierPolicy.platformFeePercentage,
+				tierConfig.platformFeePercentage,
+				DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+			),
+			DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+		),
+		customerServiceFeeBasis: "customer_app_sales_and_tax",
+	};
 };
 
 const deriveKitchenOrderStationStatus = (
@@ -2757,7 +2820,7 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 				restaurantId: orderData.restaurantId,
 				employeeId: staffId,
 				allowedRoles: ["owner", "manager"],
-				allowedJobTitles: station === "bar" ? ["bartender"] : ["chef"],
+				allowedJobTitles: PREP_TICKET_JOB_TITLES,
 				action: `update ${station} tickets`,
 			});
 
@@ -3527,6 +3590,7 @@ exports.closePartyTable = functions
 				const restaurantName =
 					partyData.restaurantName || partyData.name || "Scerv Partner";
 				let restaurantData = {};
+				let tierConfig = {};
 
 				if (restaurantId) {
 					const restaurantRef = db.collection("restaurants").doc(restaurantId);
@@ -3534,6 +3598,15 @@ exports.closePartyTable = functions
 					restaurantData = restaurantDoc.exists
 						? restaurantDoc.data() || {}
 						: {};
+					const pricingConfigRef = db.collection("appConfig").doc("pricingTiers");
+					const pricingConfigDoc = await transaction.get(pricingConfigRef);
+					const pricingConfigData = pricingConfigDoc.exists
+						? pricingConfigDoc.data() || {}
+						: {};
+					const pricingTiers =
+						pricingConfigData.pricingTiers || pricingConfigData || {};
+					const pricingTier = restaurantData.pricingTier || "basic";
+					tierConfig = pricingTiers[pricingTier] || pricingTiers.basic || {};
 				}
 
 				const allItems = Array.isArray(basketData.items)
@@ -3619,6 +3692,20 @@ exports.closePartyTable = functions
 					selectedCloseoutItems,
 					restaurantTaxRate,
 				);
+				const customerServiceFeePolicy = resolveCustomerServiceFeePolicy({
+					restaurantData,
+					tierConfig,
+				});
+				const customerAppTotals = calculateRestaurantCloseoutTotals(
+					selectedCloseoutItems.filter(isCustomerAppInitiatedItem),
+					restaurantTaxRate,
+				);
+				const customerServiceFeeBasisAmountCents =
+					customerAppTotals.subtotalCents + customerAppTotals.taxAmountCents;
+				const customerServiceFeeCents = calculatePercentageFee(
+					customerServiceFeeBasisAmountCents,
+					customerServiceFeePolicy.customerServiceFeePercentage,
+				);
 
 				// Staff closeout business rule:
 				// - Cash: no Scerv/platform fee
@@ -3638,8 +3725,12 @@ exports.closePartyTable = functions
 					subtotalCents +
 					taxAmountCents +
 					gratuityAmountCents +
-					platformFeeCents;
+					customerServiceFeeCents;
 				let restaurantGrossAmountCents = totalPriceCents;
+				restaurantGrossAmountCents = Math.max(
+					0,
+					totalPriceCents - customerServiceFeeCents,
+				);
 				const manualPaymentProcessor =
 					paymentMethod === "cash"
 						? "cash"
@@ -3716,7 +3807,7 @@ exports.closePartyTable = functions
 						subtotalCents +
 						taxAmountCents +
 						gratuityAmountCents +
-						platformFeeCents;
+						customerServiceFeeCents;
 					restaurantGrossAmountCents = totalPriceCents;
 
 					if (Number(terminalPaymentData.amount || 0) !== totalPriceCents) {
@@ -3760,6 +3851,10 @@ exports.closePartyTable = functions
 							),
 						),
 					);
+					restaurantGrossAmountCents = Math.max(
+						0,
+						totalPriceCents - customerServiceFeeCents,
+					);
 				}
 
 				const restaurantTransferAmountCents = Math.max(
@@ -3790,6 +3885,8 @@ exports.closePartyTable = functions
 					discountTotalCents,
 					taxAmountCents,
 					gratuityAmountCents,
+					customerServiceFeeCents,
+					customerServiceFeeBasisAmountCents,
 					platformFeeCents,
 					processorFeeCents,
 					cashReceivedCents,
@@ -3841,6 +3938,16 @@ exports.closePartyTable = functions
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",
 					gratuityAmount: gratuityAmountCents,
+					customerServiceFee: customerServiceFeeCents,
+					customerServiceFeeAmount: customerServiceFeeCents,
+					customerServiceFeePercentage:
+						customerServiceFeePolicy.customerServiceFeePercentage,
+					customerServiceFeeBasis:
+						customerServiceFeePolicy.customerServiceFeeBasis,
+					customerServiceFeeBasisAmount:
+						customerServiceFeeBasisAmountCents,
+					customerAppSubtotal: customerAppTotals.subtotalCents,
+					customerAppTaxAmount: customerAppTotals.taxAmountCents,
 					platformFee: platformFeeCents,
 					processorFee: processorFeeCents,
 					applicationFeeAmount:
@@ -3899,6 +4006,11 @@ exports.closePartyTable = functions
 						acc.discountTotal += Number(payment.discountTotal || 0);
 						acc.taxAmount += Number(payment.taxAmount || 0);
 						acc.gratuityAmount += Number(payment.gratuityAmount || 0);
+						acc.customerServiceFee += Number(
+							payment.customerServiceFeeAmount ||
+								payment.customerServiceFee ||
+								0,
+						);
 						acc.platformFee += Number(payment.platformFee || 0);
 						acc.processorFee += Number(payment.processorFee || 0);
 						acc.restaurantGrossAmount += Number(
@@ -3918,6 +4030,7 @@ exports.closePartyTable = functions
 						discountTotal: 0,
 						taxAmount: 0,
 						gratuityAmount: 0,
+						customerServiceFee: 0,
 						platformFee: 0,
 						processorFee: 0,
 						restaurantGrossAmount: 0,
@@ -4026,6 +4139,8 @@ exports.closePartyTable = functions
 						taxRate: restaurantTaxRate,
 						taxSource: "restaurant.taxRate",
 						gratuityAmount: gratuityAmountCents,
+						customerServiceFee: customerServiceFeeCents,
+						customerServiceFeeAmount: customerServiceFeeCents,
 						platformFee: platformFeeCents,
 						processorFee: processorFeeCents,
 						feePolicy: closeoutFeePolicy,
@@ -4161,15 +4276,18 @@ exports.closePartyTable = functions
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",
 					gratuityAmount: aggregateCloseout.gratuityAmount,
+					customerServiceFee: aggregateCloseout.customerServiceFee,
+					customerServiceFeeAmount: aggregateCloseout.customerServiceFee,
 					platformFee: aggregateCloseout.platformFee,
 					processorFee: aggregateCloseout.processorFee,
 					restaurantGrossAmount: aggregateCloseout.restaurantGrossAmount,
 					restaurantTransferAmount:
 						aggregateCloseout.restaurantTransferAmount,
-					scervGrossFee:
-						aggregateCloseout.platformFee + aggregateCloseout.processorFee,
-					scervNet:
-						aggregateCloseout.platformFee + aggregateCloseout.processorFee,
+					scervGrossFee: aggregateCloseout.platformFee,
+					scervNet: Math.max(
+						0,
+						aggregateCloseout.platformFee - aggregateCloseout.processorFee,
+					),
 					stripeFeeResponsibility: hasStripeTerminalPayment
 						? "restaurant"
 						: "not_applicable",
@@ -4337,8 +4455,8 @@ exports.closePartyTable = functions
 											<span>$${(aggregateCloseout.taxAmount / 100).toFixed(2)}</span>
 										</div>
 										<div style="display: flex; justify-content: space-between; font-size: 14px; color: #333; margin-bottom: 6px;">
-											<span>Scerv Fee</span>
-											<span>$0.00 waived</span>
+											<span>Service Fee</span>
+											<span>$${(aggregateCloseout.customerServiceFee / 100).toFixed(2)}</span>
 										</div>
 										${
 											aggregateCloseout.gratuityAmount > 0
@@ -4357,7 +4475,7 @@ exports.closePartyTable = functions
 											paymentMethod === "cash"
 												? "Cash"
 												: paymentMethod === "stripe_terminal"
-													? "Stripe Terminal"
+													? "Scerv Reader"
 													: "External terminal"
 										}</div>
 										${
@@ -4403,6 +4521,8 @@ exports.closePartyTable = functions
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",
 					gratuityAmount: gratuityAmountCents,
+					customerServiceFee: customerServiceFeeCents,
+					customerServiceFeeAmount: customerServiceFeeCents,
 					platformFee: platformFeeCents,
 					processorFee: processorFeeCents,
 					feePolicy: closeoutFeePolicy,

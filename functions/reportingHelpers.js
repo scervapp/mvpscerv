@@ -137,6 +137,13 @@ const normalizeOrderForReporting = (doc) => {
 			: raw.platformFeeActual !== undefined && raw.platformFeeActual !== null
 				? safeNumber(raw.platformFeeActual, 0)
 				: 0;
+	const customerServiceFee =
+		raw.customerServiceFeeAmount !== undefined &&
+		raw.customerServiceFeeAmount !== null
+			? safeNumber(raw.customerServiceFeeAmount, 0)
+			: raw.customerServiceFee !== undefined && raw.customerServiceFee !== null
+				? safeNumber(raw.customerServiceFee, 0)
+				: 0;
 
 	const processorFee =
 		raw.processorFee !== undefined && raw.processorFee !== null
@@ -162,6 +169,19 @@ const normalizeOrderForReporting = (doc) => {
 		raw.paymentMethod === "stripe_terminal" ||
 		raw.restaurantTransferStatus === "stripe_terminal_processed" ||
 		raw.feePolicy === "stripe_terminal_restaurant_processing_fee";
+	const restaurantProcessingFeeAmount =
+		raw.restaurantProcessingFeeAmount !== undefined &&
+		raw.restaurantProcessingFeeAmount !== null
+			? safeNumber(raw.restaurantProcessingFeeAmount, 0)
+			: raw.processorFeeAppliedToRestaurantSales !== undefined &&
+				  raw.processorFeeAppliedToRestaurantSales !== null
+				? safeNumber(raw.processorFeeAppliedToRestaurantSales, 0)
+				: raw.terminalProcessingFeeAmount !== undefined &&
+					  raw.terminalProcessingFeeAmount !== null
+					? safeNumber(raw.terminalProcessingFeeAmount, 0)
+					: isStripeTerminalRestaurantCloseout
+						? Math.max(0, platformFee - customerServiceFee)
+						: 0;
 	const derivedRestaurantTransferAmount = Math.max(
 		0,
 		totalPrice - platformFee - processorFee,
@@ -208,6 +228,8 @@ const normalizeOrderForReporting = (doc) => {
 		discountTotal,
 		taxAmount,
 		gratuityAmount,
+		customerServiceFee,
+		restaurantProcessingFeeAmount,
 		platformFee,
 		processorFee,
 		totalPrice,
@@ -236,6 +258,8 @@ const aggregateOrders = (orders) => {
 	let totalGratuity = 0;
 	let totalProcessorFees = 0;
 	let totalPlatformFees = 0;
+	let totalCustomerServiceFees = 0;
+	let totalRestaurantProcessingFees = 0;
 	let totalDiscounts = 0;
 	let totalOrders = 0;
 	let sumTurnoverMinutes = 0;
@@ -254,6 +278,8 @@ const aggregateOrders = (orders) => {
 		totalGratuity += order.gratuityAmount;
 		totalProcessorFees += order.processorFee;
 		totalPlatformFees += order.platformFee;
+		totalCustomerServiceFees += order.customerServiceFee;
+		totalRestaurantProcessingFees += order.restaurantProcessingFeeAmount;
 		totalDiscounts += order.discountTotal;
 		netPayout += order.restaurantTransferAmount;
 		totalOrders += 1;
@@ -328,6 +354,8 @@ const aggregateOrders = (orders) => {
 		totalGratuity,
 		totalProcessorFees,
 		totalPlatformFees,
+		totalCustomerServiceFees,
+		totalRestaurantProcessingFees,
 		totalDiscounts,
 		totalFees,
 		netPayout,

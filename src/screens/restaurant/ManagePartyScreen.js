@@ -53,6 +53,65 @@ const calculateCloseoutTotalsCents = (items = [], taxRate = 0) => {
 	return { subtotalCents, taxAmountCents };
 };
 
+const DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE = 0.03;
+
+const normalizePercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return parsed > 1 ? parsed / 100 : parsed;
+};
+
+const getCustomerServiceFeePercentage = (restaurantDetails, pricingTiers) => {
+	const tierConfig =
+		pricingTiers?.[restaurantDetails?.pricingTier || "basic"] ||
+		pricingTiers?.basic ||
+		{};
+	const rawFee =
+		restaurantDetails?.paymentPolicy?.customerServiceFeePercentage ??
+		restaurantDetails?.customerServiceFeePercentage ??
+		restaurantDetails?.paymentPolicy?.scervFeePercentage ??
+		restaurantDetails?.scervFeePercentage ??
+		restaurantDetails?.paymentPolicy?.platformFeePercentage ??
+		restaurantDetails?.platformFeePercentage ??
+		tierConfig?.paymentPolicy?.customerServiceFeePercentage ??
+		tierConfig?.customerServiceFeePercentage ??
+		tierConfig?.guestServiceFeePercentage ??
+		tierConfig?.scervFeePercentage ??
+		tierConfig?.platformFeePercentage;
+
+	return Math.max(
+		0,
+		normalizePercentage(rawFee, DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE),
+	);
+};
+
+const isCustomerAppInitiatedItem = (item = {}) =>
+	item.source === "customer_app" ||
+	item.orderEntryMode === "customer" ||
+	item.paymentResponsibility === "customer_app" ||
+	!(
+		item.source === "restaurant_pos" ||
+		item.orderEntryMode === "staff" ||
+		item.paymentResponsibility === "restaurant_pos" ||
+		item.enteredByStaffId ||
+		item.orderedByPipName?.startsWith("Server:")
+	);
+
+const calculateCustomerServiceFeeCents = ({
+	items = [],
+	taxRate = 0,
+	feePercentage = DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+}) => {
+	const customerAppTotals = calculateCloseoutTotalsCents(
+		items.filter(isCustomerAppInitiatedItem),
+		taxRate,
+	);
+	const basisAmount =
+		customerAppTotals.subtotalCents + customerAppTotals.taxAmountCents;
+
+	return Math.max(0, Math.round(basisAmount * feePercentage));
+};
+
 const ManagePartyScreen = () => {
 	const route = useRoute();
 	const navigation = useNavigation();
@@ -75,6 +134,7 @@ const ManagePartyScreen = () => {
 	const [cashReceivedInput, setCashReceivedInput] = useState("");
 	const [closeoutNotes, setCloseoutNotes] = useState("");
 	const [restaurantDetails, setRestaurantDetails] = useState(null);
+	const [pricingTiers, setPricingTiers] = useState(null);
 	const [selectedCloseoutSeatIds, setSelectedCloseoutSeatIds] = useState([]);
 	const [isTicketSummaryCollapsed, setIsTicketSummaryCollapsed] =
 		useState(true);
@@ -143,6 +203,22 @@ const ManagePartyScreen = () => {
 
 		return () => unsubscribe();
 	}, [partyData?.restaurantId, currentUserData?.uid]);
+
+	useEffect(() => {
+		const loadPricingTiers = async () => {
+			try {
+				const docSnap = await db.collection("appConfig").doc("pricingTiers").get();
+				if (docSnap.exists) {
+					const data = docSnap.data() || {};
+					setPricingTiers(data.pricingTiers || data);
+				}
+			} catch (error) {
+				console.error("ManageParty: Failed to load pricing tiers:", error);
+			}
+		};
+
+		loadPricingTiers();
+	}, []);
 
 	// 2. Filter & Group Items
 	const officiallyOrderedItems = useMemo(() => {
@@ -328,11 +404,31 @@ const ManagePartyScreen = () => {
 		return seatSummaries.filter((seat) => selectedSet.has(seat.id));
 	}, [seatSummaries, selectedCloseoutSeatIds]);
 
-	const serviceFeeTotal = useMemo(() => {
-		// placeholder for now unless you want to calculate based on pricing tier here too
-		return 0;
-	}, []);
-	const serviceFeeTotalCents = Math.round(serviceFeeTotal * 100);
+	const customerServiceFeePercentage = useMemo(
+		() => getCustomerServiceFeePercentage(restaurantDetails, pricingTiers),
+		[pricingTiers, restaurantDetails],
+	);
+
+	const serviceFeeTotalCents = useMemo(
+		() =>
+			calculateCustomerServiceFeeCents({
+				items: unpaidOrderedItems,
+				taxRate: restaurantTaxRate,
+				feePercentage: customerServiceFeePercentage,
+			}),
+		[customerServiceFeePercentage, restaurantTaxRate, unpaidOrderedItems],
+	);
+	const closeoutServiceFeeTotalCents = useMemo(
+		() =>
+			calculateCustomerServiceFeeCents({
+				items: selectedCloseoutItems,
+				taxRate: restaurantTaxRate,
+				feePercentage: customerServiceFeePercentage,
+			}),
+		[customerServiceFeePercentage, restaurantTaxRate, selectedCloseoutItems],
+	);
+	const serviceFeeTotal = serviceFeeTotalCents / 100;
+	const closeoutServiceFeeTotal = closeoutServiceFeeTotalCents / 100;
 
 	const grandTotal = useMemo(() => {
 		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
@@ -342,12 +438,12 @@ const ManagePartyScreen = () => {
 			closeoutTotalsCents.subtotalCents +
 			closeoutTotalsCents.taxAmountCents +
 			gratuityTotalCents +
-			serviceFeeTotalCents,
+			closeoutServiceFeeTotalCents,
 		[
 			closeoutTotalsCents.subtotalCents,
 			closeoutTotalsCents.taxAmountCents,
 			gratuityTotalCents,
-			serviceFeeTotalCents,
+			closeoutServiceFeeTotalCents,
 		],
 	);
 	const closeoutGrandTotal = closeoutGrandTotalCents / 100;
@@ -356,11 +452,11 @@ const ManagePartyScreen = () => {
 		() =>
 			closeoutTotalsCents.subtotalCents +
 			closeoutTotalsCents.taxAmountCents +
-			serviceFeeTotalCents,
+			closeoutServiceFeeTotalCents,
 		[
 			closeoutTotalsCents.subtotalCents,
 			closeoutTotalsCents.taxAmountCents,
-			serviceFeeTotalCents,
+			closeoutServiceFeeTotalCents,
 		],
 	);
 	const cashReceivedPreviewCents = useMemo(
@@ -800,6 +896,12 @@ const ManagePartyScreen = () => {
 						<Text style={styles.footerCompactAmount}>
 							{formatCurrencyFromDollars(grandTotal)}
 						</Text>
+						{serviceFeeTotal > 0 && (
+							<Text style={styles.footerCompactSubAmount}>
+								{t("includes_service_fee", "Includes service fee")}{" "}
+								{formatCurrencyFromDollars(serviceFeeTotal)}
+							</Text>
+						)}
 					</View>
 					<Ionicons
 						name={
@@ -1118,6 +1220,24 @@ const ManagePartyScreen = () => {
 									{formatCurrencyFromDollars(gratuityTotal)}
 								</Text>
 							</View>
+							{closeoutServiceFeeTotal > 0 && (
+								<View style={styles.summaryRow}>
+									<View>
+										<Text style={styles.summaryLabel}>
+											{t("service_fee", "Service Fee")}
+										</Text>
+										<Text style={styles.summarySubLabel}>
+											{t(
+												"customer_app_order_fee",
+												"Customer app order fee",
+											)}
+										</Text>
+									</View>
+									<Text style={styles.summaryValue}>
+										{formatCurrencyFromDollars(closeoutServiceFeeTotal)}
+									</Text>
+								</View>
+							)}
 							<View style={styles.summaryDivider} />
 							<View style={styles.totalsRow}>
 								<Text style={styles.totalLabel}>
@@ -1398,6 +1518,12 @@ const styles = StyleSheet.create({
 		fontSize: 22,
 		fontWeight: "900",
 		color: colors.primary,
+		marginTop: 2,
+	},
+	footerCompactSubAmount: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
 		marginTop: 2,
 	},
 	totalsRow: {

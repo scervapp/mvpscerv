@@ -56,6 +56,22 @@ export const PartyProvider = ({ children }) => {
 	const [isLoadingBasket, setIsLoadingBasket] = useState(true);
 	const [isLoading, setIsLoading] = useState(false);
 
+	const clearPartyCache = useCallback((partyId) => {
+		if (!partyId) return;
+
+		setPartyDetails((prev) => {
+			const next = { ...prev };
+			delete next[partyId];
+			return next;
+		});
+
+		setSharedBaskets((prev) => {
+			const next = { ...prev };
+			delete next[partyId];
+			return next;
+		});
+	}, []);
+
 	// Cloud Functions
 	const createPartyFunction = httpsCallable(functions, "createParty");
 	const joinPartyFunction = httpsCallable(functions, "joinParty");
@@ -200,6 +216,11 @@ export const PartyProvider = ({ children }) => {
 						}
 					},
 					(error) => {
+						if (error?.code === "firestore/permission-denied") {
+							clearPartyCache(partyId);
+							return;
+						}
+
 						console.error(
 							`PartyContext: Error listening to party ${partyId}:`,
 							error,
@@ -240,6 +261,12 @@ export const PartyProvider = ({ children }) => {
 						setIsLoadingBasket(false);
 					},
 					(error) => {
+						if (error?.code === "firestore/permission-denied") {
+							clearPartyCache(partyId);
+							setIsLoadingBasket(false);
+							return;
+						}
+
 						console.error(
 							`PartyContext: Error listening to shared basket ${partyId}:`,
 							error,
@@ -250,7 +277,7 @@ export const PartyProvider = ({ children }) => {
 		});
 
 		return () => unsubscribers.forEach((unsub) => unsub());
-	}, [currentPartyIds]);
+	}, [currentPartyIds, clearPartyCache]);
 
 	const getFirstActivePartyId = useCallback(() => {
 		const sessionGroups = Object.values(currentPartyIds || {});
@@ -261,7 +288,7 @@ export const PartyProvider = ({ children }) => {
 		}
 
 		return null;
-	}, [currentPartyIds]);
+	}, [currentPartyIds, clearPartyCache]);
 
 	const currentPartyId = useMemo(
 		() => getFirstActivePartyId(),

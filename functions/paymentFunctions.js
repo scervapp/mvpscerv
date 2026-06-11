@@ -58,6 +58,7 @@ const isUsRestaurantCountry = (value) =>
 	);
 
 const normalizePercentage = (value, fallback = 0) => {
+	if (value === undefined || value === null || value === "") return fallback;
 	const parsed = Number(value);
 	if (Number.isNaN(parsed)) return fallback;
 	const decimal = parsed > 1 ? parsed / 100 : parsed;
@@ -215,7 +216,7 @@ const resolvePaymentPolicy = ({
 		version: 1,
 		source: "server_policy",
 		pricingTier: restaurantTierInfo.tierName || restaurantData.pricingTier || "basic",
-		scervFeeBasis: "subtotal",
+		scervFeeBasis: "sales_and_tax",
 		baseScervFeePercentage,
 		scervFeePercentage: scervFeeWaived ? 0 : baseScervFeePercentage,
 		scervFeeWaived,
@@ -338,8 +339,20 @@ async function getRestaurantTier(restaurantId) {
 
 	// 3. Fetch the central document containing all pricing tier maps.
 	// Note: Adjust the path if your structure is different, e.g., collection('appConfig').doc('general')
-	const tiersRef = db.collection("appConfig").doc("pricingTiers");
-	const tiersDoc = await tiersRef.get();
+	const [tiersDoc, generalDoc] = await Promise.all([
+		db.collection("appConfig").doc("pricingTiers").get(),
+		db.collection("appConfig").doc("general").get(),
+	]);
+	const generalConfig = generalDoc.exists ? generalDoc.data() || {} : {};
+	const globalCustomerFeePercentage = normalizePercentage(
+		firstDefined(
+			generalConfig.customerServiceFeePercentage,
+			generalConfig.scervFeePercentage,
+			generalConfig.platformFeePercentage,
+			generalConfig.fees,
+		),
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
 
 	if (!tiersDoc.exists) {
 		console.warn(
@@ -348,7 +361,7 @@ async function getRestaurantTier(restaurantId) {
 		return {
 			tierName,
 			payoutPercentage: DEFAULT_PAYOUT_PERCENTAGE,
-			scervFeePercentage: DEFAULT_SCERV_FEE_PERCENTAGE,
+			scervFeePercentage: globalCustomerFeePercentage,
 			restaurantProcessingFeePercentage:
 				DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE,
 			restaurantProcessingFeeFixedCents: 0,
@@ -390,8 +403,9 @@ async function getRestaurantTier(restaurantId) {
 			tierConfig.platformFeePercentage,
 			tierConfig.guestServiceFeePercentage,
 			tierConfig.customerServiceFeePercentage,
+			globalCustomerFeePercentage,
 		),
-		DEFAULT_SCERV_FEE_PERCENTAGE,
+		globalCustomerFeePercentage,
 	);
 	const restaurantProcessingFeePercentage = normalizePercentage(
 		firstDefined(
@@ -423,6 +437,7 @@ async function getRestaurantTier(restaurantId) {
 		tierName,
 		payoutPercentage,
 		scervFeePercentage,
+		globalCustomerFeePercentage,
 		restaurantProcessingFeePercentage,
 		restaurantProcessingFeeFixedCents,
 		restaurantProcessingFeeBasis,
@@ -870,6 +885,7 @@ exports.preparePayment = functions
 			items,
 			gratuity,
 			taxAmount,
+			platformFee,
 			expectedTotal,
 			checkInId,
 			partyId,
@@ -1133,24 +1149,29 @@ exports.preparePayment = functions
 					return;
 				}
 				const price =
-					basketData.discountedPrice ||
-					basketData.price ||
-					(basketData.dish && basketData.dish.price) ||
-					0;
+					basketData.discountedPrice !== undefined &&
+					basketData.discountedPrice !== null
+						? basketData.discountedPrice
+						: basketData.price !== undefined && basketData.price !== null
+							? basketData.price
+							: (basketData.dish && basketData.dish.price) || 0;
 				const priceInCents = Math.round(price * 100);
 				const quantity = basketData.quantity || 1;
 				const lineSubtotal = priceInCents * quantity;
 				const lineTax = Math.round(lineSubtotal * restaurantTaxRate);
-				calculatedSubtotal += lineSubtotal;
-				calculatedTax += lineTax;
-				fullItemDetails.push({
+				const itemDetails = {
 					...basketData,
 					price: priceInCents,
 					quantity,
 					lineSubtotal,
 					taxRate: restaurantTaxRate,
 					taxAmount: lineTax,
-				});
+				};
+				delete itemDetails.itbmsRate;
+				delete itemDetails.itbmsCode;
+				calculatedSubtotal += lineSubtotal;
+				calculatedTax += lineTax;
+				fullItemDetails.push(itemDetails);
 			});
 
 			if (calculatedSubtotal <= 0) {
@@ -1168,15 +1189,16 @@ exports.preparePayment = functions
 				);
 			}
 
-			const calculatedPlatformFee = Math.round(
-				calculatedSubtotal * scervFeePercentage,
-			);
-			const finalAmount =
-				calculatedSubtotal + calculatedTax + gratuity + calculatedPlatformFee;
 			const gratuityPassthroughAmount = gratuity;
 			const restaurantSalesAndTaxAmount = calculatedSubtotal + calculatedTax;
 			const restaurantGrossAmount =
 				restaurantSalesAndTaxAmount + gratuityPassthroughAmount;
+			const scervFeeBasisAmount = restaurantSalesAndTaxAmount;
+			const calculatedPlatformFee = calculatePercentageFee(
+				scervFeeBasisAmount,
+				scervFeePercentage,
+			);
+			const finalAmount = restaurantGrossAmount + calculatedPlatformFee;
 			const restaurantPaysStripeFee =
 				paymentPolicy.stripeFeeResponsibility === "restaurant";
 			const restaurantProcessingFeeBasisAmount =
@@ -1184,7 +1206,7 @@ exports.preparePayment = functions
 					? calculatedSubtotal
 					: paymentPolicy.restaurantProcessingFeeBasis === "salesAndTax"
 						? restaurantSalesAndTaxAmount
-						: finalAmount;
+						: restaurantGrossAmount;
 			const processorFeeRecoveryAmount = restaurantPaysStripeFee
 				? calculatePercentageFee(
 						restaurantProcessingFeeBasisAmount,
@@ -1209,9 +1231,29 @@ exports.preparePayment = functions
 				console.error("[preparePayment] Client/server total mismatch", {
 					orderTotalFromClient: clientExpectedTotal,
 					serverTotal: finalAmount,
+					clientTaxAmount: taxAmount,
+					serverTaxAmount: calculatedTax,
+					clientPlatformFee: platformFee,
+					serverPlatformFee: calculatedPlatformFee,
+					serverSubtotal: calculatedSubtotal,
+					serverScervFeePercentage: scervFeePercentage,
+					scervFeeWaived: paymentPolicy.scervFeeWaived,
+					feeWaiverReason: paymentPolicy.feeWaiverReason,
+					customerPolicySnapshot: paymentPolicy.customerPolicySnapshot,
+					restaurantPolicySnapshot: paymentPolicy.restaurantPolicySnapshot,
 					restaurantId,
 					userId,
 					paidForOwnerIds,
+					requestedItemIds: items.map((item) => item.id),
+					serverItems: fullItemDetails.map((item) => ({
+						id: item.id,
+						name: item.dishName || item.name || null,
+						price: item.price,
+						discountedPrice: item.discountedPrice,
+						quantity: item.quantity,
+						lineSubtotal: item.lineSubtotal,
+						taxAmount: item.taxAmount,
+					})),
 				});
 				throw new functions.https.HttpsError(
 					"failed-precondition",
@@ -1247,6 +1289,7 @@ exports.preparePayment = functions
 				scervFeePercentage,
 				baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
 				scervFeeBasis: paymentPolicy.scervFeeBasis,
+				scervFeeBasisAmount,
 				scervFeeWaived: paymentPolicy.scervFeeWaived,
 				feeWaiverReason: paymentPolicy.feeWaiverReason,
 				stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
@@ -1302,6 +1345,7 @@ exports.preparePayment = functions
 					mode: keys.isTestMode ? "test" : "live",
 					pricingTier: paymentPolicy.pricingTier,
 					scervFeeBasis: paymentPolicy.scervFeeBasis,
+					scervFeeBasisAmount,
 					scervFeePercentage,
 					baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
 					gratuityPassthroughAmount,
@@ -1857,7 +1901,7 @@ const fulfillOrder = async ({
 		platformFee,
 		scervFee: platformFee,
 		scervFeePercentage,
-		scervFeeBasis: pendingOrderData.scervFeeBasis || "subtotal",
+		scervFeeBasis: pendingOrderData.scervFeeBasis || "sales_and_tax",
 		baseScervFeePercentage:
 			pendingOrderData.baseScervFeePercentage || scervFeePercentage,
 		scervFeeWaived: pendingOrderData.scervFeeWaived === true,
@@ -1936,7 +1980,7 @@ const fulfillOrder = async ({
 			platformFeeActual: platformFee,
 			scervFee: platformFee,
 			scervFeePercentage,
-			scervFeeBasis: pendingOrderData.scervFeeBasis || "subtotal",
+			scervFeeBasis: pendingOrderData.scervFeeBasis || "sales_and_tax",
 			gratuityPassthroughAmount,
 			restaurantSalesAndTaxAmount,
 			restaurantSalesAndTaxNetAmount,

@@ -17,9 +17,9 @@ export default function App() {
 			<ActionSheetProvider>
 				<NotificationProvider>
 					<AuthProvider>
-						<RestaurantDataProvider>
-							<WorkDayProvider>
-								<EmployeeSessionProvider>
+						<EmployeeSessionProvider>
+							<RestaurantDataProvider>
+								<WorkDayProvider>
 									<PartyProvider>
 										<BasketProvider>
 											<I18nextProvider i18n={i18n}>
@@ -27,9 +27,9 @@ export default function App() {
 											</I18nextProvider>
 										</BasketProvider>
 									</PartyProvider>
-								</EmployeeSessionProvider>
-							</WorkDayProvider>
-						</RestaurantDataProvider>
+								</WorkDayProvider>
+							</RestaurantDataProvider>
+						</EmployeeSessionProvider>
 					</AuthProvider>
 				</NotificationProvider>
 			</ActionSheetProvider>

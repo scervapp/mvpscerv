@@ -49,7 +49,7 @@ const requestTerminalLocationPermission = async () => {
 	const result = await PermissionsAndroid.request(permission, {
 		title: "Location Permission",
 		message:
-			"Scerv needs location permission to discover and connect to Stripe card readers.",
+			"Scerv needs location permission to discover and connect to card readers.",
 		buttonPositive: "Allow",
 		buttonNegative: "Not now",
 	});
@@ -100,6 +100,25 @@ const isConnectionTokenTimeout = (error) =>
 		.toLowerCase()
 		.includes("timed out waiting for connection token");
 
+const getFriendlyReaderError = (error, fallback) => {
+	const message = String(error?.message || error || "").toLowerCase();
+
+	if (message.includes("connection token")) {
+		return "Reader session expired. Refresh the reader connection and try again.";
+	}
+	if (message.includes("permission")) {
+		return "This staff session cannot use the card reader. Ask a manager to check access.";
+	}
+	if (message.includes("already") && message.includes("discover")) {
+		return "Reader search is already running. Wait a moment, then try again.";
+	}
+	if (message.includes("amount")) {
+		return "The total changed. Reopen closeout and review the amount.";
+	}
+
+	return fallback;
+};
+
 const RestaurantTerminalPaymentContent = ({
 	activeSession,
 	currentUserData,
@@ -114,6 +133,7 @@ const RestaurantTerminalPaymentContent = ({
 	const [isPaying, setIsPaying] = useState(false);
 	const [isFinalizing, setIsFinalizing] = useState(false);
 	const [processedPaymentIntentId, setProcessedPaymentIntentId] = useState("");
+	const showDiagnostics = typeof __DEV__ !== "undefined" && __DEV__;
 
 	const {
 		liveMode,
@@ -207,7 +227,9 @@ const RestaurantTerminalPaymentContent = ({
 				throw result.error;
 			}
 		} catch (error) {
-			setErrorText(error.message || "Could not discover readers.");
+			setErrorText(
+				getFriendlyReaderError(error, "Could not find card readers. Try again."),
+			);
 			setStepText("Reader discovery failed.");
 		} finally {
 			setIsDiscovering(false);
@@ -240,7 +262,12 @@ const RestaurantTerminalPaymentContent = ({
 
 			setStepText("Reader connected. Ready to collect payment.");
 		} catch (error) {
-			setErrorText(error.message || "Could not connect to reader.");
+			setErrorText(
+				getFriendlyReaderError(
+					error,
+					"Could not connect to this reader. Try again.",
+				),
+			);
 			setStepText("Reader connection failed.");
 		} finally {
 			setIsConnecting(false);
@@ -363,14 +390,23 @@ const RestaurantTerminalPaymentContent = ({
 			console.log("[TERMINAL PAYMENT] Prepared payment intent", {
 				paymentIntentId: prepData.paymentIntentId,
 				amount: prepData.amount,
+				expectedTotalCents,
 				subtotal: prepData.subtotal,
 				taxAmount: prepData.taxAmount,
+				customerServiceFeeAmount: prepData.customerServiceFeeAmount,
 				onReaderTipping: prepData.onReaderTipping,
 			});
 
 			if (Number(prepData.amount || 0) !== Number(expectedTotalCents || 0)) {
+				console.error("[TERMINAL PAYMENT] Prepared amount mismatch", {
+					preparedAmount: prepData.amount,
+					expectedTotalCents,
+					subtotal: prepData.subtotal,
+					taxAmount: prepData.taxAmount,
+					customerServiceFeeAmount: prepData.customerServiceFeeAmount,
+				});
 				throw new Error(
-					"The payment amount changed. Reopen closeout and review the total.",
+					"The total changed. Reopen closeout and review the amount.",
 				);
 			}
 
@@ -475,7 +511,10 @@ const RestaurantTerminalPaymentContent = ({
 			setErrorText(
 				capturedPaymentIntentId
 					? "Payment captured. Closeout still needs finalizing."
-					: "Card reader payment could not be completed. Try again.",
+					: getFriendlyReaderError(
+							error,
+							"Card reader payment could not be completed. Try again.",
+						),
 			);
 			if (capturedPaymentIntentId) {
 				setStepText("Payment captured. Closeout still needs finalizing.");
@@ -554,10 +593,12 @@ const RestaurantTerminalPaymentContent = ({
 					</View>
 				) : null}
 
-				<View style={styles.diagnosticBox}>
-					<Text style={styles.diagnosticTitle}>Terminal Token</Text>
-					<Text style={styles.diagnosticText}>{tokenStatus || "Waiting"}</Text>
-				</View>
+				{showDiagnostics ? (
+					<View style={styles.diagnosticBox}>
+						<Text style={styles.diagnosticTitle}>Reader Session</Text>
+						<Text style={styles.diagnosticText}>{tokenStatus || "Waiting"}</Text>
+					</View>
+				) : null}
 
 				<View style={styles.actionGrid}>
 					<TouchableOpacity
@@ -646,8 +687,14 @@ const RestaurantTerminalPaymentScreen = () => {
 	const { activeSession } = useEmployeeSession();
 	const { tokenStatus } = useRestaurantTerminal();
 	const restaurantId = route.params?.restaurantId || currentUserData?.uid;
+	const isTestAccount = currentUserData?.isTestAccount !== false;
 	const stripeTerminalLocationId =
 		route.params?.stripeTerminalLocationId ||
+		(isTestAccount
+			? currentUserData?.stripeTerminalLocationId_test ||
+				currentUserData?.terminalLocationId_test
+			: currentUserData?.stripeTerminalLocationId_live ||
+				currentUserData?.terminalLocationId_live) ||
 		currentUserData?.stripeTerminalLocationId ||
 		currentUserData?.terminalLocationId ||
 		"";

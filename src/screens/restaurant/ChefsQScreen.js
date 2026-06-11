@@ -20,7 +20,7 @@ import {
 
 import moment from "moment";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { db, functions } from "../../config/firebase";
@@ -474,17 +474,36 @@ const ChefsQScreen = ({ navigation }) => {
 
 	const { t } = useTranslation();
 	const insets = useSafeAreaInsets();
+	const isFocused = useIsFocused();
 
 	// 1. Force Landscape Layout
 	useFocusEffect(
 		React.useCallback(() => {
+			console.log("[KDS ORIENTATION] ChefQ focused; locking landscape");
 			setKitchenQueueFocused(true);
-			ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+			ScreenOrientation.lockAsync(
+				ScreenOrientation.OrientationLock.LANDSCAPE,
+			).catch((error) => {
+				console.error("ChefsQ: Failed to lock landscape:", error);
+			});
 			return () => {
+				console.log("[KDS ORIENTATION] ChefQ blur cleanup; delaying portrait restore");
 				setKitchenQueueFocused(false);
-				ScreenOrientation.lockAsync(
-					ScreenOrientation.OrientationLock.PORTRAIT_UP,
-				);
+				setTimeout(() => {
+					if (navigation.isFocused()) {
+						console.log(
+							"[KDS ORIENTATION] ChefQ refocused; portrait restore cancelled",
+						);
+						return;
+					}
+
+					console.log("[KDS ORIENTATION] ChefQ still blurred; restoring portrait");
+					ScreenOrientation.lockAsync(
+						ScreenOrientation.OrientationLock.PORTRAIT_UP,
+					).catch((error) => {
+						console.error("ChefsQ: Failed to restore portrait:", error);
+					});
+				}, 750);
 				// 🚨 Failsafe: Turn everything back on if they leave the screen
 				StatusBar.setHidden(false);
 				navigation.setOptions({ headerShown: true });
@@ -496,6 +515,20 @@ const ChefsQScreen = ({ navigation }) => {
 	);
 
 	// 🚨 2. The Fullscreen Controller
+	useEffect(() => {
+		if (!isFocused) return;
+
+		console.log("[KDS ORIENTATION] ChefQ active; maintaining landscape", {
+			orderCount: orders.length,
+			viewMode,
+		});
+		ScreenOrientation.lockAsync(
+			ScreenOrientation.OrientationLock.LANDSCAPE,
+		).catch((error) => {
+			console.error("ChefsQ: Failed to maintain landscape:", error);
+		});
+	}, [isFocused, orders.length, viewMode]);
+
 	useEffect(() => {
 		// Hide OS Status Bar
 		StatusBar.setHidden(isFullscreen);
@@ -538,6 +571,9 @@ const ChefsQScreen = ({ navigation }) => {
 			.orderBy("createdAt", "asc")
 			.onSnapshot((snap) => {
 				if (!snap) return;
+				console.log("[KDS ORDERS] Snapshot received", {
+					count: snap.docs.length,
+				});
 				setOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
 				setIsLoading(false);
 			});

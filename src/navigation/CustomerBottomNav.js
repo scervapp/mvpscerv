@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -19,7 +19,14 @@ import PIPSListScreen from "../screens/customer/PIPScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmationScreen from "../screens/customer/OrderConfirmationScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistory";
-import { Alert, Platform, Text, TouchableOpacity, View } from "react-native";
+import {
+	Alert,
+	Platform,
+	StyleSheet,
+	Text,
+	TouchableOpacity,
+	View,
+} from "react-native";
 import { AuthContext } from "../context/authContext";
 import colors from "../utils/styles/appStyles";
 import OrderHistoryDetailScreen from "../screens/customer/OrdderHistoryDetailScreen";
@@ -337,6 +344,99 @@ const ActiveOrdersStack = () => {
 	);
 };
 
+const getBasketItemCount = (basket) => {
+	const items = Array.isArray(basket?.items) ? basket.items : [];
+	return items.reduce((total, item) => total + Number(item.quantity || 1), 0);
+};
+
+const getActiveRouteName = (state) => {
+	if (!state || !Array.isArray(state.routes) || state.routes.length === 0) {
+		return null;
+	}
+
+	const activeRoute = state.routes[state.index || 0];
+	if (activeRoute?.state) {
+		return getActiveRouteName(activeRoute.state) || activeRoute.name;
+	}
+
+	return activeRoute?.name || null;
+};
+
+const LIVE_ORDER_BUTTON_HIDDEN_ROUTES = new Set([
+	"PartyTab",
+	"PartyHub",
+	"PartySession",
+	"PartyMenu",
+	"PartyCheckout",
+	"PickupCart",
+	"PickupOrderStatus",
+	"CheckoutScreen",
+	"PayPalScreen",
+	"OrderConfirmation",
+]);
+
+const LiveOrderButton = ({
+	currentPartyId,
+	partyDetails,
+	sharedBaskets,
+	navigation,
+	bottomOffset,
+	activeRouteName,
+	t,
+}) => {
+	const activeParty = currentPartyId ? partyDetails?.[currentPartyId] : null;
+	const basketCount = getBasketItemCount(sharedBaskets?.[currentPartyId]);
+
+	if (!currentPartyId || !activeParty) return null;
+	if (LIVE_ORDER_BUTTON_HIDDEN_ROUTES.has(activeRouteName)) return null;
+
+	const isPickup = activeParty.orderMode === "pickup";
+	const label = isPickup
+		? t("pickup_order", "Pickup Order")
+		: activeParty.status === "AWAITING_TABLE"
+			? t("waiting_for_table", "Waiting")
+			: t("live_order", "Live Order");
+
+	const handlePress = () => {
+		navigation.navigate("CustomerApp", {
+			screen: "PartyTab",
+			params: {
+				screen: "PartySession",
+				params: { partyId: currentPartyId },
+			},
+		});
+	};
+
+	return (
+		<TouchableOpacity
+			style={[styles.liveOrderButton, { bottom: bottomOffset }]}
+			onPress={handlePress}
+			activeOpacity={0.9}
+			accessibilityRole="button"
+			accessibilityLabel={t("open_live_order", "Open live order")}
+		>
+			<MaterialCommunityIcons
+				name={isPickup ? "bag-personal-outline" : "silverware-fork-knife"}
+				size={22}
+				color={colors.surfaceWhite}
+			/>
+			<View style={styles.liveOrderTextWrap}>
+				<Text style={styles.liveOrderLabel}>{label}</Text>
+				<Text style={styles.liveOrderSubLabel} numberOfLines={1}>
+					{basketCount > 0
+						? t("items_count", "{{count}} items", { count: basketCount })
+						: activeParty.restaurantName || t("view_order", "View order")}
+				</Text>
+			</View>
+			<MaterialCommunityIcons
+				name="chevron-right"
+				size={20}
+				color={colors.surfaceWhite}
+			/>
+		</TouchableOpacity>
+	);
+};
+
 const CustomerBottomNavigation = () => {
 	const insets = useSafeAreaInsets();
 	const internalTabBarContentHeight = 50;
@@ -344,8 +444,17 @@ const CustomerBottomNavigation = () => {
 
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
-	const { joinParty, currentPartyId } = useParty();
+	const { joinParty, currentPartyId, partyDetails, sharedBaskets } = useParty();
 	const navigation = useNavigation();
+	const [activeRouteName, setActiveRouteName] = useState(null);
+	const liveOrderBottomOffset = useMemo(
+		() =>
+			originalPaddingTop +
+			internalTabBarContentHeight +
+			(insets.bottom > 0 ? insets.bottom : 12) +
+			14,
+		[insets.bottom],
+	);
 
 	const isGuest = currentUserData?.role === "guest";
 
@@ -403,9 +512,12 @@ const CustomerBottomNavigation = () => {
 										const joinedPartyId =
 											joinResult?.partyId || notification.partyId;
 										if (joinedPartyId) {
-											navigation.navigate("PartyTab", {
-												screen: "PartySession",
-												params: { partyId: joinedPartyId },
+											navigation.navigate("CustomerApp", {
+												screen: "PartyTab",
+												params: {
+													screen: "PartySession",
+													params: { partyId: joinedPartyId },
+												},
 											});
 										}
 									},
@@ -435,7 +547,13 @@ const CustomerBottomNavigation = () => {
 	};
 
 	return (
-		<Tab.Navigator
+		<View style={styles.customerShell}>
+			<Tab.Navigator
+			screenListeners={{
+				state: (event) => {
+					setActiveRouteName(getActiveRouteName(event.data.state));
+				},
+			}}
 			screenOptions={({ route }) => ({
 				tabBarIcon: ({ focused, color, size }) => {
 					let iconName;
@@ -506,8 +624,60 @@ const CustomerBottomNavigation = () => {
 				})}
 				options={{ headerShown: false }}
 			/>
-		</Tab.Navigator>
+			</Tab.Navigator>
+			<LiveOrderButton
+				currentPartyId={currentPartyId}
+				partyDetails={partyDetails}
+				sharedBaskets={sharedBaskets}
+				navigation={navigation}
+				bottomOffset={liveOrderBottomOffset}
+				activeRouteName={activeRouteName}
+				t={t}
+			/>
+		</View>
 	);
 };
+
+const styles = StyleSheet.create({
+	customerShell: {
+		flex: 1,
+	},
+	liveOrderButton: {
+		position: "absolute",
+		right: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		maxWidth: 230,
+		minHeight: 56,
+		paddingLeft: 14,
+		paddingRight: 10,
+		paddingVertical: 9,
+		borderRadius: 28,
+		backgroundColor: colors.primary,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.22,
+		shadowRadius: 8,
+		elevation: 8,
+		zIndex: 50,
+	},
+	liveOrderTextWrap: {
+		marginLeft: 10,
+		marginRight: 4,
+		maxWidth: 145,
+	},
+	liveOrderLabel: {
+		color: colors.surfaceWhite,
+		fontSize: 13,
+		fontWeight: "900",
+	},
+	liveOrderSubLabel: {
+		color: colors.surfaceWhite,
+		fontSize: 11,
+		fontWeight: "700",
+		opacity: 0.88,
+		marginTop: 1,
+	},
+});
 
 export default CustomerBottomNavigation;

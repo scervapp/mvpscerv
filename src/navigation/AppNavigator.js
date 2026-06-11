@@ -49,7 +49,15 @@ const AuthStack = () => (
 // --- 🚨 NEW: The Enterprise POS Wrapper ---
 // This acts as a physical gate in front of the Restaurant Bottom Navigation
 const RestaurantFlow = () => {
-	const { activeSession } = useEmployeeSession();
+	const { activeSession, isRestoringSession } = useEmployeeSession();
+
+	if (isRestoringSession) {
+		return (
+			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+				<ActivityIndicator size="large" color={colors.primary} />
+			</View>
+		);
+	}
 
 	// If no one has entered a PIN, show the Lock Screen
 	if (!activeSession) {

@@ -1,6 +1,7 @@
 {"cli": {
-    "version": "16.4.1"
-  
+    "version": "16.4.1",
+    "appVersionSource": "local"
+
   },
   "build": {
     "development": {
@@ -11,14 +12,21 @@
     "preview": {
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
+      }
+    }
   },
   "submit": {
     "production": {
       "android": {
           "serviceAccountKeyPath": "./eas-submit-key.json"
+      },
+      "ios": {
+          "ascAppId": "1591335061"
       }
-      
+
     }
   }
 }

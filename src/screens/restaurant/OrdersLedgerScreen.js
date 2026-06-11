@@ -59,6 +59,13 @@ const getRestaurantNetReceived = (order) => {
 };
 
 const getProcessingFees = (order) => {
+	if (Number.isFinite(Number(order.restaurantTransferAmount))) {
+		return Math.max(
+			0,
+			Number(order.totalPrice || 0) - Number(order.restaurantTransferAmount || 0),
+		);
+	}
+
 	const restaurantProcessingFee = Number(
 		order.restaurantProcessingFeeAmount ||
 			order.processorFeeAppliedToRestaurantSales ||

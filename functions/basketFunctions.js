@@ -1115,6 +1115,17 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 			lastUpdated: new Date(),
 		});
 
+		batch.set(
+			db.collection("parties").doc(sourceId),
+			{
+				hasCustomerAppOrder: true,
+				customerServiceFeeEligible: true,
+				lastCustomerAppOrderAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
 		// 5. Create the official kitchen order with separate station statuses
 		const kitchenOrderData = {
 			restaurantId: restaurantIdForOrder,

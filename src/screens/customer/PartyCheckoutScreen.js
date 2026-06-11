@@ -51,25 +51,88 @@ const DRINK_CATEGORIES = [
 const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
 
 const normalizePercentage = (value, fallback = 0) => {
+	if (value === undefined || value === null || value === "") return fallback;
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed)) return fallback;
 	return parsed > 1 ? parsed / 100 : parsed;
 };
 
-const getTierScervFeePercentage = (tierConfig) => {
-	if (!tierConfig) return DEFAULT_SCERV_FEE_PERCENTAGE;
+const firstDefined = (...values) => {
+	const match = values.find((value) => value !== undefined && value !== null);
+	return match === undefined ? null : match;
+};
+
+const isDateInFuture = (value) => {
+	if (!value) return false;
+	const date =
+		typeof value.toDate === "function"
+			? value.toDate()
+			: value instanceof Date
+				? value
+				: new Date(value);
+	return date instanceof Date && !Number.isNaN(date.getTime()) && date > new Date();
+};
+
+const getScervFeePercentage = ({
+	tierConfig,
+	restaurantData,
+	customerData,
+	globalFeePercentage,
+}) => {
+	const restaurantPolicy = restaurantData?.paymentPolicy || {};
+	const customerPolicy = customerData?.paymentPolicy || {};
+	const tierPolicy = tierConfig?.paymentPolicy || {};
+
+	const feeWaived =
+		customerPolicy.waiveScervFee === true ||
+		customerData?.waiveScervFee === true ||
+		customerPolicy.waivePlatformFee === true ||
+		customerData?.waivePlatformFee === true ||
+		restaurantPolicy.waiveScervFee === true ||
+		restaurantData?.waiveScervFee === true ||
+		restaurantPolicy.waivePlatformFee === true ||
+		restaurantData?.waivePlatformFee === true ||
+		isDateInFuture(customerPolicy.scervFeeWaivedUntil) ||
+		isDateInFuture(customerData?.scervFeeWaivedUntil) ||
+		isDateInFuture(restaurantPolicy.scervFeeWaivedUntil) ||
+		isDateInFuture(restaurantData?.scervFeeWaivedUntil);
+
+	if (feeWaived) return 0;
+	const globalFee = normalizePercentage(
+		globalFeePercentage,
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
+	if (!tierConfig && !restaurantData && !customerData) return globalFee;
 
 	const rawFee =
-		tierConfig.scervFeePercentage ??
-		tierConfig.platformFeePercentage ??
-		tierConfig.guestServiceFeePercentage ??
-		tierConfig.customerServiceFeePercentage;
+		firstDefined(
+			customerPolicy.scervFeePercentage,
+			customerData?.scervFeePercentage,
+			customerPolicy.platformFeePercentage,
+			customerData?.platformFeePercentage,
+			customerPolicy.guestServiceFeePercentage,
+			customerData?.guestServiceFeePercentage,
+			restaurantPolicy.scervFeePercentage,
+			restaurantData?.scervFeePercentage,
+			restaurantPolicy.platformFeePercentage,
+			restaurantData?.platformFeePercentage,
+			restaurantPolicy.guestServiceFeePercentage,
+			restaurantData?.guestServiceFeePercentage,
+			tierPolicy.scervFeePercentage,
+			tierConfig?.scervFeePercentage,
+			tierPolicy.platformFeePercentage,
+			tierConfig?.platformFeePercentage,
+			tierPolicy.guestServiceFeePercentage,
+			tierConfig?.guestServiceFeePercentage,
+			tierPolicy.customerServiceFeePercentage,
+			tierConfig?.customerServiceFeePercentage,
+		);
 
 	if (rawFee !== undefined && rawFee !== null) {
 		return Math.max(0, normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE));
 	}
 
-	const rawPayout = tierConfig.payoutPercentage;
+	const rawPayout = tierConfig?.payoutPercentage;
 	if (rawPayout !== undefined && rawPayout !== null) {
 		return Math.max(
 			0,
@@ -77,7 +140,7 @@ const getTierScervFeePercentage = (tierConfig) => {
 		);
 	}
 
-	return DEFAULT_SCERV_FEE_PERCENTAGE;
+	return globalFee;
 };
 
 const PartyCheckoutScreen = () => {
@@ -125,6 +188,10 @@ const PartyCheckoutScreen = () => {
 	const [payingForMemberIds, setPayingForMemberIds] = useState([]);
 
 	const [pricingTiers, setPricingTiers] = useState(null);
+	const [globalFeePercentage, setGlobalFeePercentage] = useState(
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
+	const [isPricingPolicyLoaded, setIsPricingPolicyLoaded] = useState(false);
 	const [gratuityPercentage, setGratuityPercentage] = useState("18");
 	const [isTaxesAndFeesExpanded, setIsTaxesAndFeesExpanded] = useState(false);
 
@@ -342,18 +409,20 @@ const PartyCheckoutScreen = () => {
 				: "basic";
 
 		const calculatedPlatformFeePercentage = canAcceptPayments
-			? getTierScervFeePercentage(pricingTiers?.[restaurantTier])
+			? getScervFeePercentage({
+					tierConfig: pricingTiers?.[restaurantTier],
+					restaurantData,
+					customerData: currentUserData,
+					globalFeePercentage,
+				})
 			: 0;
 
+		const platformFeeBasisInCents = discountedSubtotalInCents + taxInCents;
 		const platformFeeInCents = Math.round(
-			discountedSubtotalInCents * calculatedPlatformFeePercentage,
+			platformFeeBasisInCents * calculatedPlatformFeePercentage,
 		);
-
 		const finalTotalInCents =
-			discountedSubtotalInCents +
-			taxInCents +
-			gratuityInCents +
-			platformFeeInCents;
+			platformFeeBasisInCents + gratuityInCents + platformFeeInCents;
 
 		const totalDiscountInCents =
 			originalSubtotalInCents - discountedSubtotalInCents;
@@ -365,8 +434,12 @@ const PartyCheckoutScreen = () => {
 				category: item.category,
 				price: item.price,
 				quantity: item.quantity,
-				itbmsRate: item.itbmsRate,
-				taxRate: item.taxRate,
+				...(isPanama
+					? {
+							itbmsRate: item.itbmsRate,
+							taxRate: item.taxRate,
+						}
+					: {}),
 			})),
 		);
 
@@ -406,12 +479,16 @@ const PartyCheckoutScreen = () => {
 				specialInstructions: item.specialInstructions || "",
 				orderedByUserId: item.orderedByUserId || "",
 				orderedByPipName: item.orderedByPipName || "",
-				itbmsRate:
-					item.itbmsRate !== undefined && item.itbmsRate !== null
-						? item.itbmsRate
-						: item.taxRate !== undefined && item.taxRate !== null
-							? item.taxRate
-							: 0,
+				...(isPanama
+					? {
+							itbmsRate:
+								item.itbmsRate !== undefined && item.itbmsRate !== null
+									? item.itbmsRate
+									: item.taxRate !== undefined && item.taxRate !== null
+										? item.taxRate
+										: 0,
+						}
+					: {}),
 			})),
 			myOriginalSubtotal: originalSubtotalInCents,
 			mySubtotal: discountedSubtotalInCents,
@@ -426,8 +503,24 @@ const PartyCheckoutScreen = () => {
 		currentUserData && currentUserData.uid,
 		gratuityPercentage,
 		pricingTiers,
+		globalFeePercentage,
 		restaurantData && restaurantData.pricingTier,
 		restaurantData && restaurantData.taxRate,
+		isPanama,
+		restaurantData && restaurantData.paymentPolicy,
+		restaurantData && restaurantData.scervFeePercentage,
+		restaurantData && restaurantData.platformFeePercentage,
+		restaurantData && restaurantData.guestServiceFeePercentage,
+		restaurantData && restaurantData.waiveScervFee,
+		restaurantData && restaurantData.waivePlatformFee,
+		restaurantData && restaurantData.scervFeeWaivedUntil,
+		currentUserData && currentUserData.paymentPolicy,
+		currentUserData && currentUserData.scervFeePercentage,
+		currentUserData && currentUserData.platformFeePercentage,
+		currentUserData && currentUserData.guestServiceFeePercentage,
+		currentUserData && currentUserData.waiveScervFee,
+		currentUserData && currentUserData.waivePlatformFee,
+		currentUserData && currentUserData.scervFeeWaivedUntil,
 		canAcceptPayments,
 		selectedCheckoutMemberIds,
 	]);
@@ -438,6 +531,7 @@ const PartyCheckoutScreen = () => {
 	const isReadyToPay =
 		myFinalTotal > 0 &&
 		currentUserData?.uid &&
+		isPricingPolicyLoaded &&
 		(isPickupMode || (party?.id && party?.checkInId));
 
 	useEffect(() => {
@@ -492,14 +586,32 @@ const PartyCheckoutScreen = () => {
 		const fetchInitialData = async () => {
 			if (!resolvedRestaurantId) return;
 
-			const tiersSnap = await db
-				.collection("appConfig")
-				.doc("pricingTiers")
-				.get();
+			setIsPricingPolicyLoaded(false);
+			try {
+				const [tiersSnap, generalSnap] = await Promise.all([
+					db.collection("appConfig").doc("pricingTiers").get(),
+					db.collection("appConfig").doc("general").get(),
+				]);
 
-			if (tiersSnap.exists && isMounted) {
-				const data = tiersSnap.data();
-				setPricingTiers(data.pricingTiers || data);
+				if (tiersSnap.exists && isMounted) {
+					const data = tiersSnap.data();
+					setPricingTiers(data.pricingTiers || data);
+				}
+				if (generalSnap.exists && isMounted) {
+					const data = generalSnap.data() || {};
+					const rawFee =
+						data.customerServiceFeePercentage ??
+						data.scervFeePercentage ??
+						data.platformFeePercentage ??
+						data.fees;
+					setGlobalFeePercentage(
+						normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE),
+					);
+				}
+			} finally {
+				if (isMounted) {
+					setIsPricingPolicyLoaded(true);
+				}
 			}
 
 			if (!canAcceptPayments || (!isUS && !isPanama)) return;

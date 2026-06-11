@@ -229,7 +229,13 @@ export const RestaurantTerminalProvider = ({ children }) => {
 	const terminalEnabled = !!activeSession && permissions.canUseTerminal;
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 	const [liveMode, setLiveMode] = useState(null);
+	const isTestAccount = currentUserData?.isTestAccount !== false;
 	const stripeTerminalLocationId =
+		(isTestAccount
+			? currentUserData?.stripeTerminalLocationId_test ||
+				currentUserData?.terminalLocationId_test
+			: currentUserData?.stripeTerminalLocationId_live ||
+				currentUserData?.terminalLocationId_live) ||
 		currentUserData?.stripeTerminalLocationId ||
 		currentUserData?.terminalLocationId ||
 		"";

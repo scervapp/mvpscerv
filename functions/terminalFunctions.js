@@ -13,6 +13,7 @@ const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 
 const DEFAULT_TERMINAL_PROCESSING_FEE_PERCENTAGE = 0.04;
 const DEFAULT_TERMINAL_PROCESSING_FEE_FIXED_CENTS = 0;
+const DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE = 0.03;
 
 const normalizePercentage = (value, fallback = 0) => {
 	const parsed = Number(value);
@@ -33,6 +34,74 @@ const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
 		Math.round(Number(amountCents || 0) * normalizePercentage(percentage)) +
 			normalizeNonNegativeCents(fixedCents),
 	);
+
+const isCustomerAppInitiatedItem = (item = {}) =>
+	item.source === "customer_app" ||
+	item.orderEntryMode === "customer" ||
+	item.paymentResponsibility === "customer_app" ||
+	!(
+		item.source === "restaurant_pos" ||
+		item.orderEntryMode === "staff" ||
+		item.paymentResponsibility === "restaurant_pos" ||
+		item.enteredByStaffId ||
+		String(item.orderedByPipName || "").startsWith("Server:")
+	);
+
+const resolveCustomerServiceFeePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
+	const restaurantPolicy = restaurantData.paymentPolicy || {};
+	const tierPolicy = tierConfig.paymentPolicy || {};
+	const firstDefined = (...values) => {
+		const match = values.find((value) => value !== undefined && value !== null);
+		return match === undefined ? null : match;
+	};
+
+	return {
+		customerServiceFeePercentage: normalizePercentage(
+			firstDefined(
+				restaurantPolicy.customerServiceFeePercentage,
+				restaurantData.customerServiceFeePercentage,
+				restaurantPolicy.scervFeePercentage,
+				restaurantData.scervFeePercentage,
+				restaurantPolicy.platformFeePercentage,
+				restaurantData.platformFeePercentage,
+				tierPolicy.customerServiceFeePercentage,
+				tierConfig.customerServiceFeePercentage,
+				tierPolicy.guestServiceFeePercentage,
+				tierConfig.guestServiceFeePercentage,
+				tierPolicy.scervFeePercentage,
+				tierConfig.scervFeePercentage,
+				tierPolicy.platformFeePercentage,
+				tierConfig.platformFeePercentage,
+				DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+			),
+			DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+		),
+		customerServiceFeeBasis: "customer_app_sales_and_tax",
+	};
+};
+
+const calculateCustomerServiceFee = ({
+	items = [],
+	restaurantTaxRate = 0,
+	customerServiceFeePercentage = DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+}) => {
+	const customerAppTotals = calculateCloseoutTotals(
+		items.filter(isCustomerAppInitiatedItem),
+		restaurantTaxRate,
+	);
+	const basisAmount =
+		customerAppTotals.subtotalCents + customerAppTotals.taxAmountCents;
+
+	return {
+		customerServiceFeeBasisAmount: basisAmount,
+		customerServiceFeeAmount: calculatePercentageFee(
+			basisAmount,
+			customerServiceFeePercentage,
+		),
+		customerAppSubtotal: customerAppTotals.subtotalCents,
+		customerAppTaxAmount: customerAppTotals.taxAmountCents,
+	};
+};
 
 const getRestaurantSeatIdForItem = (item = {}) => {
 	if (item.seatId) return String(item.seatId);
@@ -132,6 +201,80 @@ const resolveTerminalPolicy = ({ restaurantData = {}, tierConfig = {} }) => {
 	};
 };
 
+const resolveStripeModeValue = ({
+	restaurantData = {},
+	isTestMode = true,
+	testField,
+	liveField,
+	legacyField,
+	modeField,
+}) => {
+	const mode = isTestMode ? "test" : "live";
+	const modeSpecificValue = isTestMode
+		? restaurantData[testField]
+		: restaurantData[liveField];
+
+	if (modeSpecificValue) {
+		return {
+			value: String(modeSpecificValue).trim(),
+			mode,
+			source: isTestMode ? testField : liveField,
+		};
+	}
+
+	const legacyMode = restaurantData[modeField] || null;
+	if (
+		restaurantData[legacyField] &&
+		(!legacyMode || legacyMode === mode)
+	) {
+		return {
+			value: String(restaurantData[legacyField]).trim(),
+			mode: legacyMode || mode,
+			source: legacyField,
+		};
+	}
+
+	return {
+		value: "",
+		mode,
+		source: null,
+	};
+};
+
+const resolveRestaurantStripeAccount = ({ restaurantData = {}, keys }) =>
+	resolveStripeModeValue({
+		restaurantData,
+		isTestMode: keys.isTestMode,
+		testField: "stripeAccountId_test",
+		liveField: "stripeAccountId_live",
+		legacyField: "stripeAccountId",
+		modeField: "stripeAccountMode",
+	});
+
+const resolveRestaurantTerminalLocation = ({ restaurantData = {}, keys }) => {
+	const resolved = resolveStripeModeValue({
+		restaurantData,
+		isTestMode: keys.isTestMode,
+		testField: "stripeTerminalLocationId_test",
+		liveField: "stripeTerminalLocationId_live",
+		legacyField: "stripeTerminalLocationId",
+		modeField: "stripeTerminalLocationMode",
+	});
+
+	if (resolved.value) return resolved;
+
+	const fallback = resolveStripeModeValue({
+		restaurantData,
+		isTestMode: keys.isTestMode,
+		testField: "terminalLocationId_test",
+		liveField: "terminalLocationId_live",
+		legacyField: "terminalLocationId",
+		modeField: "terminalLocationMode",
+	});
+
+	return fallback;
+};
+
 exports.createTerminalConnectionToken = functions
 	.runWith({
 		secrets: [
@@ -178,6 +321,7 @@ exports.createTerminalConnectionToken = functions
 				action: "connect terminal reader",
 			});
 
+			const keys = await getStripeKeys(restaurantId);
 			const restaurantSnap = await db
 				.collection("restaurants")
 				.doc(restaurantId)
@@ -185,14 +329,14 @@ exports.createTerminalConnectionToken = functions
 			const restaurantData = restaurantSnap.exists
 				? restaurantSnap.data() || {}
 				: {};
+			const resolvedTerminalLocation = resolveRestaurantTerminalLocation({
+				restaurantData,
+				keys,
+			});
 			const resolvedLocationId = String(
-				locationId ||
-					restaurantData.stripeTerminalLocationId ||
-					restaurantData.terminalLocationId ||
-					"",
+				locationId || resolvedTerminalLocation.value || "",
 			).trim();
 
-			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
@@ -204,6 +348,9 @@ exports.createTerminalConnectionToken = functions
 				secret: token.secret,
 				liveMode: !keys.isTestMode,
 				locationId: resolvedLocationId || null,
+				locationSource: locationId
+					? "request"
+					: resolvedTerminalLocation.source,
 			};
 		} catch (error) {
 			console.error("Error creating Terminal connection token:", error);
@@ -285,16 +432,26 @@ exports.prepareStaffTerminalPayment = functions
 			}
 
 			const restaurantData = restaurantSnap.data() || {};
-			const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
+			const keys = await getStripeKeys(restaurantId);
+			const resolvedStripeAccount = resolveRestaurantStripeAccount({
+				restaurantData,
+				keys,
+			});
+			const restaurantStripeAccountId = resolvedStripeAccount.value || null;
 			const restaurantStripeReady =
 				restaurantStripeAccountId &&
+				(!restaurantData.stripeAccountMode ||
+					restaurantData.stripeAccountMode === resolvedStripeAccount.mode ||
+					resolvedStripeAccount.source !== "stripeAccountId") &&
 				(restaurantData.stripeAccountStatus === "verified" ||
 					restaurantData.stripeChargesEnabled === true);
 
 			if (!restaurantStripeReady) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
-					"Restaurant Stripe account is not ready for Terminal payments.",
+					keys.isTestMode
+						? "Restaurant test Stripe account is not ready for Terminal payments."
+						: "Restaurant live Stripe account is not ready for Terminal payments.",
 				);
 			}
 
@@ -358,17 +515,37 @@ exports.prepareStaffTerminalPayment = functions
 				restaurantData,
 				tierConfig,
 			});
+			const customerServiceFeePolicy = resolveCustomerServiceFeePolicy({
+				restaurantData,
+				tierConfig,
+			});
+			const customerServiceFee = calculateCustomerServiceFee({
+				items: selectedItems,
+				restaurantTaxRate,
+				customerServiceFeePercentage:
+					customerServiceFeePolicy.customerServiceFeePercentage,
+			});
+			const preTipAmount =
+				salesAndTaxAmount + customerServiceFee.customerServiceFeeAmount;
 			const selectedItemIds = selectedItems.map((item) => item.id).filter(Boolean);
 			const selectedSeatIds = [
 				...new Set(selectedItems.map(getRestaurantSeatIdForItem)),
 			];
-			const keys = await getStripeKeys(restaurantId);
+			const prepareIdempotencyKey = [
+				"terminal:v3",
+				resolvedStripeAccount.mode,
+				restaurantStripeAccountId,
+				partyId,
+				selectedItemIds.join("_"),
+				preTipAmount,
+				"reader_tip",
+			].join(":");
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
 			const paymentIntent = await stripeInstance.paymentIntents.create(
 				{
-					amount: salesAndTaxAmount,
+					amount: preTipAmount,
 					currency: "usd",
 					payment_method_types: ["card_present"],
 					capture_method: "manual",
@@ -386,7 +563,17 @@ exports.prepareStaffTerminalPayment = functions
 						subtotal: String(totals.subtotalCents),
 						taxAmount: String(totals.taxAmountCents),
 						gratuity: "0",
-						total: String(salesAndTaxAmount),
+						total: String(preTipAmount),
+						customerServiceFee: String(
+							customerServiceFee.customerServiceFeeAmount,
+						),
+						customerServiceFeeBasis: customerServiceFeePolicy.customerServiceFeeBasis,
+						customerServiceFeeBasisAmount: String(
+							customerServiceFee.customerServiceFeeBasisAmount,
+						),
+						customerServiceFeePercentage: String(
+							customerServiceFeePolicy.customerServiceFeePercentage,
+						),
 						platformFee: "0",
 						terminalApplicationFeeAmount: "0",
 						onReaderTipping: "true",
@@ -399,11 +586,13 @@ exports.prepareStaffTerminalPayment = functions
 						),
 						terminalProcessingFeeBasis:
 							terminalPolicy.terminalProcessingFeeBasis,
+						stripeAccountMode: resolvedStripeAccount.mode,
+						stripeAccountSource: resolvedStripeAccount.source || "",
 						selectedItemIds: selectedItemIds.join(","),
 						selectedSeatIds: selectedSeatIds.join(","),
 					},
 				},
-				{ idempotencyKey: `terminal:v2:${partyId}:${selectedItemIds.join("_")}:${salesAndTaxAmount}:reader_tip` },
+				{ idempotencyKey: prepareIdempotencyKey },
 			);
 
 			await db.collection("terminal_payments").doc(paymentIntent.id).set({
@@ -411,19 +600,31 @@ exports.prepareStaffTerminalPayment = functions
 				partyId,
 				restaurantId,
 				connectedAccountId: restaurantStripeAccountId,
+				connectedAccountMode: resolvedStripeAccount.mode,
+				connectedAccountSource: resolvedStripeAccount.source,
 				status: "requires_payment_method",
 				paymentStatus: "pending",
 				paymentMethod: "stripe_terminal",
 				source: "restaurant_pos_terminal",
 				liveMode: !keys.isTestMode,
-				amount: salesAndTaxAmount,
-				preTipAmount: salesAndTaxAmount,
+				amount: preTipAmount,
+				preTipAmount,
 				subtotal: totals.subtotalCents,
 				originalSubtotal: totals.originalSubtotalCents,
 				discountTotal: totals.discountTotalCents,
 				taxAmount: totals.taxAmountCents,
 				taxRate: restaurantTaxRate,
 				gratuityAmount: 0,
+				customerServiceFeeAmount: customerServiceFee.customerServiceFeeAmount,
+				customerServiceFee: customerServiceFee.customerServiceFeeAmount,
+				customerServiceFeePercentage:
+					customerServiceFeePolicy.customerServiceFeePercentage,
+				customerServiceFeeBasis:
+					customerServiceFeePolicy.customerServiceFeeBasis,
+				customerServiceFeeBasisAmount:
+					customerServiceFee.customerServiceFeeBasisAmount,
+				customerAppSubtotal: customerServiceFee.customerAppSubtotal,
+				customerAppTaxAmount: customerServiceFee.customerAppTaxAmount,
 				applicationFeeAmount: 0,
 				terminalProcessingFeePercentage:
 					terminalPolicy.terminalProcessingFeePercentage,
@@ -453,9 +654,10 @@ exports.prepareStaffTerminalPayment = functions
 			return {
 				paymentIntentId: paymentIntent.id,
 				clientSecret: paymentIntent.client_secret,
-				amount: salesAndTaxAmount,
+				amount: preTipAmount,
 				subtotal: totals.subtotalCents,
 				taxAmount: totals.taxAmountCents,
+				customerServiceFeeAmount: customerServiceFee.customerServiceFeeAmount,
 				gratuityAmount: 0,
 				applicationFeeAmount: 0,
 				onReaderTipping: true,
@@ -591,23 +793,45 @@ exports.captureStaffTerminalPayment = functions
 				0,
 			);
 			const salesAndTaxAmount = subtotal + taxAmount;
+			const customerServiceFeeAmount = normalizeNonNegativeCents(
+				terminalPaymentData.customerServiceFeeAmount ||
+					terminalPaymentData.customerServiceFee,
+				0,
+			);
+			const restaurantGrossAmount = Math.max(
+				0,
+				finalAmount - customerServiceFeeAmount,
+			);
 			const feeBasisAmount =
 				terminalPolicy.terminalProcessingFeeBasis === "subtotal"
 					? subtotal
 					: terminalPolicy.terminalProcessingFeeBasis === "salesAndTax"
 						? salesAndTaxAmount
-						: finalAmount;
+						: restaurantGrossAmount;
+			const terminalProcessingFeeAmount = calculatePercentageFee(
+				feeBasisAmount,
+				terminalPolicy.terminalProcessingFeePercentage,
+				terminalPolicy.terminalProcessingFeeFixedCents,
+			);
 			const applicationFeeAmount = Math.min(
 				finalAmount,
-				calculatePercentageFee(
-					feeBasisAmount,
-					terminalPolicy.terminalProcessingFeePercentage,
-					terminalPolicy.terminalProcessingFeeFixedCents,
-				),
+				customerServiceFeeAmount + terminalProcessingFeeAmount,
 			);
 			const restaurantTransferAmount = Math.max(
 				0,
 				finalAmount - applicationFeeAmount,
+			);
+
+			if (applicationFeeAmount < customerServiceFeeAmount) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Terminal payment amount is less than required service fees.",
+				);
+			}
+
+			const restaurantProcessingFeeAmount = Math.max(
+				0,
+				applicationFeeAmount - customerServiceFeeAmount,
 			);
 
 			if (paymentIntent.status === "requires_capture") {
@@ -618,6 +842,8 @@ exports.captureStaffTerminalPayment = functions
 						total: String(finalAmount),
 						platformFee: String(applicationFeeAmount),
 						terminalApplicationFeeAmount: String(applicationFeeAmount),
+						customerServiceFee: String(customerServiceFeeAmount),
+						terminalProcessingFeeAmount: String(restaurantProcessingFeeAmount),
 						terminalProcessingFeePercentage: String(
 							terminalPolicy.terminalProcessingFeePercentage,
 						),
@@ -659,10 +885,14 @@ exports.captureStaffTerminalPayment = functions
 					amountReceived:
 						paymentIntent.amount_received || paymentIntent.amount || finalAmount,
 					gratuityAmount,
+					customerServiceFeeAmount,
+					customerServiceFee: customerServiceFeeAmount,
 					applicationFeeAmount,
 					stripeApplicationFeeAmount: applicationFeeAmount,
 					platformFee: applicationFeeAmount,
 					scervFee: applicationFeeAmount,
+					terminalProcessingFeeAmount: restaurantProcessingFeeAmount,
+					restaurantProcessingFeeAmount,
 					terminalProcessingFeePercentage:
 						terminalPolicy.terminalProcessingFeePercentage,
 					terminalProcessingFeeFixedCents:

@@ -43,13 +43,21 @@ import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
 const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
 
 const normalizePercentage = (value, fallback = 0) => {
+	if (value === undefined || value === null || value === "") return fallback;
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed)) return fallback;
 	return parsed > 1 ? parsed / 100 : parsed;
 };
 
-const getTierScervFeePercentage = (tierConfig) => {
-	if (!tierConfig) return DEFAULT_SCERV_FEE_PERCENTAGE;
+const getTierScervFeePercentage = (
+	tierConfig,
+	globalFeePercentage = DEFAULT_SCERV_FEE_PERCENTAGE,
+) => {
+	const globalFee = normalizePercentage(
+		globalFeePercentage,
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
+	if (!tierConfig) return globalFee;
 
 	const rawFee =
 		tierConfig.scervFeePercentage ??
@@ -69,7 +77,7 @@ const getTierScervFeePercentage = (tierConfig) => {
 		);
 	}
 
-	return DEFAULT_SCERV_FEE_PERCENTAGE;
+	return globalFee;
 };
 
 const CheckoutScreen = ({ route, navigation }) => {
@@ -85,6 +93,9 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [isDataLoading, setIsDataLoading] = useState(true);
 	const [paymentError, setPaymentError] = useState(null);
 	const [pricingTiers, setPricingTiers] = useState(null);
+	const [globalFeePercentage, setGlobalFeePercentage] = useState(
+		DEFAULT_SCERV_FEE_PERCENTAGE,
+	);
 	const [gratuityPercentage, setGratuityPercentage] = useState("15");
 	const [expandedPIPs, setExpandedPIPs] = useState({});
 	const [savedCards, setSavedCards] = useState([]);
@@ -157,13 +168,24 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const fetchInitialData = async () => {
 			setIsDataLoading(true);
 			try {
-				const tiersSnap = await db
-					.collection("appConfig")
-					.doc("pricingTiers")
-					.get();
+				const [tiersSnap, generalSnap] = await Promise.all([
+					db.collection("appConfig").doc("pricingTiers").get(),
+					db.collection("appConfig").doc("general").get(),
+				]);
 				if (isMounted && tiersSnap.exists()) {
 					const data = tiersSnap.data();
 					setPricingTiers(data.pricingTiers || data);
+				}
+				if (isMounted && generalSnap.exists()) {
+					const data = generalSnap.data() || {};
+					const rawFee =
+						data.customerServiceFeePercentage ??
+						data.scervFeePercentage ??
+						data.platformFeePercentage ??
+						data.fees;
+					setGlobalFeePercentage(
+						normalizePercentage(rawFee, DEFAULT_SCERV_FEE_PERCENTAGE),
+					);
 				}
 			} catch (error) {
 				// error handling
@@ -261,6 +283,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const restaurantTier = restaurant?.pricingTier || "basic";
 		const scervFeePercentage = getTierScervFeePercentage(
 			pricingTiers?.[restaurantTier],
+			globalFeePercentage,
 		);
 		let taxRate = Number(restaurant?.taxRate || 0);
 		if (isNaN(taxRate)) taxRate = 0;
@@ -279,6 +302,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 		const calcGratuityAmount = Math.round(
 			calcSubtotal * (parseFloat(gratuityPercentage) / 100),
 		);
+
+		const calculatedTaxAmount = Math.round(calcSubtotal * taxRate);
 
 		const calcPipTotals = filteredBasketData.map((personData) => {
 			const itemsToReduce = personData?.items;
@@ -302,16 +327,18 @@ const CheckoutScreen = ({ route, navigation }) => {
 			const numberOfPips =
 				filteredBasketData.length > 0 ? filteredBasketData.length : 1;
 			const pipGratuity = Math.round(calcGratuityAmount / numberOfPips);
-			const pipFee = Math.round(pipSubtotal * scervFeePercentage);
+			const pipTax = Math.round(pipSubtotal * taxRate);
+			const pipFee = Math.round((pipSubtotal + pipTax) * scervFeePercentage);
 			const pipDiscount = pipOriginalSubtotal - pipSubtotal;
 
 			return {
 				...(personData || {}),
 				subtotal: pipSubtotal,
 				fee: pipFee,
+				tax: pipTax,
 				gratuity: pipGratuity,
 				discount: pipDiscount,
-				total: pipSubtotal + pipGratuity,
+				total: pipSubtotal + pipTax + pipGratuity + pipFee,
 			};
 		});
 
@@ -319,7 +346,6 @@ const CheckoutScreen = ({ route, navigation }) => {
 			(sum, pip) => sum + (pip.fee || 0),
 			0,
 		);
-		const calculatedTaxAmount = Math.round(calcSubtotal * taxRate);
 		const calcTotalDiscount = calcOriginalSubtotal - calcSubtotal;
 		const calcFinalAmount =
 			calcSubtotal +
@@ -343,6 +369,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 		gratuityPercentage,
 		filteredBasketData,
 		pricingTiers,
+		globalFeePercentage,
 		restaurant?.pricingTier,
 		restaurant?.taxRate,
 	]);

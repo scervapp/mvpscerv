@@ -97,6 +97,9 @@ const OrderDetailScreen = ({ route }) => {
 	}
 
 	const customerPaid = Number(order.totalPrice || 0);
+	const customerServiceFee = Number(
+		order.customerServiceFeeAmount || order.customerServiceFee || 0,
+	);
 	const platformFee = Number(order.platformFee || 0);
 	const processorFee = Number(order.processorFee || 0);
 	const restaurantProcessingFee = Number(
@@ -105,12 +108,15 @@ const OrderDetailScreen = ({ route }) => {
 			processorFee ||
 			0,
 	);
-	const totalProcessingFees = platformFee + restaurantProcessingFee;
 	const restaurantNetReceived = Number.isFinite(
 		Number(order.restaurantTransferAmount),
 	)
 		? Number(order.restaurantTransferAmount)
-		: Math.max(0, customerPaid - totalProcessingFees);
+		: Math.max(0, customerPaid - platformFee - restaurantProcessingFee);
+	const totalProcessingFees = Math.max(
+		0,
+		customerPaid - restaurantNetReceived,
+	);
 	const stripePaymentIntentId =
 		order.stripePaymentIntentId || order.paymentIntentId || order.paymentProcessorId;
 	const isManualRestaurantOrder =
@@ -192,6 +198,9 @@ const OrderDetailScreen = ({ route }) => {
 					<TraceRow label="Tax rate" value={taxRateLabel} />
 					<TraceRow label="Tax source" value={order.taxSource} />
 					<MoneyRow label="Gratuity" value={order.gratuityAmount} />
+					{customerServiceFee > 0 ? (
+						<MoneyRow label="Service Fee" value={customerServiceFee} />
+					) : null}
 					<MoneyRow label="Customer Paid" value={order.totalPrice} isTotal />
 				</View>
 
