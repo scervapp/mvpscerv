@@ -27,8 +27,8 @@ import CustomSearchBar from "./CustomSearchBar";
 const { width: screenWidth } = Dimensions.get("window");
 
 const SUPPORTED_REGIONS = [
-	{ code: "PA", label: "Panama", name: "Panama" },
 	{ code: "US", label: "United States", name: "United States" },
+	{ code: "PA", label: "Panama", name: "Panama" },
 ];
 
 const DISCOVERY_INTENTS = [
@@ -288,14 +288,14 @@ const CustomerDashboard = ({ navigation }) => {
 				) {
 					setSelectedRegion(savedRegion);
 				} else {
-					const defaultRegion = "PA";
+					const defaultRegion = "US";
 					setSelectedRegion(defaultRegion);
 					await AsyncStorage.setItem("@scerv_region", defaultRegion);
 					setShowRegionModal(false);
 				}
 			} catch (error) {
 				console.error("Error loading region:", error);
-				setSelectedRegion("PA");
+				setSelectedRegion("US");
 			} finally {
 				setIsRegionLoading(false);
 			}

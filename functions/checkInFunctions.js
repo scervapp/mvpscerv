@@ -512,8 +512,14 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 	}
 
 	const customerId = context.auth.uid;
-	const { restaurantId, tableId, tableName, customerName, numberOfPeople } =
-		data;
+	const {
+		restaurantId,
+		tableId,
+		tableName,
+		customerName,
+		numberOfPeople,
+		partyId,
+	} = data;
 
 	// 2. Input Validation
 	if (!restaurantId || !tableId || !customerName) {
@@ -530,11 +536,15 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 		.doc(tableId);
 	const customerRef = db.collection("customers").doc(customerId);
 	const newCheckInRef = db.collection("checkIns").doc(); // Auto-generate new ID
+	const partyRef = partyId ? db.collection("parties").doc(partyId) : null;
 
 	try {
 		return await db.runTransaction(async (transaction) => {
 			// 3. Read the Table status FIRST
-			const tableDoc = await transaction.get(tableRef);
+			const [tableDoc, partyDoc] = await Promise.all([
+				transaction.get(tableRef),
+				partyRef ? transaction.get(partyRef) : Promise.resolve(null),
+			]);
 
 			if (!tableDoc.exists) {
 				throw new functions.https.HttpsError("not-found", "Table not found.");
@@ -550,8 +560,42 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 				);
 			}
 
+			let partyData = null;
+			if (partyRef) {
+				if (!partyDoc.exists) {
+					throw new functions.https.HttpsError("not-found", "Party not found.");
+				}
+
+				partyData = partyDoc.data();
+
+				if (partyData.hostUserId !== customerId) {
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"Only the party host can check in the party.",
+					);
+				}
+
+				if (partyData.restaurantId !== restaurantId) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"This party belongs to a different restaurant.",
+					);
+				}
+
+				if (!["pending", "AWAITING_TABLE", "active"].includes(partyData.status)) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"This party is not available for table check-in.",
+					);
+				}
+			}
+
 			// 4. Perform the Writes (The Fast-Track)
 			const timestamp = admin.firestore.FieldValue.serverTimestamp();
+			const partyMemberCount = partyData
+				? (partyData.guestPips || []).length ||
+					(partyData.guestUserIds || []).length
+				: 0;
 
 			// A. Create the CheckIn document directly as ACCEPTED
 			const checkInData = {
@@ -559,15 +603,19 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 				restaurantId: restaurantId,
 				customerId: customerId,
 				customerName: customerName,
-				numberOfPeople: numberOfPeople || 1,
+				numberOfPeople: numberOfPeople || partyMemberCount || 1,
 				status: "ACCEPTED", // Bypasses the host!
-				type: "self-seated", // Good for your analytics
+				type: partyRef ? "party" : "self-seated", // Good for your analytics
 				table: { id: tableId, name: tableName || tableData.name },
 				// Dummy server object since there is no host to assign one yet
 				server: { id: "unassigned", name: "Self-Seated" },
 				createdAt: timestamp,
 				acceptedAt: timestamp,
 			};
+			if (partyRef) {
+				checkInData.partyId = partyId;
+				checkInData.associatedPartyId = partyId;
+			}
 			transaction.set(newCheckInRef, checkInData);
 
 			// B. Mark the Table as OCCUPIED
@@ -587,6 +635,16 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 					table: { id: tableId, name: tableName || tableData.name },
 				},
 			});
+
+			if (partyRef) {
+				transaction.update(partyRef, {
+					status: "active",
+					table: { id: tableId, name: tableName || tableData.name },
+					checkInId: newCheckInRef.id,
+					activeCheckInId: newCheckInRef.id,
+					lastUpdated: timestamp,
+				});
+			}
 
 			return {
 				success: true,

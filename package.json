@@ -4,9 +4,22 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
+    "start:dev": "set APP_ENV=development&& expo start",
+    "start:testing": "set APP_ENV=testing&& expo start",
+    "start:prod": "set APP_ENV=production&& expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "deploy:functions:dev": "firebase deploy --only functions --project dev",
+    "deploy:functions:testing": "firebase deploy --only functions --project testing",
+    "deploy:functions:prod": "set FIREBASE_DEPLOY_PROJECT=scervmvp&& firebase deploy --only functions --project prod",
+    "deploy:rules:dev": "firebase deploy --only firestore:rules --project dev",
+    "deploy:rules:testing": "firebase deploy --only firestore:rules --project testing",
+    "deploy:rules:prod": "set FIREBASE_DEPLOY_PROJECT=scervmvp&& firebase deploy --only firestore:rules --project prod",
+    "backup:prod:auth": "firebase auth:export backups/production-auth.json --format=json --project prod",
+    "backup:prod:firestore": "node scripts/backup-clean-firestore.js",
+    "clean:prod:auth": "node scripts/clean-production-auth.js --delete --confirm-production-auth-wipe",
+    "clean:prod:firestore": "node scripts/backup-clean-firestore.js --delete --confirm-production-wipe",
     "postinstall": "patch-package"
   },
   "dependencies": {

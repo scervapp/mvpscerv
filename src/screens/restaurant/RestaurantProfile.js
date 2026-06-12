@@ -20,10 +20,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
 import { uploadImageAndGetDownloadURL, pickImage } from "../../utils/firebaseUtils";
 import colors from "../../utils/styles/appStyles";
-import { Picker } from "@react-native-picker/picker";
 import { db } from "../../config/firebase";
 import { useTranslation } from "react-i18next";
 import { COUNTRY_OPTIONS } from "../auth/RestaurantSignupScreen";
+import PlatformSelect from "../../components/global/PlatformSelect";
 // A reusable card component for sectioning the form
 const InfoCard = ({ title, children }) => (
 	<View style={styles.card}>
@@ -55,7 +55,7 @@ const LabeledInput = ({
 );
 
 const getCountryOption = (countryCode) =>
-	COUNTRY_OPTIONS.find((country) => country.code === countryCode) ||
+	COUNTRY_OPTIONS.find((country) => country[0] === countryCode) ||
 	COUNTRY_OPTIONS[0];
 
 const cleanString = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -401,25 +401,20 @@ const RestaurantProfile = () => {
 						/>
 						<Text style={styles.inputLabel}>{t("country", "Country")}</Text>
 						<View style={styles.pickerContainer}>
-							<Picker
-								selectedValue={formData.countryCode}
+							<PlatformSelect
+								value={formData.countryCode}
 								onValueChange={(val) => {
 									const country = getCountryOption(val);
-									handleInputChange("countryCode", country.code);
-									handleInputChange("country", country.label);
+									handleInputChange("countryCode", country[0]);
+									handleInputChange("country", country[1]);
 								}}
-								style={styles.picker}
-								placeHolderTextColor={colors.textDark}
-							>
-								{COUNTRY_OPTIONS.map((country) => (
-									<Picker.Item
-										label={country.label}
-										value={country.code}
-										key={country.code}
-										style={{ color: colors.textDark }}
-									/>
-								))}
-							</Picker>
+								title={t("country", "Country")}
+								options={COUNTRY_OPTIONS.map((country) => ({
+									label: country[1],
+									value: country[0],
+								}))}
+								pickerStyle={styles.picker}
+							/>
 						</View>
 						<View style={styles.row}>
 							<LabeledInput

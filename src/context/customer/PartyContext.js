@@ -667,6 +667,21 @@ export const PartyProvider = ({ children }) => {
 				});
 
 				if (result?.data?.success && result?.data?.partyId) {
+					const joinedPartyId = result.data.partyId;
+					const restaurantId = result.data.restaurantId;
+					const orderMode = result.data.orderMode === "pickup" ? "pickup" : "dineIn";
+
+					if (restaurantId) {
+						setCurrentPartyIds((prev) => ({
+							...prev,
+							[restaurantId]: {
+								dineIn: prev?.[restaurantId]?.dineIn || null,
+								pickup: prev?.[restaurantId]?.pickup || null,
+								[orderMode]: joinedPartyId,
+							},
+						}));
+					}
+
 					return result.data;
 				}
 
@@ -1040,6 +1055,7 @@ export const PartyProvider = ({ children }) => {
 			isLoadingBasket,
 			createParty,
 			getOrCreatePickupParty,
+			getRestaurantSessions,
 			joinParty,
 			leaveParty,
 			activatePartyCheckIn,

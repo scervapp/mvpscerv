@@ -13,6 +13,11 @@ web-build/
 eas-submit-key.json
 *-service-account.json
 scervmvp-*.json
+backups/
+credentials/firebase/**/*
+!credentials/firebase/**/
+!credentials/firebase/**/.gitkeep
+!credentials/firebase/**/README.md
 
 # Native
 *.orig.*

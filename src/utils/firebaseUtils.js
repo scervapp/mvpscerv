@@ -1,4 +1,5 @@
 import React from "react";
+import { Alert } from "react-native";
 
 import * as ImagePicker from "expo-image-picker";
 import { nativeStorage, db } from "../config/firebase.native";
@@ -59,7 +60,8 @@ export const pickImage = async () => {
 		}
 
 		let result = await ImagePicker.launchImageLibraryAsync({
-			mediaTypes: ImagePicker.Images,
+			mediaTypes:
+				ImagePicker.MediaTypeOptions?.Images || ImagePicker.MediaType?.Images,
 			allowsEditing: true,
 			aspect: [1, 1],
 			quality: 0.8,

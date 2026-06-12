@@ -16,10 +16,10 @@ import { Formik } from "formik";
 import * as Yup from "yup";
 import { AuthContext } from "../../context/authContext";
 import { Button } from "react-native-paper";
-import { Picker } from "@react-native-picker/picker";
 import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons"; // Ensure you have this installed
+import PlatformSelect from "../../components/global/PlatformSelect";
 
 export const COUNTRY_OPTIONS = [
 	["US", "United States"],
@@ -429,21 +429,18 @@ const RestaurantSignupScreen = ({ navigation }) => {
 						}) => (
 							<View style={styles.form}>
 								<View style={styles.pickerShell}>
-									<Picker
-										selectedValue={values.countryCode}
+									<PlatformSelect
+										value={values.countryCode}
 										onValueChange={(selectedCode) =>
 											setFieldValue("countryCode", selectedCode)
 										}
-										style={styles.picker}
-									>
-										{COUNTRY_OPTIONS.map((country) => (
-											<Picker.Item
-												key={country.code}
-												label={country.label}
-												value={country.code}
-											/>
-										))}
-									</Picker>
+										title={t("country", "Country")}
+										options={COUNTRY_OPTIONS.map((country) => ({
+											label: country[1],
+											value: country[0],
+										}))}
+										pickerStyle={styles.picker}
+									/>
 								</View>
 								{touched.countryCode && errors.countryCode && (
 									<Text style={styles.errorText}>{errors.countryCode}</Text>

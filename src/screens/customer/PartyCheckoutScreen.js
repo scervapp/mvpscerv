@@ -20,7 +20,6 @@ import {
 } from "@react-navigation/native";
 import { Button, Divider } from "react-native-paper";
 import { StripeProvider, useStripe } from "@stripe/stripe-react-native";
-import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useParty } from "../../context/customer/PartyContext";
@@ -33,6 +32,7 @@ import formatCurrency, {
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useCheckInStatus } from "../../utils/customerUtils";
 import firestore from "@react-native-firebase/firestore";
+import PlatformSelect from "../../components/global/PlatformSelect";
 import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
 
 const DRINK_CATEGORIES = [
@@ -217,7 +217,7 @@ const PartyCheckoutScreen = () => {
 		restaurantData?.country ||
 		party?.restaurantCountryCode ||
 		party?.restaurantCountry ||
-		null;
+		"US";
 	const isPanama =
 		country === "PA" || country === "Panama" || country === "panama";
 	const isUS =
@@ -1318,28 +1318,25 @@ const PartyCheckoutScreen = () => {
 								{t("add_gratuity", "Add Gratuity")}
 							</Text>
 							<View style={styles.gratuityContainer}>
-								<Picker
-									selectedValue={gratuityPercentage}
-									onValueChange={(itemValue) =>
-										setGratuityPercentage(itemValue)
-									}
-									style={styles.gratuityPicker}
-								>
-									<Picker.Item label={t("10_percent", "10%")} value="10" />
-									<Picker.Item label={t("12_percent", "12%")} value="12" />
-									<Picker.Item label={t("15_percent", "15%")} value="15" />
-									<Picker.Item
-										label={t("18_percent_recommended", "18% Recommended")}
-										value="18"
-									/>
-									<Picker.Item label={t("20_percent", "20%")} value="20" />
-									<Picker.Item label={t("22_percent", "22%")} value="22" />
-									<Picker.Item label={t("25_percent", "25%")} value="25" />
-									<Picker.Item
-										label={t("no_tip_cash", "No Tip / Cash")}
-										value="0"
-									/>
-								</Picker>
+								<PlatformSelect
+									value={gratuityPercentage}
+									onValueChange={setGratuityPercentage}
+									title={t("add_gratuity", "Add Gratuity")}
+									options={[
+										{ label: t("10_percent", "10%"), value: "10" },
+										{ label: t("12_percent", "12%"), value: "12" },
+										{ label: t("15_percent", "15%"), value: "15" },
+										{
+											label: t("18_percent_recommended", "18% Recommended"),
+											value: "18",
+										},
+										{ label: t("20_percent", "20%"), value: "20" },
+										{ label: t("22_percent", "22%"), value: "22" },
+										{ label: t("25_percent", "25%"), value: "25" },
+										{ label: t("no_tip_cash", "No Tip / Cash"), value: "0" },
+									]}
+									pickerStyle={styles.gratuityPicker}
+								/>
 							</View>
 						</View>
 					)}

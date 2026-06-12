@@ -6,7 +6,10 @@
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
     "start": "npm run shell",
-    "deploy": "firebase deploy --only functions",
+    "deploy": "firebase deploy --only functions --project dev",
+    "deploy:dev": "firebase deploy --only functions --project dev",
+    "deploy:testing": "firebase deploy --only functions --project testing",
+    "deploy:prod": "set FIREBASE_DEPLOY_PROJECT=scervmvp&& firebase deploy --only functions --project prod",
     "logs": "firebase functions:log"
   },
   "engines": {

@@ -10,11 +10,11 @@ import {
 } from "react-native";
 import moment from "moment";
 import { useTranslation } from "react-i18next";
-import { Picker } from "@react-native-picker/picker";
 import { AntDesign, MaterialIcons } from "@expo/vector-icons"; // Import icon
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons"; // Import Ionicons
+import PlatformSelect from "../global/PlatformSelect";
 import {
 	formatCurrencyFromDollars,
 	formatMenuPrice,
@@ -147,16 +147,18 @@ const OrderItem = ({
 									: item.pip.specialInstructions}
 							</Text>
 						)}
-						{/* Status Picker */}
-						<Picker
-							selectedValue={itemStatus}
+						<PlatformSelect
+							value={itemStatus}
 							onValueChange={handleStatusChange}
-							style={styles.statusPicker}
-						>
-							<Picker.Item label={t("pending_status")} value="pending" />
-							<Picker.Item label={t("preparing_status")} value="preparing" />
-							<Picker.Item label={t("completed_status")} value="completed" />
-						</Picker>
+							title={t("status", "Status")}
+							options={[
+								{ label: t("pending_status"), value: "pending" },
+								{ label: t("preparing_status"), value: "preparing" },
+								{ label: t("completed_status"), value: "completed" },
+							]}
+							style={styles.statusSelect}
+							pickerStyle={styles.statusPicker}
+						/>
 
 						{/* Discount Input */}
 						<View style={styles.discountInputContainer}>
@@ -268,6 +270,10 @@ const styles = StyleSheet.create({
 		borderColor: colors.lightGray, // Add a border to the picker
 		borderRadius: 8, // Add rounded corners to the picker
 		padding: 10,
+	},
+	statusSelect: {
+		marginBottom: 20,
+		backgroundColor: colors.surfaceWhite,
 	},
 	discountInputContainer: {
 		flexDirection: "row",

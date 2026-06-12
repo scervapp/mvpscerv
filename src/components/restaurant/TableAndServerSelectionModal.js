@@ -11,13 +11,13 @@ import {
 	SafeAreaView,
 	TouchableOpacity,
 } from "react-native";
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 import { Button } from "react-native-paper";
-import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import TableItem from "./TableItem";
 import { fetchEmployees, fetchTables } from "../../utils/firebaseUtils";
+import PlatformSelect from "../global/PlatformSelect";
 
 const TableAndServerSelectionModal = ({
 	isVisible,
@@ -157,8 +157,8 @@ const TableAndServerSelectionModal = ({
 
 				<Text style={styles.sectionTitle}>{t('assign_server_title')}</Text>
 				<View style={styles.pickerContainer}>
-					<Picker
-						selectedValue={selectedServer?.id}
+					<PlatformSelect
+						value={selectedServer?.id || null}
 						onValueChange={(itemValue) => {
 							if (itemValue) {
 								const serverObject = servers.find((s) => s.id === itemValue);
@@ -167,22 +167,16 @@ const TableAndServerSelectionModal = ({
 								setSelectedServer(null);
 							}
 						}}
-						style={styles.picker}
-						itemStyle={styles.pickerItem} // Added for iOS styling
-					>
-						<Picker.Item
-							label={t('select_server_placeholder')}
-							value={null}
-							color={colors.textLight}
-						/>
-						{servers.map((server) => (
-							<Picker.Item
-								key={server.id}
-								label={`${server.firstName} ${server.lastName}`}
-								value={server.id}
-							/>
-						))}
-					</Picker>
+						title={t("assign_server_title")}
+						placeholder={t("select_server_placeholder")}
+						options={servers.map((server) => ({
+							label: `${server.firstName} ${server.lastName}`,
+							value: server.id,
+						}))}
+						style={styles.selectButton}
+						pickerStyle={styles.picker}
+						itemStyle={styles.pickerItem}
+					/>
 				</View>
 			</>
 		);
@@ -269,6 +263,8 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 	},
 	picker: { height: 50, color: colors.textMedium }, // For Android consistency
+	pickerItem: { color: colors.textDark, fontSize: 16 },
+	selectButton: { borderWidth: 0, backgroundColor: colors.surfaceWhite },
 	errorText: {
 		textAlign: "center",
 		color: colors.statusDanger,

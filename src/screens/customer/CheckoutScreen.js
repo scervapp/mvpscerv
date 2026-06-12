@@ -14,7 +14,6 @@ import {
 } from "react-native";
 import { functions, db } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
-import { Picker } from "@react-native-picker/picker";
 import { useBasket } from "../../context/customer/BasketContext";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import {
@@ -37,6 +36,7 @@ import dLocalAdapter from "../../services/dLocalAdapter";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import DlocalNativeCheckout from "./DlocalNativeCheckout.js";
+import PlatformSelect from "../../components/global/PlatformSelect";
 
 // NEW: Import our WebView Bridge Component
 
@@ -121,11 +121,16 @@ const CheckoutScreen = ({ route, navigation }) => {
 	const [isReadyToPay, setIsReadyToPay] = useState(false);
 
 	const { initPaymentSheet, presentPaymentSheet } = useStripe();
-	const country = restaurant?.countryCode;
+	const country =
+		restaurant?.countryCode || restaurant?.country || restaurant?.countryName || "US";
 
 	const isPanama =
 		country === "PA" || country === "Panama" || country === "panama";
-	const isUSA = country === "US" || country === "USA" || country === "usa";
+	const isUSA =
+		country === "US" ||
+		country === "USA" ||
+		country === "usa" ||
+		country === "United States";
 
 	const selectedCard =
 		savedCards?.find((card) => card.vaultId === selectedVaultId) ||
@@ -700,22 +705,22 @@ const CheckoutScreen = ({ route, navigation }) => {
 								})}
 							</Text>
 							<View style={styles.pickerContainer}>
-								<Picker
-									selectedValue={gratuityPercentage}
-									onValueChange={(itemValue) =>
-										setGratuityPercentage(itemValue)
-									}
-									style={styles.gratuityPicker}
+								<PlatformSelect
+									value={gratuityPercentage}
+									onValueChange={setGratuityPercentage}
+									title={t("add_gratuity")}
+									options={[
+										{ label: t("0_percent"), value: "0" },
+										{ label: t("5_percent"), value: "5" },
+										{ label: t("10_percent"), value: "10" },
+										{ label: t("15_percent"), value: "15" },
+										{ label: t("18_percent"), value: "18" },
+										{ label: t("20_percent"), value: "20" },
+										{ label: t("25_percent"), value: "25" },
+									]}
+									pickerStyle={styles.gratuityPicker}
 									itemStyle={styles.gratuityPickerItem}
-								>
-									<Picker.Item label={t("0_percent")} value="0" />
-									<Picker.Item label={t("5_percent")} value="5" />
-									<Picker.Item label={t("10_percent")} value="10" />
-									<Picker.Item label={t("15_percent")} value="15" />
-									<Picker.Item label={t("18_percent")} value="18" />
-									<Picker.Item label={t("20_percent")} value="20" />
-									<Picker.Item label={t("25_percent")} value="25" />
-								</Picker>
+								/>
 								<MaterialCommunityIcons
 									name="chevron-down"
 									size={24}

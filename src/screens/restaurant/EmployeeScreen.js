@@ -22,10 +22,10 @@ import { Formik } from "formik";
 import * as Yup from "yup";
 
 import colors from "../../utils/styles/appStyles";
-import { Picker } from "@react-native-picker/picker";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import PlatformSelect from "../../components/global/PlatformSelect";
 
 // --- Reusable Add/Edit Employee Modal ---
 const AddEditEmployeeModal = ({
@@ -191,37 +191,37 @@ const AddEditEmployeeModal = ({
 										<>
 											<Text style={styles.inputLabel}>{t("job_title")}</Text>
 											<View style={styles.pickerContainer}>
-												<Picker
-													selectedValue={values.jobTitle}
+												<PlatformSelect
+													value={values.jobTitle}
 													onValueChange={(itemValue) =>
 														setFieldValue("jobTitle", itemValue)
 													}
-													style={styles.picker}
-												>
-													<Picker.Item
-														label={t("server", "Server")}
-														value="server"
-													/>
-													<Picker.Item
-														label={t("host_hostess", "Host / Hostess")}
-														value="host"
-													/>
-													<Picker.Item
-														label={t(
-															"chef_kitchen_staff",
-															"Chef / Kitchen Staff",
-														)}
-														value="chef"
-													/>
-													<Picker.Item
-														label={t("busser_support", "Busser / Support")}
-														value="support"
-													/>
-													<Picker.Item
-														label={t("bartender", "Bartender")}
-														value="bartender"
-													/>
-												</Picker>
+													title={t("job_title")}
+													options={[
+														{ label: t("server", "Server"), value: "server" },
+														{
+															label: t("host_hostess", "Host / Hostess"),
+															value: "host",
+														},
+														{
+															label: t(
+																"chef_kitchen_staff",
+																"Chef / Kitchen Staff",
+															),
+															value: "chef",
+														},
+														{
+															label: t("busser_support", "Busser / Support"),
+															value: "support",
+														},
+														{
+															label: t("bartender", "Bartender"),
+															value: "bartender",
+														},
+													]}
+													style={styles.pickerButton}
+													pickerStyle={styles.picker}
+												/>
 											</View>
 											{touched.jobTitle && errors.jobTitle && (
 												<Text style={styles.errorText}>{errors.jobTitle}</Text>
@@ -718,6 +718,7 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 	},
 	picker: { height: 55, width: "100%", color: colors.textMedium },
+	pickerButton: { borderWidth: 0, backgroundColor: colors.backgroundLight },
 	modalActions: {
 		flexDirection: "row",
 		justifyContent: "space-between",

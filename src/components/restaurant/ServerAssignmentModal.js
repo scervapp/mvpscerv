@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, Modal, StyleSheet, TouchableOpacity } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Picker } from "@react-native-picker/picker";
 import colors from "../../utils/styles/appStyles";
+import PlatformSelect from "../global/PlatformSelect";
 
 const ServerAssignmentModal = ({
 	visible,
@@ -11,10 +11,12 @@ const ServerAssignmentModal = ({
 	servers,
 }) => {
 	const { t } = useTranslation();
-	const [selectedServer, setSelectedServer] = useState(null);
+	const [selectedServerId, setSelectedServerId] = useState(null);
+	const selectedServer =
+		servers?.find((server) => server.id === selectedServerId) || null;
 
 	const handleAssign = () => {
-		if (selectedServer !== null && selectedServer !== "null") {
+		if (selectedServer) {
 			onAssignServer(selectedServer);
 			onClose();
 		} else {
@@ -28,31 +30,20 @@ const ServerAssignmentModal = ({
 				<View style={styles.modalContent}>
 					<Text style={styles.modalTitle}>{t("assign_server_title")}</Text>
 
-					{/* Server Picker */}
 					<View style={styles.pickerContainer}>
-						<Picker
-							selectedValue={selectedServer}
-							onValueChange={(itemValue) => setSelectedServer(itemValue)}
-							// 1. THIS fixes the "Closed" state on Android (forces the visible selected text to be dark)
-							style={{ width: "100%", height: 70, color: colors.textDark }}
-							dropdownIconColor={colors.textDark}
-							// 2. THIS fixes iOS (forces the scrolling wheel text to be dark)
-							itemStyle={{ color: colors.textDark, fontSize: 16 }}
-						>
-							{/* 3. NO COLOR PROPS HERE. Android's native popup will auto-adjust for Dark/Light mode! */}
-							<Picker.Item
-								label={t("select_server_label", "Select Server")}
-								value={null}
-							/>
-							{servers &&
-								servers.map((server) => (
-									<Picker.Item
-										key={server.id}
-										label={`${server.firstName} ${server.lastName}`}
-										value={server}
-									/>
-								))}
-						</Picker>
+						<PlatformSelect
+							value={selectedServerId}
+							onValueChange={setSelectedServerId}
+							title={t("assign_server_title")}
+							placeholder={t("select_server_label", "Select Server")}
+							options={(servers || []).map((server) => ({
+								label: `${server.firstName} ${server.lastName}`,
+								value: server.id,
+							}))}
+							style={styles.selectButton}
+							pickerStyle={styles.picker}
+							itemStyle={styles.pickerItem}
+						/>
 					</View>
 
 					{/* Buttons */}
@@ -114,6 +105,7 @@ const styles = StyleSheet.create({
 		color: colors.textDark, // Updated
 		fontSize: 16,
 	},
+	selectButton: { borderWidth: 0, backgroundColor: colors.surfaceWhite },
 	buttonContainer: {
 		flexDirection: "row",
 		justifyContent: "space-around",

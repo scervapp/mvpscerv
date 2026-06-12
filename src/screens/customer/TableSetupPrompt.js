@@ -1,4 +1,4 @@
-import React, { useState, useContext } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import {
 	View,
 	Text,
@@ -11,111 +11,160 @@ import { MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { httpsCallable } from "@react-native-firebase/functions";
 
-// Import your Firebase config and Contexts
-import { functions } from "../../config/firebase.native"; // Adjust path as needed
+import { functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
 import { useParty } from "../../context/customer/PartyContext";
 import colors from "../../utils/styles/appStyles";
 
 const TableSetupPrompt = ({ route, navigation }) => {
 	const { t } = useTranslation();
-
-	// We grab the table info passed from the QR Scanner
 	const { restaurantId, tableId, tableName, restaurantName } = route.params;
-
 	const { currentUserData } = useContext(AuthContext);
-	const { createParty, activatePartyCheckIn } = useParty();
+	const { createParty, getRestaurantSessions, partyDetails } = useParty();
 
 	const [isProcessing, setIsProcessing] = useState(false);
 
-	// ==========================================
-	// ACTION: JUST ME (INDIVIDUAL)
-	// ==========================================
+	const existingDineInPartyId = useMemo(
+		() => getRestaurantSessions?.(restaurantId)?.dineInPartyId || null,
+		[getRestaurantSessions, restaurantId],
+	);
+
+	const existingDineInParty = existingDineInPartyId
+		? partyDetails?.[existingDineInPartyId]
+		: null;
+
+	const canBringExistingParty =
+		existingDineInPartyId &&
+		existingDineInParty?.hostUserId === currentUserData?.uid &&
+		["pending", "AWAITING_TABLE", "active"].includes(
+			existingDineInParty?.status,
+		);
+
+	const getCustomerName = () =>
+		currentUserData?.displayName ||
+		currentUserData?.fullName ||
+		currentUserData?.firstName ||
+		"Guest";
+
+	const confirmUseExistingParty = () =>
+		new Promise((resolve) => {
+			if (!canBringExistingParty) {
+				resolve(false);
+				return;
+			}
+
+			Alert.alert(
+				t("bring_party_title", "Bring your party?"),
+				t(
+					"bring_party_message",
+					"Do you want to check in your entire current party at this table?",
+				),
+				[
+					{
+						text: t("start_new_party", "Start New Party"),
+						onPress: () => resolve(false),
+					},
+					{
+						text: t("bring_party_button", "Bring Party"),
+						onPress: () => resolve(true),
+					},
+					{
+						text: t("cancel_button", "Cancel"),
+						style: "cancel",
+						onPress: () => resolve(null),
+					},
+				],
+			);
+		});
+
 	const handleSoloDining = async () => {
 		setIsProcessing(true);
 		try {
-			console.log(`👤 Starting solo tab at Table ${tableId}`);
-
 			const selfSeatingCheckIn = httpsCallable(functions, "selfSeatingCheckIn");
 			const checkInResponse = await selfSeatingCheckIn({
-				restaurantId: restaurantId,
-				tableId: tableId,
-				tableName: tableName,
-				customerName:
-					currentUserData?.displayName || currentUserData?.firstName || "Guest",
+				restaurantId,
+				tableId,
+				tableName,
+				customerName: getCustomerName(),
 				numberOfPeople: 1,
 			});
 
 			if (checkInResponse.data.success) {
-				// Navigate back to the Restaurant Detail / Menu screen
-				// The check-in listener in your app will automatically pick up the new status
 				navigation.navigate("RestaurantDetail", {
 					restaurant: {
 						id: restaurantId,
 						restaurantName: restaurantName || "Restaurant",
 					},
 				});
-			} else {
-				throw new Error("Check-in failed on the server.");
+				return;
 			}
+
+			throw new Error("Check-in failed on the server.");
 		} catch (error) {
 			console.error("Solo check-in error:", error);
-			Alert.alert(t("error"), "Could not start your tab. Please try again.");
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_start_tab", "Could not start your tab. Please try again."),
+			);
 			setIsProcessing(false);
 		}
 	};
 
-	// ==========================================
-	// ACTION: GROUP / SPLIT BILL (PARTY)
-	// ==========================================
 	const handleGroupDining = async () => {
 		setIsProcessing(true);
 		try {
-			console.log(`👯‍♂️ Starting Party Mode at Table ${tableId}`);
+			const useExistingParty = await confirmUseExistingParty();
 
-			// 1. Claim the physical table first (same as solo)
+			if (useExistingParty === null) {
+				setIsProcessing(false);
+				return;
+			}
+
+			const partyIdToSeat =
+				(useExistingParty && existingDineInPartyId) ||
+				(await createParty(restaurantId, restaurantName || "Restaurant"));
+
+			if (!partyIdToSeat) {
+				throw new Error("Failed to generate Party ID.");
+			}
+
+			const partySize = useExistingParty
+				? existingDineInParty?.guestPips?.length ||
+					existingDineInParty?.guestUserIds?.length ||
+					1
+				: 1;
+
 			const selfSeatingCheckIn = httpsCallable(functions, "selfSeatingCheckIn");
 			const checkInResponse = await selfSeatingCheckIn({
-				restaurantId: restaurantId,
-				tableId: tableId,
-				tableName: tableName,
-				customerName:
-					currentUserData?.displayName || currentUserData?.firstName || "Guest",
-				numberOfPeople: 1, // The host
+				restaurantId,
+				tableId,
+				tableName,
+				customerName: getCustomerName(),
+				numberOfPeople: partySize,
+				partyId: partyIdToSeat,
 			});
 
 			if (checkInResponse.data.success) {
-				// 2. Automatically create the Party wrapper
-				const newPartyId = await createParty(
-					restaurantId,
-					restaurantName || "Restaurant",
-				);
-
-				if (newPartyId) {
-					// 3. Link the party to the check-in session
-					await activatePartyCheckIn(checkInResponse.data.checkInId);
-
-					// 4. Navigate to the newly created Party Session
-					navigation.navigate("PartyTab", {
-						screen: "PartySession",
-						params: { partyId: newPartyId },
-					});
-				} else {
-					throw new Error("Failed to generate Party ID.");
-				}
-			} else {
-				throw new Error("Could not claim table for party.");
+				navigation.navigate("PartyTab", {
+					screen: "PartySession",
+					params: { partyId: partyIdToSeat },
+				});
+				return;
 			}
+
+			throw new Error("Could not claim table for party.");
 		} catch (error) {
 			console.error("Party check-in error:", error);
-			Alert.alert(t("error"), "Could not create your group. Please try again.");
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_create_group", "Could not create your group. Please try again."),
+			);
 			setIsProcessing(false);
 		}
 	};
 
 	return (
 		<View style={styles.overlay}>
-			{/* Tapping the dark background closes the modal without checking in */}
 			<TouchableOpacity
 				style={styles.backdrop}
 				activeOpacity={1}
@@ -124,11 +173,10 @@ const TableSetupPrompt = ({ route, navigation }) => {
 			/>
 
 			<View style={styles.sheetContainer}>
-				{/* Drag Handle UI */}
 				<View style={styles.dragHandle} />
 
 				<Text style={styles.title}>
-					{t("welcome_to")} {tableName || `Table ${tableId}`}
+					{t("welcome_to", "Welcome to")} {tableName || `Table ${tableId}`}
 				</Text>
 				<Text style={styles.subtitle}>
 					{t("how_are_we_dining_today", "How are we dining today?")}
@@ -143,7 +191,6 @@ const TableSetupPrompt = ({ route, navigation }) => {
 					</View>
 				) : (
 					<View style={styles.optionsContainer}>
-						{/* Option 1: Solo */}
 						<TouchableOpacity
 							style={styles.optionCard}
 							onPress={handleSoloDining}
@@ -171,7 +218,6 @@ const TableSetupPrompt = ({ route, navigation }) => {
 							/>
 						</TouchableOpacity>
 
-						{/* Option 2: Party */}
 						<TouchableOpacity
 							style={styles.optionCard}
 							onPress={handleGroupDining}
@@ -182,13 +228,20 @@ const TableSetupPrompt = ({ route, navigation }) => {
 							</View>
 							<View style={styles.optionTextContainer}>
 								<Text style={styles.optionTitle}>
-									{t("group_split_bill", "Group / Split Bill")}
+									{canBringExistingParty
+										? t("group_or_current_party", "Group / Current Party")
+										: t("group_split_bill", "Group / Split Bill")}
 								</Text>
 								<Text style={styles.optionDescription}>
-									{t(
-										"order_together_pay_separately",
-										"Order together, pay separately",
-									)}
+									{canBringExistingParty
+										? t(
+												"bring_existing_party_description",
+												"Seat your current party or start a new group",
+											)
+										: t(
+												"order_together_pay_separately",
+												"Order together, pay separately",
+											)}
 								</Text>
 							</View>
 							<MaterialCommunityIcons

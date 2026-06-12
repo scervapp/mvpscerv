@@ -1,18 +1,32 @@
-{"cli": {
+{
+  "cli": {
     "version": "16.4.1",
     "appVersionSource": "local"
-
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
-
+      "distribution": "internal",
+      "env": {
+        "APP_ENV": "development",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp-dev"
+      }
+    },
+    "testing": {
+      "distribution": "internal",
+      "env": {
+        "APP_ENV": "testing",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp-testing"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "extends": "testing"
     },
     "production": {
+      "env": {
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp"
+      },
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.0"
       }
@@ -21,12 +35,11 @@
   "submit": {
     "production": {
       "android": {
-          "serviceAccountKeyPath": "./eas-submit-key.json"
+        "serviceAccountKeyPath": "./eas-submit-key.json"
       },
       "ios": {
-          "ascAppId": "1591335061"
+        "ascAppId": "1591335061"
       }
-
     }
   }
 }

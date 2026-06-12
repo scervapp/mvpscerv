@@ -14,6 +14,7 @@ import {
 	KeyboardAvoidingView,
 	Platform,
 	Image,
+	ActionSheetIOS,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Picker } from "@react-native-picker/picker";
@@ -186,6 +187,39 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		() => MENU_CATEGORIES.map((item) => item.value),
 		[MENU_CATEGORIES],
 	);
+
+	const openIOSCategorySheet = ({
+		title,
+		options,
+		currentValue,
+		onSelect,
+		includePlaceholder = false,
+	}) => {
+		if (Platform.OS !== "ios") return;
+
+		const values = includePlaceholder ? ["", ...options] : options;
+		const labels = values.map((value) => {
+			if (!value) return t("select_category_placeholder", "Select category");
+			return MENU_CATEGORIES.find((item) => item.value === value)?.label || value;
+		});
+		const cancelButtonIndex = labels.length;
+
+		ActionSheetIOS.showActionSheetWithOptions(
+			{
+				title,
+				options: [...labels, t("cancel_button", "Cancel")],
+				cancelButtonIndex,
+				userInterfaceStyle: "light",
+			},
+			(buttonIndex) => {
+				if (buttonIndex === cancelButtonIndex) return;
+				const selectedValue = values[buttonIndex];
+				if (selectedValue !== currentValue) {
+					onSelect(selectedValue);
+				}
+			},
+		);
+	};
 
 	const handleImageSelection = async () => {
 		setIsUploading(true);
@@ -539,25 +573,57 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 						/>
 
 						<Text style={styles.label}>{t("category_label", "Category")}</Text>
-						<View style={styles.pickerContainer}>
-							<Picker
-								selectedValue={category}
-								onValueChange={(itemValue) => setCategory(itemValue)}
-								style={styles.picker}
+						{Platform.OS === "ios" ? (
+							<TouchableOpacity
+								style={styles.selectButton}
+								onPress={() =>
+									openIOSCategorySheet({
+										title: t("category_label", "Category"),
+										options: groupedCategoryLabels,
+										currentValue: category,
+										onSelect: setCategory,
+										includePlaceholder: true,
+									})
+								}
 							>
-								<Picker.Item
-									label={t("select_category_placeholder", "Select category")}
-									value=""
+								<Text
+									style={[
+										styles.selectButtonText,
+										!category && styles.selectButtonPlaceholder,
+									]}
+								>
+									{category
+										? MENU_CATEGORIES.find((item) => item.value === category)
+												?.label || category
+										: t("select_category_placeholder", "Select category")}
+								</Text>
+								<Ionicons
+									name="chevron-down"
+									size={18}
+									color={colors.textMedium}
 								/>
-								{MENU_CATEGORIES.map((categoryItem) => (
+							</TouchableOpacity>
+						) : (
+							<View style={styles.pickerContainer}>
+								<Picker
+									selectedValue={category}
+									onValueChange={(itemValue) => setCategory(itemValue)}
+									style={styles.picker}
+								>
 									<Picker.Item
-										key={categoryItem.value}
-										label={categoryItem.label}
-										value={categoryItem.value}
+										label={t("select_category_placeholder", "Select category")}
+										value=""
 									/>
-								))}
-							</Picker>
-						</View>
+									{MENU_CATEGORIES.map((categoryItem) => (
+										<Picker.Item
+											key={categoryItem.value}
+											label={categoryItem.label}
+											value={categoryItem.value}
+										/>
+									))}
+								</Picker>
+							</View>
+						)}
 
 						<View style={styles.switchContainer}>
 							<Text style={styles.labelInline}>
@@ -776,25 +842,56 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 														<Text style={styles.label}>
 															{t("category_label", "Category")}
 														</Text>
-														<View style={styles.pickerContainerCompact}>
-															<Picker
-																selectedValue={option.category}
-																onValueChange={(value) =>
-																	updateModifierOption(group.id, option.id, {
-																		category: value,
+														{Platform.OS === "ios" ? (
+															<TouchableOpacity
+																style={styles.selectButtonCompact}
+																onPress={() =>
+																	openIOSCategorySheet({
+																		title: t("category_label", "Category"),
+																		options: groupedCategoryLabels,
+																		currentValue: option.category,
+																		onSelect: (value) =>
+																			updateModifierOption(
+																				group.id,
+																				option.id,
+																				{ category: value },
+																			),
 																	})
 																}
-																style={styles.pickerCompact}
 															>
-																{groupedCategoryLabels.map((catValue) => (
-																	<Picker.Item
-																		key={catValue}
-																		label={catValue}
-																		value={catValue}
-																	/>
-																))}
-															</Picker>
-														</View>
+																<Text
+																	style={styles.selectButtonText}
+																	numberOfLines={1}
+																>
+																	{option.category}
+																</Text>
+																<Ionicons
+																	name="chevron-down"
+																	size={16}
+																	color={colors.textMedium}
+																/>
+															</TouchableOpacity>
+														) : (
+															<View style={styles.pickerContainerCompact}>
+																<Picker
+																	selectedValue={option.category}
+																	onValueChange={(value) =>
+																		updateModifierOption(group.id, option.id, {
+																			category: value,
+																		})
+																	}
+																	style={styles.pickerCompact}
+																>
+																	{groupedCategoryLabels.map((catValue) => (
+																		<Picker.Item
+																			key={catValue}
+																			label={catValue}
+																			value={catValue}
+																		/>
+																	))}
+																</Picker>
+															</View>
+														)}
 													</View>
 												</View>
 
@@ -959,6 +1056,37 @@ const styles = StyleSheet.create({
 	pickerCompact: {
 		height: 50,
 		color: colors.textDark,
+	},
+	selectButton: {
+		minHeight: 50,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 15,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	selectButtonCompact: {
+		minHeight: 50,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	selectButtonText: {
+		flex: 1,
+		fontSize: 16,
+		color: colors.textDark,
+		paddingRight: 8,
+	},
+	selectButtonPlaceholder: {
+		color: colors.textLight,
 	},
 	switchContainer: {
 		flexDirection: "row",
