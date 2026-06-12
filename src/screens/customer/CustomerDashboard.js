@@ -128,6 +128,12 @@ const getRatingCount = (menuItem = {}) => {
 	return Number.isFinite(count) ? count : 0;
 };
 
+const getScervRewardsPoints = (summary = {}) =>
+	Number(summary.scervAvailablePoints || summary.availablePoints || 0);
+
+const getScervPointsPerDollar = (summary = {}) =>
+	Number(summary.pointsPerDollar || 10);
+
 const getMenuItemSearchText = (menuItem = {}) => {
 	const tags = Array.isArray(menuItem.tags) ? menuItem.tags : [];
 	const tokens = Array.isArray(menuItem.searchTokens) ? menuItem.searchTokens : [];
@@ -688,14 +694,11 @@ const CustomerDashboard = ({ navigation }) => {
 					<View style={styles.rewardsTextWrap}>
 						<Text style={styles.rewardsLabel}>Scerv Rewards</Text>
 						<Text style={styles.rewardsValue}>
-							{Number(
-								rewardsSummary?.availablePoints || 0,
-							).toLocaleString()}{" "}
-							points
+							{getScervRewardsPoints(rewardsSummary).toLocaleString()} points
 						</Text>
 					</View>
 					<Text style={styles.rewardsHint}>
-						Earn {Number(rewardsSummary?.pointsPerDollar || 10)}x
+						Earn {getScervPointsPerDollar(rewardsSummary)}x
 					</Text>
 				</View>
 
@@ -825,6 +828,7 @@ const CustomerDashboard = ({ navigation }) => {
 			isMenuLoading,
 			resultTitle,
 			restaurantById,
+			rewardsSummary?.scervAvailablePoints,
 			rewardsSummary?.availablePoints,
 			rewardsSummary?.pointsPerDollar,
 			searchText,
