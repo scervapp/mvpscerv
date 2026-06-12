@@ -89,6 +89,8 @@ exports.submitDishRating = dishRatingFunction.submitDishRating;
 exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;
 exports.submitMenuItemRating = dishRatingFunction.submitMenuItemRating;
 exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
+exports.aggregateMenuItemOrderStats =
+	dishRatingFunction.aggregateMenuItemOrderStats;
 
 // Party Functions
 exports.createParty = partyFunctions.createParty;

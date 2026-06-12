@@ -4,6 +4,11 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 
+const makeSafeDocId = (value) =>
+	String(value || "")
+		.replace(/[^a-zA-Z0-9_-]/g, "_")
+		.slice(0, 500);
+
 /**
  * Submits a rating for a specific dish within a completed order.
  * Marks the item in the order as rated.
@@ -215,32 +220,73 @@ exports.aggregateDishRating = functions.firestore
 	});
 
 exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
-	const uid = context.auth.uid;
+	const uid = context.auth && context.auth.uid;
 	if (!uid)
 		throw new functions.https.HttpsError("unauthenticated", "Login required.");
 
-	const { menuItemId, restaurantId, ratingValue, comment = "" } = data;
+	const {
+		menuItemId,
+		restaurantId,
+		ratingValue,
+		comment = "",
+		reviewText = "",
+		reviewTags = [],
+		orderId = null,
+		origin = null,
+		isIndividual = null,
+	} = data;
+	const cleanReviewText = String(reviewText || comment || "").trim().slice(0, 800);
+	const cleanReviewTags = Array.isArray(reviewTags)
+		? [
+				...new Set(
+					reviewTags
+						.map((tag) =>
+							String(tag || "")
+								.trim()
+								.toLowerCase()
+								.replace(/\s+/g, " ")
+						)
+						.filter(Boolean)
+						.slice(0, 8)
+				),
+			]
+		: [];
 
 	if (!menuItemId || !restaurantId || ratingValue < 1 || ratingValue > 5) {
 		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
 	}
 
+	const ratingDocId = makeSafeDocId(
+		`${uid}_${menuItemId}_${orderId || "single"}`
+	);
 	const ratingRef = db
 		.collection("menuItems")
 		.doc(menuItemId)
 		.collection("ratings")
-		.doc();
+		.doc(ratingDocId);
 
 	try {
 		await db.runTransaction(async (t) => {
-			// Prevent duplicate ratings
+			const ratingDoc = await t.get(ratingRef);
+			if (ratingDoc.exists) {
+				throw new functions.https.HttpsError(
+					"already-exists",
+					"This item has already been reviewed."
+				);
+			}
 
 			t.set(ratingRef, {
 				menuItemId,
 				restaurantId,
 				customerId: uid,
 				ratingValue,
-				comment: comment || null,
+				comment: cleanReviewText || null,
+				reviewText: cleanReviewText || null,
+				reviewTags: cleanReviewTags,
+				orderId,
+				origin,
+				isIndividual,
+				status: "published",
 				timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			});
 		});
@@ -260,7 +306,7 @@ exports.aggregateMenuItemRating = functions.firestore
 	.document("menuItems/{itemId}/ratings/{ratingId}")
 	.onCreate(async (snap, context) => {
 		const { itemId } = context.params;
-		const { ratingValue } = snap.data();
+		const { ratingValue, reviewText, reviewTags = [] } = snap.data();
 
 		const itemRef = db.collection("menuItems").doc(itemId);
 
@@ -269,10 +315,28 @@ exports.aggregateMenuItemRating = functions.firestore
 				const doc = await t.get(itemRef);
 				const currentSum = doc.data().totalRatingSum || 0;
 				const currentCount = doc.data().ratingCount || 0;
+				const currentReviewCount = doc.data().reviewCount || 0;
 
 				const newCount = currentCount + 1;
 				const newSum = currentSum + ratingValue;
 				const newAverage = newCount > 0 ? newSum / newCount : 0;
+				const newReviewCount = reviewText
+					? currentReviewCount + 1
+					: currentReviewCount;
+				const globalAverage = 4.2;
+				const minimumConfidenceRatings = 10;
+				const confidenceAdjustedRating =
+					(newCount / (newCount + minimumConfidenceRatings)) * newAverage +
+					(minimumConfidenceRatings /
+						(newCount + minimumConfidenceRatings)) *
+						globalAverage;
+				const popularityWeight = Math.min(newCount / 50, 1) * 0.25;
+				const discoveryScore = Number(
+					(confidenceAdjustedRating + popularityWeight).toFixed(4)
+				);
+				const topReviewTags = Array.isArray(reviewTags)
+					? [...new Set(reviewTags)].slice(0, 8)
+					: [];
 
 				t.set(
 					itemRef,
@@ -280,6 +344,15 @@ exports.aggregateMenuItemRating = functions.firestore
 						totalRatingSum: newSum,
 						ratingCount: newCount,
 						averageRating: newAverage,
+						reviewCount: newReviewCount,
+						confidenceAdjustedRating,
+						discoveryScore,
+						...(topReviewTags.length > 0
+							? {
+									topReviewTags:
+										admin.firestore.FieldValue.arrayUnion(...topReviewTags),
+								}
+							: {}),
 					},
 					{ merge: true }
 				);
@@ -287,4 +360,37 @@ exports.aggregateMenuItemRating = functions.firestore
 		} catch (error) {
 			console.error("Aggregation failed:", error);
 		}
+	});
+
+exports.aggregateMenuItemOrderStats = functions.firestore
+	.document("orders/{orderId}")
+	.onCreate(async (snap) => {
+		const orderData = snap.data() || {};
+		const items = Array.isArray(orderData.items) ? orderData.items : [];
+		const itemCounts = new Map();
+
+	items.forEach((item) => {
+			const dish = item.dish || {};
+			const menuItemId = item.menuItemId || dish.id || item.dishId;
+			if (!menuItemId) return;
+			const quantity = Math.max(1, Number(item.quantity || 1));
+			itemCounts.set(menuItemId, (itemCounts.get(menuItemId) || 0) + quantity);
+		});
+
+		if (itemCounts.size === 0) return null;
+
+		const batch = db.batch();
+		itemCounts.forEach((quantity, menuItemId) => {
+			batch.set(
+				db.collection("menuItems").doc(menuItemId),
+				{
+					orderCount: admin.firestore.FieldValue.increment(quantity),
+					updatedStatsAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true }
+			);
+		});
+
+		await batch.commit();
+		return null;
 	});

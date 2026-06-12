@@ -10,6 +10,7 @@ import {
 	Alert,
 	SectionList,
 	ScrollView,
+	TextInput,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Snackbar } from "react-native-paper";
@@ -61,6 +62,53 @@ const itemRequiresCustomization = (item) => {
 };
 
 // 🚨 UPDATED: MenuItemRow now accepts selection props
+const normalizeSearchText = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase();
+
+const getDiscoveryScore = (item) => {
+	const rating = Number(
+		item.confidenceAdjustedRating || item.averageRating || item.rating || 0,
+	);
+	const ratingCount = Number(item.ratingCount || 0);
+	const reviewCount = Number(item.reviewCount || 0);
+	const orderCount = Number(item.orderCount || 0);
+	const favoriteCount = Number(item.favoriteCount || 0);
+
+	if (Number(item.discoveryScore || 0) > 0) return Number(item.discoveryScore);
+	return (
+		rating +
+		Math.min(ratingCount / 50, 1) * 0.35 +
+		Math.min(reviewCount / 25, 1) * 0.2 +
+		Math.min(orderCount / 100, 1) * 0.15 +
+		Math.min(favoriteCount / 25, 1) * 0.1
+	);
+};
+
+const itemMatchesSearch = (item, query) => {
+	if (!query) return true;
+	const searchableValues = [
+		getLocalizedValue(item, "name"),
+		getLocalizedValue(item, "description"),
+		item.category,
+		...(item.searchKeywords || []),
+		...(item.ingredientTags || []),
+		...(item.cuisineTags || []),
+		...(item.dietaryTags || []),
+		...(item.flavorTags || []),
+		...(item.topReviewTags || []),
+	];
+	const searchableText = searchableValues
+		.map((value) => normalizeSearchText(value))
+		.join(" ");
+
+	return query
+		.split(/\s+/)
+		.filter(Boolean)
+		.every((token) => searchableText.includes(token));
+};
+
 const MenuItemRow = ({
 	item,
 	onPress,
@@ -79,6 +127,11 @@ const MenuItemRow = ({
 			? formatMenuPrice(price)
 			: t("not_available_abbreviation");
 	const { averageRating = 0, ratingCount = 0 } = item;
+	const visibleTags = [
+		...(item.ingredientTags || []),
+		...(item.flavorTags || []),
+		...(item.topReviewTags || []),
+	].slice(0, 3);
 
 	return (
 		<View style={styles.menuItemWrapper}>
@@ -125,6 +178,16 @@ const MenuItemRow = ({
 						</View>
 					)}
 
+					{visibleTags.length > 0 && (
+						<View style={styles.itemTagRow}>
+							{visibleTags.map((tag) => (
+								<Text key={tag} style={styles.itemTag}>
+									{tag}
+								</Text>
+							))}
+						</View>
+					)}
+
 					<Text style={styles.price}>{safeFormatCurrency(item.price)}</Text>
 				</View>
 				{item.imageUri && (
@@ -158,6 +221,8 @@ const MenuItemsList = ({
 	const [selectedItemForModal, setSelectedItemForModal] = useState(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [snackbar, setSnackbar] = useState({ visible: false, message: "" });
+	const [searchQuery, setSearchQuery] = useState("");
+	const [sortMode, setSortMode] = useState("category");
 
 	const isGuest = currentUserData?.role === "guest";
 
@@ -204,8 +269,41 @@ const MenuItemsList = ({
 		const availableItems = menuItems.filter(
 			(item) => item.isAvailable !== false,
 		);
+		const normalizedQuery = normalizeSearchText(searchQuery);
+		const filteredItems = availableItems.filter((item) =>
+			itemMatchesSearch(item, normalizedQuery),
+		);
 
-		const grouped = availableItems.reduce((acc, item) => {
+		if (sortMode !== "category" || normalizedQuery) {
+			const sortedItems = [...filteredItems].sort((a, b) => {
+				if (sortMode === "popular") {
+					const orderDiff = Number(b.orderCount || 0) - Number(a.orderCount || 0);
+					if (orderDiff !== 0) return orderDiff;
+				}
+
+				const scoreDiff = getDiscoveryScore(b) - getDiscoveryScore(a);
+				if (scoreDiff !== 0) return scoreDiff;
+				const ratingDiff =
+					Number(b.averageRating || 0) - Number(a.averageRating || 0);
+				if (ratingDiff !== 0) return ratingDiff;
+				return String(getLocalizedValue(a, "name")).localeCompare(
+					String(getLocalizedValue(b, "name")),
+				);
+			});
+
+			return [
+				{
+					title: normalizedQuery
+						? t("matching_dishes_title", "Matching Dishes")
+						: sortMode === "popular"
+							? t("popular_dishes_title", "Popular Dishes")
+							: t("best_rated_dishes_title", "Best Rated Dishes"),
+					data: sortedItems,
+				},
+			].filter((section) => section.data.length > 0);
+		}
+
+		const grouped = filteredItems.reduce((acc, item) => {
 			const category = item.isDailySpecial
 				? t("daily_special_category")
 				: item.category || t("other_category");
@@ -244,12 +342,69 @@ const MenuItemsList = ({
 				data: grouped[category],
 			}))
 			.filter((section) => section.data.length > 0);
-	}, [menuItems, t, i18n.language]);
+	}, [menuItems, searchQuery, sortMode, t, i18n.language]);
+
+	const renderHeader = () => (
+		<>
+			{ListHeaderComponent}
+			<View style={styles.discoveryControls}>
+				<View style={styles.searchBox}>
+					<Ionicons name="search" size={18} color={colors.textMedium} />
+					<TextInput
+						value={searchQuery}
+						onChangeText={setSearchQuery}
+						placeholder={t(
+							"search_menu_placeholder",
+							"Search calamari, crispy, vegan...",
+						)}
+						placeholderTextColor={colors.textLight}
+						style={styles.searchInput}
+						autoCorrect={false}
+						clearButtonMode="while-editing"
+					/>
+					{searchQuery ? (
+						<TouchableOpacity onPress={() => setSearchQuery("")}>
+							<Ionicons
+								name="close-circle"
+								size={18}
+								color={colors.textMedium}
+							/>
+						</TouchableOpacity>
+					) : null}
+				</View>
+				<View style={styles.sortRow}>
+					{[
+						{ key: "category", label: t("sort_category", "Category") },
+						{ key: "best", label: t("sort_best", "Best") },
+						{ key: "popular", label: t("sort_popular", "Popular") },
+					].map((option) => (
+						<TouchableOpacity
+							key={option.key}
+							style={[
+								styles.sortChip,
+								sortMode === option.key && styles.sortChipActive,
+							]}
+							onPress={() => setSortMode(option.key)}
+						>
+							<Text
+								style={[
+									styles.sortChipText,
+									sortMode === option.key && styles.sortChipTextActive,
+								]}
+							>
+								{option.label}
+							</Text>
+						</TouchableOpacity>
+					))}
+				</View>
+			</View>
+		</>
+	);
 
 	if (isLoading) {
 		return (
 			<ScrollView>
-				{ListHeaderComponent}
+				{renderHeader()}
 				<ActivityIndicator
 					size="large"
 					color={colors.primary}
@@ -262,7 +417,7 @@ const MenuItemsList = ({
 	if (!menuItems || menuItems.length === 0) {
 		return (
 			<ScrollView style={styles.container}>
-				{ListHeaderComponent}
+				{renderHeader()}
 				<Text style={styles.noItemsText}>{t("no_menu_items_found")}</Text>
 			</ScrollView>
 		);
@@ -286,7 +441,12 @@ const MenuItemsList = ({
 				renderSectionHeader={({ section: { title } }) => (
 					<Text style={styles.menuCategoryHeader}>{title}</Text>
 				)}
-				ListHeaderComponent={ListHeaderComponent}
+				ListHeaderComponent={renderHeader}
+				ListEmptyComponent={
+					<Text style={styles.noItemsText}>
+						{t("no_matching_menu_items", "No matching menu items found.")}
+					</Text>
+				}
 				showsVerticalScrollIndicator={false}
 				// Leave room for the bulk add button if in party mode
 				contentContainerStyle={{
@@ -381,6 +541,55 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 15,
 		color: "#333",
 	},
+	discoveryControls: {
+		backgroundColor: colors.surfaceWhite,
+		paddingHorizontal: 15,
+		paddingTop: 12,
+		paddingBottom: 10,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	searchBox: {
+		minHeight: 46,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.backgroundLight,
+	},
+	searchInput: {
+		flex: 1,
+		paddingHorizontal: 8,
+		color: colors.textDark,
+		fontSize: 15,
+	},
+	sortRow: {
+		flexDirection: "row",
+		marginTop: 10,
+	},
+	sortChip: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 16,
+		paddingHorizontal: 12,
+		paddingVertical: 7,
+		marginRight: 8,
+		backgroundColor: colors.surfaceWhite,
+	},
+	sortChipActive: {
+		borderColor: colors.primary,
+		backgroundColor: colors.primary,
+	},
+	sortChipText: {
+		color: colors.textDark,
+		fontSize: 13,
+		fontWeight: "700",
+	},
+	sortChipTextActive: {
+		color: colors.textOnPrimaryBrand || colors.surfaceWhite,
+	},
 	ratingRow: {
 		flexDirection: "row",
 		alignItems: "center",
@@ -390,6 +599,23 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		color: "#777",
 		marginLeft: 5,
+	},
+	itemTagRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		marginBottom: 4,
+	},
+	itemTag: {
+		backgroundColor: colors.backgroundLight,
+		color: colors.textMedium,
+		fontSize: 11,
+		fontWeight: "700",
+		paddingHorizontal: 8,
+		paddingVertical: 3,
+		borderRadius: 12,
+		marginRight: 5,
+		marginBottom: 4,
+		textTransform: "capitalize",
 	},
 	noItemsText: {
 		textAlign: "center",

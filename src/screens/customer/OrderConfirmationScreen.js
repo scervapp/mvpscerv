@@ -8,6 +8,7 @@ import {
 	Modal,
 	TouchableOpacity,
 	ScrollView,
+	TextInput,
 } from "react-native";
 import {
 	useRoute,
@@ -39,6 +40,17 @@ const StarRating = ({ rating, onRate }) => {
 	);
 };
 
+const REVIEW_TAGS = [
+	"crispy",
+	"fresh",
+	"great sauce",
+	"large portion",
+	"well seasoned",
+	"too salty",
+	"overcooked",
+	"would order again",
+];
+
 const OrderConfirmationScreen = () => {
 	const { t } = useTranslation();
 	const route = useRoute();
@@ -49,11 +61,14 @@ const OrderConfirmationScreen = () => {
 		basketId,
 		isIndividual,
 		origin,
+		appOrderId,
 	} = route.params || {};
 
 	const [status, setStatus] = useState(initialStatus);
 	const [showRatingModal, setShowRatingModal] = useState(false);
 	const [ratings, setRatings] = useState({});
+	const [reviewTexts, setReviewTexts] = useState({});
+	const [reviewTags, setReviewTags] = useState({});
 	const [submitting, setSubmitting] = useState(false);
 
 	useEffect(() => {
@@ -68,6 +83,21 @@ const OrderConfirmationScreen = () => {
 
 	const handleRate = (itemId, value) => {
 		setRatings((prev) => ({ ...prev, [itemId]: value }));
+	};
+
+	const handleReviewTextChange = (itemId, value) => {
+		setReviewTexts((prev) => ({ ...prev, [itemId]: value }));
+	};
+
+	const handleToggleReviewTag = (itemId, tag) => {
+		setReviewTags((prev) => {
+			const currentTags = prev[itemId] || [];
+			const nextTags = currentTags.includes(tag)
+				? currentTags.filter((value) => value !== tag)
+				: [...currentTags, tag];
+
+			return { ...prev, [itemId]: nextTags };
+		});
 	};
 
 	const handleSubmitRatings = async () => {
@@ -85,7 +115,10 @@ const OrderConfirmationScreen = () => {
 						restaurantId: item.restaurantId,
 						ratingValue: ratings[item.id],
 						origin,
-						comment: "",
+						comment: reviewTexts[item.id] || "",
+						reviewText: reviewTexts[item.id] || "",
+						reviewTags: reviewTags[item.id] || [],
+						orderId: appOrderId || basketId || null,
 						isIndividual: isIndividual, // ← from route.params
 					});
 				}
@@ -160,6 +193,46 @@ const OrderConfirmationScreen = () => {
 											<StarRating
 												rating={ratings[item.id] || 0}
 												onRate={(v) => handleRate(item.id, v)}
+											/>
+											<View style={styles.tagWrap}>
+												{REVIEW_TAGS.map((tag) => {
+													const isSelected = (
+														reviewTags[item.id] || []
+													).includes(tag);
+													return (
+														<TouchableOpacity
+															key={tag}
+															style={[
+																styles.reviewTag,
+																isSelected && styles.reviewTagSelected,
+															]}
+															onPress={() => handleToggleReviewTag(item.id, tag)}
+														>
+															<Text
+																style={[
+																	styles.reviewTagText,
+																	isSelected && styles.reviewTagTextSelected,
+																]}
+															>
+																{tag}
+															</Text>
+														</TouchableOpacity>
+													);
+												})}
+											</View>
+											<TextInput
+												value={reviewTexts[item.id] || ""}
+												onChangeText={(value) =>
+													handleReviewTextChange(item.id, value)
+												}
+												placeholder={t(
+													"optional_review_placeholder",
+													"What stood out? Optional.",
+												)}
+												placeholderTextColor={colors.textLight || "#999"}
+												style={styles.reviewInput}
+												multiline
+												maxLength={800}
 											/>
 										</View>
 									);
@@ -241,6 +314,43 @@ const styles = {
 		fontWeight: "600",
 		marginBottom: 8,
 		color: colors.textDark || "#333",
+	},
+	tagWrap: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		marginBottom: 8,
+	},
+	reviewTag: {
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#ddd",
+		borderRadius: 16,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		marginRight: 6,
+		marginBottom: 6,
+		backgroundColor: "#fff",
+	},
+	reviewTagSelected: {
+		borderColor: colors.primary || "#2196F3",
+		backgroundColor: colors.primary || "#2196F3",
+	},
+	reviewTagText: {
+		color: colors.textDark || "#333",
+		fontSize: 12,
+		fontWeight: "600",
+	},
+	reviewTagTextSelected: {
+		color: "#fff",
+	},
+	reviewInput: {
+		minHeight: 72,
+		borderWidth: 1,
+		borderColor: colors.borderLight || "#ddd",
+		borderRadius: 8,
+		padding: 10,
+		color: colors.textDark || "#333",
+		backgroundColor: "#fff",
+		textAlignVertical: "top",
 	},
 	noItemsText: {
 		textAlign: "center",

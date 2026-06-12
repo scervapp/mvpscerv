@@ -62,6 +62,20 @@ const normalizeNonNegativeInt = (value, fallback) => {
 	return parsed;
 };
 
+const normalizeToken = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, " ");
+
+const parseTagList = (value) =>
+	String(value || "")
+		.split(",")
+		.map(normalizeToken)
+		.filter(Boolean);
+
+const uniqueList = (values) => [...new Set(values.filter(Boolean))];
+
 const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
@@ -122,6 +136,11 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 	const [isUploading, setIsUploading] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [modifierGroups, setModifierGroups] = useState([]);
+	const [ingredientTags, setIngredientTags] = useState("");
+	const [cuisineTags, setCuisineTags] = useState("");
+	const [dietaryTags, setDietaryTags] = useState("");
+	const [flavorTags, setFlavorTags] = useState("");
+	const [searchKeywords, setSearchKeywords] = useState("");
 
 	const isEditMode = itemToEdit !== null;
 
@@ -139,6 +158,11 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 			setCategory(itemToEdit.category || "");
 			setIsDailySpecial(itemToEdit.isDailySpecial || false);
 			setImageUri(itemToEdit.imageUri || null);
+			setIngredientTags((itemToEdit.ingredientTags || []).join(", "));
+			setCuisineTags((itemToEdit.cuisineTags || []).join(", "));
+			setDietaryTags((itemToEdit.dietaryTags || []).join(", "));
+			setFlavorTags((itemToEdit.flavorTags || []).join(", "));
+			setSearchKeywords((itemToEdit.searchKeywords || []).join(", "));
 
 			const loadedGroups = Array.isArray(itemToEdit.modifierGroups)
 				? itemToEdit.modifierGroups.map((group) => ({
@@ -180,6 +204,11 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 			setIsDailySpecial(false);
 			setImageUri(null);
 			setModifierGroups([]);
+			setIngredientTags("");
+			setCuisineTags("");
+			setDietaryTags("");
+			setFlavorTags("");
+			setSearchKeywords("");
 		}
 	}, [isVisible, isEditMode, itemToEdit]);
 
@@ -422,11 +451,49 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 			};
 		});
 
+	const buildMenuMetadata = (cleanModifierGroups) => {
+		const manualIngredients = parseTagList(ingredientTags);
+		const manualCuisine = parseTagList(cuisineTags);
+		const manualDietary = parseTagList(dietaryTags);
+		const manualFlavor = parseTagList(flavorTags);
+		const manualKeywords = parseTagList(searchKeywords);
+		const modifierKeywords = cleanModifierGroups.flatMap((group) => [
+			group.name,
+			group.description,
+			...(group.options || []).map((option) => option.name),
+			...(group.options || []).map((option) => option.category),
+		]);
+		const generatedKeywords = [
+			name,
+			description,
+			category,
+			...manualIngredients,
+			...manualCuisine,
+			...manualDietary,
+			...manualFlavor,
+			...modifierKeywords,
+		].flatMap((value) =>
+			normalizeToken(value)
+				.split(/[^a-z0-9]+/)
+				.filter((token) => token.length > 1),
+		);
+
+		return {
+			ingredientTags: uniqueList(manualIngredients),
+			cuisineTags: uniqueList(manualCuisine),
+			dietaryTags: uniqueList(manualDietary),
+			flavorTags: uniqueList(manualFlavor),
+			searchKeywords: uniqueList([...manualKeywords, ...generatedKeywords]),
+		};
+	};
+
 	const handleSubmit = async () => {
 		if (!validateForm()) return;
 
 		setIsSubmitting(true);
 		const restaurantId = currentUserData.uid;
+		const cleanModifierGroups = buildCleanModifierGroups();
+		const metadata = buildMenuMetadata(cleanModifierGroups);
 
 		const menuItemData = {
 			restaurantId,
@@ -436,8 +503,14 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 			category,
 			isDailySpecial,
 			imageUri: imageUri,
-			modifierGroups: buildCleanModifierGroups(),
+			modifierGroups: cleanModifierGroups,
 			hasModifiers: modifierGroups.length > 0,
+			...metadata,
+			reviewCount: itemToEdit?.reviewCount || 0,
+			orderCount: itemToEdit?.orderCount || 0,
+			reorderCount: itemToEdit?.reorderCount || 0,
+			favoriteCount: itemToEdit?.favoriteCount || 0,
+			discoveryScore: itemToEdit?.discoveryScore || itemToEdit?.averageRating || 0,
 			updatedAt: new Date(),
 		};
 
@@ -634,6 +707,88 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 								onValueChange={setIsDailySpecial}
 								trackColor={{ false: "#767577", true: colors.primary }}
 								thumbColor="#f4f3f4"
+							/>
+						</View>
+
+						<View style={styles.sectionBlock}>
+							<Text style={styles.sectionTitle}>
+								{t("discovery_metadata_title", "Discovery Metadata")}
+							</Text>
+							<Text style={styles.sectionSubtitle}>
+								{t(
+									"discovery_metadata_subtitle",
+									"Help customers find this dish by ingredient, cuisine, flavor, and dietary needs.",
+								)}
+							</Text>
+
+							<Text style={styles.label}>
+								{t("ingredient_tags_label", "Ingredient Tags")}
+							</Text>
+							<TextInput
+								value={ingredientTags}
+								onChangeText={setIngredientTags}
+								placeholder={t(
+									"ingredient_tags_placeholder",
+									"calamari, squid, lemon, aioli",
+								)}
+								style={styles.input}
+								placeholderTextColor={colors.textLight}
+							/>
+
+							<Text style={styles.label}>
+								{t("cuisine_tags_label", "Cuisine Tags")}
+							</Text>
+							<TextInput
+								value={cuisineTags}
+								onChangeText={setCuisineTags}
+								placeholder={t(
+									"cuisine_tags_placeholder",
+									"Italian, seafood, Mediterranean",
+								)}
+								style={styles.input}
+								placeholderTextColor={colors.textLight}
+							/>
+
+							<Text style={styles.label}>
+								{t("flavor_tags_label", "Flavor Tags")}
+							</Text>
+							<TextInput
+								value={flavorTags}
+								onChangeText={setFlavorTags}
+								placeholder={t(
+									"flavor_tags_placeholder",
+									"crispy, savory, spicy, sweet",
+								)}
+								style={styles.input}
+								placeholderTextColor={colors.textLight}
+							/>
+
+							<Text style={styles.label}>
+								{t("dietary_tags_label", "Dietary Tags")}
+							</Text>
+							<TextInput
+								value={dietaryTags}
+								onChangeText={setDietaryTags}
+								placeholder={t(
+									"dietary_tags_placeholder",
+									"vegetarian, gluten-free, contains seafood",
+								)}
+								style={styles.input}
+								placeholderTextColor={colors.textLight}
+							/>
+
+							<Text style={styles.label}>
+								{t("search_keywords_label", "Extra Search Keywords")}
+							</Text>
+							<TextInput
+								value={searchKeywords}
+								onChangeText={setSearchKeywords}
+								placeholder={t(
+									"search_keywords_placeholder",
+									"fried squid, shareable appetizer",
+								)}
+								style={styles.input}
+								placeholderTextColor={colors.textLight}
 							/>
 						</View>
 
