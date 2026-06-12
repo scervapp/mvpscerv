@@ -1,15 +1,20 @@
 // src/config/firebase.js
 
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions";
-import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
+import {
+	connectAuthEmulator,
+	initializeAuth,
+	getReactNativePersistence,
+} from "firebase/auth";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
 // Your web app's Firebase configuration
 const configuredProjectId =
 	Constants.expoConfig?.extra?.firebase?.projectId || "scervmvp";
+const emulatorConfig = Constants.expoConfig?.extra?.firebase?.emulators;
 
 const firebaseConfig = {
 	apiKey:
@@ -47,6 +52,18 @@ const functions = getFunctions(app);
 const auth = initializeAuth(app, {
 	persistence: getReactNativePersistence(ReactNativeAsyncStorage),
 });
+
+if (emulatorConfig?.enabled && !globalThis.__SCERV_FIREBASE_EMULATORS_CONNECTED__) {
+	const host = emulatorConfig.host || "127.0.0.1";
+
+	connectFirestoreEmulator(db, host, emulatorConfig.firestorePort || 8080);
+	connectFunctionsEmulator(functions, host, emulatorConfig.functionsPort || 5001);
+	connectAuthEmulator(auth, `http://${host}:${emulatorConfig.authPort || 9099}`, {
+		disableWarnings: true,
+	});
+
+	globalThis.__SCERV_FIREBASE_EMULATORS_CONNECTED__ = true;
+}
 
 export { app, auth, db, functions };
 

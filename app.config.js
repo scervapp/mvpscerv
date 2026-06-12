@@ -1,6 +1,10 @@
 const baseConfig = require("./app.json");
 
 const APP_ENV = process.env.APP_ENV || "production";
+const USE_FIREBASE_EMULATORS =
+	process.env.EXPO_PUBLIC_USE_FIREBASE_EMULATORS === "true";
+const FIREBASE_EMULATOR_HOST =
+	process.env.EXPO_PUBLIC_FIREBASE_EMULATOR_HOST || "127.0.0.1";
 
 const ENV_CONFIG = {
 	development: {
@@ -68,6 +72,13 @@ module.exports = {
 			appEnv: APP_ENV,
 			firebase: {
 				projectId: envConfig.firebaseProjectId,
+				emulators: {
+					enabled: USE_FIREBASE_EMULATORS && APP_ENV !== "production",
+					host: FIREBASE_EMULATOR_HOST,
+					authPort: 9099,
+					firestorePort: 8080,
+					functionsPort: 5001,
+				},
 			},
 		},
 	},
