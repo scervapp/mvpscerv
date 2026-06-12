@@ -272,6 +272,7 @@ const CustomerDashboard = ({ navigation }) => {
 	const [forceGlobalView, setForceGlobalView] = useState(false);
 	const [showRegionModal, setShowRegionModal] = useState(false);
 	const [selectedRegion, setSelectedRegion] = useState(null);
+	const [rewardsSummary, setRewardsSummary] = useState(null);
 
 	const debouncedSearchText = useDebounce(searchText, 300);
 	const isActivelySearching = searchText.trim().length > 0;
@@ -303,6 +304,31 @@ const CustomerDashboard = ({ navigation }) => {
 
 		loadInitialRegion();
 	}, []);
+
+	useEffect(() => {
+		if (!currentUserData?.uid) {
+			setRewardsSummary(null);
+			return undefined;
+		}
+
+		const unsubscribe = db
+			.collection("customers")
+			.doc(currentUserData.uid)
+			.onSnapshot(
+				(doc) => {
+					const summary = doc.exists
+						? doc.data()?.rewardsSummary || null
+						: null;
+					setRewardsSummary(summary);
+				},
+				(error) => {
+					console.log("Error loading rewards summary:", error);
+					setRewardsSummary(null);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [currentUserData?.uid]);
 
 	useEffect(() => {
 		if (isRegionLoading || (!selectedRegion && !forceGlobalView)) return;
@@ -655,6 +681,24 @@ const CustomerDashboard = ({ navigation }) => {
 					</View>
 				</View>
 
+				<View style={styles.rewardsCard}>
+					<View style={styles.rewardsIconWrap}>
+						<Ionicons name="gift-outline" size={22} color={colors.primary} />
+					</View>
+					<View style={styles.rewardsTextWrap}>
+						<Text style={styles.rewardsLabel}>Scerv Rewards</Text>
+						<Text style={styles.rewardsValue}>
+							{Number(
+								rewardsSummary?.availablePoints || 0,
+							).toLocaleString()}{" "}
+							points
+						</Text>
+					</View>
+					<Text style={styles.rewardsHint}>
+						Earn {Number(rewardsSummary?.pointsPerDollar || 10)}x
+					</Text>
+				</View>
+
 				<View style={styles.discoverySection}>
 					<SectionHeader
 						title="What are you craving?"
@@ -781,6 +825,8 @@ const CustomerDashboard = ({ navigation }) => {
 			isMenuLoading,
 			resultTitle,
 			restaurantById,
+			rewardsSummary?.availablePoints,
+			rewardsSummary?.pointsPerDollar,
 			searchText,
 			selectedArea,
 			selectedIntent,
@@ -991,6 +1037,45 @@ const styles = StyleSheet.create({
 		maxWidth: 340,
 	},
 	searchContainer: { marginTop: 18 },
+	rewardsCard: {
+		marginHorizontal: 20,
+		marginTop: 14,
+		padding: 14,
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#DDE7E9",
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	rewardsIconWrap: {
+		width: 42,
+		height: 42,
+		borderRadius: 8,
+		backgroundColor: "#EFF8F8",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 12,
+	},
+	rewardsTextWrap: { flex: 1 },
+	rewardsLabel: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		letterSpacing: 0,
+	},
+	rewardsValue: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 2,
+	},
+	rewardsHint: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.primary,
+	},
 	discoverySection: { paddingTop: 20 },
 	featuredSection: { paddingTop: 18 },
 	topFoodSection: { paddingTop: 20 },

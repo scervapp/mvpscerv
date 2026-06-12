@@ -15,6 +15,7 @@ const restaurantFunctions = require("./restaurantFunctions");
 const terminalFunctions = require("./terminalFunctions");
 const paypalHandlers = require("./paypalHandlers");
 const dLocalFunctions = require("./dLocalFunctions");
+const rewardsFunctions = require("./rewardsFunctions");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -91,6 +92,7 @@ exports.submitMenuItemRating = dishRatingFunction.submitMenuItemRating;
 exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
 exports.aggregateMenuItemOrderStats =
 	dishRatingFunction.aggregateMenuItemOrderStats;
+exports.awardRewardsForPaidOrder = rewardsFunctions.awardRewardsForPaidOrder;
 
 // Party Functions
 exports.createParty = partyFunctions.createParty;
