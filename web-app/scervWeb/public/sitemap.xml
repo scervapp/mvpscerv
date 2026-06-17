@@ -5,7 +5,7 @@
     <lastmod>2026-03-12</lastmod>
     <priority>1.00</priority>
   </url>
-  
+
   <url>
     <loc>https://www.scerv.com/pricing</loc>
     <lastmod>2026-03-12</lastmod>
@@ -31,38 +31,14 @@
   </url>
 
   <url>
-    <loc>https://www.scerv.com/resources/restaurant-startup-checklist</loc>
+    <loc>https://www.scerv.com/resources/restaurant-tech-checklist-new-restaurants</loc>
     <lastmod>2026-06-17</lastmod>
-    <priority>0.70</priority>
+    <priority>0.80</priority>
   </url>
 
   <url>
-    <loc>https://www.scerv.com/resources/mistakes-new-restaurants-make</loc>
+    <loc>https://www.scerv.com/resources/mistakes-new-restaurants-make-before-opening</loc>
     <lastmod>2026-06-17</lastmod>
-    <priority>0.70</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/resources/restaurant-pos-comparison-guide</loc>
-    <lastmod>2026-06-17</lastmod>
-    <priority>0.75</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/resources/drive-restaurant-traffic</loc>
-    <lastmod>2026-06-17</lastmod>
-    <priority>0.70</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/resources/menu-metadata-guide</loc>
-    <lastmod>2026-06-17</lastmod>
-    <priority>0.70</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/resources/reservation-and-waitlist-playbook</loc>
-    <lastmod>2026-06-17</lastmod>
-    <priority>0.70</priority>
+    <priority>0.80</priority>
   </url>
 </urlset>

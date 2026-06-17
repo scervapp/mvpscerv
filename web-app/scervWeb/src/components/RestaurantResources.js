@@ -5,103 +5,145 @@ import { Helmet } from "react-helmet-async";
 
 const resources = [
 	{
-		slug: "restaurant-startup-checklist",
+		slug: "restaurant-tech-checklist-new-restaurants",
 		category: "Startup",
-		title: "Restaurant Startup Checklist: From Idea to Opening Night",
+		title: "Restaurant Tech Checklist for New Restaurants",
 		description:
-			"A practical checklist for turning a restaurant concept into an operation guests can trust from day one.",
-		readTime: "8 min read",
+			"A practical, operator-first technology checklist for opening a restaurant without creating chaos for guests, staff, or ownership.",
+		readTime: "14 min read",
+		updated: "June 17, 2026",
+		audience: "Owners, operators, general managers, and opening teams",
+		intro: [
+			"Opening a restaurant is already hard. The technology stack should make the opening calmer, not add another layer of confusion. The challenge is that most restaurants do not buy technology in one clean decision. They buy a POS because they need to take payments, a reservation tool because the dining room needs structure, a payroll system because staff has to be paid, a marketing tool because seats need to be filled, and a loyalty tool later when they realize guests are not coming back often enough.",
+			"That piecemeal approach can work for a while, but it often creates hidden friction. Staff re-enter information. Managers jump between dashboards. Guests receive disconnected experiences. Owners cannot tell which dishes, servers, time slots, promotions, or guest behaviors are actually moving the business forward.",
+			"This checklist is designed to help new restaurants think like operators before they sign contracts. You do not need every tool on day one. You do need a clear plan for how the tools will work together, who owns each workflow, and how the restaurant will learn from guest behavior over time.",
+		],
+		callout:
+			"Principle: choose technology around service flow first, then reporting, then growth. A system that looks impressive in a demo but slows down the dining room will become expensive quickly.",
 		sections: [
 			{
-				heading: "Concept and positioning",
-				items: [
-					"Define the guest you are serving, the occasion you are built for, and the reason your restaurant deserves repeat visits.",
-					"Write a simple one-page brand promise: cuisine, price range, service style, neighborhood fit, and signature items.",
-					"Validate the menu against local competitors before signing a lease or buying equipment.",
+				heading: "1. Start with your service model, not the software demo",
+				body: [
+					"Before comparing vendors, write down how the restaurant is supposed to run on a busy night. A counter-service cafe, a high-volume bar, a fine dining room, a hotel restaurant, and a fast casual concept all need different technology priorities. The worst stack is the one built from generic feature lists instead of the reality of your service model.",
+					"Map the full guest journey: discovery, reservation or walk-in, check-in, seating, ordering, modifications, kitchen routing, payment, review, loyalty, and return visit. Then map the staff journey beside it: host stand, server station, bar, kitchen, manager, owner, and back office. Technology should reduce handoffs, not create new ones.",
+				],
+				checklist: [
+					"Define service type: quick service, fast casual, full service, fine dining, bar, cafe, hotel, or hybrid.",
+					"List the highest-pressure moments: lunch rush, dinner turn, bar surge, private events, tourist traffic, late-night checkout, or weekend brunch.",
+					"Decide which workflows must be live on opening day and which can wait until the team is stable.",
+					"Assign an owner for each system: POS, reservations, menu, payments, staff, reporting, guest recovery, and promotions.",
 				],
 			},
 			{
-				heading: "Numbers before nostalgia",
-				items: [
-					"Model rent, labor, food cost, merchant fees, utilities, insurance, repairs, and marketing before you fall in love with a space.",
-					"Know your required daily sales target, average check goal, and table turns needed to break even.",
-					"Create a launch reserve so one slow month does not force desperate decisions.",
+				heading: "2. POS and payments: the foundation, not the whole strategy",
+				body: [
+					"The POS matters because it touches money, staff training, order entry, taxes, tips, refunds, reporting, and closeout. But a POS by itself is not a full hospitality strategy. Many systems are strong at taking payments and moving tickets. Fewer help restaurants understand why guests came, what they loved, what they disliked, and what would bring them back.",
+					"When comparing POS options, look beyond monthly price. Consider hardware cost, payment processing terms, contract length, support quality, offline mode, menu complexity, staff permissions, refund workflows, reporting clarity, integration options, and how hard it is to train new staff.",
+				],
+				checklist: [
+					"Confirm card-present and card-not-present processing rates, monthly fees, hardware costs, and contract length.",
+					"Test refunds, discounts, voids, tips, split checks, partial payments, taxes, and closeout before opening.",
+					"Make sure manager permissions match your operating reality.",
+					"Ask how the system handles offline service, outages, and end-of-day reconciliation.",
+					"Confirm export access for orders, customers, items, taxes, fees, tips, and payouts.",
 				],
 			},
 			{
-				heading: "Operating foundation",
-				items: [
-					"Document opening, shift change, service recovery, cash handling, cleaning, and closing procedures.",
-					"Build your menu in a way that supports training, kitchen speed, allergens, upsells, reviews, and online discovery.",
-					"Choose systems that help you understand guests, not only collect payments.",
+				heading: "3. Menu management: build for discovery, not just order entry",
+				body: [
+					"Most restaurants treat menu setup as an administrative task: name, price, category, description, photo. That is not enough anymore. Guests search by craving, dietary need, occasion, and social proof. They do not always know your restaurant name. They know they want calamari, vegan tacos, a great burger, gluten-free brunch, spicy noodles, or something shareable before a show.",
+					"That means menu items should be structured like discoverable products. Tags, aliases, ingredients, allergens, cuisine, meal period, spice level, prep style, and review data all matter. This is not busywork. It becomes the foundation for search, recommendations, staff suggestions, promotions, and menu decisions.",
+				],
+				checklist: [
+					"Capture category, subcategory, cuisine tags, dietary tags, allergens, flavor tags, ingredients, and dish aliases.",
+					"Use guest language, not only chef language. If people call it squid, tag squid even if the menu says calamari.",
+					"Identify signature dishes, high-margin dishes, staff favorites, and items worth promoting.",
+					"Do not delete poorly reviewed items to reset history. Archive, improve, and preserve trust.",
+				],
+			},
+			{
+				heading: "4. Reservations, waitlist, and host check-in",
+				body: [
+					"Reservations are not just a calendar. They are capacity management, guest expectation management, table pacing, server workload, and revenue protection. New restaurants often underestimate how much chaos comes from unclear reservation rules or a messy host stand.",
+					"Separate owner settings from service operations. Owners and managers should control hours, party size rules, deposits, confirmation windows, cancellation policy, and capacity. Hosts need a clean view of who is coming, who is waiting, who has arrived, and what table or server should be assigned next.",
+				],
+				checklist: [
+					"Define reservation windows, maximum party sizes, grace periods, cancellation policy, and no-show tracking.",
+					"Decide whether walk-ins can send check-in requests before reaching the host.",
+					"Train hosts on table assignment, server rotation, wait estimates, and recovery language.",
+					"Track late cancels and no-shows, but keep policies fair and clear.",
+				],
+			},
+			{
+				heading: "5. Kitchen and bar routing",
+				body: [
+					"Kitchen technology should protect the guest experience during pressure. A ticket that reaches the wrong station, misses a modifier, or arrives out of sequence creates waste and frustration. Even a small restaurant should think carefully about routing before opening.",
+					"Decide which items go to kitchen, bar, expo, dessert, or other prep stations. Make sure modifiers and allergy notes are obvious. Test real orders with real edge cases before friends-and-family night.",
+				],
+				checklist: [
+					"Route food, drinks, desserts, and special prep items to the correct stations.",
+					"Test modifiers, substitutions, allergies, holds, fires, cancellations, and item status changes.",
+					"Keep printed ticket fallback procedures ready if screens fail.",
+					"Train staff on who can change an order after it is sent.",
+				],
+			},
+			{
+				heading: "6. Guest engagement and repeat visits",
+				body: [
+					"A restaurant does not win only when a guest pays. It wins when the guest remembers the experience, tells someone else, and comes back. New restaurants often spend heavily to get first visits, then do very little to create second and third visits.",
+					"Build a simple repeat-guest strategy before opening. It can start with dish-level ratings, review capture, first-visit offers, birthday or anniversary moments, loyalty milestones, and targeted food credits. The key is to avoid blanket discounts that train guests to wait for deals. Reward behavior that creates long-term value.",
+				],
+				checklist: [
+					"Capture ratings and reviews at the dish level, not only the restaurant level.",
+					"Create a recovery process for bad experiences before they become public reputation damage.",
+					"Define first-visit, second-visit, loyalty, and win-back campaigns.",
+					"Track promotion redemption so you can reconcile cost and understand whether the offer created repeat behavior.",
+				],
+			},
+			{
+				heading: "7. Reporting: the numbers owners actually need",
+				body: [
+					"Many dashboards look impressive and still fail operators. A useful restaurant report should answer plain questions: What sold? When did we make money? What did we discount? What did we pay in fees? Which dishes drive reviews? Which service periods are weak? What should change next week?",
+					"Start with the essentials. Daily sales, net sales, gross sales, discounts, refunds, tax, tips, service fees, payment method, order source, item mix, labor, average check, table turns, and payout reconciliation should be understandable without a finance degree.",
+				],
+				checklist: [
+					"Separate gross sales, discounts, refunds, net sales, tax, gratuity, service fees, processing fees, and payouts.",
+					"Review item performance by revenue, margin, rating, review volume, and reorder behavior.",
+					"Track guest acquisition and repeat visits, not only transaction totals.",
+					"Schedule a weekly owner review before the restaurant opens.",
+				],
+			},
+			{
+				heading: "8. Opening-day technology rehearsal",
+				body: [
+					"Do not let opening night be the first real test. Run rehearsals with fake guests, real menu items, real modifiers, real payments, real refunds, and real staff roles. Break the system on purpose while the room is calm.",
+					"Create a checklist for the hour before service: devices charged, printers loaded, screens working, Wi-Fi tested, offline fallback understood, staff logged in, menu active, reservation settings confirmed, and support contacts available.",
+				],
+				checklist: [
+					"Run at least one full mock service from reservation to payment.",
+					"Test refunds, failed payments, duplicate orders, wrong table, item comp, and guest complaint workflows.",
+					"Create a one-page emergency sheet for staff.",
+					"Review what happened after the rehearsal and fix the workflow, not only the symptom.",
 				],
 			},
 		],
-		takeaway:
-			"The best openings feel exciting to guests because the boring work was handled before the doors opened.",
-	},
-	{
-		slug: "mistakes-new-restaurants-make",
-		category: "Operations",
-		title: "Mistakes New Restaurants Make in the First 90 Days",
-		description:
-			"Common early mistakes that quietly damage cash flow, reviews, team morale, and repeat business.",
-		readTime: "7 min read",
-		sections: [
+		example:
+			"If a 70-seat restaurant averages a $38 check and needs two strong turns to hit its dinner target, a checkout delay of only 8 minutes per table can quietly reduce capacity. Technology should help protect those turns without making guests feel rushed.",
+		faqs: [
 			{
-				heading: "Trying to be everything",
-				items: [
-					"Large menus slow the kitchen, confuse guests, increase waste, and make it harder to know what you are famous for.",
-					"Start with a tighter menu and build around the dishes people remember, reorder, and recommend.",
-				],
+				question: "What technology does a new restaurant need first?",
+				answer:
+					"Start with payments/POS, menu management, tax and tip handling, basic reporting, staff permissions, and a reservation or waitlist process if you take seated guests. Add loyalty, marketing, advanced analytics, and automation once the core service flow is stable.",
 			},
 			{
-				heading: "Ignoring the guest after payment",
-				items: [
-					"The relationship should not end when the check closes. Capture feedback, understand favorites, and give guests reasons to return.",
-					"Reviews and ratings should become operating intelligence, not vanity metrics.",
-				],
+				question: "Should a new restaurant buy every system before opening?",
+				answer:
+					"No. Buying everything too early can create cost and training drag. What matters is choosing a stack that can grow without trapping the restaurant in disconnected workflows.",
 			},
 			{
-				heading: "Training only for tasks",
-				items: [
-					"Staff need to know the menu story, allergy protocol, service standards, and recovery rules.",
-					"Great systems make new staff productive faster, but the hospitality standard still has to be taught.",
-				],
-			},
-		],
-		takeaway:
-			"Early restaurant success is less about doing more and more about removing friction from the guest and team experience.",
-	},
-	{
-		slug: "restaurant-pos-comparison-guide",
-		category: "Technology",
-		title: "How to Compare Restaurant POS Systems Without Getting Lost",
-		description:
-			"A restaurant-first framework for comparing POS systems, ordering tools, KDS, loyalty, reporting, and guest data.",
-		readTime: "9 min read",
-		sections: [
-			{
-				heading: "Start with your service model",
-				items: [
-					"Quick service, full service, bars, cafes, hotels, and fine dining do not need the exact same stack.",
-					"List the workflows you must support: tableside orders, bar routing, split checks, reservations, inventory, delivery, loyalty, and reporting.",
-				],
-			},
-			{
-				heading: "Compare total operating fit",
-				items: [
-					"Square describes restaurant POS around ordering, menus, inventory, payments, reporting, team management, and cloud access.",
-					"Toast publicly positions its platform around service models, POS, order and pay, KDS, loyalty, CRM, marketing, payroll, inventory, and integrations.",
-					"Lightspeed highlights inventory, delivery consolidation, KDS, tableside POS, integrations, offline operation, and multi-location management.",
-				],
-			},
-			{
-				heading: "Ask what happens after the transaction",
-				items: [
-					"Many systems are strong at payments and ticket flow. Fewer help restaurants turn guest behavior into repeat visits.",
-					"Ask how easily you can identify top dishes, reward loyal guests, manage service issues, and create targeted reasons to return.",
-				],
+				question: "How should restaurants compare POS systems?",
+				answer:
+					"Compare operating fit, payment terms, support, hardware, menu flexibility, reporting, integrations, staff training, refund workflows, and how well the system supports guest retention after the transaction.",
 			},
 		],
 		sources: [
@@ -116,106 +158,138 @@ const resources = [
 			},
 		],
 		takeaway:
-			"Do not buy a POS only for today's checkout. Choose a stack that protects service now and helps you build guest demand over time.",
+			"Restaurant technology should not be a pile of tools. It should be an operating system for smoother service, clearer decisions, and stronger repeat guest behavior.",
 	},
 	{
-		slug: "drive-restaurant-traffic",
-		category: "Growth",
-		title: "How Restaurants Can Drive More Traffic Without Discounting Everything",
+		slug: "mistakes-new-restaurants-make-before-opening",
+		category: "Operations",
+		title: "7 Mistakes New Restaurants Make Before Opening",
 		description:
-			"Traffic growth comes from better reasons to visit, better timing, and better memory, not constant blanket discounts.",
-		readTime: "6 min read",
+			"The most expensive restaurant mistakes often happen before the first guest sits down. Here is how to avoid them.",
+		readTime: "13 min read",
+		updated: "June 17, 2026",
+		audience: "Restaurant founders, first-time owners, operators, and investors",
+		intro: [
+			"Restaurants rarely fail because of one dramatic mistake. More often, they struggle because of small decisions made before opening: a menu that is too large, a lease that needs impossible sales, staff trained too late, systems chosen without testing, or marketing that brings first-time guests without a plan to bring them back.",
+			"Before opening, optimism is useful. But unchecked optimism is expensive. Owners are juggling construction, permits, hiring, vendors, menu costing, branding, social media, equipment, payroll, inspections, and family pressure. It is easy to confuse motion with readiness.",
+			"This guide focuses on seven pre-opening mistakes that hurt restaurants early. None of them are glamorous. That is the point. The boring parts of restaurant preparation are what make the public experience feel effortless.",
+		],
+		callout:
+			"Principle: a restaurant opening is not a finish line. It is the beginning of a feedback loop. Build the operation so it can learn quickly.",
 		sections: [
 			{
-				heading: "Make the menu discoverable",
-				items: [
-					"Guests often search by craving, not by restaurant name. Treat dishes like searchable products.",
-					"Tag signature items with cuisine, dietary needs, flavor, meal period, and aliases guests actually use.",
+				heading: "Mistake 1: Signing a lease before understanding the sales target",
+				body: [
+					"A beautiful space can become a trap if the restaurant cannot realistically produce the sales required to support it. Rent is not just a monthly number. It determines how much pressure the restaurant must absorb every day before the owner makes a dollar.",
+					"Before signing, model the business in plain terms. How many seats? How many turns? What average check? What labor percentage? What food cost? What slow days? What seasonality? What happens if opening month sales are 30 percent below the dream version?",
+				],
+				checklist: [
+					"Calculate required daily sales to cover rent, labor, food cost, utilities, insurance, marketing, fees, repairs, debt, and owner compensation.",
+					"Model conservative, expected, and strong sales scenarios.",
+					"Visit the location at lunch, dinner, weekday, weekend, rain, traffic, and event times.",
+					"Understand parking, visibility, delivery access, foot traffic, and nearby competition.",
 				],
 			},
 			{
-				heading: "Reward behavior that matters",
-				items: [
-					"Use first-visit offers carefully, then shift toward rewards that encourage a second and third visit.",
-					"Measure whether promotions create repeat guests or only train people to wait for a discount.",
+				heading: "Mistake 2: Building a menu that is too big to execute well",
+				body: [
+					"Large menus feel safe because they seem to offer something for everyone. In reality, they often increase prep time, inventory waste, training complexity, ticket times, and inconsistency. A menu that is hard for the kitchen to execute becomes hard for guests to trust.",
+					"New restaurants should aim for a menu that is focused enough to become known for something. The goal is not to have fewer ideas forever. The goal is to open with a menu the team can execute during pressure.",
+				],
+				checklist: [
+					"Identify the dishes that define the concept and remove items that do not support the story.",
+					"Cost every dish and know which items are profit drivers, traffic drivers, and brand drivers.",
+					"Limit overlapping ingredients that create waste without adding guest value.",
+					"Create item metadata from day one: tags, allergens, dietary needs, prep style, aliases, and signature status.",
 				],
 			},
 			{
-				heading: "Turn feedback into content",
-				items: [
-					"High-rated dishes should become social posts, staff recommendations, menu callouts, and campaign hooks.",
-					"Negative feedback should trigger recovery, training, and menu adjustment before it becomes reputation damage.",
+				heading: "Mistake 3: Waiting too long to train staff",
+				body: [
+					"Training cannot be squeezed into the final two days before opening. Staff need to understand service standards, menu language, allergy protocols, table flow, payment flow, complaint recovery, and what the restaurant wants to be known for.",
+					"New restaurants often train tasks but forget judgment. A server can learn where buttons are and still not know how to recover a cold entree, explain a signature dish, pace a table, or handle a guest who is confused by a digital process.",
+				],
+				checklist: [
+					"Create role-specific training for hosts, servers, bartenders, runners, kitchen, managers, and owners.",
+					"Run mock service with real scenarios: late reservation, allergy request, wrong item, refund, split check, upset guest, and kitchen delay.",
+					"Teach staff the why behind the concept, not only the steps.",
+					"Give managers clear authority for comps, discounts, refunds, and guest recovery.",
+				],
+			},
+			{
+				heading: "Mistake 4: Treating technology as an afterthought",
+				body: [
+					"Technology decisions made in a rush tend to punish the restaurant later. The POS might not handle the service model. The reservation system might not match seating rules. The menu might be hard to update. Reports might be unclear. Staff might need three logins to solve one guest problem.",
+					"The goal is not to buy the most complex stack. The goal is to choose systems that match the actual workflow and help the restaurant learn from service.",
+				],
+				checklist: [
+					"Test a full order from reservation or check-in through kitchen routing, payment, review, and reporting.",
+					"Confirm who can edit menus, issue refunds, apply discounts, close tables, manage reservations, and view reports.",
+					"Make sure owner dashboards separate gross sales, discounts, refunds, taxes, tips, fees, and payout reality.",
+					"Choose systems that support repeat visits and guest understanding, not only transactions.",
+				],
+			},
+			{
+				heading: "Mistake 5: Marketing for opening week but not month two",
+				body: [
+					"Opening buzz can hide weak retention. Friends, family, influencers, and curious locals may fill the room at first. The real test is whether guests come back after the novelty fades.",
+					"Before opening, define the second-visit strategy. What happens after someone has a great meal? How do you capture feedback? How do you identify the dishes people love? How do you invite them back without training them to wait for discounts?",
+				],
+				checklist: [
+					"Create a launch content calendar that extends at least 60 days beyond opening night.",
+					"Build campaigns around signature dishes, chef stories, neighborhood occasions, and guest favorites.",
+					"Capture dish-level ratings and reviews so marketing can promote what guests actually love.",
+					"Use first-time offers carefully and track whether they create repeat guests.",
+				],
+			},
+			{
+				heading: "Mistake 6: Not defining service recovery before something goes wrong",
+				body: [
+					"Something will go wrong. A dish will be late. A guest will dislike an item. A payment will fail. A reservation will be mishandled. The question is whether the team knows what to do before the room gets emotional.",
+					"Great recovery feels fast, calm, and human. Poor recovery feels like staff asking permission while the guest gets more frustrated. Owners should decide recovery rules before opening.",
+				],
+				checklist: [
+					"Define what servers, managers, and owners can comp or discount without escalation.",
+					"Create scripts for late tables, wrong items, allergy concerns, refunds, and long wait times.",
+					"Track issues so patterns become training opportunities.",
+					"Follow up when a high-value guest or serious complaint needs personal attention.",
+				],
+			},
+			{
+				heading: "Mistake 7: Measuring the wrong things after soft opening",
+				body: [
+					"Soft openings should produce learning, not just photos. Too many restaurants ask, 'Did people like it?' That is too vague. Operators need to know where service slowed down, which dishes confused people, what guests wanted but could not find, which items were reordered, and where staff felt friction.",
+					"The best operators turn early feedback into rapid improvement. They do not defend every idea. They listen, adjust, and protect the core concept.",
+				],
+				checklist: [
+					"Review ticket times, order errors, voids, refunds, discounts, table turn times, and guest feedback after every rehearsal.",
+					"Ask staff where the workflow breaks, not only whether they feel ready.",
+					"Track item ratings and reviews from the beginning.",
+					"Make one focused improvement after each test service instead of changing everything at once.",
 				],
 			},
 		],
-		takeaway:
-			"The most durable traffic strategy is to make the restaurant easier to remember, easier to trust, and easier to revisit.",
-	},
-	{
-		slug: "menu-metadata-guide",
-		category: "Menu",
-		title: "Menu Metadata: The Hidden Work Behind Better Food Discovery",
-		description:
-			"How restaurants can structure menu items so guests can find the best dishes by craving, rating, diet, and occasion.",
-		readTime: "7 min read",
-		sections: [
+		example:
+			"Example: if a new restaurant opens with 85 menu items and each item needs only one extra minute of explanation, training, prep discussion, or guest confusion, the team loses hours of attention every week. A tighter menu can improve speed, confidence, reviews, and food cost at the same time.",
+		faqs: [
 			{
-				heading: "Think beyond item name",
-				items: [
-					"A guest might search for calamari, squid, crispy seafood, small plates, happy hour, gluten free, spicy, or shareable.",
-					"Good metadata connects all of those paths back to the right item without making the customer work.",
-				],
+				question: "What is the biggest mistake new restaurants make?",
+				answer:
+					"The biggest mistake is opening before the operating model is ready. A restaurant can survive imperfect decor, but it struggles when menu execution, staffing, service recovery, payments, reservations, and reporting are unclear.",
 			},
 			{
-				heading: "The fields worth capturing",
-				items: [
-					"Start with category, subcategory, cuisine tags, dietary tags, allergens, flavor tags, meal period, ingredients, aliases, spice level, and signature flags.",
-					"Pair metadata with dish-level ratings and reviews so discovery is based on what guests actually love.",
-				],
+				question: "How many menu items should a new restaurant open with?",
+				answer:
+					"There is no universal number, but the opening menu should be small enough for the kitchen to execute consistently under pressure and clear enough for guests to understand what the restaurant is known for.",
 			},
 			{
-				heading: "Protect trust",
-				items: [
-					"Do not delete and recreate poorly reviewed items to reset history. Archive, revise, and document improvements instead.",
-					"Trust compounds when guests believe the ratings and reviews are honest.",
-				],
+				question: "Should new restaurants discount heavily to attract guests?",
+				answer:
+					"Heavy discounting can fill seats temporarily, but it can also weaken positioning. Better launch offers should encourage trial, collect feedback, and create a second visit without making the restaurant feel cheap.",
 			},
 		],
 		takeaway:
-			"Menu metadata is not busywork. It is the foundation for search, recommendations, better guest choices, and smarter operations.",
-	},
-	{
-		slug: "reservation-and-waitlist-playbook",
-		category: "Guest Experience",
-		title: "Reservation and Waitlist Playbook for Modern Restaurants",
-		description:
-			"How to manage reservations, host check-ins, no-shows, and walk-ins without losing the hospitality feel.",
-		readTime: "6 min read",
-		sections: [
-			{
-				heading: "Separate settings from service",
-				items: [
-					"Owners and managers should control reservation rules, hours, capacity, deposits, and policies.",
-					"Hosts and servers need a clean operational view: who is coming, who is waiting, who needs a table, and what happens next.",
-				],
-			},
-			{
-				heading: "No-shows need policy, not panic",
-				items: [
-					"Track no-shows, late cancels, confirmations, and repeat reliability so future decisions are informed.",
-					"Use deposits or stricter confirmation windows only when the dining room economics justify it.",
-				],
-			},
-			{
-				heading: "Walk-ins are still guests",
-				items: [
-					"Digital check-in should not feel like a DMV line. Keep messaging warm, accurate, and fast.",
-					"Give hosts the tools to assign tables and servers without making guests repeat themselves.",
-				],
-			},
-		],
-		takeaway:
-			"A great reservation system protects the restaurant's capacity while making guests feel expected, not processed.",
+			"Most pre-opening mistakes are preventable. The strongest restaurants open with clear numbers, focused menus, trained teams, tested systems, and a plan to turn first visits into repeat guests.",
 	},
 ];
 
@@ -250,27 +324,23 @@ const Title = styled.h1`
 	font-size: clamp(2.2rem, 5vw, 4rem);
 	line-height: 1.08;
 	margin: 0;
-	max-width: 880px;
+	max-width: 920px;
 `;
 
 const Subtitle = styled.p`
 	font-size: 1.15rem;
 	line-height: 1.7;
 	margin: 18px 0 0;
-	max-width: 760px;
+	max-width: 780px;
 `;
 
 const ResourceGrid = styled.section`
 	display: grid;
 	gap: 18px;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	padding: 48px ${({ theme }) => theme.spacing.md};
 
-	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
 		grid-template-columns: 1fr;
 	}
 `;
@@ -282,8 +352,8 @@ const Card = styled(Link)`
 	color: ${({ theme }) => theme.colors.text};
 	display: flex;
 	flex-direction: column;
-	min-height: 260px;
-	padding: 24px;
+	min-height: 300px;
+	padding: 28px;
 	text-decoration: none;
 	transition:
 		transform 0.2s ease,
@@ -306,13 +376,13 @@ const Pill = styled.span`
 `;
 
 const CardTitle = styled.h2`
-	font-size: 1.35rem;
+	font-size: 1.55rem;
 	margin: 18px 0 10px;
 `;
 
 const CardText = styled.p`
 	color: ${({ theme }) => theme.colors.textLight};
-	line-height: 1.6;
+	line-height: 1.65;
 	margin: 0;
 `;
 
@@ -364,7 +434,7 @@ const ArticleWrap = styled.article`
 	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.md};
 	margin: -34px auto 48px;
-	max-width: 920px;
+	max-width: 960px;
 	padding: 34px;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
@@ -375,29 +445,113 @@ const ArticleWrap = styled.article`
 	}
 `;
 
+const ArticleMeta = styled.div`
+	color: ${({ theme }) => theme.colors.textLight};
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.94rem;
+	gap: 10px 18px;
+	margin: 18px 0 28px;
+`;
+
+const Intro = styled.div`
+	p {
+		color: ${({ theme }) => theme.colors.textLight};
+		font-size: 1.06rem;
+		line-height: 1.75;
+	}
+`;
+
+const Callout = styled.div`
+	background: ${({ theme }) => theme.colors.accent};
+	border-radius: ${({ theme }) => theme.radius.md};
+	color: ${({ theme }) => theme.colors.primaryDark};
+	font-weight: 700;
+	line-height: 1.6;
+	margin: 26px 0;
+	padding: 20px;
+`;
+
 const Section = styled.section`
-	margin-top: 30px;
+	border-top: 1px solid ${({ theme }) => theme.colors.gray};
+	margin-top: 34px;
+	padding-top: 30px;
 
 	h2 {
 		font-size: 1.45rem;
 		margin-bottom: 12px;
 	}
 
+	p,
 	li {
 		color: ${({ theme }) => theme.colors.textLight};
-		line-height: 1.65;
+		line-height: 1.7;
+	}
+
+	li {
 		margin-bottom: 10px;
 	}
 `;
 
-const Takeaway = styled.div`
-	background: ${({ theme }) => theme.colors.accent};
+const Checklist = styled.div`
+	background: #fbfbfb;
+	border: 1px solid ${({ theme }) => theme.colors.gray};
 	border-radius: ${({ theme }) => theme.radius.md};
-	color: ${({ theme }) => theme.colors.primaryDark};
+	margin-top: 18px;
+	padding: 18px;
+
+	strong {
+		display: block;
+		margin-bottom: 10px;
+	}
+
+	ul {
+		margin-bottom: 0;
+	}
+`;
+
+const Example = styled.div`
+	border-left: 4px solid ${({ theme }) => theme.colors.secondary};
+	color: ${({ theme }) => theme.colors.textLight};
+	font-weight: 700;
+	line-height: 1.65;
+	margin-top: 30px;
+	padding-left: 18px;
+`;
+
+const Takeaway = styled.div`
+	background: ${({ theme }) => theme.colors.primaryDark};
+	border-radius: ${({ theme }) => theme.radius.md};
+	color: ${({ theme }) => theme.colors.white};
 	font-weight: 700;
 	line-height: 1.6;
 	margin-top: 30px;
-	padding: 20px;
+	padding: 22px;
+`;
+
+const Faq = styled.section`
+	border-top: 1px solid ${({ theme }) => theme.colors.gray};
+	margin-top: 34px;
+	padding-top: 30px;
+
+	h2 {
+		margin-bottom: 18px;
+	}
+
+	div {
+		margin-bottom: 18px;
+	}
+
+	h3 {
+		font-size: 1.08rem;
+		margin-bottom: 6px;
+	}
+
+	p {
+		color: ${({ theme }) => theme.colors.textLight};
+		line-height: 1.65;
+		margin: 0;
+	}
 `;
 
 const SourceList = styled.div`
@@ -413,6 +567,33 @@ const SourceList = styled.div`
 	}
 `;
 
+const CtaBox = styled.div`
+	background: ${({ theme }) => theme.colors.background};
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-radius: ${({ theme }) => theme.radius.md};
+	margin-top: 34px;
+	padding: 24px;
+
+	h2 {
+		margin-top: 0;
+	}
+
+	p {
+		color: ${({ theme }) => theme.colors.textLight};
+		line-height: 1.65;
+	}
+
+	a {
+		background: ${({ theme }) => theme.colors.secondary};
+		border-radius: ${({ theme }) => theme.radius.md};
+		color: ${({ theme }) => theme.colors.white};
+		display: inline-block;
+		font-weight: 700;
+		padding: 10px 16px;
+		text-decoration: none;
+	}
+`;
+
 const Missing = styled.div`
 	padding: 80px ${({ theme }) => theme.spacing.md};
 	text-align: center;
@@ -424,17 +605,17 @@ const ResourceHub = () => (
 			<title>Restaurant Growth Resources | Scerv</title>
 			<meta
 				name="description"
-				content="Restaurant startup checklists, operational guides, POS comparison frameworks, menu metadata advice, and guest engagement playbooks from Scerv."
+				content="Flagship restaurant startup and operations guides from Scerv for owners preparing to open, modernize, and grow."
 			/>
 		</Helmet>
 		<HeroBand>
 			<Container>
 				<Eyebrow>Scerv Restaurant Resources</Eyebrow>
-				<Title>Practical playbooks for restaurants that want better traffic, service, and repeat guests.</Title>
+				<Title>Flagship playbooks for restaurants preparing to open and grow with discipline.</Title>
 				<Subtitle>
-					We share the operating lessons openly: cleaner launches, stronger menus,
-					smarter systems, better guest recovery, and more durable engagement.
-					The deeper Scerv engine stays private; the restaurant wins stay public.
+					We are starting with two deep guides: the technology checklist every
+					new restaurant should think through, and the opening mistakes that
+					quietly damage restaurants before the first guest arrives.
 				</Subtitle>
 			</Container>
 		</HeroBand>
@@ -460,22 +641,23 @@ const ResourceHub = () => (
 						<h2>Helpful first. Product second. Trust always.</h2>
 						<CardText>
 							Scerv should become the place restaurant operators visit when they
-							want sharper thinking, better systems, and more guests. We can
-							teach generously without explaining every product mechanism.
+							want sharper thinking, better systems, and more guests. These
+							resources teach the operating principles without exposing the deeper
+							product roadmap.
 						</CardText>
 					</div>
 					<PrincipleList>
 						<Principle>
-							<strong>Do not reveal the secret sauce.</strong>
-							<span>Talk about outcomes, workflows, and restaurant value. Keep algorithms, roadmap bets, and proprietary data strategy private.</span>
+							<strong>Protect the secret sauce.</strong>
+							<span>Talk about outcomes, workflows, and restaurant value. Keep proprietary mechanics private.</span>
 						</Principle>
 						<Principle>
-							<strong>Build operator credibility.</strong>
-							<span>Publish checklists, comparison frameworks, and playbooks that help owners make better decisions even before they buy.</span>
+							<strong>Earn operator credibility.</strong>
+							<span>Publish useful frameworks that help owners make better decisions before they ever book a demo.</span>
 						</Principle>
 						<Principle>
-							<strong>Create demand loops.</strong>
-							<span>Use resources to attract restaurants, collect demo intent, support onboarding, and feed future campaigns.</span>
+							<strong>Build long-term demand.</strong>
+							<span>Use resources to attract restaurants, support onboarding, and create a trusted Scerv point of view.</span>
 						</Principle>
 					</PrincipleList>
 				</EcosystemGrid>
@@ -513,17 +695,44 @@ const ResourceArticle = () => {
 			</HeroBand>
 			<ArticleWrap>
 				<Link to="/resources">Back to resources</Link>
+				<ArticleMeta>
+					<span>{resource.updated}</span>
+					<span>{resource.readTime}</span>
+					<span>{resource.audience}</span>
+				</ArticleMeta>
+				<Intro>
+					{resource.intro.map((paragraph) => (
+						<p key={paragraph}>{paragraph}</p>
+					))}
+				</Intro>
+				<Callout>{resource.callout}</Callout>
 				{resource.sections.map((section) => (
 					<Section key={section.heading}>
 						<h2>{section.heading}</h2>
-						<ul>
-							{section.items.map((item) => (
-								<li key={item}>{item}</li>
-							))}
-						</ul>
+						{section.body.map((paragraph) => (
+							<p key={paragraph}>{paragraph}</p>
+						))}
+						<Checklist>
+							<strong>Operator checklist</strong>
+							<ul>
+								{section.checklist.map((item) => (
+									<li key={item}>{item}</li>
+								))}
+							</ul>
+						</Checklist>
 					</Section>
 				))}
+				<Example>{resource.example}</Example>
 				<Takeaway>{resource.takeaway}</Takeaway>
+				<Faq>
+					<h2>FAQ</h2>
+					{resource.faqs.map((faq) => (
+						<div key={faq.question}>
+							<h3>{faq.question}</h3>
+							<p>{faq.answer}</p>
+						</div>
+					))}
+				</Faq>
 				{resource.sources && (
 					<SourceList>
 						<strong>References for operators:</strong>
@@ -541,6 +750,14 @@ const ResourceArticle = () => {
 						</div>
 					</SourceList>
 				)}
+				<CtaBox>
+					<h2>Building a restaurant stack?</h2>
+					<p>
+						Scerv helps restaurants think beyond transactions toward smoother
+						service, stronger guest engagement, and better operating clarity.
+					</p>
+					<Link to="/request-demo">Request a demo</Link>
+				</CtaBox>
 			</ArticleWrap>
 		</Page>
 	);
