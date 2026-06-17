@@ -1,9 +1,33 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { getIdTokenResult } from "firebase/auth";
 import "./Header.css";
 import logo from "../assets/scerv_logo.png";
+import { auth } from "../config/firebase";
+import { canManageAdminUsers, normalizeAdminRole } from "../utils/adminRoles";
 
 const Header = () => {
+	const [role, setRole] = useState("");
+
+	useEffect(() => {
+		const loadRole = async () => {
+			if (!auth.currentUser) {
+				setRole("");
+				return;
+			}
+
+			try {
+				const token = await getIdTokenResult(auth.currentUser);
+				setRole(normalizeAdminRole(token.claims.role));
+			} catch (error) {
+				console.error("Error loading admin header role:", error);
+				setRole("");
+			}
+		};
+
+		loadRole();
+	}, []);
+
 	return (
 		<header className="header">
 			<div className="header-container">
@@ -36,6 +60,18 @@ const Header = () => {
 								Customers
 							</NavLink>
 						</li>
+						{canManageAdminUsers(role) && (
+							<li>
+								<NavLink
+									to="/admin-users"
+									className={({ isActive }) =>
+										isActive ? "active" : "inactive"
+									}
+								>
+									Admin Users
+								</NavLink>
+							</li>
+						)}
 					</ul>
 				</nav>
 			</div>

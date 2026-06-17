@@ -6,6 +6,7 @@ node_modules/
 
 # Expo
 .expo/
+.firebase/
 dist/
 web-build/
 .expo-dev-server.*.log

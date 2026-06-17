@@ -13,6 +13,7 @@ import Unauthorized from "./components/Unauthorized";
 import HandleInvite from "./components/HandleInvite";
 import RestaurantDetails from "./components/RestaurantDetails";
 import RestaurantMenu from "./components/RestaurantMenu";
+import AdminUsers from "./components/AdminUsers";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -62,6 +63,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Customers />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/admin-users"
+						element={
+							<ProtectedRoute requiredRole="godmode">
+								<AdminUsers />
 							</ProtectedRoute>
 						}
 					/>

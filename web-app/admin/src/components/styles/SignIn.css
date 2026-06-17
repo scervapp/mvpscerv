@@ -48,8 +48,25 @@
     opacity: 0.7;
 }
 
+.signin-container .reset-button {
+    margin-top: 12px;
+    background-color: transparent;
+    border: 1px solid #007bff;
+    color: #007bff;
+}
+
+.signin-container .reset-button:hover {
+    background-color: #eef6ff;
+}
+
 .error-message {
     color: red;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.success-message {
+    color: #16703f;
     margin-bottom: 10px;
     text-align: center;
 }
