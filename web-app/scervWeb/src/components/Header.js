@@ -32,8 +32,15 @@ const LogoLink = styled(Link)`
 `;
 
 const Logo = styled.img`
-	height: auto;
-	width: 55px;
+	display: block;
+	height: 58px;
+	object-fit: contain;
+	width: 58px;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+		height: 46px;
+		width: 46px;
+	}
 `;
 
 const MobileMenuIcon = styled.div`
@@ -51,7 +58,7 @@ const MobileMenuIcon = styled.div`
 		width: 25px;
 	}
 
-	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
 		display: flex;
 	}
 `;
@@ -84,7 +91,7 @@ const Nav = styled.nav`
 		}
 	}
 
-	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
 		background-color: ${({ theme }) => theme.colors.white};
 		box-shadow: ${({ isOpen }) =>
 			isOpen ? "0 10px 15px rgba(0,0,0,0.05)" : "none"};
@@ -116,7 +123,7 @@ const ActionButtons = styled.div`
 	display: flex;
 	gap: 20px;
 
-	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
 		flex-direction: column;
 		gap: 15px;
 		margin-top: 20px;

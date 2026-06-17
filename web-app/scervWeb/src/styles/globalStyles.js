@@ -9,6 +9,14 @@ const GlobalStyle = createGlobalStyle`
     box-sizing: border-box;
   }
 
+  html,
+  body,
+  #root {
+    min-width: 0;
+    overflow-x: hidden;
+    width: 100%;
+  }
+
   body {
     /* Pulling directly from your theme.js */
     font-family: ${({ theme }) => theme.fonts.body}; 
