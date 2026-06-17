@@ -79,6 +79,10 @@ const ContactItem = styled.div`
 			color: ${({ theme }) => theme.colors.primary};
 		}
 	}
+
+	span {
+		color: ${({ theme }) => theme.colors.text};
+	}
 `;
 
 const Form = styled.form`
@@ -232,7 +236,7 @@ const ContactUs = () => {
 
 		if (!formData.phone.trim()) {
 			newErrors.phone = t("contact.errors.phoneReq");
-		} else if (!/^[\d\s\-\+\(\)]{8,15}$/.test(formData.phone)) {
+		} else if (!/^[\d\s\-+()]{8,20}$/.test(formData.phone)) {
 			newErrors.phone = t("contact.errors.phoneInv");
 		}
 
@@ -285,7 +289,7 @@ const ContactUs = () => {
 					</ContactItem>
 					<ContactItem>
 						<i className="fas fa-phone"></i>
-						<a href="tel:+50767844726">(507) 6784-4726</a>
+						<span>New York / Brooklyn launch conversations</span>
 					</ContactItem>
 				</ContactInfo>
 
@@ -349,7 +353,7 @@ const ContactUs = () => {
 									value={formData.phone}
 									onChange={handleChange}
 									className={errors.phone ? "invalid" : ""}
-									placeholder="+507 1234 5678"
+									placeholder="+1 (718) 555-0147"
 								/>
 								{errors.phone && <ErrorMessage>{errors.phone}</ErrorMessage>}
 							</FormGroup>

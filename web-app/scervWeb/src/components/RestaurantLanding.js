@@ -1,5 +1,4 @@
 import React from "react";
-import { useParams } from "react-router-dom";
 import styled from "styled-components";
 
 // --- Styled Components ---
@@ -102,18 +101,16 @@ const PaymentLogos = styled.div`
 `;
 
 const RestaurantLanding = () => {
-    const { slug } = useParams();
-
-    // In the future, you can fetch this data from Firestore based on the 'slug'
-    // For now, we hardcode Daiquiri 23's details to get them compliant immediately.
+    // In the future, you can fetch this data from Firestore based on the slug.
+    // Placeholder restaurant details for a public landing preview.
     const restaurant = {
-        name: "Daiquiri 23",
-        legalName: "Daiquiri 23 S.A.", // MUST match their bank account entity
-        description: "The best craft cocktails and local bites in Panama.",
-        address: "Calle 47 Este, Marbella, Ciudad de Panamá, Panamá", // Real address required
-        phone: "+507 6000-0000",
-        email: "soporte@scerv.com", // Or the restaurant's direct email
-        currency: "USD / PAB",
+        name: "Brooklyn Table",
+        legalName: "Brooklyn Table LLC",
+        description: "Craft cocktails, neighborhood energy, and a polished Scerv dining experience.",
+        address: "Brooklyn, NY",
+        phone: "Contact through Scerv",
+        email: "support@scerv.com",
+        currency: "USD",
     };
 
     return (
@@ -133,7 +130,7 @@ const RestaurantLanding = () => {
                 </p>
             </ActionCard>
 
-            {/* 🚨 dLocal Go Compliance Section 🚨 */}
+            {/* Payment compliance details */}
             <ComplianceGrid>
                 <InfoBlock>
                     <h3>Business Information</h3>
@@ -146,7 +143,7 @@ const RestaurantLanding = () => {
                 <InfoBlock>
                     <h3>Payments & Currency</h3>
                     <p>All prices are listed in <strong>{restaurant.currency}</strong>.</p>
-                    <p>Taxes (ITBMS) and service fees are calculated at checkout before payment.</p>
+                    <p>Taxes and service fees are calculated at checkout before payment.</p>
                     
                     <h3 style={{ marginTop: "1rem" }}>Accepted Payment Methods</h3>
                     {/* Displaying these clearly is a hard requirement for approval */}

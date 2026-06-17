@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
 import SEO from "./SEO";
 
 const PricingSection = styled.section`
-	padding: ${({ theme }) => theme.spacing.xl} 0;
+	padding: 72px 0;
 	background-color: ${({ theme }) => theme.colors.background};
 	min-height: calc(100vh - 200px);
 `;
@@ -23,8 +23,8 @@ const HeaderWrapper = styled.div`
 `;
 
 const H1 = styled.h1`
-	font-size: 2.5rem;
-	color: ${({ theme }) => theme.colors.primary};
+	font-size: clamp(2.25rem, 5vw, 4rem);
+	color: ${({ theme }) => theme.colors.text};
 	margin-bottom: ${({ theme }) => theme.spacing.md};
 	font-weight: 700;
 
@@ -42,11 +42,12 @@ const Subheadline = styled.p`
 const PricingCard = styled.div`
 	background-color: ${({ theme }) => theme.colors.white};
 	padding: ${({ theme }) => theme.spacing.xl};
-	border-radius: ${({ theme }) => theme.radius.lg};
-	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-	max-width: 500px;
+	border-radius: ${({ theme }) => theme.radius.md};
+	box-shadow: 0 18px 50px rgba(19, 32, 39, 0.08);
+	max-width: 620px;
 	margin: 0 auto;
-	border-top: 6px solid ${({ theme }) => theme.colors.primary}; /* Enterprise accent border */
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-top: 6px solid ${({ theme }) => theme.colors.primary};
 	position: relative;
 	transition:
 		transform 0.3s ease,
@@ -82,9 +83,9 @@ const PriceWrapper = styled.div`
 `;
 
 const Price = styled.div`
-	font-size: 4rem;
+	font-size: clamp(3rem, 7vw, 4.4rem);
 	font-weight: 800;
-	color: ${({ theme }) => theme.colors.text};
+	color: ${({ theme }) => theme.colors.primaryDark};
 	line-height: 1;
 	margin-bottom: 10px;
 `;
@@ -92,7 +93,7 @@ const Price = styled.div`
 const Offer = styled.p`
 	font-size: 1.1rem;
 	font-weight: 600;
-	color: ${({ theme }) => theme.colors.success};
+	color: ${({ theme }) => theme.colors.primary};
 `;
 
 const FeaturesList = styled.ul`
@@ -109,7 +110,7 @@ const FeaturesList = styled.ul`
 		gap: 12px;
 
 		&::before {
-			content: "✓";
+			content: "+";
 			color: ${({ theme }) => theme.colors.primary};
 			font-weight: bold;
 			font-size: 1.2rem;

@@ -133,8 +133,8 @@ const AboutUs = () => {
 					</TextBlock>
 
 					<HighlightBox>
-						<h3>{t("about.whyPanamaTitle")}</h3>
-						<p>{t("about.whyPanamaP")}</p>
+						<h3>{t("about.marketTitle")}</h3>
+						<p>{t("about.marketP")}</p>
 					</HighlightBox>
 				</ContentGrid>
 

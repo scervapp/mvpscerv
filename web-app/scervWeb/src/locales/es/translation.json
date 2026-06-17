@@ -6,180 +6,196 @@
     "requestDemo": "Solicitar Demo"
   },
   "hero": {
-    "headline": "Modernice su Restaurante, Maximice su Eficiencia",
-    "subheadline": "Optimice toda su operación, desde la atención al cliente hasta la cocina, aumente la rotación de mesas y reduzca errores costosos. Scerv es la plataforma todo en uno creada para el éxito de su restaurante.",
-    "intro": "Scerv le empodera para tomar el control de su restaurante, optimizar su flujo de trabajo y ofrecer experiencias excepcionales a sus clientes, todo mientras aumenta sus ganancias.",
-    "requestDemoBtn": "Solicitar una Demostración"
+    "eyebrow": "Creado para la hospitalidad de Nueva York",
+    "headline": "La capa de experiencia para restaurantes modernos.",
+    "subheadline": "Scerv ayuda a restaurantes en Brooklyn, Manhattan, Queens y mas a conectar reservas, check-ins, pedidos, pagos, recompensas, resenas y visibilidad operativa en una experiencia pulida.",
+    "intro": "Scerv ofrece a los equipos una forma mas clara de servir, entender la demanda y crear visitas repetidas sin sumar herramientas desconectadas.",
+    "requestDemoBtn": "Solicitar Demo",
+    "resourcesBtn": "Ver Recursos",
+    "proof": {
+      "service": {
+        "title": "Flujos pensados para servicio",
+        "desc": "Apoya a anfitriones, meseros, cocina y clientes sin hacer que la hospitalidad se sienta automatica."
+      },
+      "guest": {
+        "title": "Memoria del cliente",
+        "desc": "Convierte descubrimiento, resenas, recompensas y visitas repetidas en una relacion mas fuerte."
+      },
+      "operator": {
+        "title": "Claridad operativa",
+        "desc": "Da a propietarios y gerentes mejor visibilidad sobre ventas, servicio, lealtad y soporte."
+      }
+    }
   },
   "features": {
     "restaurants": {
-      "title": "Potencie su Restaurante con Scerv",
+      "title": "Herramientas de hospitalidad para restaurantes ambiciosos",
       "ordering": {
-        "title": "Pedidos Digitales Integrados",
-        "desc": "Scerv revoluciona la experiencia gastronómica con un sistema fluido e integrado de pedidos digitales. Los clientes ordenan directamente a través de la aplicación móvil, eliminando los tiempos de espera de las terminales tradicionales. El cierre de cuenta se gestiona automáticamente en segundo plano, optimizando las operaciones y mejorando la satisfacción del cliente."
+        "title": "Pedidos y pagos conectados",
+        "desc": "Permite que los clientes exploren, pidan, dividan y paguen con una experiencia pulida mientras el equipo mantiene el servicio en movimiento."
       },
       "queue": {
-        "title": "Chef's Q™",
-        "desc": "Optimice las operaciones de su cocina con Chef's Q de Scerv. Los pedidos entrantes se agrupan automáticamente por mesa y se muestran claramente en un sistema de visualización de cocina (KDS). Esto elimina la necesidad de tickets en papel, reduce errores y mejora la comunicación entre el personal de sala y cocina. Las instrucciones especiales se muestran claramente para asegurar la precisión. Optimice la preparación y entrega para lograr la máxima eficiencia."
+        "title": "Flujo de cocina y servicio",
+        "desc": "Organiza pedidos, mesas, equipo y solicitudes para reducir errores y proteger el ritmo del servicio."
       },
       "analytics": {
-        "title": "Análisis y Reportes en Tiempo Real",
-        "desc": "Obtenga información valiosa sobre el rendimiento de su restaurante con las completas herramientas de reportes de Scerv. Supervise las ventas, identifique los artículos más populares, observe el comportamiento de los clientes y tome decisiones basadas en datos para optimizar su menú, precios y personal."
+        "title": "Inteligencia operativa",
+        "desc": "Mira el restaurante mas alla de transacciones: ventas, descuentos, reembolsos, engagement, opiniones por plato y senales para mejores decisiones."
       },
-      "cta": "Solicitar una Demostración"
+      "cta": "Solicitar Demo"
     }
   },
   "solutions": {
-    "title": "Diseñado para Cada Área de su Restaurante",
-    "subtitle": "Scerv escala con sus operaciones, aumentando los ingresos y eliminando la fricción de la experiencia gastronómica.",
+    "title": "Una plataforma para todo el recorrido del comedor",
+    "subtitle": "Scerv apoya llegada, pedidos, servicio, pago, feedback y la proxima visita.",
     "tabs": {
-      "foh": "Atención al Cliente",
-      "boh": "Cocina y Operaciones",
-      "guests": "Experiencia del Huésped"
+      "foh": "Salon",
+      "boh": "Cocina",
+      "guests": "Cliente"
     },
     "content": {
       "foh": {
-        "headline": "Aumente la Rotación de Mesas un 20%",
-        "desc": "Empodere a sus meseros para que se enfoquen en la hospitalidad, no en gestionar cobros. Con la experiencia unificada de la aplicación de Scerv, los invitados toman asiento, ordenan al instante y gestionan sus cuentas individuales sin tener que esperar al personal."
+        "headline": "Mas control para recibir, sentar, servir y recuperar",
+        "desc": "Da a hosts y equipos de servicio una vista mas clara de check-ins, grupos, mesas, reservas y proximas acciones."
       },
       "boh": {
-        "headline": "Enrutamiento Inteligente y Chef's Q™",
-        "desc": "Elimine los tickets de papel perdidos. Scerv envía automáticamente los pedidos de bebidas al bar y los de comida al sistema de visualización de cocina (KDS). Todo sincronizado para lograr la máxima eficiencia."
+        "headline": "Claridad cuando el restaurante se llena",
+        "desc": "Organiza pedidos, estados, actividad de mesas y comunicacion con cocina para proteger precision en momentos de alta presion."
       },
       "guests": {
-        "headline": "Rompa la Barrera del Idioma",
-        "desc": "Atraiga a más turistas con menús que se traducen automáticamente. Los huéspedes ordenan en inglés desde sus teléfonos, mientras su cocina recibe el ticket traducido instantáneamente al español. Cero confusiones."
+        "headline": "Haz que el cliente se sienta conocido",
+        "desc": "Ayuda a descubrir platos, unirse a grupos, pedir servicio, pagar con menos espera, dejar feedback y volver con recompensas."
       }
     }
   },
   "footer": {
-    "tagline": "La plataforma integral de gestión de restaurantes diseñada para la eficiencia y el crecimiento.",
+    "tagline": "Una plataforma moderna de hospitalidad para restaurantes que quieren mejor servicio, operaciones claras y mas clientes recurrentes.",
     "product": "Producto",
-    "features": "Características",
+    "features": "Funciones",
     "pricing": "Precios",
     "requestDemo": "Solicitar Demo",
-    "company": "Compañía",
-    "about": "Nosotros",
-    "contact": "Contáctenos",
+    "company": "Empresa",
+    "about": "Sobre Nosotros",
+    "contact": "Contacto",
     "legal": "Legal",
-    "privacy": "Política de Privacidad",
-    "terms": "Términos de Servicio",
+    "privacy": "Privacidad",
+    "terms": "Terminos",
     "rights": "Todos los derechos reservados."
   },
   "cta": {
-    "headline": "¿Listo para Transformar su Restaurante?",
-    "subheadline": "Pruebe Scerv sin riesgos. Descubra cómo nuestra plataforma aumenta sus ingresos, elimina confusiones y acelera la rotación de mesas.",
+    "headline": "Construye una experiencia que los clientes recuerden.",
+    "subheadline": "Scerv trabaja con restaurantes listos para modernizar servicio, mejorar visibilidad y crecer relaciones con clientes recurrentes.",
     "primaryBtn": "Solicitar Demo",
-    "secondaryBtn": "Contactar a Ventas"
+    "secondaryBtn": "Contactar Ventas"
   },
   "demo": {
     "pitch": {
-      "title": "Vea Scerv en Acción",
-      "subtitle": "Programe una demostración gratuita y sin compromiso para descubrir cómo Scerv puede optimizar sus operaciones y aumentar sus ingresos.",
-      "bullet1": "Cero costos iniciales de hardware.",
-      "bullet2": "Aumente la rotación de mesas en un 20%.",
-      "bullet3": "Elimine errores de pedido con traducción automática."
+      "title": "Lleva Scerv a tu restaurante",
+      "subtitle": "Solicita una demostracion creada alrededor de tu modelo de servicio.",
+      "bullet1": "Mira como Scerv apoya el recorrido completo del cliente.",
+      "bullet2": "Revisa flujos para hosts, meseros, cocina, gerentes y propietarios.",
+      "bullet3": "Conversa sobre opciones de lanzamiento para equipos de hospitalidad en crecimiento."
     },
     "form": {
       "name": "Nombre Completo",
       "restaurantName": "Nombre del Restaurante",
-      "email": "Correo Electrónico",
-      "phone": "Número de Teléfono",
+      "email": "Correo Electronico",
+      "phone": "Telefono",
       "message": "Mensaje (Opcional)",
       "submit": "Solicitar Demo",
       "submitting": "Enviando..."
     },
     "errors": {
-      "name": "El nombre es obligatorio.",
-      "restaurant": "El nombre del restaurante es obligatorio.",
-      "emailReq": "El correo es obligatorio.",
-      "emailInv": "Por favor, introduzca un correo válido.",
-      "phoneReq": "El número de teléfono es obligatorio.",
-      "phoneInv": "Por favor, introduzca un número de teléfono válido.",
-      "submit": "Error al enviar la solicitud. Por favor, inténtelo de nuevo."
+      "name": "El nombre es requerido.",
+      "restaurant": "El nombre del restaurante es requerido.",
+      "emailReq": "El correo es requerido.",
+      "emailInv": "Ingresa un correo valido.",
+      "phoneReq": "El telefono es requerido.",
+      "phoneInv": "Ingresa un telefono valido.",
+      "submit": "No se pudo enviar. Intenta de nuevo."
     },
     "success": {
-      "title": "¡Solicitud Recibida!",
-      "desc": "Gracias por su interés en Scerv. Nuestro equipo se pondrá en contacto con usted en breve para programar su demostración personalizada."
+      "title": "Solicitud recibida",
+      "desc": "Gracias por tu interes en Scerv. Nuestro equipo te contactara pronto."
     }
   },
   "contact": {
     "info": {
-      "title": "Contáctenos",
-      "desc": "¡Nos encantaría saber de usted! Ya sea que tenga preguntas sobre Scerv, necesite soporte técnico o desee hablar sobre una implementación personalizada, póngase en contacto.",
-      "subtitle": "Información de Contacto"
+      "title": "Contacta a Scerv",
+      "desc": "Habla con nosotros sobre demos, onboarding, alianzas o soporte.",
+      "subtitle": "Informacion de Contacto"
     },
     "form": {
       "name": "Nombre Completo",
       "restaurantName": "Nombre del Restaurante",
-      "email": "Correo Electrónico",
-      "phone": "Número de Teléfono",
-      "message": "¿En qué podemos ayudarle?",
+      "email": "Correo Electronico",
+      "phone": "Telefono",
+      "message": "Como podemos ayudarte?",
       "submit": "Enviar Mensaje",
       "submitting": "Enviando..."
     },
     "errors": {
-      "name": "El nombre es obligatorio.",
-      "restaurant": "El nombre del restaurante es obligatorio.",
-      "emailReq": "El correo es obligatorio.",
-      "emailInv": "Por favor, introduzca un correo válido.",
-      "phoneReq": "El número de teléfono es obligatorio.",
-      "phoneInv": "Por favor, introduzca un número de teléfono válido.",
-      "messageReq": "El mensaje es obligatorio.",
-      "submit": "Error al enviar el mensaje. Por favor, inténtelo de nuevo."
+      "name": "El nombre es requerido.",
+      "restaurant": "El nombre del restaurante es requerido.",
+      "emailReq": "El correo es requerido.",
+      "emailInv": "Ingresa un correo valido.",
+      "phoneReq": "El telefono es requerido.",
+      "phoneInv": "Ingresa un telefono valido.",
+      "messageReq": "El mensaje es requerido.",
+      "submit": "No se pudo enviar. Intenta de nuevo."
     },
     "success": {
-      "title": "¡Mensaje Enviado!",
-      "desc": "¡Gracias! Su mensaje ha sido enviado con éxito. Un miembro de nuestro equipo se pondrá en contacto en breve."
+      "title": "Mensaje enviado",
+      "desc": "Gracias. Tu mensaje fue enviado correctamente."
     }
   },
   "pricing": {
     "header": {
-      "title": "Precios Transparentes, Sin Riesgos",
-      "subtitle": "Actualmente buscamos socios para nuestro programa piloto en Ciudad de Panamá. Únase y transforme las operaciones de su restaurante sin compromiso financiero."
+      "title": "Hospitalidad enterprise para restaurantes ambiciosos",
+      "subtitle": "Scerv trabaja con socios selectos mientras crece. El precio depende del modelo de servicio, necesidades de lanzamiento y funciones."
     },
     "card": {
-      "badge": "Programa Piloto",
-      "price": "$0",
-      "offer": "Sin Costos Iniciales. Sin Cargos Ocultos.",
+      "badge": "Introduccion Privada",
+      "price": "Custom",
+      "offer": "Creado alrededor de tu operacion.",
       "features": {
-        "f1": "<b>Pedidos Express por App:</b> Los clientes exploran el menú, ordenan y completan su pedido directamente a través de la aplicación Scerv.",
-        "f2": "<b>Menús Bilingües Automáticos:</b> Traducción instantánea entre inglés y español.",
-        "f3": "<b>Enrutamiento Inteligente:</b> Bebidas al bar, comida a la cocina.",
-        "f4": "<b>Chef's Q™ KDS:</b> Gestión digital completa de pedidos en cocina.",
-        "f5": "<b>Gestión de Cuentas Grupales:</b> Ahorre dolores de cabeza a su personal con nuestra experiencia optimizada para pedidos de grupos."
+        "f1": "<b>Experiencia del cliente:</b> Reservas, check-ins, grupos, pedidos, pagos, resenas y recompensas.",
+        "f2": "<b>Operaciones:</b> Hosts, flujo de mesas, cocina, staff y back office.",
+        "f3": "<b>Crecimiento:</b> Descubrimiento de comida, ofertas, retencion y recompensas.",
+        "f4": "<b>Reportes:</b> Ventas, fees, reembolsos, descuentos, promociones y actividad de servicio.",
+        "f5": "<b>Lanzamiento:</b> Menu, controles, entrenamiento y plan de salida."
       },
-      "cta": "Aplicar al Programa Piloto",
-      "note": "Cupos limitados en Ciudad de Panamá. Aplique hoy."
+      "cta": "Solicitar Demo Privada",
+      "note": "Priorizando restaurantes de Nueva York, Brooklyn y socios de crecimiento."
     }
   },
   "seo": {
     "home": {
-      "title": "Scerv | La Plataforma Premium de Pedidos Digitales",
-      "desc": "Aumente sus ingresos y la rotación de mesas un 20% con Scerv. El sistema de pedidos digitales y KDS sin costos iniciales diseñado para restaurantes modernos."
+      "title": "Scerv | Plataforma de Hospitalidad para Restaurantes Modernos",
+      "desc": "Scerv es una plataforma moderna de experiencia del cliente y operaciones para restaurantes de Nueva York y Brooklyn."
     },
     "pricing": {
-      "title": "Precios y Programa Piloto | Scerv",
-      "desc": "Únase al programa piloto de Scerv en Ciudad de Panamá. Transforme su restaurante sin costos iniciales ni cargos ocultos."
+      "title": "Precios | Scerv",
+      "desc": "Solicita una demo privada de Scerv para tu restaurante."
     },
     "contact": {
-      "title": "Contáctenos | Soporte y Ventas de Scerv",
-      "desc": "Comuníquese con el equipo de Scerv. Estamos aquí para responder a sus preguntas sobre nuestra plataforma de gestión de restaurantes."
+      "title": "Contacto | Scerv",
+      "desc": "Contacta a Scerv para demos, onboarding, alianzas y soporte."
     },
     "demo": {
       "title": "Solicitar Demo | Scerv",
-      "desc": "Programe una demostración gratuita de Scerv. Descubra cómo nuestros menús digitales bilingües y enrutamiento inteligente pueden aumentar sus ingresos."
+      "desc": "Agenda una demostracion privada de Scerv."
     }
   },
   "about": {
-    "heroTitle": "Modernizando la Experiencia Gastronómica",
-    "heroSubtitle": "Creamos Scerv para eliminar la fricción en la industria de la hospitalidad, empoderando a los restaurantes locales con infraestructura de clase mundial tipo \"Smart City\".",
-    "missionTitle": "Nuestra Misión",
-    "missionP1": "Ya seas un residente local o un turista explorando una nueva ciudad, la experiencia de cenar debe centrarse en la comida y la compañía, no en esperar 15 minutos para llamar a un mesero y gestionar la cuenta o lidiar con la barrera del idioma.",
-    "missionP2": "Scerv devuelve el control a las manos del cliente y del dueño del restaurante. Al introducir una experiencia de cierre de cuenta digital y fluida, ayudamos a los restaurantes a rotar las mesas más rápido, operar de manera más eficiente y brindar una experiencia VIP inolvidable y sin fricciones a cada invitado.",
-    "whyPanamaTitle": "¿Por qué Panamá?",
-    "whyPanamaP": "Como un centro global en ascenso para nómadas digitales, expatriados y turismo culinario, la Ciudad de Panamá es la plataforma de lanzamiento perfecta. Estamos comprometidos a ayudar a las empresas locales a competir a nivel mundial proporcionándoles exactamente las mismas herramientas de nivel empresarial que se utilizan en ciudades como Nueva York y Dubái.",
-    "ctaTitle": "¿Listo para actualizar tu restaurante?",
-    "ctaSubtitle": "Únete a nuestro programa piloto exclusivo hoy."
+    "heroTitle": "Construyendo la capa de experiencia para la hospitalidad moderna",
+    "heroSubtitle": "Scerv esta disenado para restaurantes que quieren tecnologia enterprise sin perder el calor del buen servicio.",
+    "missionTitle": "La Mision",
+    "missionP1": "La experiencia de comer fuera debe sentirse simple para clientes y manejable para los equipos que los atienden.",
+    "missionP2": "Scerv conecta los momentos importantes para que operadores se muevan mas rapido, entiendan mejor a sus clientes y creen mas razones para volver.",
+    "marketTitle": "Por que Nueva York y Brooklyn?",
+    "marketP": "Nueva York es uno de los mercados de hospitalidad mas exigentes del mundo. Brooklyn combina restaurantes de barrio, bares, cafes, conceptos de chef y operadores ambiciosos.",
+    "ctaTitle": "Listo para modernizar tu restaurante?",
+    "ctaSubtitle": "Solicita una demo privada creada alrededor de tu modelo de servicio."
   }
 }

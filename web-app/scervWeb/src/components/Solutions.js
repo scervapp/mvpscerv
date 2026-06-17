@@ -8,7 +8,7 @@ import bohImage from "../images/chefsQ.jpeg";
 import guestImage from "../images/language.png";
 
 const Section = styled.section`
-	padding: ${({ theme }) => theme.spacing.xl} 0;
+	padding: 72px 0;
 	background-color: ${({ theme }) => theme.colors.background};
 `;
 
@@ -20,12 +20,12 @@ const Container = styled.div`
 
 const SectionHeader = styled.div`
 	text-align: center;
-	margin-bottom: ${({ theme }) => theme.spacing.xl};
+	margin-bottom: 42px;
 `;
 
 const Title = styled.h2`
-	font-size: 2.5rem;
-	color: ${({ theme }) => theme.colors.primary};
+	font-size: clamp(2rem, 4vw, 3.2rem);
+	color: ${({ theme }) => theme.colors.text};
 	margin-bottom: ${({ theme }) => theme.spacing.sm};
 `;
 
@@ -39,27 +39,29 @@ const Subtitle = styled.p`
 const TabContainer = styled.div`
 	display: flex;
 	justify-content: center;
-	gap: 15px;
-	margin-bottom: 40px;
-	border-bottom: 2px solid ${({ theme }) => theme.colors.gray}4D;
+	gap: 10px;
+	margin-bottom: 36px;
 	flex-wrap: wrap;
 `;
 
 const TabButton = styled.button`
-	background: transparent;
-	border: none;
+	background: ${({ active, theme }) =>
+		active ? theme.colors.primaryDark : theme.colors.white};
+	border: 1px solid ${({ active, theme }) =>
+		active ? theme.colors.primaryDark : theme.colors.gray};
+	border-radius: 999px;
 	font-size: 1.1rem;
 	font-weight: 600;
 	color: ${({ active, theme }) =>
-		active ? theme.colors.primary : theme.colors.textLight};
-	padding: 10px 15px;
+		active ? theme.colors.white : theme.colors.textLight};
+	padding: 10px 18px;
 	cursor: pointer;
-	border-bottom: 3px solid
-		${({ active, theme }) => (active ? theme.colors.primary : "transparent")};
 	transition: all 0.2s ease;
 
 	&:hover {
-		color: ${({ theme }) => theme.colors.primary};
+		border-color: ${({ theme }) => theme.colors.primary};
+		color: ${({ active, theme }) =>
+		active ? theme.colors.white : theme.colors.primary};
 	}
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
@@ -69,15 +71,18 @@ const TabButton = styled.button`
 `;
 
 const ContentArea = styled.div`
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 40px;
+	background: ${({ theme }) => theme.colors.white};
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-radius: ${({ theme }) => theme.radius.lg};
+	box-shadow: 0 18px 50px rgba(19, 32, 39, 0.08);
+	display: grid;
+	gap: 36px;
+	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+	padding: 34px;
 
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		flex-direction: row;
-		justify-content: space-between;
-		align-items: flex-start;
+	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+		grid-template-columns: 1fr;
+		padding: 24px;
 	}
 `;
 
@@ -85,7 +90,7 @@ const TextContent = styled.div`
 	flex: 1;
 
 	h3 {
-		font-size: 2rem;
+		font-size: clamp(1.7rem, 3vw, 2.4rem);
 		margin-bottom: 20px;
 		color: ${({ theme }) => theme.colors.text};
 	}
@@ -100,7 +105,6 @@ const TextContent = styled.div`
 
 // 1. Changed to a Grid layout so images can stack perfectly
 const ImageContent = styled.div`
-	flex: 1;
 	display: grid;
 	place-items: center;
 	width: 100%;
@@ -111,8 +115,8 @@ const TabImage = styled.img`
 	grid-area: 1 / 1; /* This forces all images to sit in the exact same spot */
 	max-width: 100%;
 	height: auto;
-	border-radius: ${({ theme }) => theme.radius.lg};
-	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+	border-radius: ${({ theme }) => theme.radius.md};
+	box-shadow: 0 12px 35px rgba(19, 32, 39, 0.12);
 
 	/* Crossfade animation logic */
 	opacity: ${({ isActive }) => (isActive ? 1 : 0)};

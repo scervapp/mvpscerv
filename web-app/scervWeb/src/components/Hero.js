@@ -1,161 +1,186 @@
 import React from "react";
 import styled from "styled-components";
-import { useTranslation } from "react-i18next"; // <-- 1. Import the hook
+import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import heroImage from "../images/hero-image.jpeg";
 import SEO from "./SEO";
 
 const HeroSection = styled.section`
+	background: ${({ theme }) => theme.colors.primaryDark};
+	color: ${({ theme }) => theme.colors.white};
+	min-height: calc(100vh - 86px);
+	overflow: hidden;
 	position: relative;
-	text-align: center;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-height: 100vh;
-
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		text-align: left;
-	}
 `;
 
-const HeroContent = styled.div`
-	padding: ${({ theme }) => theme.spacing.xl} ${({ theme }) => theme.spacing.md};
-	position: relative;
-	z-index: 2;
-	color: ${({ theme }) => theme.colors.white};
+const HeroImage = styled.img`
+	height: 100%;
+	inset: 0;
+	object-fit: cover;
+	opacity: 0.34;
+	position: absolute;
+	width: 100%;
+`;
 
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		max-width: 60%;
-	}
+const Overlay = styled.div`
+	background:
+		linear-gradient(90deg, rgba(8, 47, 58, 0.98), rgba(8, 47, 58, 0.78), rgba(8, 47, 58, 0.36)),
+		linear-gradient(180deg, rgba(8, 47, 58, 0.24), rgba(8, 47, 58, 0.9));
+	inset: 0;
+	position: absolute;
+`;
+
+const Container = styled.div`
+	margin: 0 auto;
+	max-width: ${({ theme }) => theme.breakpoints.xl};
+	padding: 96px ${({ theme }) => theme.spacing.md} 64px;
+	position: relative;
+	z-index: 1;
+`;
+
+const Content = styled.div`
+	max-width: 820px;
+`;
+
+const Eyebrow = styled.p`
+	color: ${({ theme }) => theme.colors.secondary};
+	font-size: 0.88rem;
+	font-weight: 800;
+	letter-spacing: 0;
+	margin-bottom: 14px;
+	text-transform: uppercase;
 `;
 
 const Headline = styled.h1`
-	font-size: 2.8rem;
-	margin-bottom: ${({ theme }) => theme.spacing.sm};
 	color: ${({ theme }) => theme.colors.white};
-	font-weight: 700;
-	line-height: 1.2;
-
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		font-size: 3.5rem;
-	}
-	@media (min-width: ${({ theme }) => theme.breakpoints.lg}) {
-		font-size: 4rem;
-	}
+	font-size: clamp(2.7rem, 7vw, 5.8rem);
+	letter-spacing: 0;
+	line-height: 0.98;
+	margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
 
 const Subheadline = styled.p`
-	font-size: 1.1rem;
-	margin-bottom: ${({ theme }) => theme.spacing.md};
-	color: ${({ theme }) => theme.colors.white};
-	line-height: 1.5;
-
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		font-size: 1.3rem;
-	}
-`;
-
-const IntroParagraph = styled.p`
-	font-size: 1rem;
+	color: rgba(255, 255, 255, 0.9);
+	font-size: clamp(1.12rem, 2vw, 1.35rem);
+	line-height: 1.65;
 	margin-bottom: ${({ theme }) => theme.spacing.lg};
-	color: ${({ theme }) => theme.colors.white};
-	line-height: 1.6;
-
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		font-size: 1.1rem;
-	}
+	max-width: 760px;
 `;
 
 const CtaButtons = styled.div`
 	display: flex;
-	flex-direction: column;
-	align-items: center;
+	flex-wrap: wrap;
 	gap: ${({ theme }) => theme.spacing.md};
-	margin-bottom: ${({ theme }) => theme.spacing.lg};
-
-	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
-		flex-direction: row;
-		justify-content: flex-start;
-	}
+	margin-bottom: 44px;
 `;
 
-const Button = styled.a`
-	display: inline-block;
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.xl};
-	text-decoration: none;
-	color: ${({ theme }) => theme.colors.white};
+const Button = styled(Link)`
 	border-radius: ${({ theme }) => theme.radius.md};
+	display: inline-block;
+	font-weight: 800;
+	padding: 14px 22px;
+	text-decoration: none;
 	transition:
-		background-color 0.3s ease,
-		transform 0.2s ease,
-		box-shadow 0.2s ease;
-	font-weight: 600;
-	white-space: nowrap;
+		background-color 0.2s ease,
+		border-color 0.2s ease,
+		transform 0.2s ease;
 
 	&:hover {
-		transform: translateY(-3px);
+		transform: translateY(-2px);
 	}
 `;
 
 const PrimaryButton = styled(Button)`
-	background-color: ${({ theme }) => theme.colors.primary};
+	background: ${({ theme }) => theme.colors.secondary};
+	color: ${({ theme }) => theme.colors.white};
 
 	&:hover {
-		background-color: ${({ theme }) => theme.colors.primaryDark};
-		box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+		background: ${({ theme }) => theme.colors.secondaryDark};
+		color: ${({ theme }) => theme.colors.white};
 	}
 `;
 
-const HeroImageWrapper = styled.div`
-	position: absolute;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
-	z-index: 0;
+const SecondaryButton = styled(Button)`
+	background: rgba(255, 255, 255, 0.08);
+	border: 1px solid rgba(255, 255, 255, 0.34);
+	color: ${({ theme }) => theme.colors.white};
 
-	&::before {
-		content: "";
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		background-color: rgba(0, 0, 0, 0.4);
-		z-index: 1;
+	&:hover {
+		background: rgba(255, 255, 255, 0.16);
+		color: ${({ theme }) => theme.colors.white};
 	}
 `;
 
-const HeroImage = styled.img`
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-	display: block;
+const ProofGrid = styled.div`
+	display: grid;
+	gap: 14px;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	max-width: 850px;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+		grid-template-columns: 1fr;
+	}
+`;
+
+const ProofCard = styled.div`
+	background: rgba(255, 255, 255, 0.09);
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	border-radius: ${({ theme }) => theme.radius.md};
+	padding: 18px;
+
+	strong {
+		color: ${({ theme }) => theme.colors.white};
+		display: block;
+		font-size: 1.05rem;
+		margin-bottom: 6px;
+	}
+
+	span {
+		color: rgba(255, 255, 255, 0.78);
+		font-size: 0.94rem;
+		line-height: 1.45;
+	}
 `;
 
 const Hero = () => {
-	// 2. Initialize the translation function
 	const { t } = useTranslation();
 
 	return (
 		<HeroSection>
 			<SEO titleKey="seo.home.title" descKey="seo.home.desc" />
-			<HeroImageWrapper>
-				<HeroImage src={heroImage} alt="Restaurant scene using Scerv" />
-			</HeroImageWrapper>
-			<HeroContent>
-				{/* 3. Replace text with dynamic translation keys */}
-				<Headline>{t("hero.headline")}</Headline>
+			<HeroImage src={heroImage} alt="New York restaurant dining room" />
+			<Overlay />
+			<Container>
+				<Content>
+					<Eyebrow>{t("hero.eyebrow")}</Eyebrow>
+					<Headline>{t("hero.headline")}</Headline>
+					<Subheadline>{t("hero.subheadline")}</Subheadline>
 
-				<Subheadline>{t("hero.subheadline")}</Subheadline>
+					<CtaButtons>
+						<PrimaryButton to="/request-demo">
+							{t("hero.requestDemoBtn")}
+						</PrimaryButton>
+						<SecondaryButton to="/resources">
+							{t("hero.resourcesBtn")}
+						</SecondaryButton>
+					</CtaButtons>
+				</Content>
 
-				<IntroParagraph>{t("hero.intro")}</IntroParagraph>
-
-				<CtaButtons>
-					<PrimaryButton href="/request-demo">
-						{t("hero.requestDemoBtn")}
-					</PrimaryButton>
-				</CtaButtons>
-			</HeroContent>
+				<ProofGrid>
+					<ProofCard>
+						<strong>{t("hero.proof.service.title")}</strong>
+						<span>{t("hero.proof.service.desc")}</span>
+					</ProofCard>
+					<ProofCard>
+						<strong>{t("hero.proof.guest.title")}</strong>
+						<span>{t("hero.proof.guest.desc")}</span>
+					</ProofCard>
+					<ProofCard>
+						<strong>{t("hero.proof.operator.title")}</strong>
+						<span>{t("hero.proof.operator.desc")}</span>
+					</ProofCard>
+				</ProofGrid>
+			</Container>
 		</HeroSection>
 	);
 };

@@ -29,7 +29,7 @@ const resources = [
 				],
 				checklist: [
 					"Define service type: quick service, fast casual, full service, fine dining, bar, cafe, hotel, or hybrid.",
-					"List the highest-pressure moments: lunch rush, dinner turn, bar surge, private events, tourist traffic, late-night checkout, or weekend brunch.",
+					"List the highest-pressure moments: lunch rush, dinner turn, bar surge, private events, visitor traffic, late-night checkout, or weekend brunch.",
 					"Decide which workflows must be live on opening day and which can wait until the team is stable.",
 					"Assign an owner for each system: POS, reservations, menu, payments, staff, reporting, guest recovery, and promotions.",
 				],

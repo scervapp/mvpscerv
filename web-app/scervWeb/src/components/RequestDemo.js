@@ -58,7 +58,7 @@ const PitchSide = styled.div`
 			gap: 10px;
 
 			&:before {
-				content: "✓";
+				content: "+";
 				color: ${({ theme }) => theme.colors.secondary};
 				font-weight: bold;
 			}
@@ -221,10 +221,10 @@ const RequestDemo = () => {
 			newErrors.email = t("demo.errors.emailInv");
 		}
 
-		// 2. Fixed Phone Validation for international/Panama formats
+		// Support common US and international phone formats.
 		if (!formData.phone.trim()) {
 			newErrors.phone = t("demo.errors.phoneReq");
-		} else if (!/^[\d\s\-\+\(\)]{8,15}$/.test(formData.phone)) {
+		} else if (!/^[\d\s\-+()]{8,20}$/.test(formData.phone)) {
 			newErrors.phone = t("demo.errors.phoneInv");
 		}
 
@@ -333,7 +333,7 @@ const RequestDemo = () => {
 									value={formData.phone}
 									onChange={handleChange}
 									className={errors.phone ? "invalid" : ""}
-									placeholder="+507 1234 5678"
+									placeholder="+1 (718) 555-0147"
 								/>
 								{errors.phone && <ErrorMessage>{errors.phone}</ErrorMessage>}
 							</FormGroup>

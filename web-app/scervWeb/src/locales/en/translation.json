@@ -6,32 +6,48 @@
     "requestDemo": "Request a Demo"
   },
   "hero": {
-    "headline": "Modernize Your Restaurant, Maximize Your Efficiency",
-    "subheadline": "Streamline your entire operation – from front-of-house to back-of-house – increase table turnover, and reduce costly errors. Scerv is the all-in-one platform built for restaurant success.",
-    "intro": "Scerv empowers you to take control of your restaurant, optimize your workflow, and deliver exceptional customer experiences, all while boosting your bottom line.",
-    "requestDemoBtn": "Request a Demo"
+    "eyebrow": "Built for New York hospitality",
+    "headline": "The guest experience layer for modern restaurants.",
+    "subheadline": "Scerv helps restaurants in Brooklyn, Manhattan, Queens, and beyond connect reservations, check-ins, ordering, payments, rewards, reviews, and operator visibility into one polished hospitality experience.",
+    "intro": "Scerv gives restaurant teams a cleaner way to serve guests, understand demand, and build repeat visits without adding more disconnected tools.",
+    "requestDemoBtn": "Request a Demo",
+    "resourcesBtn": "Explore Resources",
+    "proof": {
+      "service": {
+        "title": "Service-first workflows",
+        "desc": "Support hosts, servers, kitchens, and guests without making the dining room feel robotic."
+      },
+      "guest": {
+        "title": "Guest memory",
+        "desc": "Turn food discovery, reviews, rewards, and return visits into a stronger relationship."
+      },
+      "operator": {
+        "title": "Operator clarity",
+        "desc": "Give owners and managers cleaner visibility into sales, service, loyalty, and support."
+      }
+    }
   },
   "features": {
     "restaurants": {
-      "title": "Empower Your Restaurant with Scerv",
+      "title": "Enterprise hospitality tools for independent restaurants",
       "ordering": {
-        "title": "Integrated Digital Ordering",
-        "desc": "Scerv revolutionizes the dining experience with a seamless, integrated digital ordering system. Customers order directly through the mobile app, eliminating the need for traditional terminal wait times. Checkouts are managed automatically in the background, streamlining operations and enhancing customer satisfaction."
+        "title": "Connected Ordering and Checkout",
+        "desc": "Let guests browse, order, split, and pay through a polished experience while staff keep service moving. Scerv is designed to reduce friction without removing hospitality from the room."
       },
       "queue": {
-        "title": "Chef's Q™",
-        "desc": "Streamline your kitchen operations with Scerv's Chef's Q. Incoming orders are automatically grouped by table and displayed clearly on a dedicated kitchen display system (KDS). This eliminates the need for paper tickets, reduces errors, and improves communication between front-of-house and back-of-house staff. Special instructions are clearly displayed, ensuring order accuracy and customer satisfaction. Optimize order preparation and delivery for maximum efficiency."
+        "title": "Kitchen and Service Flow",
+        "desc": "Keep orders, tables, staff, and guest requests organized across the dining room and back of house. Clear routing helps teams reduce mistakes and protect the pace of service."
       },
       "analytics": {
-        "title": "Real-Time Analytics & Reporting",
-        "desc": "Gain valuable insights into your restaurant's performance with Scerv's comprehensive reporting tools. Track sales, identify popular items, monitor customer behavior, and make data-driven decisions to optimize your menu, pricing, and staffing."
+        "title": "Operator Intelligence",
+        "desc": "See the restaurant beyond transactions. Track sales, discounts, refunds, guest engagement, dish-level feedback, and the signals that help restaurants make better decisions."
       },
       "cta": "Request a Demo"
     }
   },
   "solutions": {
-    "title": "Built for Every Part of Your Restaurant",
-    "subtitle": "Scerv scales with your operations, increasing revenue while removing friction from the dining experience.",
+    "title": "One platform for the full dining room journey",
+    "subtitle": "Scerv supports the moments that matter most: arrival, ordering, service, payment, feedback, and the next visit.",
     "tabs": {
       "foh": "Front of House",
       "boh": "Back of House",
@@ -39,21 +55,21 @@
     },
     "content": {
       "foh": {
-        "headline": "Turn Tables 20% Faster",
-        "desc": "Empower your servers to focus on hospitality, not managing checkouts. With Scerv's unified app experience, guests seat themselves, order instantly, and manage their individual tabs seamlessly without waiting on staff."
+        "headline": "Host, seat, serve, and recover with more control",
+        "desc": "Give hosts and service teams a cleaner view of check-ins, parties, tables, reservations, and next actions. The goal is not to replace hospitality. It is to remove the friction that keeps staff from delivering it."
       },
       "boh": {
-        "headline": "Smart Routing & Chef's Q™",
-        "desc": "Eliminate lost paper tickets and kitchen bottlenecks. Scerv automatically routes drink orders to the bar and food orders to the kitchen display system (KDS). Everything is timed perfectly for maximum efficiency."
+        "headline": "Keep order flow clear when the room gets busy",
+        "desc": "Organize order routing, item status, table activity, and kitchen communication so teams can protect accuracy during high-pressure service periods."
       },
       "guests": {
-        "headline": "Break the Language Barrier",
-        "desc": "Capture more tourist revenue with auto-translating menus. Guests browse and order in English on their phones, while your kitchen receives the exact same ticket translated instantly into Spanish. Zero confusion."
+        "headline": "Make the guest feel known before, during, and after the meal",
+        "desc": "Help guests discover the right dishes, join parties, request service, pay with less waiting, leave feedback, and return through rewards and targeted offers."
       }
     }
   },
   "footer": {
-    "tagline": "The all-in-one restaurant management platform built for efficiency and growth.",
+    "tagline": "A modern hospitality platform for restaurants that want stronger service, smarter operations, and more repeat guests.",
     "product": "Product",
     "features": "Features",
     "pricing": "Pricing",
@@ -67,18 +83,18 @@
     "rights": "All rights reserved."
   },
   "cta": {
-    "headline": "Ready to Transform Your Restaurant?",
-    "subheadline": "Try Scerv risk-free. See how our platform boosts revenue, eliminates confusion, and turns tables faster.",
+    "headline": "Build a restaurant experience guests remember.",
+    "subheadline": "Scerv is partnering with ambitious restaurants ready to modernize service, improve visibility, and grow repeat guest relationships.",
     "primaryBtn": "Request a Demo",
     "secondaryBtn": "Contact Sales"
   },
   "demo": {
     "pitch": {
-      "title": "See Scerv in Action",
-      "subtitle": "Book a free, zero-obligation demo to see how Scerv can streamline your operations and boost your bottom line.",
-      "bullet1": "Zero upfront hardware costs.",
-      "bullet2": "Increase table turnover by 20%.",
-      "bullet3": "Eliminate order errors with auto-translation."
+      "title": "Bring Scerv to your restaurant",
+      "subtitle": "Request a walkthrough built around your service model, whether you run a Brooklyn neighborhood spot, a Manhattan dining room, a bar, a cafe, or a multi-location concept.",
+      "bullet1": "See how Scerv supports the full guest journey from arrival to return visit.",
+      "bullet2": "Review operational workflows for hosts, servers, kitchens, managers, and owners.",
+      "bullet3": "Discuss rollout options for New York and growth-focused hospitality teams."
     },
     "form": {
       "name": "Full Name",
@@ -99,14 +115,14 @@
       "submit": "Failed to submit request. Please try again."
     },
     "success": {
-      "title": "Request Received!",
-      "desc": "Thank you for your interest in Scerv. Our team will contact you shortly to schedule your personalized demo."
+      "title": "Request Received",
+      "desc": "Thank you for your interest in Scerv. Our team will contact you shortly to schedule a walkthrough."
     }
   },
   "contact": {
     "info": {
-      "title": "Contact Us",
-      "desc": "We'd love to hear from you! Whether you have questions about Scerv, need technical support, or want to discuss a custom deployment, please get in touch.",
+      "title": "Contact Scerv",
+      "desc": "Talk with us about restaurant onboarding, product questions, partnerships, or support. We are building for serious hospitality operators and would love to hear what you are creating.",
       "subtitle": "Contact Information"
     },
     "form": {
@@ -129,57 +145,57 @@
       "submit": "Failed to send message. Please try again."
     },
     "success": {
-      "title": "Message Sent!",
-      "desc": "Thank you! Your message has been sent successfully. A member of our team will be in touch shortly."
+      "title": "Message Sent",
+      "desc": "Thank you. Your message has been sent successfully. A member of our team will be in touch shortly."
     }
   },
   "pricing": {
     "header": {
-      "title": "Transparent, Zero-Risk Pricing",
-      "subtitle": "We are currently looking for pilot partners in Panama City. Join our exclusive program and transform your restaurant operations without the financial commitment."
+      "title": "Enterprise hospitality, built for ambitious restaurants",
+      "subtitle": "Scerv is working with select New York and Brooklyn restaurant partners as we expand. Pricing is shaped around your service model, rollout needs, and feature set."
     },
     "card": {
-      "badge": "Pilot Program",
-      "price": "$0",
-      "offer": "No Upfront Costs. No Hidden Fees.",
+      "badge": "Private Introduction",
+      "price": "Custom",
+      "offer": "Built around your restaurant operation.",
       "features": {
-        "f1": "<b>Express App Ordering:</b> Guests browse, order, and checkout directly through the Scerv app.",
-        "f2": "<b>Auto-Translating Menus:</b> Instantly flip between English and Spanish.",
-        "f3": "<b>Smart Routing:</b> Drinks go to the bar, food goes to the kitchen.",
-        "f4": "<b>Chef's Q™ KDS:</b> Complete digital kitchen order management.",
-        "f5": "<b>Group Checkout:</b> Save your staff hours of headaches with our streamlined party ordering experience."
+        "f1": "<b>Guest Experience Layer:</b> Reservations, check-ins, parties, ordering, payments, reviews, and rewards.",
+        "f2": "<b>Restaurant Operations:</b> Host tools, table flow, kitchen visibility, staff workflows, and back-office controls.",
+        "f3": "<b>Growth and Loyalty:</b> Food discovery, offers, guest retention, and restaurant-controlled reward programs.",
+        "f4": "<b>Reporting:</b> Sales, fees, refunds, discounts, promotions, and service activity in clearer operator language.",
+        "f5": "<b>Rollout Support:</b> Menu setup, feature controls, staff onboarding, and launch planning."
       },
-      "cta": "Apply for Pilot Program",
-      "note": "Limited spots available in Panama City. Apply today."
+      "cta": "Request a Private Demo",
+      "note": "Currently prioritizing New York hospitality groups, Brooklyn restaurants, and select growth partners."
     }
   },
   "seo": {
     "home": {
-      "title": "Scerv | The Premium Digital Ordering Platform",
-      "desc": "Boost revenue and turn tables 20% faster with Scerv. The zero-upfront-cost digital ordering and kitchen display system built for modern restaurants."
+      "title": "Scerv | Hospitality Platform for Modern Restaurants",
+      "desc": "Scerv is a modern guest experience and restaurant operations platform for New York and Brooklyn restaurants that want stronger service, smarter ordering, rewards, reviews, and repeat guest engagement."
     },
     "pricing": {
-      "title": "Pricing & Pilot Program | Scerv",
-      "desc": "Join the Scerv pilot program in Panama City. Transform your restaurant operations with zero upfront costs and no hidden fees."
+      "title": "Restaurant Platform Pricing | Scerv",
+      "desc": "Request a private demo of Scerv for your restaurant. Built for ambitious New York and Brooklyn hospitality operators."
     },
     "contact": {
-      "title": "Contact Us | Scerv Support & Sales",
-      "desc": "Get in touch with the Scerv team. We are here to answer your questions about our restaurant management platform and custom deployments."
+      "title": "Contact Scerv | Restaurant Platform Support and Sales",
+      "desc": "Contact Scerv for restaurant onboarding, demos, partnerships, and support."
     },
     "demo": {
       "title": "Request a Demo | Scerv",
-      "desc": "Book a free, zero-obligation demo of Scerv. See how our bilingual digital menus and smart kitchen routing can increase your table turnover."
+      "desc": "Book a private walkthrough of Scerv for your restaurant, bar, cafe, or hospitality group."
     }
   },
   "about": {
-    "heroTitle": "Modernizing the Dining Experience",
-    "heroSubtitle": "We built Scerv to eliminate friction in the hospitality industry, empowering local restaurants with world-class \"Smart City\" infrastructure.",
+    "heroTitle": "Building the guest experience layer for modern hospitality",
+    "heroSubtitle": "Scerv is designed for restaurants that want the polish of enterprise technology without losing the warmth of great service.",
     "missionTitle": "The Mission",
-    "missionP1": "Whether you are a local resident or a tourist exploring a new city, the dining experience should be about the food and the company—not waiting 15 minutes to flag down a server to manage the check or struggling with a language barrier.",
-    "missionP2": "Scerv puts the power back in the hands of the customer and the restaurant owner. By introducing a seamless digital checkout experience, we help restaurants turn tables faster, operate leaner, and provide an unforgettable, frictionless VIP experience to every guest.",
-    "whyPanamaTitle": "Why Panama?",
-    "whyPanamaP": "As a rising global hub for digital nomads, expats, and culinary tourism, Panama City is the perfect launchpad. We are committed to helping local Panamanian businesses compete on a global stage by providing them with the exact same enterprise-level tools used in cities like New York and Dubai.",
-    "ctaTitle": "Ready to upgrade your restaurant?",
-    "ctaSubtitle": "Join our exclusive pilot program today."
+    "missionP1": "Dining should feel effortless for guests and manageable for the teams serving them. Too often, restaurants are forced to stitch together disconnected tools for reservations, ordering, payments, reviews, loyalty, and reporting.",
+    "missionP2": "Scerv brings those moments into a cleaner hospitality experience so operators can move faster, understand guests better, and create more reasons for people to return.",
+    "marketTitle": "Why New York and Brooklyn?",
+    "marketP": "New York is one of the most demanding hospitality markets in the world. Brooklyn alone spans neighborhood restaurants, bars, cafes, chef-driven concepts, nightlife, hotels, and ambitious independents. If a platform can respect service culture here, it can scale with credibility.",
+    "ctaTitle": "Ready to modernize your restaurant experience?",
+    "ctaSubtitle": "Request a private demo built around your service model."
   }
 }

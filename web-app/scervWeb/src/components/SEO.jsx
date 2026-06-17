@@ -14,7 +14,7 @@ const SEO = ({ titleKey, descKey }) => {
 			<meta property="og:type" content="website" />
 			<meta
 				name="keywords"
-				content="restaurant POS, QR ordering Panama, sistema de pedidos para restaurantes, Scerv, KDS"
+				content="restaurant platform New York, Brooklyn restaurant technology, hospitality platform, restaurant guest experience, restaurant rewards, restaurant operations, Scerv"
 			/>
 		</Helmet>
 	);

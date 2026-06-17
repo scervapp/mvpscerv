@@ -4,8 +4,9 @@ import styled from "styled-components";
 import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
 
 const CallToActionSection = styled.section`
-	padding: ${({ theme }) => theme.spacing.xl} 0;
-	background-color: ${({ theme }) => theme.colors.primary};
+	padding: 72px 0;
+	background:
+		linear-gradient(135deg, ${({ theme }) => theme.colors.primaryDark}, #071d25);
 	color: ${({ theme }) => theme.colors.white};
 	text-align: center;
 `;
@@ -31,7 +32,7 @@ const Headline = styled.h2`
 const Subheadline = styled.p`
 	font-size: 1.2rem;
 	margin-bottom: ${({ theme }) => theme.spacing.lg};
-	opacity: 0.9; /* Softens the text slightly for readability */
+	opacity: 0.88;
 
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
 		font-size: 1.3rem;
@@ -60,9 +61,9 @@ const BaseButton = styled(Link)`
 
 /* 2. Primary Button: Solid White to pop off the primary colored background */
 const PrimaryButton = styled(BaseButton)`
-	background-color: ${({ theme }) => theme.colors.white};
-	color: ${({ theme }) => theme.colors.primary};
-	border: 2px solid ${({ theme }) => theme.colors.white};
+	background-color: ${({ theme }) => theme.colors.secondary};
+	color: ${({ theme }) => theme.colors.white};
+	border: 2px solid ${({ theme }) => theme.colors.secondary};
 
 	&:hover {
 		transform: translateY(-3px);
@@ -74,7 +75,7 @@ const PrimaryButton = styled(BaseButton)`
 const SecondaryButton = styled(BaseButton)`
 	background-color: transparent;
 	color: ${({ theme }) => theme.colors.white};
-	border: 2px solid ${({ theme }) => theme.colors.white};
+	border: 2px solid rgba(255, 255, 255, 0.55);
 
 	&:hover {
 		background-color: rgba(255, 255, 255, 0.1);
