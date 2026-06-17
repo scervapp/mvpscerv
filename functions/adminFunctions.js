@@ -122,6 +122,80 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 	},
 );
 
+exports.getScervAdminDashboardStats = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context);
+
+		const [restaurantsSnapshot, customersSnapshot, ordersSnapshot] =
+			await Promise.all([
+				db.collection("restaurants").count().get(),
+				db.collection("customers").count().get(),
+				db.collection("orders").count().get(),
+			]);
+
+		return {
+			totalRestaurants: restaurantsSnapshot.data().count || 0,
+			totalCustomers: customersSnapshot.data().count || 0,
+			totalOrders: ordersSnapshot.data().count || 0,
+		};
+	},
+);
+
+exports.listScervCustomers = functions.https.onCall(async (data, context) => {
+	requireScervAdmin(context);
+
+	const pageSize = Math.min(
+		Math.max(parseInt((data && data.pageSize) || 25, 10), 1),
+		100,
+	);
+	const pageToken = sanitizeString(data && data.pageToken, 160);
+
+	let customersQuery = db
+		.collection("customers")
+		.orderBy(admin.firestore.FieldPath.documentId())
+		.limit(pageSize + 1);
+
+	if (pageToken) {
+		customersQuery = customersQuery.startAfter(pageToken);
+	}
+
+	const [snapshot, totalSnapshot] = await Promise.all([
+		customersQuery.get(),
+		db.collection("customers").count().get(),
+	]);
+	const docs = snapshot.docs.slice(0, pageSize);
+	const hasMore = snapshot.docs.length > pageSize;
+	const nextPageToken =
+		hasMore && docs.length > 0 ? docs[docs.length - 1].id : null;
+
+	const customers = docs.map((doc) => {
+		const customer = doc.data() || {};
+		const displayName =
+			customer.displayName ||
+			customer.name ||
+			[customer.firstName, customer.lastName].filter(Boolean).join(" ");
+
+		return {
+			id: doc.id,
+			firstName: customer.firstName || "",
+			lastName: customer.lastName || "",
+			displayName,
+			email: customer.email || "",
+			phoneNumber: customer.phoneNumber || "",
+			createdAt: customer.createdAt || null,
+			lastLoginAt: customer.lastLoginAt || null,
+			role: customer.role || "",
+		};
+	});
+
+	return {
+		customers,
+		hasMore,
+		nextPageToken,
+		totalCustomers: totalSnapshot.data().count || 0,
+	};
+});
+
 exports.listScervAdminUsers = functions.https.onCall(async (data, context) => {
 	requireScervAdmin(context, { godmodeOnly: true });
 

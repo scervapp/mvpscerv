@@ -1,58 +1,35 @@
 import React, { useEffect, useState } from "react";
-import {
-	collection,
-	getDocs,
-	query,
-	orderBy,
-	limit,
-	startAfter,
-} from "firebase/firestore";
-import { db } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 import "./styles/Customers.css";
 
 const Customers = () => {
 	const [customers, setCustomers] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
-	const [lastVisible, setLastVisible] = useState(null);
+	const [nextPageToken, setNextPageToken] = useState(null);
 	const [hasMore, setHasMore] = useState(true);
+	const [totalCustomers, setTotalCustomers] = useState(null);
 
 	const pageSize = 25; // Adjust as needed
 
-	const fetchCustomers = async (startAfterDoc) => {
+	const fetchCustomers = async (pageToken) => {
 		setLoading(true);
 		setError(null);
 		try {
-			let q = query(
-				collection(db, "customers"),
-				orderBy("lastName"),
-				limit(pageSize)
-			); // Order by last name, for example
-			if (startAfterDoc) {
-				q = query(
-					collection(db, "customers"),
-					orderBy("lastName"),
-					startAfter(startAfterDoc),
-					limit(pageSize)
-				);
-			}
-			const querySnapshot = await getDocs(q);
-
-			if (querySnapshot.empty) {
-				setHasMore(false);
-				setLoading(false);
-				return;
-			}
-
-			const customerData = [];
-			querySnapshot.forEach((doc) => {
-				customerData.push({ id: doc.id, ...doc.data() });
+			const listCustomers = httpsCallable(functions, "listScervCustomers");
+			const response = await listCustomers({
+				pageSize,
+				pageToken: pageToken || null,
 			});
+			const customerData = response.data?.customers || [];
 
-			setLastVisible(querySnapshot.docs[querySnapshot.docs.length - 1]);
+			setTotalCustomers(response.data?.totalCustomers || 0);
+			setNextPageToken(response.data?.nextPageToken || null);
+			setHasMore(Boolean(response.data?.hasMore));
 			setCustomers(
 				(prevCustomers) =>
-					startAfterDoc
+					pageToken
 						? [...prevCustomers, ...customerData] // Append
 						: customerData // Replace on initial load
 			);
@@ -69,8 +46,8 @@ const Customers = () => {
 	}, []);
 
 	const loadMore = () => {
-		if (lastVisible) {
-			fetchCustomers(lastVisible);
+		if (nextPageToken) {
+			fetchCustomers(nextPageToken);
 		}
 	};
 
@@ -84,25 +61,35 @@ const Customers = () => {
 	return (
 		<div className="customers-container">
 			<h2>Customers</h2>
+			<p className="customers-summary">
+				Showing {customers.length} of{" "}
+				{totalCustomers !== null ? totalCustomers : "unknown"} customer records.
+			</p>
 			{customers.length === 0 && !loading ? (
 				<p>No Customers Found.</p>
 			) : (
 				<table className="customers-table">
 					<thead>
 						<tr>
+							<th>Customer ID</th>
+							<th>Name</th>
 							<th>First Name</th>
 							<th>Last Name</th>
 							<th>Email</th>
-							{/* Add other relevant fields here */}
+							<th>Phone</th>
+							<th>Role</th>
 						</tr>
 					</thead>
 					<tbody>
 						{customers.map((customer) => (
 							<tr key={customer.id}>
+								<td className="customer-id-cell">{customer.id}</td>
+								<td>{customer.displayName || "--"}</td>
 								<td>{customer.firstName}</td>
 								<td>{customer.lastName}</td>
 								<td>{customer.email}</td>
-								{/* Add other relevant data cells here */}
+								<td>{customer.phoneNumber || "--"}</td>
+								<td>{customer.role || "--"}</td>
 							</tr>
 						))}
 					</tbody>

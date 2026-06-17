@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from "react";
-import {
-	getAuth,
-	signOut,
-} from "firebase/auth";
+import { getAuth, signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import "./styles/Dashboard.css";
-import { collection, getCountFromServer, query } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 
 const Dashboard = () => {
 	const [loading, setLoading] = useState(false);
@@ -15,6 +12,7 @@ const Dashboard = () => {
 	const [userName, setUserName] = useState("");
 	const [totalRestaurants, setTotalRestaurants] = useState(null); //for total restaurants
 	const [totalCustomers, setTotalCustomers] = useState(null); //for total customers
+	const [totalOrders, setTotalOrders] = useState(null);
 
 	const auth = getAuth();
 
@@ -27,17 +25,14 @@ const Dashboard = () => {
 					// Get user's display name (or email if name is not available)
 					setUserName(auth.currentUser.displayName || auth.currentUser.email);
 
-					// --- Fetch Total Restaurants ---
-					const restaurantsQuery = query(collection(db, "restaurants"));
-					const restaurantsSnapshot = await getCountFromServer(
-						restaurantsQuery
+					const getStats = httpsCallable(
+						functions,
+						"getScervAdminDashboardStats"
 					);
-					setTotalRestaurants(restaurantsSnapshot.data().count);
-
-					// --- Fetch Total Customers ---
-					const customersQuery = query(collection(db, "customers"));
-					const customersSnapshot = await getCountFromServer(customersQuery);
-					setTotalCustomers(customersSnapshot.data().count);
+					const response = await getStats({});
+					setTotalRestaurants(response.data?.totalRestaurants || 0);
+					setTotalCustomers(response.data?.totalCustomers || 0);
+					setTotalOrders(response.data?.totalOrders || 0);
 				} catch (error) {
 					console.error("Error fetching data:", error);
 					setError("Failed to load dashboard data.");
@@ -96,8 +91,10 @@ const Dashboard = () => {
 						</p>
 					</div>
 					<div className="dashboard-stat">
-						<h3>Recent Activity</h3>
-						<p>--</p>
+						<h3>Total Orders</h3>
+						<p className="stat-count">
+							{totalOrders !== null ? totalOrders : "Loading..."}
+						</p>
 					</div>
 				</div>
 			</section>

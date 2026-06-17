@@ -126,6 +126,9 @@ exports.updateReservationTrustStats =
 // Scerv Admin Controls
 exports.saveRestaurantFeatureEntitlements =
 	adminFunctions.saveRestaurantFeatureEntitlements;
+exports.getScervAdminDashboardStats =
+	adminFunctions.getScervAdminDashboardStats;
+exports.listScervCustomers = adminFunctions.listScervCustomers;
 exports.listScervAdminUsers = adminFunctions.listScervAdminUsers;
 exports.createScervAdminUser = adminFunctions.createScervAdminUser;
 exports.updateScervAdminUserRole = adminFunctions.updateScervAdminUserRole;

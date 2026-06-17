@@ -8,6 +8,7 @@
     width: 100%;
     border-collapse: collapse;
     margin-top: 20px;
+    table-layout: fixed;
 }
 
 .customers-table th,
@@ -19,6 +20,18 @@
 
 .customers-table th {
     background-color: #f2f2f2;
+}
+
+.customers-summary {
+    color: #555;
+    margin: 4px 0 0;
+}
+
+.customer-id-cell {
+    max-width: 180px;
+    overflow-wrap: anywhere;
+    font-family: monospace;
+    font-size: 12px;
 }
 
 .customers-table tr:nth-child(even) {
