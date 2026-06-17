@@ -1,0 +1,126 @@
+.create-restaurant-container {
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 24px;
+	font-family: sans-serif;
+}
+
+.create-restaurant-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 18px;
+}
+
+.create-restaurant-header h1,
+.create-restaurant-form h2,
+.create-restaurant-result h2 {
+	margin: 8px 0;
+}
+
+.create-restaurant-header p {
+	color: #555;
+	margin: 0;
+}
+
+.create-restaurant-form,
+.create-restaurant-result {
+	display: grid;
+	gap: 16px;
+}
+
+.create-restaurant-form section,
+.create-restaurant-result {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	padding: 16px;
+}
+
+.create-restaurant-form label,
+.create-restaurant-result label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-weight: 700;
+}
+
+.create-restaurant-form input,
+.create-restaurant-form select,
+.create-restaurant-form textarea,
+.create-restaurant-result textarea {
+	border: 1px solid #cfcfcf;
+	border-radius: 4px;
+	font: inherit;
+	padding: 10px;
+}
+
+.create-restaurant-form textarea,
+.create-restaurant-result textarea {
+	min-height: 86px;
+	resize: vertical;
+}
+
+.create-restaurant-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	gap: 14px;
+}
+
+.create-restaurant-toggles {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(180px, 1fr));
+	gap: 10px;
+}
+
+.create-restaurant-toggles label {
+	align-items: center;
+	border: 1px solid #e5e5e5;
+	border-radius: 4px;
+	display: flex;
+	flex-direction: row;
+	font-weight: 400;
+	padding: 10px;
+}
+
+.create-restaurant-form button,
+.create-restaurant-actions button {
+	background: #007bff;
+	border: none;
+	border-radius: 4px;
+	color: #fff;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 700;
+	padding: 12px 16px;
+}
+
+.create-restaurant-form button:disabled {
+	cursor: not-allowed;
+	opacity: 0.7;
+}
+
+.create-restaurant-actions {
+	display: flex;
+	gap: 10px;
+}
+
+.create-restaurant-error {
+	background: #fff1f1;
+	border-radius: 4px;
+	color: #b42318;
+	padding: 12px;
+}
+
+.create-restaurant-result {
+	background: #eaf7ef;
+	border-color: #b7e2c5;
+	margin-bottom: 16px;
+}
+
+@media (max-width: 760px) {
+	.create-restaurant-grid,
+	.create-restaurant-toggles {
+		grid-template-columns: 1fr;
+	}
+}

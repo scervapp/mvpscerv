@@ -17,6 +17,7 @@ import AdminUsers from "./components/AdminUsers";
 import CommandCenter from "./components/CommandCenter";
 import CustomerDetail from "./components/CustomerDetail";
 import OrderSupportDetail from "./components/OrderSupportDetail";
+import CreateRestaurant from "./components/CreateRestaurant";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -50,6 +51,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Restaurants />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/restaurants/new"
+						element={
+							<ProtectedRoute requiredRole="admin">
+								<CreateRestaurant />
 							</ProtectedRoute>
 						}
 					/>

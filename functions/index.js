@@ -129,6 +129,8 @@ exports.saveRestaurantFeatureEntitlements =
 exports.getScervAdminDashboardStats =
 	adminFunctions.getScervAdminDashboardStats;
 exports.listScervCustomers = adminFunctions.listScervCustomers;
+exports.createScervRestaurantOnboarding =
+	adminFunctions.createScervRestaurantOnboarding;
 exports.searchScervAdminRecords = adminFunctions.searchScervAdminRecords;
 exports.getScervCustomerProfile = adminFunctions.getScervCustomerProfile;
 exports.getScervRestaurantProfile = adminFunctions.getScervRestaurantProfile;

@@ -92,7 +92,16 @@ const Restaurants = () => {
 
 	return (
 		<div className="restaurants-container">
-			<h2>Restaurants</h2>
+			<div className="restaurants-header">
+				<h2>Restaurants</h2>
+				<button
+					type="button"
+					className="view-details-button"
+					onClick={() => navigate("/restaurants/new")}
+				>
+					Add Restaurant
+				</button>
+			</div>
 			{restaurants.length === 0 && !loading ? (
 				<p>No Restaurants Found</p>
 			) : (

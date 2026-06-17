@@ -1,6 +1,8 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const stripe = require("stripe");
+const crypto = require("crypto");
+const { Resend } = require("resend");
 const { defineSecret } = require("firebase-functions/params");
 const { getStripeKeys } = require("./stripeUtils");
 const { normalizeOrderForReporting } = require("./reportingHelpers");
@@ -11,6 +13,7 @@ const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
 const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
 const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 
 const FEATURE_KEYS = [
 	"reservations",
@@ -19,6 +22,14 @@ const FEATURE_KEYS = [
 	"reviews",
 	"rewards",
 ];
+
+const COUNTRY_NAMES = {
+	US: "United States",
+	PA: "Panama",
+	CA: "Canada",
+	MX: "Mexico",
+	GB: "United Kingdom",
+};
 
 const SCERV_ADMIN_ROLES = ["admin", "godmode", "scerv_admin", "super_admin"];
 const GODMODE_ROLES = ["godmode", "super_admin"];
@@ -33,6 +44,35 @@ const normalizeNonNegativeCents = (value, fallback = 0) => {
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
 	return Math.round(parsed);
+};
+
+const normalizeInternationalPhone = (value) => {
+	const cleaned = String(value || "")
+		.trim()
+		.replace(/[^\d+]/g, "");
+	if (!cleaned) return "";
+	return cleaned.startsWith("+")
+		? `+${cleaned.replace(/[^\d]/g, "")}`
+		: cleaned.replace(/[^\d]/g, "");
+};
+
+const normalizeEmail = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase();
+
+const escapeHtml = (value) =>
+	String(value || "")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
+
+const getResendClient = () => {
+	const apiKey = RESEND_API_KEY.value();
+	if (!apiKey) return null;
+	return new Resend(apiKey);
 };
 
 const normalizeAdminRole = (role) => {
@@ -203,6 +243,95 @@ const getMenuItemPayload = (data) => ({
 	isFeatured: Boolean(data && data.isFeatured),
 });
 
+const generateUniqueRestaurantNumber = async () => {
+	for (let attempt = 0; attempt < 10; attempt += 1) {
+		const restaurantNumber = Math.floor(100000 + Math.random() * 900000);
+		const existing = await db
+			.collection("restaurants")
+			.where("restaurantNumber", "==", restaurantNumber)
+			.limit(1)
+			.get();
+		if (existing.empty) return restaurantNumber;
+	}
+
+	return Date.now();
+};
+
+const getFeatureEntitlementDefaults = (input = {}) => {
+	const defaults = {
+		reservations: false,
+		reservationWaitlist: false,
+		hostCheckInRequests: false,
+		reviews: true,
+		rewards: false,
+	};
+
+	return FEATURE_KEYS.reduce((acc, key) => {
+		acc[key] =
+			typeof input[key] === "boolean" ? input[key] : defaults[key] === true;
+		return acc;
+	}, {});
+};
+
+const buildRestaurantOnboardingEmail = ({
+	ownerName,
+	restaurantName,
+	resetLink,
+}) => {
+	const safeOwnerName = escapeHtml(ownerName || "there");
+	const safeRestaurantName = escapeHtml(restaurantName || "your restaurant");
+	const safeResetLink = escapeHtml(resetLink);
+
+	return `
+		<div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+			<h2 style="color: #006d77;">Welcome to Scerv</h2>
+			<p>Hi ${safeOwnerName},</p>
+			<p>Your Scerv owner account for <strong>${safeRestaurantName}</strong> is ready.</p>
+			<p>Use the button below to set your password and sign in.</p>
+			<p>
+				<a href="${safeResetLink}" style="background:#006d77;color:#fff;padding:12px 18px;border-radius:4px;text-decoration:none;display:inline-block;">
+					Set password
+				</a>
+			</p>
+			<p>After signing in, finish these setup steps:</p>
+			<ol>
+				<li>Create your owner employee profile and PIN.</li>
+				<li>Add managers and staff.</li>
+				<li>Finish tables, menu, and operating settings.</li>
+				<li>Connect Stripe payouts before taking live payments.</li>
+			</ol>
+			<p>If the button does not work, paste this link into your browser:</p>
+			<p style="word-break:break-all;">${safeResetLink}</p>
+			<p style="margin-top:24px;">The Scerv team</p>
+		</div>
+	`;
+};
+
+const sendRestaurantOnboardingEmail = async ({
+	email,
+	ownerName,
+	restaurantName,
+	resetLink,
+}) => {
+	const resend = getResendClient();
+	if (!resend) {
+		return { sent: false, reason: "RESEND_API_KEY is not configured." };
+	}
+
+	await resend.emails.send({
+		from: "Scerv <noreply@scerv.com>",
+		to: email,
+		subject: `Set up ${restaurantName || "your restaurant"} on Scerv`,
+		html: buildRestaurantOnboardingEmail({
+			ownerName,
+			restaurantName,
+			resetLink,
+		}),
+	});
+
+	return { sent: true };
+};
+
 exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 	async (data, context) => {
 		const uid = requireScervAdmin(context);
@@ -264,6 +393,202 @@ exports.getScervAdminDashboardStats = functions.https.onCall(
 		};
 	},
 );
+
+exports.createScervRestaurantOnboarding = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const payload = (data && data.restaurant) || {};
+		const owner = (data && data.owner) || {};
+		const emailOwner = data && data.emailOwner !== false;
+
+		const email = normalizeEmail(owner.email);
+		const restaurantName = sanitizeString(payload.restaurantName, 160);
+		const firstName = sanitizeString(owner.firstName, 100);
+		const lastName = sanitizeString(owner.lastName, 100);
+		const ownerName = `${firstName} ${lastName}`.trim();
+		const phoneNumber = normalizeInternationalPhone(
+			owner.phoneNumber || payload.phoneNumber,
+		);
+		const address = sanitizeString(payload.address, 240);
+		const city = sanitizeString(payload.city, 120);
+		const state = sanitizeString(payload.state, 120);
+		const zipcode = sanitizeString(payload.zipcode, 40);
+		const countryCode = sanitizeString(payload.countryCode || "US", 8).toUpperCase();
+		const country =
+			sanitizeString(payload.country, 120) ||
+			COUNTRY_NAMES[countryCode] ||
+			countryCode;
+
+		if (
+			!email ||
+			!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+			!restaurantName ||
+			!firstName ||
+			!lastName ||
+			!phoneNumber ||
+			!address ||
+			!city ||
+			!state ||
+			!zipcode
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant, owner, email, phone, and address fields are required.",
+			);
+		}
+
+		let userRecord;
+		let createdAuthUser = false;
+		const temporaryPassword = `${crypto.randomBytes(18).toString("base64")}Aa1!`;
+
+		try {
+			userRecord = await admin.auth().getUserByEmail(email);
+		} catch (error) {
+			if (error.code !== "auth/user-not-found") throw error;
+			userRecord = await admin.auth().createUser({
+				email,
+				password: temporaryPassword,
+				displayName: ownerName || restaurantName,
+				emailVerified: false,
+				disabled: false,
+			});
+			createdAuthUser = true;
+		}
+
+		const restaurantId = userRecord.uid;
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const existingRestaurantSnap = await restaurantRef.get();
+		if (existingRestaurantSnap.exists && !data.allowExistingRestaurantUpdate) {
+			throw new functions.https.HttpsError(
+				"already-exists",
+				"A restaurant profile already exists for this owner email.",
+			);
+		}
+
+		await admin.auth().updateUser(restaurantId, {
+			displayName: ownerName || restaurantName,
+			disabled: false,
+		});
+		await admin.auth().setCustomUserClaims(restaurantId, {
+			role: "owner",
+			restaurantId,
+		});
+
+		const restaurantNumber =
+			payload.restaurantNumber !== undefined &&
+			payload.restaurantNumber !== null &&
+			payload.restaurantNumber !== ""
+				? Number(payload.restaurantNumber)
+				: await generateUniqueRestaurantNumber();
+		const featureEntitlements = getFeatureEntitlementDefaults(
+			payload.featureEntitlements || {},
+		);
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		const restaurantDoc = {
+			uid: restaurantId,
+			role: "owner",
+			restaurantName,
+			restaurantNumber,
+			email,
+			phone: phoneNumber,
+			phoneNumber,
+			address,
+			area: sanitizeString(payload.area, 120),
+			city,
+			state,
+			zipcode,
+			country,
+			countryCode,
+			cuisineType: sanitizeString(payload.cuisineType, 120),
+			description: sanitizeString(payload.description, 800),
+			taxRate: Number(payload.taxRate || 0),
+			website: sanitizeString(payload.website, 240),
+			imageUri: sanitizeString(payload.imageUri, 1000),
+			onboardingStatus: "admin_created_pending_owner_login",
+			isLive: Boolean(payload.isLive),
+			isActive: payload.isActive !== false,
+			isTestAccount: payload.isTestAccount !== false,
+			isOpen: false,
+			geoPoint: null,
+			tags: [],
+			hasSetupEmployees: false,
+			platformCoverStripeFeeForRestaurant: false,
+			stripeAccountId: null,
+			stripeAccountStatus: "unverified",
+			featureEntitlements,
+			features: {
+				reservations: featureEntitlements.reservations,
+				reservationWaitlist: featureEntitlements.reservationWaitlist,
+				hostCheckInRequests: featureEntitlements.hostCheckInRequests,
+				reviews: featureEntitlements.reviews,
+				loyaltyClub: featureEntitlements.rewards,
+			},
+			reservationSettings: {
+				reservationsEnabled: featureEntitlements.reservations,
+				waitlistEnabled: featureEntitlements.reservationWaitlist,
+			},
+			experienceSettings: {
+				hostCheckInRequestsEnabled: featureEntitlements.hostCheckInRequests,
+				qrSelfCheckInEnabled: true,
+			},
+			adminCreatedAt: now,
+			adminCreatedBy: actorUid,
+			updatedAt: now,
+			...(existingRestaurantSnap.exists ? {} : { createdAt: now }),
+		};
+
+		await restaurantRef.set(restaurantDoc, { merge: true });
+		await restaurantRef.collection("private").doc("owner").set(
+			{
+				email,
+				firstName,
+				lastName,
+				fullName: ownerName,
+				phoneNumber,
+				createdAt: now,
+				updatedAt: now,
+				adminCreatedBy: actorUid,
+			},
+			{ merge: true },
+		);
+
+		const resetLink = await admin.auth().generatePasswordResetLink(email);
+		let emailResult = { sent: false, reason: "Email sending was skipped." };
+		if (emailOwner) {
+			try {
+				emailResult = await sendRestaurantOnboardingEmail({
+					email,
+					ownerName,
+					restaurantName,
+					resetLink,
+				});
+			} catch (error) {
+				console.warn("Restaurant onboarding email failed:", error);
+				emailResult = {
+					sent: false,
+					reason: error.message || "Email failed.",
+				};
+			}
+		}
+
+		await writeAdminAuditLog(actorUid, "create_restaurant_onboarding", {
+			restaurantId,
+			email,
+			restaurantName,
+			createdAuthUser,
+			emailSent: emailResult.sent,
+		});
+
+		return {
+			success: true,
+			restaurantId,
+			createdAuthUser,
+			emailSent: emailResult.sent,
+			emailWarning: emailResult.sent ? null : emailResult.reason,
+			resetLink,
+		};
+	});
 
 exports.listScervCustomers = functions.https.onCall(async (data, context) => {
 	requireScervAdmin(context);

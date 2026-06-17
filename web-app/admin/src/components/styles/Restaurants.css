@@ -4,6 +4,17 @@
     padding: 20px;
 }
 
+.restaurants-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.restaurants-header h2 {
+    margin: 0;
+}
+
 .restaurants-table {
     width: 100%;
     border-collapse: collapse;
