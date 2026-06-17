@@ -1,54 +1,54 @@
 import React, { useState } from "react";
-import logo from "../scerv_logo.png";
 import { Link } from "react-router-dom";
 import styled from "styled-components";
 import { useTranslation } from "react-i18next";
+import logo from "../scerv_logo.png";
 
 const HeaderWrapper = styled.header`
 	background-color: rgba(255, 255, 255, 0.95);
 	backdrop-filter: blur(10px);
 	-webkit-backdrop-filter: blur(10px);
-	padding: ${({ theme }) => theme.spacing.md} 0;
 	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+	padding: ${({ theme }) => theme.spacing.md} 0;
 	position: sticky;
 	top: 0;
 	z-index: 100;
 `;
 
 const Container = styled.div`
-	max-width: ${({ theme }) => theme.breakpoints.xl};
-	margin: 0 auto;
-	padding: 0 ${({ theme }) => theme.spacing.md};
-	display: flex;
 	align-items: center;
+	display: flex;
 	justify-content: space-between;
+	margin: 0 auto;
+	max-width: ${({ theme }) => theme.breakpoints.xl};
+	padding: 0 ${({ theme }) => theme.spacing.md};
 `;
 
 const LogoLink = styled(Link)`
-	display: flex;
 	align-items: center;
+	display: flex;
 	text-decoration: none;
 	z-index: 101;
 `;
 
 const Logo = styled.img`
-	width: 55px;
 	height: auto;
+	width: 55px;
 `;
 
 const MobileMenuIcon = styled.div`
-	display: none;
 	cursor: pointer;
+	display: none;
 	flex-direction: column;
 	gap: 6px;
 	z-index: 101;
 
 	span {
-		width: 25px;
-		height: 3px;
 		background-color: ${({ theme }) => theme.colors.text};
 		border-radius: 2px;
+		height: 3px;
 		transition: all 0.3s ease;
+		width: 25px;
 	}
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
@@ -57,25 +57,24 @@ const MobileMenuIcon = styled.div`
 `;
 
 const Nav = styled.nav`
-	display: flex;
 	align-items: center;
-	flex-grow: 1; /* 1. Allows Nav to take up remaining space */
+	display: flex;
+	flex-grow: 1;
 
 	ul {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
 		align-items: center;
-		margin-right: auto; /* 2. This is the magic rule that pushes the buttons to the right! */
+		display: flex;
+		list-style: none;
+		margin: 0 auto 0 0;
+		padding: 0;
 
 		li {
 			margin-left: ${({ theme }) => theme.spacing.lg};
 
 			a {
 				color: ${({ theme }) => theme.colors.text};
-				text-decoration: none;
 				font-weight: 600;
+				text-decoration: none;
 				transition: color 0.2s ease;
 
 				&:hover {
@@ -86,24 +85,25 @@ const Nav = styled.nav`
 	}
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
-		position: absolute;
-		top: 100%;
-		left: 0;
-		width: 100%;
 		background-color: ${({ theme }) => theme.colors.white};
-		flex-direction: column;
-		padding: ${({ isOpen }) => (isOpen ? "20px 0" : "0")};
-		height: ${({ isOpen }) => (isOpen ? "auto" : "0")};
-		overflow: hidden;
 		box-shadow: ${({ isOpen }) =>
 			isOpen ? "0 10px 15px rgba(0,0,0,0.05)" : "none"};
-		transition: all 0.3s ease-in-out;
+		flex-direction: column;
+		height: ${({ isOpen }) => (isOpen ? "auto" : "0")};
+		left: 0;
 		opacity: ${({ isOpen }) => (isOpen ? "1" : "0")};
+		overflow: hidden;
+		padding: ${({ isOpen }) => (isOpen ? "20px 0" : "0")};
+		position: absolute;
+		top: 100%;
+		transition: all 0.3s ease-in-out;
+		width: 100%;
 
 		ul {
 			flex-direction: column;
+			margin-right: 0;
 			width: 100%;
-			margin-right: 0; /* Reset for mobile */
+
 			li {
 				margin: 15px 0;
 			}
@@ -112,9 +112,9 @@ const Nav = styled.nav`
 `;
 
 const ActionButtons = styled.div`
-	display: flex;
 	align-items: center;
-	gap: 20px; /* 3. Adds clean spacing between the toggle and the Request Demo button */
+	display: flex;
+	gap: 20px;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
 		flex-direction: column;
@@ -124,30 +124,30 @@ const ActionButtons = styled.div`
 `;
 
 const LangToggle = styled.button`
-	display: flex;
 	align-items: center;
-	gap: 8px; /* Space between flag and text */
 	background: transparent;
 	border: 1px solid ${({ theme }) => theme.colors.gray}40;
-	color: ${({ theme }) => theme.colors.text};
-	padding: 8px 16px;
 	border-radius: 20px;
+	color: ${({ theme }) => theme.colors.text};
 	cursor: pointer;
-	font-weight: 600;
+	display: flex;
 	font-size: 0.9rem;
+	font-weight: 600;
+	gap: 8px;
+	padding: 8px 16px;
 	transition: all 0.2s ease;
 
 	&:hover {
-		background: ${({ theme }) => theme.colors.gray}10; /* Subtle hover effect */
+		background: ${({ theme }) => theme.colors.gray}10;
 		border-color: ${({ theme }) => theme.colors.primary};
 	}
 `;
 
 const Button = styled(Link)`
-	display: inline-block;
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
 	border-radius: ${({ theme }) => theme.radius.md};
+	display: inline-block;
 	font-weight: 600;
+	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
 	text-decoration: none;
 	transition:
 		background-color 0.2s ease,
@@ -173,20 +173,19 @@ const PrimaryButton = styled(Button)`
 const Header = () => {
 	const { t, i18n } = useTranslation();
 	const [isOpen, setIsOpen] = useState(false);
+	const isEnglish = i18n.language.startsWith("en");
+
+	const closeMenu = () => setIsOpen(false);
 
 	const toggleLanguage = () => {
-		const newLang = i18n.language.startsWith("en") ? "es" : "en";
-		i18n.changeLanguage(newLang);
-		setIsOpen(false);
+		i18n.changeLanguage(isEnglish ? "es" : "en");
+		closeMenu();
 	};
-
-	// Determine if we are currently in English
-	const isEnglish = i18n.language.startsWith("en");
 
 	return (
 		<HeaderWrapper>
 			<Container>
-				<LogoLink to="/" onClick={() => setIsOpen(false)}>
+				<LogoLink to="/" onClick={closeMenu}>
 					<Logo src={logo} alt="Scerv Logo" />
 				</LogoLink>
 
@@ -209,29 +208,33 @@ const Header = () => {
 				<Nav isOpen={isOpen}>
 					<ul>
 						<li>
-							<Link to="/" onClick={() => setIsOpen(false)}>
+							<Link to="/" onClick={closeMenu}>
 								{t("header.home")}
 							</Link>
 						</li>
 						<li>
-							<Link to="/pricing" onClick={() => setIsOpen(false)}>
+							<Link to="/pricing" onClick={closeMenu}>
 								{t("header.pricing")}
 							</Link>
 						</li>
 						<li>
-							<Link to="/contact" onClick={() => setIsOpen(false)}>
+							<Link to="/resources" onClick={closeMenu}>
+								Resources
+							</Link>
+						</li>
+						<li>
+							<Link to="/contact" onClick={closeMenu}>
 								{t("header.contact")}
 							</Link>
 						</li>
 					</ul>
 
 					<ActionButtons>
-						{/* 4. The updated Language Toggle */}
 						<LangToggle onClick={toggleLanguage}>
-							{isEnglish ? "🇵🇦 Español" : "🇺🇸 English"}
+							{isEnglish ? "ES" : "EN"}
 						</LangToggle>
 
-						<PrimaryButton to="/request-demo" onClick={() => setIsOpen(false)}>
+						<PrimaryButton to="/request-demo" onClick={closeMenu}>
 							{t("header.requestDemo")}
 						</PrimaryButton>
 					</ActionButtons>

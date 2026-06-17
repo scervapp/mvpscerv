@@ -128,6 +128,9 @@ const Footer = () => {
 							<NavItem>
 								<Link to="/request-demo">{t("footer.requestDemo")}</Link>
 							</NavItem>
+							<NavItem>
+								<Link to="/resources">Resources</Link>
+							</NavItem>
 						</NavList>
 					</Column>
 
