@@ -113,6 +113,38 @@ const normalizeCriteria = (criteria = {}) => ({
 	value: Number(criteria.value || 0),
 });
 
+const normalizeFirestorePath = (value, expectedType) => {
+	const path = String(value || "")
+		.trim()
+		.replace(/^\/+|\/+$/g, "");
+	const segments = path.split("/").filter(Boolean);
+	if (!path || segments.length === 0 || segments.length > 20) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A valid Firestore path is required.",
+		);
+	}
+	if (segments.some((segment) => segment.length > 180)) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Firestore path segments are too long.",
+		);
+	}
+	if (expectedType === "collection" && segments.length % 2 === 0) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Collection paths must have an odd number of segments.",
+		);
+	}
+	if (expectedType === "document" && segments.length % 2 !== 0) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Document paths must have an even number of segments.",
+		);
+	}
+	return path;
+};
+
 const normalizeInternationalPhone = (value) => {
 	const cleaned = String(value || "")
 		.trim()
@@ -1642,6 +1674,109 @@ exports.saveScervWalletDefinition = functions.https.onCall(
 		});
 
 		return { success: true, definitionId: definitionRef.id };
+	},
+);
+
+exports.getScervFirestoreCollection = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context, { godmodeOnly: true });
+		const collectionPath = normalizeFirestorePath(
+			data && data.collectionPath,
+			"collection",
+		);
+		const pageSize = Math.min(
+			Math.max(parseInt((data && data.pageSize) || 25, 10), 1),
+			100,
+		);
+
+		const snapshot = await db.collection(collectionPath).limit(pageSize).get();
+		return {
+			collectionPath,
+			docs: snapshot.docs.map(serializeDoc),
+		};
+	},
+);
+
+exports.getScervFirestoreDocument = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context, { godmodeOnly: true });
+		const documentPath = normalizeFirestorePath(
+			data && data.documentPath,
+			"document",
+		);
+		const documentSnap = await db.doc(documentPath).get();
+
+		return {
+			documentPath,
+			exists: documentSnap.exists,
+			doc: documentSnap.exists ? serializeDoc(documentSnap) : null,
+		};
+	},
+);
+
+exports.setScervFirestoreDocument = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
+		const documentPath = normalizeFirestorePath(
+			data && data.documentPath,
+			"document",
+		);
+		const reason = sanitizeString(data && data.reason, 1000);
+		const payload = data && data.payload;
+		const merge = data && data.merge !== false;
+
+		if (!reason) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A reason is required for godmode data changes.",
+			);
+		}
+		if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Document payload must be a JSON object.",
+			);
+		}
+
+		await db.doc(documentPath).set(payload, { merge });
+		await writeAdminAuditLog(actorUid, "godmode_set_firestore_document", {
+			documentPath,
+			merge,
+			reason,
+			payloadKeys: Object.keys(payload).slice(0, 40),
+		});
+
+		return { success: true, documentPath };
+	},
+);
+
+exports.deleteScervFirestoreDocument = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
+		const documentPath = normalizeFirestorePath(
+			data && data.documentPath,
+			"document",
+		);
+		const confirmPath = normalizeFirestorePath(
+			data && data.confirmPath,
+			"document",
+		);
+		const reason = sanitizeString(data && data.reason, 1000);
+
+		if (confirmPath !== documentPath || !reason) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Confirm the exact document path and provide a reason.",
+			);
+		}
+
+		await db.doc(documentPath).delete();
+		await writeAdminAuditLog(actorUid, "godmode_delete_firestore_document", {
+			documentPath,
+			reason,
+		});
+
+		return { success: true, documentPath };
 	},
 );
 

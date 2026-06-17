@@ -147,6 +147,12 @@ exports.issueScervCustomerPromotion = adminFunctions.issueScervCustomerPromotion
 exports.cancelScervCustomerPromotion =
 	adminFunctions.cancelScervCustomerPromotion;
 exports.saveScervWalletDefinition = adminFunctions.saveScervWalletDefinition;
+exports.getScervFirestoreCollection =
+	adminFunctions.getScervFirestoreCollection;
+exports.getScervFirestoreDocument = adminFunctions.getScervFirestoreDocument;
+exports.setScervFirestoreDocument = adminFunctions.setScervFirestoreDocument;
+exports.deleteScervFirestoreDocument =
+	adminFunctions.deleteScervFirestoreDocument;
 exports.saveScervMenuItem = adminFunctions.saveScervMenuItem;
 exports.archiveScervMenuItem = adminFunctions.archiveScervMenuItem;
 exports.getScervOrderSupportDetail =

@@ -1,0 +1,155 @@
+.data-explorer-container {
+	max-width: 1280px;
+	margin: 0 auto;
+	padding: 24px;
+	font-family: sans-serif;
+}
+
+.data-explorer-header {
+	margin-bottom: 18px;
+}
+
+.data-explorer-header h1 {
+	margin: 0 0 8px;
+}
+
+.data-explorer-header p {
+	color: #555;
+	margin: 0;
+}
+
+.data-message,
+.data-error {
+	border-radius: 4px;
+	margin: 0 0 16px;
+	padding: 10px 12px;
+}
+
+.data-message {
+	background: #e8f7ee;
+	color: #17663a;
+}
+
+.data-error {
+	background: #fde8e8;
+	color: #9b1c1c;
+}
+
+.data-explorer-grid {
+	display: grid;
+	grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.7fr);
+	gap: 16px;
+}
+
+.data-panel {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	padding: 16px;
+}
+
+.data-panel h2 {
+	margin: 0 0 12px;
+}
+
+.data-panel label {
+	color: #444;
+	display: grid;
+	font-size: 13px;
+	font-weight: 700;
+	gap: 6px;
+	margin-bottom: 12px;
+}
+
+.data-panel input,
+.data-panel textarea {
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	font: inherit;
+	padding: 9px;
+}
+
+.data-panel button {
+	background: #111827;
+	border: 0;
+	border-radius: 4px;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 700;
+	padding: 9px 12px;
+}
+
+.data-panel button:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+.data-doc-list {
+	display: grid;
+	gap: 8px;
+	margin-top: 14px;
+	max-height: 640px;
+	overflow: auto;
+}
+
+.data-doc-list button {
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+	color: #111827;
+	text-align: left;
+}
+
+.data-doc-list strong,
+.data-doc-list span {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
+.data-doc-list span {
+	color: #555;
+	font-size: 13px;
+	margin-top: 3px;
+}
+
+.data-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 12px;
+}
+
+.data-actions input {
+	min-width: 260px;
+}
+
+.merge-toggle {
+	align-items: center;
+	display: flex !important;
+	gap: 7px !important;
+	margin: 0 !important;
+}
+
+.json-editor {
+	font-family: Consolas, "Courier New", monospace !important;
+	min-height: 520px;
+	resize: vertical;
+	white-space: pre;
+	width: 100%;
+}
+
+.data-doc-meta {
+	color: #555;
+	font-size: 13px;
+	margin: 0 0 10px;
+}
+
+.data-panel button.danger {
+	background: #7f1d1d;
+}
+
+@media (max-width: 900px) {
+	.data-explorer-grid {
+		grid-template-columns: 1fr;
+	}
+}

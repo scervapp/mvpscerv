@@ -98,6 +98,16 @@ const Header = () => {
 								</li>
 								<li>
 									<NavLink
+										to="/data-explorer"
+										className={({ isActive }) =>
+											isActive ? "active" : "inactive"
+										}
+									>
+										Data Explorer
+									</NavLink>
+								</li>
+								<li>
+									<NavLink
 										to="/admin-users"
 										className={({ isActive }) =>
 											isActive ? "active" : "inactive"

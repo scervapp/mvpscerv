@@ -21,6 +21,7 @@ import CreateRestaurant from "./components/CreateRestaurant";
 import AuditLogs from "./components/AuditLogs";
 import SupportCases from "./components/SupportCases";
 import Promotions from "./components/Promotions";
+import DataExplorer from "./components/DataExplorer";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -134,6 +135,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="godmode">
 								<AuditLogs />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/data-explorer"
+						element={
+							<ProtectedRoute requiredRole="godmode">
+								<DataExplorer />
 							</ProtectedRoute>
 						}
 					/>
