@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { Helmet } from "react-helmet-async";
 import { buildSeoUrl, SITE_URL } from "./SEO";
+import techShareImage from "../images/ordering.jpeg";
+import mistakesShareImage from "../images/chefsQ.jpeg";
 
 const resources = [
 	{
@@ -15,6 +17,9 @@ const resources = [
 		updated: "June 17, 2026",
 		updatedIso: "2026-06-17",
 		audience: "Owners, operators, general managers, and opening teams",
+		shareImage: techShareImage,
+		shareImageAlt:
+			"Restaurant technology and service workflow planning for modern operators",
 		keywords:
 			"restaurant tech checklist, new restaurant technology checklist, restaurant POS checklist, restaurant opening checklist, restaurant startup operations, restaurant menu management, restaurant reservations waitlist",
 		intro: [
@@ -174,6 +179,9 @@ const resources = [
 		updated: "June 17, 2026",
 		updatedIso: "2026-06-17",
 		audience: "Restaurant founders, first-time owners, operators, and investors",
+		shareImage: mistakesShareImage,
+		shareImageAlt:
+			"Restaurant team preparing service before opening night",
 		keywords:
 			"mistakes new restaurants make, restaurant opening mistakes, new restaurant owner tips, restaurant startup mistakes, restaurant pre opening checklist, how to open a restaurant",
 		intro: [
@@ -572,6 +580,160 @@ const Missing = styled.div`
 
 const getResourceUrl = (slug) => buildSeoUrl(`/resources/${slug}`);
 
+const getAbsoluteAssetUrl = (assetPath) => {
+	if (!assetPath) {
+		return buildSeoUrl("/logo512.png");
+	}
+
+	if (assetPath.startsWith("http")) {
+		return assetPath;
+	}
+
+	return `${SITE_URL}${assetPath.startsWith("/") ? assetPath : `/${assetPath}`}`;
+};
+
+const getResourceShareImage = (resource) =>
+	getAbsoluteAssetUrl(resource.shareImage);
+
+const SharePanel = styled.aside`
+	align-items: center;
+	background: ${({ theme }) => theme.colors.background};
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-radius: ${({ theme }) => theme.radius.md};
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	justify-content: space-between;
+	margin: 0 0 30px;
+	padding: 14px;
+`;
+
+const ShareLabel = styled.span`
+	color: ${({ theme }) => theme.colors.textLight};
+	font-size: 0.92rem;
+	font-weight: 700;
+`;
+
+const ShareActions = styled.div`
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+`;
+
+const ShareButton = styled.button`
+	background: ${({ theme }) => theme.colors.white};
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-radius: 999px;
+	color: ${({ theme }) => theme.colors.primaryDark};
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.9rem;
+	font-weight: 700;
+	padding: 8px 12px;
+
+	&:hover {
+		border-color: ${({ theme }) => theme.colors.secondary};
+		color: ${({ theme }) => theme.colors.secondary};
+	}
+`;
+
+const ShareLink = styled.a`
+	background: ${({ theme }) => theme.colors.white};
+	border: 1px solid ${({ theme }) => theme.colors.gray};
+	border-radius: 999px;
+	color: ${({ theme }) => theme.colors.primaryDark};
+	font-size: 0.9rem;
+	font-weight: 700;
+	padding: 8px 12px;
+	text-decoration: none;
+
+	&:hover {
+		border-color: ${({ theme }) => theme.colors.secondary};
+		color: ${({ theme }) => theme.colors.secondary};
+	}
+`;
+
+const ArticleShareBar = ({ resource }) => {
+	const [copied, setCopied] = useState(false);
+	const url = getResourceUrl(resource.slug);
+	const title = `${resource.title} | Scerv`;
+	const encodedUrl = encodeURIComponent(url);
+	const encodedTitle = encodeURIComponent(title);
+
+	const copyLink = async () => {
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(url);
+		} else {
+			const input = document.createElement("textarea");
+			input.value = url;
+			input.setAttribute("readonly", "");
+			input.style.position = "absolute";
+			input.style.left = "-9999px";
+			document.body.appendChild(input);
+			input.select();
+			document.execCommand("copy");
+			document.body.removeChild(input);
+		}
+
+		setCopied(true);
+		window.setTimeout(() => setCopied(false), 2200);
+	};
+
+	const shareArticle = async () => {
+		try {
+			if (navigator.share) {
+				await navigator.share({
+					title,
+					text: resource.description,
+					url,
+				});
+				return;
+			}
+
+			await copyLink();
+		} catch (error) {
+			if (error?.name !== "AbortError") {
+				await copyLink();
+			}
+		}
+	};
+
+	return (
+		<SharePanel aria-label="Share this article">
+			<ShareLabel>Share this guide</ShareLabel>
+			<ShareActions>
+				<ShareButton type="button" onClick={shareArticle}>
+					Share
+				</ShareButton>
+				<ShareButton type="button" onClick={copyLink}>
+					{copied ? "Copied" : "Copy link"}
+				</ShareButton>
+				<ShareLink
+					href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`}
+					target="_blank"
+					rel="noreferrer"
+				>
+					LinkedIn
+				</ShareLink>
+				<ShareLink
+					href={`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedTitle}`}
+					target="_blank"
+					rel="noreferrer"
+				>
+					X
+				</ShareLink>
+				<ShareLink
+					href={`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`}
+					target="_blank"
+					rel="noreferrer"
+				>
+					Facebook
+				</ShareLink>
+			</ShareActions>
+		</SharePanel>
+	);
+};
+
 const buildHubSchema = () => ({
 	"@context": "https://schema.org",
 	"@type": "CollectionPage",
@@ -612,6 +774,7 @@ const buildArticleSchema = (resource) => [
 		datePublished: resource.updatedIso,
 		dateModified: resource.updatedIso,
 		mainEntityOfPage: getResourceUrl(resource.slug),
+		image: getResourceShareImage(resource),
 		keywords: resource.keywords,
 		articleSection: resource.category,
 	},
@@ -667,6 +830,18 @@ const ResourceHub = () => (
 			/>
 			<meta property="og:type" content="website" />
 			<meta property="og:url" content={buildSeoUrl("/resources")} />
+			<meta property="og:image" content={getResourceShareImage(resources[0])} />
+			<meta
+				property="og:image:alt"
+				content="Scerv restaurant growth resources for owners and operators"
+			/>
+			<meta name="twitter:card" content="summary_large_image" />
+			<meta name="twitter:title" content="Restaurant Growth Resources | Scerv" />
+			<meta
+				name="twitter:description"
+				content="Restaurant startup and operations guides from Scerv for owners preparing to open, modernize, and grow."
+			/>
+			<meta name="twitter:image" content={getResourceShareImage(resources[0])} />
 			<script type="application/ld+json">
 				{JSON.stringify(buildHubSchema())}
 			</script>
@@ -724,11 +899,14 @@ const ResourceArticle = () => {
 				<meta property="og:description" content={resource.description} />
 				<meta property="og:type" content="article" />
 				<meta property="og:url" content={getResourceUrl(resource.slug)} />
+				<meta property="og:image" content={getResourceShareImage(resource)} />
+				<meta property="og:image:alt" content={resource.shareImageAlt} />
 				<meta property="article:published_time" content={resource.updatedIso} />
 				<meta property="article:modified_time" content={resource.updatedIso} />
 				<meta name="twitter:card" content="summary_large_image" />
 				<meta name="twitter:title" content={`${resource.title} | Scerv`} />
 				<meta name="twitter:description" content={resource.description} />
+				<meta name="twitter:image" content={getResourceShareImage(resource)} />
 				<script type="application/ld+json">
 					{JSON.stringify(buildArticleSchema(resource))}
 				</script>
@@ -747,6 +925,7 @@ const ResourceArticle = () => {
 					<span>{resource.readTime}</span>
 					<span>{resource.audience}</span>
 				</ArticleMeta>
+				<ArticleShareBar resource={resource} />
 				<Intro>
 					{resource.intro.map((paragraph) => (
 						<p key={paragraph}>{paragraph}</p>
