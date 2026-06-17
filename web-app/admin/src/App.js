@@ -18,6 +18,7 @@ import CommandCenter from "./components/CommandCenter";
 import CustomerDetail from "./components/CustomerDetail";
 import OrderSupportDetail from "./components/OrderSupportDetail";
 import CreateRestaurant from "./components/CreateRestaurant";
+import AuditLogs from "./components/AuditLogs";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -107,6 +108,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="godmode">
 								<AdminUsers />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/audit-logs"
+						element={
+							<ProtectedRoute requiredRole="godmode">
+								<AuditLogs />
 							</ProtectedRoute>
 						}
 					/>

@@ -69,16 +69,28 @@ const Header = () => {
 							</NavLink>
 						</li>
 						{canManageAdminUsers(role) && (
-							<li>
-								<NavLink
-									to="/admin-users"
-									className={({ isActive }) =>
-										isActive ? "active" : "inactive"
-									}
-								>
-									Admin Users
-								</NavLink>
-							</li>
+							<>
+								<li>
+									<NavLink
+										to="/audit-logs"
+										className={({ isActive }) =>
+											isActive ? "active" : "inactive"
+										}
+									>
+										Audit Logs
+									</NavLink>
+								</li>
+								<li>
+									<NavLink
+										to="/admin-users"
+										className={({ isActive }) =>
+											isActive ? "active" : "inactive"
+										}
+									>
+										Admin Users
+									</NavLink>
+								</li>
+							</>
 						)}
 					</ul>
 				</nav>

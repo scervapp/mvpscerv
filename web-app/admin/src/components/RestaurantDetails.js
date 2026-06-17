@@ -1,433 +1,431 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../config/firebase";
 import RestaurantFeatureControls from "./RestaurantFeatureControls";
 import "./styles/RestaurantDetails.css";
 
+const TABS = [
+	"overview",
+	"profile",
+	"features",
+	"menu",
+	"orders",
+	"reservations",
+	"operations",
+	"owner",
+	"audit",
+];
+
+const formatMoney = (cents) => `$${(Number(cents || 0) / 100).toFixed(2)}`;
+
+const formatDate = (value) => {
+	if (!value) return "--";
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+};
+
+const getFeatureCount = (features = {}) =>
+	Object.values(features).filter((value) => value !== false).length;
+
 const RestaurantDetails = () => {
 	const { id } = useParams();
+	const [profile, setProfile] = useState(null);
 	const [restaurant, setRestaurant] = useState(null);
 	const [formData, setFormData] = useState({});
+	const [activeTab, setActiveTab] = useState("overview");
 	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState(null);
-	const [isEditMode, setIsEditMode] = useState(false); // Track edit mode
-	useEffect(() => {
-		const fetchData = async () => {
-			setLoading(true);
-			setError(null);
-			try {
-				const getProfile = httpsCallable(functions, "getScervRestaurantProfile");
-				const response = await getProfile({ restaurantId: id });
-				const restaurantData = response.data?.restaurant;
-				setRestaurant(restaurantData);
-				setFormData(restaurantData); // Initialize form data
-			} catch (err) {
-				setError("Error fetching restaurant data.");
-				console.error("Error fetching data:", err);
-			} finally {
-				setLoading(false);
-			}
-		};
-		fetchData();
-	}, [id]);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState("");
+	const [message, setMessage] = useState("");
+	const [setupResult, setSetupResult] = useState(null);
 
-	const handleChange = (e) => {
-		const { name, value, type, checked } = e.target;
-		setFormData({
-			...formData,
-			[name]: type === "checkbox" ? checked : value,
-		});
-	};
-
-	const handleEdit = () => {
-		setIsEditMode(true);
-	};
-
-	const handleCancel = () => {
-		setIsEditMode(false);
-		setFormData(restaurant); // Reset form data to original values
-	};
-
-	const handleSubmit = async (event) => {
-		event.preventDefault();
-
-		// Input Validation
-		if (
-			!formData.restaurantName ||
-			!formData.restaurantNumber ||
-			!formData.address
-		) {
-			alert("Please fill in all required fields (Name, Store #, Address).");
-			return;
-		}
-		if (isNaN(parseFloat(formData.restaurantNumber))) {
-			alert("Store number needs to be a number");
-			return;
-		}
-
-		if (isNaN(parseFloat(formData.taxRate))) {
-			alert("Tax Rate needs to be a number");
-			return;
-		}
-
-		if (!window.confirm("Are you sure you want to save changes?")) {
-			return;
-		}
-
+	const loadProfile = async () => {
 		setLoading(true);
-		setError(null);
+		setError("");
 		try {
-			const updatedData = {
-				...formData,
-				restaurantNumber: parseFloat(formData.restaurantNumber), // Ensure price is a number
-				taxRate: parseFloat(formData.taxRate),
-			};
-			const updateProfile = httpsCallable(
-				functions,
-				"updateScervRestaurantProfile"
-			);
-			await updateProfile({ restaurantId: id, updates: updatedData });
-
-			setRestaurant(updatedData); // Update the displayed restaurant data
-			setIsEditMode(false);
-			// Optionally display a success message (consider using a toast library)
-		} catch (error) {
-			setError("Error updating restaurant.");
-			console.error("Error updating restaurant:", error);
-			// Display an error message to the user
+			const getProfile = httpsCallable(functions, "getScervRestaurantProfile");
+			const response = await getProfile({ restaurantId: id });
+			const data = response.data || {};
+			setProfile(data);
+			setRestaurant(data.restaurant);
+			setFormData(data.restaurant || {});
+		} catch (err) {
+			console.error("Error fetching restaurant data:", err);
+			setError("Error fetching restaurant data.");
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	if (loading) {
-		return <div className="restaurant-details-container">Loading...</div>;
-	}
+	useEffect(() => {
+		loadProfile();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [id]);
 
-	if (error) {
+	const orders = useMemo(() => profile?.orders || [], [profile]);
+	const reservations = useMemo(() => profile?.reservations || [], [profile]);
+	const checkIns = useMemo(() => profile?.checkIns || [], [profile]);
+	const tables = useMemo(() => profile?.tables || [], [profile]);
+	const employees = useMemo(() => profile?.employees || [], [profile]);
+	const menuItems = useMemo(() => profile?.menuItems || [], [profile]);
+	const owner = profile?.owner || {};
+	const entitlements = restaurant?.featureEntitlements || {};
+
+	const orderTotals = useMemo(
+		() =>
+			orders.reduce(
+				(acc, order) => {
+					acc.total += Number(order.totalPrice || 0);
+					acc.refunded += Number(order.refundedAmount || 0);
+					return acc;
+				},
+				{ total: 0, refunded: 0 },
+			),
+		[orders],
+	);
+
+	const handleChange = (event) => {
+		const { name, value, type, checked } = event.target;
+		setFormData((prev) => ({
+			...prev,
+			[name]: type === "checkbox" ? checked : value,
+		}));
+	};
+
+	const saveProfile = async (event) => {
+		event.preventDefault();
+		setSaving(true);
+		setError("");
+		setMessage("");
+
+		try {
+			const updateProfile = httpsCallable(
+				functions,
+				"updateScervRestaurantProfile",
+			);
+			const updates = {
+				...formData,
+				restaurantNumber: Number(formData.restaurantNumber || 0),
+				taxRate: Number(formData.taxRate || 0),
+			};
+			await updateProfile({ restaurantId: id, updates });
+			setRestaurant(updates);
+			setMessage("Restaurant profile saved.");
+			await loadProfile();
+		} catch (err) {
+			console.error("Error updating restaurant:", err);
+			setError("Error updating restaurant.");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const resendOwnerSetup = async () => {
+		setSaving(true);
+		setError("");
+		setMessage("");
+		setSetupResult(null);
+
+		try {
+			const resendSetup = httpsCallable(
+				functions,
+				"resendRestaurantOwnerSetupEmail",
+			);
+			const response = await resendSetup({ restaurantId: id });
+			setSetupResult(response.data);
+			setMessage("Owner setup link generated.");
+		} catch (err) {
+			console.error("Error resending owner setup:", err);
+			setError("Could not generate owner setup link.");
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	if (loading) return <div className="restaurant-details-container">Loading...</div>;
+	if (error && !restaurant) {
 		return <div className="restaurant-details-container error">{error}</div>;
 	}
-
 	if (!restaurant) {
-		return (
-			<div className="restaurant-details-container">Restaurant not found</div>
-		);
+		return <div className="restaurant-details-container">Restaurant not found.</div>;
 	}
 
 	return (
 		<div className="restaurant-details-container">
-			<h2>
-				{restaurant.restaurantName} - Store #{restaurant.restaurantNumber}
-			</h2>
-			<p>
-				<Link to={`/restaurants/${id}/menu`}>Manage Menu</Link>
-			</p>
-			<RestaurantFeatureControls
-				restaurantId={id}
-				restaurant={restaurant}
-				onSaved={(updatedRestaurant) => {
-					setRestaurant(updatedRestaurant);
-					setFormData(updatedRestaurant);
-				}}
-			/>
-			{isEditMode ? (
-				<form onSubmit={handleSubmit}>
-					{/* Input fields (editable) */}
-					<div>
-						<label htmlFor="restaurantNumber">Store #:</label>
-						<input
-							type="number"
-							id="restaurantNumber"
-							name="restaurantNumber"
-							value={formData.restaurantNumber}
-							onChange={handleChange}
-							required
-						/>
-					</div>
-					<div>
-						<label htmlFor="restaurantName">Restaurant Name:</label>
-						<input
-							type="text"
-							id="restaurantName"
-							name="restaurantName"
-							value={formData.restaurantName}
-							onChange={handleChange}
-							required
-						/>
-					</div>
-					<div>
-						<label htmlFor="address">Address:</label>
-						<input
-							type="text"
-							id="address"
-							name="address"
-							value={formData.address}
-							onChange={handleChange}
-							required
-						/>
-					</div>
-					<div>
-						<label htmlFor="city">City:</label>
-						<input
-							type="text"
-							id="city"
-							name="city"
-							value={formData.city}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="state">State:</label>
-						<input
-							type="text"
-							id="state"
-							name="state"
-							value={formData.state}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="zipcode">Zip Code:</label>
-						<input
-							type="text"
-							id="zipcode"
-							name="zipcode"
-							value={formData.zipcode}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="phoneNumber">Phone Number:</label>
-						<input
-							type="tel"
-							id="phoneNumber"
-							name="phoneNumber"
-							value={formData.phoneNumber}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="email">Email:</label>
-						<input
-							type="email"
-							id="email"
-							name="email"
-							value={formData.email}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="firstName">First Name:</label>
-						<input
-							type="text"
-							id="firstName"
-							name="firstName"
-							value={formData.firstName}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="lastName">Last Name:</label>
-						<input
-							type="text"
-							id="lastName"
-							name="lastName"
-							value={formData.lastName}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="cuisineType">Cuisine Type:</label>
-						<input
-							type="text"
-							id="cuisineType"
-							name="cuisineType"
-							value={formData.cuisineType}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="description">Description:</label>
-						<textarea
-							id="description"
-							name="description"
-							value={formData.description}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="taxRate">Tax Rate:</label>
-						<input
-							type="number"
-							step="0.0001"
-							id="taxRate"
-							name="taxRate"
-							value={formData.taxRate}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="website">Website:</label>
-						<input
-							type="text"
-							id="website"
-							name="website"
-							value={formData.website}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="imageUri">Profile Image URL:</label>
-						<input
-							type="text"
-							id="imageUri"
-							name="imageUri"
-							value={formData.imageUri}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="geoLat">Latitude:</label>
-						<input
-							type="text"
-							id="geoLat"
-							name="geoLat"
-							value={formData.geoLat}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="geoLong">Longitude:</label>
-						<input
-							type="text"
-							id="geoLong"
-							name="geoLong"
-							value={formData.geoLong}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="isActive">Active:</label>
-						<input
-							type="checkbox"
-							id="isActive"
-							name="isActive"
-							checked={formData.isActive}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="backOfficePin">Back Office PIN:</label>
-						<input
-							type="password"
-							id="backOfficePin"
-							name="backOfficePin"
-							value={formData.backOfficePin || ""}
-							onChange={handleChange}
-						/>
-					</div>
-					<div>
-						<label htmlFor="stripeAccountId">Stripe Account ID:</label>
-						<input
-							type="text"
-							id="stripeAccountId"
-							name="stripeAccountId"
-							value={formData.stripeAccountId}
-							onChange={handleChange}
-							readOnly
-						/>
-					</div>
-					<div>
-						<label htmlFor="uid">User ID (UID):</label>
-						<input
-							type="text"
-							id="uid"
-							name="uid"
-							value={formData.uid}
-							onChange={handleChange}
-							readOnly
-						/>
-					</div>
-					<button type="submit" disabled={loading}>
-						Save Changes
-					</button>
-					<button type="button" onClick={handleCancel} disabled={loading}>
-						Cancel
-					</button>
-				</form>
-			) : (
-				<>
-					{/* Display fields (read-only) */}
+			<div className="restaurant-hero">
+				<div>
+					<Link to="/restaurants">Back to restaurants</Link>
+					<h1>{restaurant.restaurantName || "Restaurant"}</h1>
 					<p>
-						<strong>Store #:</strong> {restaurant.restaurantNumber}
+						Store #{restaurant.restaurantNumber || "--"} ·{" "}
+						{restaurant.city || "--"}, {restaurant.state || "--"}
 					</p>
-					<p>
-						<strong>Restaurant Name:</strong> {restaurant.restaurantName}
-					</p>
-					<p>
-						<strong>Address:</strong> {restaurant.address}
-					</p>
-					<p>
-						<strong>City:</strong> {restaurant.city}
-					</p>
-					<p>
-						<strong>State:</strong> {restaurant.state}
-					</p>
-					<p>
-						<strong>Zip Code:</strong> {restaurant.zipcode}
-					</p>
-					<p>
-						<strong>Phone Number:</strong> {restaurant.phoneNumber}
-					</p>
-					<p>
-						<strong>Email:</strong> {restaurant.email}
-					</p>
-					<p>
-						<strong>First Name:</strong> {restaurant.firstName}
-					</p>
-					<p>
-						<strong>Last Name:</strong> {restaurant.lastName}
-					</p>
-					<p>
-						<strong>Cuisine Type:</strong> {restaurant.cuisineType}
-					</p>
-					<p>
-						<strong>Description:</strong> {restaurant.description}
-					</p>
-					<p>
-						<strong>Tax Rate:</strong> {restaurant.taxRate}
-					</p>
-					<p>
-						<strong>Website:</strong> {restaurant.website}
-					</p>
-					<p>
-						<strong>Image URI:</strong> {restaurant.imageUri}
-					</p>
-					<p>
-						<strong>Latitude:</strong> {restaurant.geoLat}
-					</p>
-					<p>
-						<strong>Longitude:</strong> {restaurant.geoLong}
-					</p>
-					<p>
-						<strong>Active:</strong> {restaurant.isActive ? "Yes" : "No"}
-					</p>
-					<p>
-						<strong>Back Office PIN:</strong>{" "}
-						{restaurant.backOfficePin ? "*******" : "Not Set"}
-					</p>
-					<p>
-						<strong>Stripe Account ID:</strong> {restaurant.stripeAccountId}
-					</p>
-					<p>
-						<strong>UID:</strong> {restaurant.uid}
-					</p>
+				</div>
+				<div className="restaurant-status-stack">
+					<span className={restaurant.isActive ? "good-pill" : "bad-pill"}>
+						{restaurant.isActive ? "Active" : "Inactive"}
+					</span>
+					<span className={restaurant.isLive ? "good-pill" : "warn-pill"}>
+						{restaurant.isLive ? "Live" : "Not live"}
+					</span>
+					<span className="neutral-pill">
+						{restaurant.planLevel || restaurant.subscription?.planLevel || "starter"}
+					</span>
+				</div>
+			</div>
 
-					<button onClick={handleEdit} disabled={loading}>
-						Edit
+			{message && <p className="restaurant-message">{message}</p>}
+			{error && <p className="restaurant-error">{error}</p>}
+
+			<div className="restaurant-tabs">
+				{TABS.map((tab) => (
+					<button
+						key={tab}
+						type="button"
+						className={activeTab === tab ? "active" : ""}
+						onClick={() => setActiveTab(tab)}
+					>
+						{tab}
 					</button>
-				</>
+				))}
+			</div>
+
+			{activeTab === "overview" && (
+				<div className="restaurant-grid">
+					<section className="restaurant-panel">
+						<h2>Readiness</h2>
+						<dl>
+							<dt>Stripe</dt>
+							<dd>{restaurant.stripeAccountStatus || "unverified"}</dd>
+							<dt>Onboarding</dt>
+							<dd>{restaurant.onboardingStatus || "--"}</dd>
+							<dt>Subscription</dt>
+							<dd>{restaurant.subscriptionStatus || restaurant.subscription?.status || "--"}</dd>
+							<dt>Features enabled</dt>
+							<dd>{getFeatureCount(entitlements)}</dd>
+						</dl>
+					</section>
+					<section className="restaurant-panel">
+						<h2>Activity Snapshot</h2>
+						<div className="metric-grid">
+							<div><strong>{menuItems.length}</strong><span>Menu items</span></div>
+							<div><strong>{orders.length}</strong><span>Recent orders</span></div>
+							<div><strong>{reservations.length}</strong><span>Reservations</span></div>
+							<div><strong>{checkIns.length}</strong><span>Check-ins</span></div>
+						</div>
+					</section>
+					<section className="restaurant-panel">
+						<h2>Money Snapshot</h2>
+						<div className="metric-grid">
+							<div><strong>{formatMoney(orderTotals.total)}</strong><span>Recent paid</span></div>
+							<div><strong>{formatMoney(orderTotals.refunded)}</strong><span>Refunded</span></div>
+						</div>
+					</section>
+					<section className="restaurant-panel">
+						<h2>Shortcuts</h2>
+						<div className="shortcut-row">
+							<Link to={`/restaurants/${id}/menu`}>Manage Menu</Link>
+							<Link to="/command-center">Command Center</Link>
+						</div>
+					</section>
+				</div>
+			)}
+
+			{activeTab === "profile" && (
+				<section className="restaurant-panel">
+					<h2>Profile</h2>
+					<form className="restaurant-profile-form" onSubmit={saveProfile}>
+						{[
+							["restaurantName", "Restaurant name"],
+							["restaurantNumber", "Store #"],
+							["address", "Address"],
+							["city", "City"],
+							["state", "State"],
+							["zipcode", "Zip code"],
+							["phoneNumber", "Phone"],
+							["email", "Email"],
+							["cuisineType", "Cuisine"],
+							["taxRate", "Tax rate"],
+							["website", "Website"],
+							["imageUri", "Image URL"],
+						].map(([field, label]) => (
+							<label key={field}>
+								{label}
+								<input
+									name={field}
+									value={formData[field] || ""}
+									onChange={handleChange}
+								/>
+							</label>
+						))}
+						<label className="wide-field">
+							Description
+							<textarea
+								name="description"
+								value={formData.description || ""}
+								onChange={handleChange}
+							/>
+						</label>
+						<label className="check-field">
+							<input
+								type="checkbox"
+								name="isActive"
+								checked={formData.isActive !== false}
+								onChange={handleChange}
+							/>
+							Active
+						</label>
+						<button type="submit" disabled={saving}>
+							{saving ? "Saving..." : "Save Profile"}
+						</button>
+					</form>
+				</section>
+			)}
+
+			{activeTab === "features" && (
+				<RestaurantFeatureControls
+					restaurantId={id}
+					restaurant={restaurant}
+					onSaved={(updatedRestaurant) => {
+						setRestaurant(updatedRestaurant);
+						setFormData(updatedRestaurant);
+					}}
+				/>
+			)}
+
+			{activeTab === "menu" && (
+				<section className="restaurant-panel">
+					<h2>Menu</h2>
+					<Link className="primary-link" to={`/restaurants/${id}/menu`}>
+						Manage Menu
+					</Link>
+					<table className="restaurant-table">
+						<thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th></tr></thead>
+						<tbody>
+							{menuItems.slice(0, 25).map((item) => (
+								<tr key={item.id}>
+									<td>{item.name}</td>
+									<td>{item.category || "--"}</td>
+									<td>{formatMoney(Number(item.price || 0) * 100)}</td>
+									<td>{item.isArchived ? "Archived" : item.isActive ? "Active" : "Inactive"}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</section>
+			)}
+
+			{activeTab === "orders" && (
+				<section className="restaurant-panel">
+					<h2>Recent Orders</h2>
+					<table className="restaurant-table">
+						<thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
+						<tbody>
+							{orders.map((order) => (
+								<tr key={order.id}>
+									<td><Link to={`/orders/${order.id}`}>{order.readableOrderId || order.id}</Link></td>
+									<td>{order.customerName || order.customerEmail || "--"}</td>
+									<td>{order.paymentStatus || order.orderStatus || "--"}</td>
+									<td>{formatMoney(order.totalPrice)}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</section>
+			)}
+
+			{activeTab === "reservations" && (
+				<section className="restaurant-panel">
+					<h2>Reservations</h2>
+					<table className="restaurant-table">
+						<thead><tr><th>Guest</th><th>Status</th><th>Party</th><th>Time</th></tr></thead>
+						<tbody>
+							{reservations.map((reservation) => (
+								<tr key={reservation.id}>
+									<td>{reservation.customerName || reservation.customerEmail || "--"}</td>
+									<td>{reservation.status || "--"}</td>
+									<td>{reservation.partySize || "--"}</td>
+									<td>{reservation.reservationTime || formatDate(reservation.reservationDate)}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</section>
+			)}
+
+			{activeTab === "operations" && (
+				<div className="restaurant-grid">
+					<section className="restaurant-panel">
+						<h2>Tables</h2>
+						<table className="restaurant-table">
+							<tbody>
+								{tables.slice(0, 30).map((table) => (
+									<tr key={table.id}><td>{table.name || table.tableNumber || table.id}</td><td>{table.status || "--"}</td></tr>
+								))}
+							</tbody>
+						</table>
+					</section>
+					<section className="restaurant-panel">
+						<h2>Employees</h2>
+						<table className="restaurant-table">
+							<tbody>
+								{employees.slice(0, 30).map((employee) => (
+									<tr key={employee.id}><td>{employee.name || `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.id}</td><td>{employee.role || employee.jobTitle || "--"}</td></tr>
+								))}
+							</tbody>
+						</table>
+					</section>
+					<section className="restaurant-panel wide-panel">
+						<h2>Recent Check-ins</h2>
+						<table className="restaurant-table">
+							<tbody>
+								{checkIns.slice(0, 30).map((checkIn) => (
+									<tr key={checkIn.id}><td>{checkIn.customerName || checkIn.customerId || checkIn.id}</td><td>{checkIn.status || "--"}</td><td>{formatDate(checkIn.createdAt)}</td></tr>
+								))}
+							</tbody>
+						</table>
+					</section>
+				</div>
+			)}
+
+			{activeTab === "owner" && (
+				<section className="restaurant-panel">
+					<h2>Owner Setup</h2>
+					<dl>
+						<dt>Name</dt><dd>{owner.fullName || `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || "--"}</dd>
+						<dt>Email</dt><dd>{owner.email || restaurant.email || "--"}</dd>
+						<dt>Phone</dt><dd>{owner.phoneNumber || restaurant.phoneNumber || "--"}</dd>
+						<dt>Auth UID</dt><dd>{restaurant.uid || id}</dd>
+					</dl>
+					<button type="button" onClick={resendOwnerSetup} disabled={saving}>
+						{saving ? "Generating..." : "Resend Setup Link"}
+					</button>
+					{setupResult && (
+						<label className="setup-link-box">
+							Setup link
+							<textarea readOnly value={setupResult.resetLink || ""} />
+						</label>
+					)}
+				</section>
+			)}
+
+			{activeTab === "audit" && (
+				<section className="restaurant-panel">
+					<h2>Recent Admin Audit</h2>
+					<table className="restaurant-table">
+						<thead><tr><th>Action</th><th>Actor</th><th>When</th></tr></thead>
+						<tbody>
+							{(profile?.auditLogs || []).map((log) => (
+								<tr key={log.id}>
+									<td>{log.action}</td>
+									<td>{log.actorUid}</td>
+									<td>{formatDate(log.createdAt)}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</section>
 			)}
 		</div>
 	);

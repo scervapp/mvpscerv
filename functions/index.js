@@ -136,6 +136,9 @@ exports.getScervCustomerProfile = adminFunctions.getScervCustomerProfile;
 exports.getScervRestaurantProfile = adminFunctions.getScervRestaurantProfile;
 exports.updateScervRestaurantProfile =
 	adminFunctions.updateScervRestaurantProfile;
+exports.listScervAdminAuditLogs = adminFunctions.listScervAdminAuditLogs;
+exports.resendRestaurantOwnerSetupEmail =
+	adminFunctions.resendRestaurantOwnerSetupEmail;
 exports.saveScervMenuItem = adminFunctions.saveScervMenuItem;
 exports.archiveScervMenuItem = adminFunctions.archiveScervMenuItem;
 exports.getScervOrderSupportDetail =

@@ -906,8 +906,16 @@ exports.getScervRestaurantProfile = functions.https.onCall(
 			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
 		}
 
-		const [menuSnap, ordersSnap, reservationsSnap, checkInsSnap] =
-			await Promise.all([
+		const [
+			menuSnap,
+			ordersSnap,
+			reservationsSnap,
+			checkInsSnap,
+			tablesSnap,
+			employeesSnap,
+			ownerPrivateSnap,
+			auditSnap,
+		] = await Promise.all([
 				db
 					.collection("menuItems")
 					.where("restaurantId", "==", restaurantId)
@@ -928,6 +936,29 @@ exports.getScervRestaurantProfile = functions.https.onCall(
 					.where("restaurantId", "==", restaurantId)
 					.limit(20)
 					.get(),
+				db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("tables")
+					.limit(100)
+					.get(),
+				db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("employees")
+					.limit(100)
+					.get(),
+				db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("private")
+					.doc("owner")
+					.get(),
+				db
+					.collection("scervAdminAuditLogs")
+					.orderBy("createdAt", "desc")
+					.limit(100)
+					.get(),
 			]);
 
 		const menuItems = menuSnap.docs
@@ -940,13 +971,137 @@ exports.getScervRestaurantProfile = functions.https.onCall(
 
 		return {
 			restaurant: serializeDoc(restaurantSnap),
+			owner:
+				ownerPrivateSnap && ownerPrivateSnap.exists
+					? serializeDoc(ownerPrivateSnap)
+					: null,
 			menuItems,
 			orders: ordersSnap.docs.map(compactOrder),
 			reservations: reservationsSnap.docs.map(compactReservation),
 			checkIns: checkInsSnap.docs.map(serializeDoc),
+			tables: tablesSnap.docs.map(serializeDoc),
+			employees: employeesSnap.docs.map(serializeDoc),
+			auditLogs: auditSnap.docs
+				.map(serializeDoc)
+				.filter((log) => log.payload && log.payload.restaurantId === restaurantId)
+				.slice(0, 12),
 		};
 	},
 );
+
+exports.listScervAdminAuditLogs = functions.https.onCall(async (data, context) => {
+	requireScervAdmin(context);
+
+	const restaurantId = sanitizeString(data && data.restaurantId, 128);
+	const actorUid = sanitizeString(data && data.actorUid, 128);
+	const action = sanitizeString(data && data.action, 120);
+	const pageSize = Math.min(
+		Math.max(parseInt((data && data.pageSize) || 50, 10), 1),
+		100,
+	);
+
+	const snapshot = await db
+		.collection("scervAdminAuditLogs")
+		.orderBy("createdAt", "desc")
+		.limit(restaurantId || actorUid || action ? 300 : pageSize)
+		.get();
+
+	let logs = snapshot.docs.map(serializeDoc);
+	if (restaurantId) {
+		logs = logs.filter((log) => log.payload && log.payload.restaurantId === restaurantId);
+	}
+	if (actorUid) {
+		logs = logs.filter((log) => log.actorUid === actorUid);
+	}
+	if (action) {
+		logs = logs.filter((log) => log.action === action);
+	}
+
+	return { logs: logs.slice(0, pageSize) };
+});
+
+exports.resendRestaurantOwnerSetupEmail = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const restaurantId = sanitizeString(data && data.restaurantId, 128);
+
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const [restaurantSnap, ownerSnap] = await Promise.all([
+			restaurantRef.get(),
+			restaurantRef.collection("private").doc("owner").get(),
+		]);
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+		}
+
+		const restaurant = restaurantSnap.data() || {};
+		const owner = ownerSnap.exists ? ownerSnap.data() || {} : {};
+		let email = normalizeEmail(owner.email || restaurant.email);
+		let ownerName =
+			owner.fullName ||
+			`${owner.firstName || restaurant.firstName || ""} ${
+				owner.lastName || restaurant.lastName || ""
+			}`.trim();
+
+		if (!email) {
+			try {
+				const authUser = await admin.auth().getUser(restaurantId);
+				email = normalizeEmail(authUser.email);
+				ownerName = ownerName || authUser.displayName || "";
+			} catch (error) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"No owner email is available for this restaurant.",
+				);
+			}
+		}
+
+		const resetLink = await admin.auth().generatePasswordResetLink(email);
+		let emailResult = { sent: false, reason: "Email sending was skipped." };
+		try {
+			emailResult = await sendRestaurantOnboardingEmail({
+				email,
+				ownerName,
+				restaurantName: restaurant.restaurantName || restaurant.name,
+				resetLink,
+			});
+		} catch (error) {
+			console.warn("Owner setup resend email failed:", error);
+			emailResult = {
+				sent: false,
+				reason: error.message || "Email failed.",
+			};
+		}
+
+		await restaurantRef.set(
+			{
+				ownerSetupLastSentAt: admin.firestore.FieldValue.serverTimestamp(),
+				ownerSetupLastSentBy: actorUid,
+			},
+			{ merge: true },
+		);
+		await writeAdminAuditLog(actorUid, "resend_restaurant_owner_setup", {
+			restaurantId,
+			email,
+			emailSent: emailResult.sent,
+		});
+
+		return {
+			success: true,
+			email,
+			emailSent: emailResult.sent,
+			emailWarning: emailResult.sent ? null : emailResult.reason,
+			resetLink,
+		};
+	});
 
 exports.updateScervRestaurantProfile = functions.https.onCall(
 	async (data, context) => {

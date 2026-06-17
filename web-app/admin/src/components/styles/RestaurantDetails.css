@@ -1,69 +1,276 @@
-/* web-app/admin/src/components/styles/RestaurantDetails.css */
 .restaurant-details-container {
-    font-family: sans-serif;
-    padding: 20px;
-    max-width: 1120px;
-    margin: 0 auto; /* Center the container */
+	font-family: sans-serif;
+	margin: 0 auto;
+	max-width: 1180px;
+	padding: 24px;
 }
 
-.restaurant-details-container h2 {
-    margin-bottom: 10px;
+.restaurant-hero {
+	align-items: flex-start;
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 16px;
 }
 
-.restaurant-details-container p {
-    margin-bottom: 5px;
+.restaurant-hero h1 {
+	margin: 8px 0 4px;
 }
 
-.restaurant-details-container form div {
-    margin-bottom: 10px;
+.restaurant-hero p {
+	color: #555;
+	margin: 0;
 }
 
-.restaurant-details-container label {
-    display: block;  /* Labels on their own line */
-    margin-bottom: 5px;
-    font-weight: bold;
+.restaurant-status-stack {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
 }
 
-.restaurant-details-container input[type="text"],
-.restaurant-details-container input[type="number"],
-.restaurant-details-container input[type="email"],
-.restaurant-details-container input[type="tel"],
-.restaurant-details-container input[type="password"],
-.restaurant-details-container textarea {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box; /* Include padding in width */
-}
-.restaurant-details-container input[type="checkbox"]{
-    width: fit-content;
+.good-pill,
+.bad-pill,
+.warn-pill,
+.neutral-pill {
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 700;
+	padding: 7px 10px;
+	text-transform: uppercase;
 }
 
-.restaurant-details-container button {
-    padding: 8px 15px;
-    margin-right: 10px;
-    cursor: pointer;
-    border-radius: 4px;
-    border: none;
-}
-.restaurant-details-container button:disabled{
-    cursor: not-allowed;
+.good-pill {
+	background: #eaf7ef;
+	color: #16703f;
 }
 
-.restaurant-details-container button:first-of-type {
-    background-color: #4CAF50; /* Green */
-    color: white;
-}
-.restaurant-details-container button:last-of-type {
-    background-color: #008CBA; /* Blue for Cancel */
-    color: white;
+.bad-pill {
+	background: #fff1f1;
+	color: #b42318;
 }
 
+.warn-pill {
+	background: #fff7e6;
+	color: #9a5b00;
+}
+
+.neutral-pill {
+	background: #eef6ff;
+	color: #075985;
+}
+
+.restaurant-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 14px 0 18px;
+}
+
+.restaurant-tabs button {
+	background: #fff;
+	border: 1px solid #cfcfcf;
+	border-radius: 4px;
+	cursor: pointer;
+	font: inherit;
+	padding: 9px 12px;
+	text-transform: capitalize;
+}
+
+.restaurant-tabs button.active {
+	background: #007bff;
+	border-color: #007bff;
+	color: #fff;
+}
+
+.restaurant-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(280px, 1fr));
+	gap: 16px;
+}
+
+.restaurant-panel {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	margin-bottom: 16px;
+	padding: 16px;
+}
+
+.wide-panel {
+	grid-column: 1 / -1;
+}
+
+.restaurant-panel h2 {
+	margin: 0 0 12px;
+}
+
+.restaurant-panel dl {
+	display: grid;
+	grid-template-columns: 150px 1fr;
+	gap: 9px;
+	margin: 0 0 14px;
+}
+
+.restaurant-panel dt {
+	color: #555;
+	font-weight: 700;
+}
+
+.restaurant-panel dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.metric-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(120px, 1fr));
+	gap: 10px;
+}
+
+.metric-grid div {
+	border: 1px solid #eee;
+	border-radius: 4px;
+	padding: 12px;
+}
+
+.metric-grid strong {
+	display: block;
+	font-size: 24px;
+}
+
+.metric-grid span {
+	color: #555;
+	font-size: 13px;
+}
+
+.shortcut-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.shortcut-row a,
+.primary-link {
+	background: #007bff;
+	border-radius: 4px;
+	color: #fff;
+	display: inline-block;
+	font-weight: 700;
+	margin-bottom: 12px;
+	padding: 10px 12px;
+	text-decoration: none;
+}
+
+.restaurant-profile-form {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	gap: 12px;
+}
+
+.restaurant-profile-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-weight: 700;
+}
+
+.restaurant-profile-form input,
+.restaurant-profile-form textarea,
+.setup-link-box textarea {
+	border: 1px solid #cfcfcf;
+	border-radius: 4px;
+	box-sizing: border-box;
+	font: inherit;
+	padding: 10px;
+	width: 100%;
+}
+
+.wide-field,
+.check-field {
+	grid-column: 1 / -1;
+}
+
+.wide-field textarea,
+.setup-link-box textarea {
+	min-height: 84px;
+	resize: vertical;
+}
+
+.check-field {
+	align-items: center;
+	flex-direction: row !important;
+}
+
+.restaurant-profile-form button,
+.restaurant-panel button {
+	background: #007bff;
+	border: none;
+	border-radius: 4px;
+	color: #fff;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 700;
+	padding: 11px 14px;
+}
+
+.restaurant-profile-form button:disabled,
+.restaurant-panel button:disabled {
+	cursor: not-allowed;
+	opacity: 0.7;
+}
+
+.restaurant-table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.restaurant-table th,
+.restaurant-table td {
+	border-bottom: 1px solid #e5e5e5;
+	padding: 10px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.restaurant-message,
+.restaurant-error,
 .error {
-    color: red;
-    margin-top: 10px;
+	border-radius: 4px;
+	padding: 10px;
 }
-.restaurant-details-container strong{
-    margin-right: .25rem;
+
+.restaurant-message {
+	background: #eaf7ef;
+	color: #16703f;
+}
+
+.restaurant-error,
+.error {
+	background: #fff1f1;
+	color: #b42318;
+}
+
+.setup-link-box {
+	display: block;
+	font-weight: 700;
+	margin-top: 14px;
+}
+
+@media (max-width: 820px) {
+	.restaurant-hero,
+	.restaurant-grid {
+		display: block;
+	}
+
+	.restaurant-status-stack {
+		justify-content: flex-start;
+		margin-top: 12px;
+	}
+
+	.restaurant-profile-form,
+	.restaurant-panel dl,
+	.metric-grid {
+		grid-template-columns: 1fr;
+	}
 }
