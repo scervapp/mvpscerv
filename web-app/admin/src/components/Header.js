@@ -68,6 +68,14 @@ const Header = () => {
 								Customers
 							</NavLink>
 						</li>
+						<li>
+							<NavLink
+								to="/support-cases"
+								className={({ isActive }) => (isActive ? "active" : "inactive")}
+							>
+								Support Cases
+							</NavLink>
+						</li>
 						{canManageAdminUsers(role) && (
 							<>
 								<li>

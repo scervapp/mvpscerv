@@ -1103,6 +1103,138 @@ exports.resendRestaurantOwnerSetupEmail = functions
 		};
 	});
 
+exports.listScervSupportCases = functions.https.onCall(async (data, context) => {
+	requireScervAdmin(context);
+
+	const status = sanitizeString(data && data.status, 80);
+	const relatedId = sanitizeString(data && data.relatedId, 128);
+	const pageSize = Math.min(
+		Math.max(parseInt((data && data.pageSize) || 50, 10), 1),
+		100,
+	);
+
+	const snapshot = await db
+		.collection("scervSupportCases")
+		.orderBy("updatedAt", "desc")
+		.limit(status || relatedId ? 300 : pageSize)
+		.get();
+
+	let cases = snapshot.docs.map(serializeDoc);
+	if (status) {
+		cases = cases.filter((item) => item.status === status);
+	}
+	if (relatedId) {
+		cases = cases.filter((item) => {
+			const ids = [
+				item.customerId,
+				item.restaurantId,
+				item.orderId,
+				item.reservationId,
+			].filter(Boolean);
+			return ids.includes(relatedId);
+		});
+	}
+
+	return { cases: cases.slice(0, pageSize) };
+});
+
+exports.saveScervSupportCase = functions.https.onCall(async (data, context) => {
+	const actorUid = requireScervAdmin(context);
+	const caseId = sanitizeString(data && data.caseId, 128);
+	const input = (data && data.supportCase) || {};
+	const title = sanitizeString(input.title, 180);
+	const description = sanitizeString(input.description, 2000);
+	const status = sanitizeString(input.status || "open", 80);
+	const priority = sanitizeString(input.priority || "normal", 80);
+	const type = sanitizeString(input.type || "general", 80);
+
+	if (!title) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Support case title is required.",
+		);
+	}
+
+	const caseRef = caseId
+		? db.collection("scervSupportCases").doc(caseId)
+		: db.collection("scervSupportCases").doc();
+	const now = admin.firestore.FieldValue.serverTimestamp();
+	const payload = {
+		title,
+		description,
+		status,
+		priority,
+		type,
+		customerId: sanitizeString(input.customerId, 128) || null,
+		customerEmail: normalizeEmail(input.customerEmail) || null,
+		restaurantId: sanitizeString(input.restaurantId, 128) || null,
+		restaurantName: sanitizeString(input.restaurantName, 160) || null,
+		orderId: sanitizeString(input.orderId, 128) || null,
+		reservationId: sanitizeString(input.reservationId, 128) || null,
+		assignedTo: sanitizeString(input.assignedTo, 128) || null,
+		updatedAt: now,
+		updatedBy: actorUid,
+		...(caseId ? {} : { createdAt: now, createdBy: actorUid }),
+	};
+
+	await caseRef.set(payload, { merge: true });
+	await writeAdminAuditLog(actorUid, caseId ? "update_support_case" : "create_support_case", {
+		caseId: caseRef.id,
+		status,
+		priority,
+		restaurantId: payload.restaurantId,
+		customerId: payload.customerId,
+		orderId: payload.orderId,
+	});
+
+	return { success: true, caseId: caseRef.id };
+});
+
+exports.addScervSupportCaseNote = functions.https.onCall(async (data, context) => {
+	const actorUid = requireScervAdmin(context);
+	const caseId = sanitizeString(data && data.caseId, 128);
+	const note = sanitizeString(data && data.note, 2000);
+	const nextStatus = sanitizeString(data && data.status, 80);
+
+	if (!caseId || !note) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Support case ID and note are required.",
+		);
+	}
+
+	const caseRef = db.collection("scervSupportCases").doc(caseId);
+	const caseSnap = await caseRef.get();
+	if (!caseSnap.exists) {
+		throw new functions.https.HttpsError("not-found", "Support case not found.");
+	}
+
+	const noteRef = caseRef.collection("notes").doc();
+	await noteRef.set({
+		note,
+		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		createdBy: actorUid,
+	});
+
+	await caseRef.set(
+		{
+			...(nextStatus && { status: nextStatus }),
+			lastNoteAt: admin.firestore.FieldValue.serverTimestamp(),
+			lastNoteBy: actorUid,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedBy: actorUid,
+		},
+		{ merge: true },
+	);
+
+	await writeAdminAuditLog(actorUid, "add_support_case_note", {
+		caseId,
+		status: nextStatus || caseSnap.data().status || null,
+	});
+
+	return { success: true, noteId: noteRef.id };
+});
+
 exports.updateScervRestaurantProfile = functions.https.onCall(
 	async (data, context) => {
 		const actorUid = requireScervAdmin(context);
