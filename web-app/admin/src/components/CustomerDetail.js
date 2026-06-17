@@ -10,26 +10,80 @@ const CustomerDetail = () => {
 	const { id } = useParams();
 	const [profile, setProfile] = useState(null);
 	const [loading, setLoading] = useState(true);
+	const [actionLoading, setActionLoading] = useState(false);
 	const [error, setError] = useState("");
+	const [actionMessage, setActionMessage] = useState("");
+	const [resetLink, setResetLink] = useState("");
+	const [accountReason, setAccountReason] = useState("");
+
+	const loadProfile = async () => {
+		setLoading(true);
+		setError("");
+		try {
+			const getProfile = httpsCallable(functions, "getScervCustomerProfile");
+			const response = await getProfile({ customerId: id });
+			setProfile(response.data);
+		} catch (err) {
+			console.error("Failed to load customer profile:", err);
+			setError("Failed to load customer profile.");
+		} finally {
+			setLoading(false);
+		}
+	};
 
 	useEffect(() => {
-		const loadProfile = async () => {
-			setLoading(true);
-			setError("");
-			try {
-				const getProfile = httpsCallable(functions, "getScervCustomerProfile");
-				const response = await getProfile({ customerId: id });
-				setProfile(response.data);
-			} catch (err) {
-				console.error("Failed to load customer profile:", err);
-				setError("Failed to load customer profile.");
-			} finally {
-				setLoading(false);
-			}
-		};
-
 		loadProfile();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [id]);
+
+	const sendPasswordReset = async () => {
+		setActionLoading(true);
+		setActionMessage("");
+		setResetLink("");
+		try {
+			const resetCustomer = httpsCallable(
+				functions,
+				"sendScervCustomerPasswordReset",
+			);
+			const response = await resetCustomer({ customerId: id });
+			setResetLink(response.data?.resetLink || "");
+			setActionMessage(
+				response.data?.emailSent
+					? "Password reset email sent."
+					: response.data?.emailWarning || "Password reset link generated.",
+			);
+		} catch (err) {
+			console.error("Failed to send password reset:", err);
+			setActionMessage(err.message || "Failed to send password reset.");
+		} finally {
+			setActionLoading(false);
+		}
+	};
+
+	const setCustomerDisabled = async (disabled) => {
+		if (!accountReason.trim()) {
+			setActionMessage("Add a reason before changing account status.");
+			return;
+		}
+		setActionLoading(true);
+		setActionMessage("");
+		try {
+			const updateDisabled = httpsCallable(functions, "setScervCustomerDisabled");
+			await updateDisabled({
+				customerId: id,
+				disabled,
+				reason: accountReason,
+			});
+			setActionMessage(disabled ? "Customer disabled." : "Customer reactivated.");
+			setAccountReason("");
+			await loadProfile();
+		} catch (err) {
+			console.error("Failed to update customer account:", err);
+			setActionMessage(err.message || "Failed to update customer account.");
+		} finally {
+			setActionLoading(false);
+		}
+	};
 
 	if (loading) {
 		return <div className="customer-detail-container">Loading...</div>;
@@ -58,9 +112,20 @@ const CustomerDetail = () => {
 							customer.email ||
 							customer.id}
 					</h1>
-					<p>{customer.email || "No email"} · {customer.id}</p>
+					<p>{customer.email || "No email"} - {customer.id}</p>
+				</div>
+				<div className="customer-action-links">
+					<Link to="/support-cases">Create support case</Link>
+					<Link to="/promotions">Issue promotion</Link>
 				</div>
 			</div>
+
+			{actionMessage && <p className="customer-action-message">{actionMessage}</p>}
+			{resetLink && (
+				<p className="customer-reset-link">
+					Reset link: <span>{resetLink}</span>
+				</p>
+			)}
 
 			<div className="customer-detail-grid">
 				<section className="customer-detail-panel">
@@ -81,6 +146,45 @@ const CustomerDetail = () => {
 						<dt>Email verified</dt>
 						<dd>{profile.authUser?.emailVerified ? "Yes" : "No"}</dd>
 					</dl>
+				</section>
+
+				<section className="customer-detail-panel">
+					<h2>Account Actions</h2>
+					<label className="customer-action-label">
+						Reason
+						<input
+							value={accountReason}
+							onChange={(event) => setAccountReason(event.target.value)}
+							placeholder="Support reason for account change"
+						/>
+					</label>
+					<div className="customer-action-buttons">
+						<button
+							type="button"
+							onClick={sendPasswordReset}
+							disabled={actionLoading}
+						>
+							Send reset
+						</button>
+						{profile.authUser?.disabled ? (
+							<button
+								type="button"
+								onClick={() => setCustomerDisabled(false)}
+								disabled={actionLoading}
+							>
+								Reactivate
+							</button>
+						) : (
+							<button
+								type="button"
+								className="danger"
+								onClick={() => setCustomerDisabled(true)}
+								disabled={actionLoading}
+							>
+								Disable
+							</button>
+						)}
+					</div>
 				</section>
 
 				<section className="customer-detail-panel">
@@ -187,7 +291,7 @@ const CustomerDetail = () => {
 						<div key={club.id}>
 							<strong>{club.restaurantName || club.id}</strong>
 							<span>
-								{club.visitCount || 0} visits · {club.clubPoints || 0} club
+								{club.visitCount || 0} visits - {club.clubPoints || 0} club
 								points
 							</span>
 						</div>

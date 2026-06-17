@@ -514,6 +514,47 @@ const sendRestaurantOnboardingEmail = async ({
 	return { sent: true };
 };
 
+const buildCustomerPasswordResetEmail = ({ customerName, resetLink }) => {
+	const safeCustomerName = escapeHtml(customerName || "there");
+	const safeResetLink = escapeHtml(resetLink);
+
+	return `
+		<div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+			<h2 style="color: #006d77;">Scerv account reset</h2>
+			<p>Hi ${safeCustomerName},</p>
+			<p>A Scerv support team member created a password reset link for your account.</p>
+			<p>
+				<a href="${safeResetLink}" style="background:#006d77;color:#fff;padding:12px 18px;border-radius:4px;text-decoration:none;display:inline-block;">
+					Reset password
+				</a>
+			</p>
+			<p>If the button does not work, paste this link into your browser:</p>
+			<p style="word-break:break-all;">${safeResetLink}</p>
+			<p style="margin-top:24px;">The Scerv team</p>
+		</div>
+	`;
+};
+
+const sendCustomerPasswordResetEmail = async ({
+	email,
+	customerName,
+	resetLink,
+}) => {
+	const resend = getResendClient();
+	if (!resend) {
+		return { sent: false, reason: "RESEND_API_KEY is not configured." };
+	}
+
+	await resend.emails.send({
+		from: "Scerv <noreply@scerv.com>",
+		to: email,
+		subject: "Reset your Scerv password",
+		html: buildCustomerPasswordResetEmail({ customerName, resetLink }),
+	});
+
+	return { sent: true };
+};
+
 exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 	async (data, context) => {
 		const uid = requireScervAdmin(context);
@@ -1048,6 +1089,113 @@ exports.getScervCustomerProfile = functions.https.onCall(async (data, context) =
 		rewardsLedger: ledgerSnap.docs.map(serializeDoc),
 	};
 });
+
+exports.sendScervCustomerPasswordReset = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const { customerId, customer } = await resolveCustomerReference({
+			customerId: data && data.customerId,
+			customerEmail: data && data.customerEmail,
+		});
+		let authUser = null;
+		try {
+			authUser = await admin.auth().getUser(customerId);
+		} catch (error) {
+			const email = normalizeEmail(customer.email || data.customerEmail);
+			if (!email) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Customer auth user was not found and no email is available.",
+				);
+			}
+			authUser = await admin.auth().getUserByEmail(email);
+		}
+
+		const email = normalizeEmail(authUser.email || customer.email);
+		if (!email) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Customer does not have an email address.",
+			);
+		}
+
+		const resetLink = await admin.auth().generatePasswordResetLink(email);
+		let emailResult = { sent: false, reason: "Email sending was skipped." };
+		try {
+			emailResult = await sendCustomerPasswordResetEmail({
+				email,
+				customerName:
+					customer.displayName ||
+					customer.name ||
+					`${customer.firstName || ""} ${customer.lastName || ""}`.trim(),
+				resetLink,
+			});
+		} catch (error) {
+			console.warn("Customer password reset email failed:", error);
+			emailResult = {
+				sent: false,
+				reason: error.message || "Email failed.",
+			};
+		}
+
+		await writeAdminAuditLog(actorUid, "send_customer_password_reset", {
+			customerId,
+			email,
+			emailSent: emailResult.sent,
+		});
+
+		return {
+			success: true,
+			customerId,
+			email,
+			emailSent: emailResult.sent,
+			emailWarning: emailResult.sent ? null : emailResult.reason,
+			resetLink,
+		};
+	});
+
+exports.setScervCustomerDisabled = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const customerId = sanitizeString(data && data.customerId, 128);
+		const disabled = Boolean(data && data.disabled);
+		const reason = sanitizeString(data && data.reason, 1000);
+
+		if (!customerId || !reason) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Customer ID and reason are required.",
+			);
+		}
+
+		const userRecord = await admin.auth().updateUser(customerId, { disabled });
+		await db.collection("customers").doc(customerId).set(
+			{
+				accountDisabled: disabled,
+				accountDisabledReason: disabled ? reason : null,
+				accountDisabledAt: disabled
+					? admin.firestore.FieldValue.serverTimestamp()
+					: null,
+				accountDisabledBy: disabled ? actorUid : null,
+				accountReactivatedAt: disabled
+					? null
+					: admin.firestore.FieldValue.serverTimestamp(),
+				accountReactivatedBy: disabled ? null : actorUid,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		await writeAdminAuditLog(actorUid, "set_customer_disabled", {
+			customerId,
+			disabled,
+			reason,
+		});
+
+		return { success: true, user: publicUserFields(userRecord) };
+	},
+);
 
 exports.getScervRestaurantProfile = functions.https.onCall(
 	async (data, context) => {
