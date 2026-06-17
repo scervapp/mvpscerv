@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 import "./styles/RestaurantDetails.css";
 
 const RestaurantDetails = () => {
@@ -16,14 +16,11 @@ const RestaurantDetails = () => {
 			setLoading(true);
 			setError(null);
 			try {
-				const docRef = doc(db, "restaurants", id);
-				const docSnap = await getDoc(docRef);
-				if (docSnap.exists()) {
-					setRestaurant(docSnap.data());
-					setFormData(docSnap.data()); // Initialize form data
-				} else {
-					setError("Restaurant not found");
-				}
+				const getProfile = httpsCallable(functions, "getScervRestaurantProfile");
+				const response = await getProfile({ restaurantId: id });
+				const restaurantData = response.data?.restaurant;
+				setRestaurant(restaurantData);
+				setFormData(restaurantData); // Initialize form data
 			} catch (err) {
 				setError("Error fetching restaurant data.");
 				console.error("Error fetching data:", err);
@@ -80,13 +77,16 @@ const RestaurantDetails = () => {
 		setLoading(true);
 		setError(null);
 		try {
-			const docRef = doc(db, "restaurants", id);
 			const updatedData = {
 				...formData,
 				restaurantNumber: parseFloat(formData.restaurantNumber), // Ensure price is a number
 				taxRate: parseFloat(formData.taxRate),
 			};
-			await updateDoc(docRef, updatedData);
+			const updateProfile = httpsCallable(
+				functions,
+				"updateScervRestaurantProfile"
+			);
+			await updateProfile({ restaurantId: id, updates: updatedData });
 
 			setRestaurant(updatedData); // Update the displayed restaurant data
 			setIsEditMode(false);

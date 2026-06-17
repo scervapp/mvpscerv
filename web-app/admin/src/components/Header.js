@@ -46,6 +46,14 @@ const Header = () => {
 						</li>
 						<li>
 							<NavLink
+								to="/command-center"
+								className={({ isActive }) => (isActive ? "active" : "inactive")}
+							>
+								Command Center
+							</NavLink>
+						</li>
+						<li>
+							<NavLink
 								to="/restaurants"
 								className={({ isActive }) => (isActive ? "active" : "inactive")}
 							>

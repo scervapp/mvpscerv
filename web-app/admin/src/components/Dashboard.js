@@ -66,10 +66,16 @@ const Dashboard = () => {
 	return (
 		<div className="dashboard-container">
 			<h1>Admin Dashboard</h1>
-			<p>Welcome, {userName}! 👋</p>
+			<p>Welcome, {userName}.</p>
 
 			<section className="dashboard-section">
 				<h2>Quick Actions</h2>
+				<button
+					className="dashboard-button"
+					onClick={() => navigate("/command-center")}
+				>
+					Command Center
+				</button>
 				<button className="dashboard-button" onClick={handleSignOut}>
 					Sign Out
 				</button>

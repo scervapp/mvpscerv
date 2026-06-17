@@ -1,16 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import {
-	collection,
-	getDocs,
-	addDoc,
-	updateDoc,
-	deleteDoc,
-	doc,
-	query,
-	where,
-} from "firebase/firestore";
-import { db } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 import "./styles/RestaurantMenu.css";
 
 const RestaurantMenu = () => {
@@ -30,34 +21,37 @@ const RestaurantMenu = () => {
 	const { id } = useParams();
 	const [menuItems, setMenuItems] = useState([]);
 	const [newMenuItem, setNewMenuItem] = useState(getNewMenuItemTemplate()); // use template
-	const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState("");
 	const [editItemId, setEditItemId] = useState(null); // Track which item is being updated
 	const [editFormData, setEditFormData] = useState({}); // Store form data forediting
 	const [isAddingItem, setIsAddingItem] = useState(false); // Track if adding item
 
 	useEffect(() => {
 		const fetchMenuItems = async () => {
-			const q = query(
-				collection(db, "menuItems"),
-				where("restaurantId", "==", id)
-			);
-			const querySnapshot = await getDocs(q);
-			const menuItemsData = [];
-
-			querySnapshot.forEach((doc) => {
-				const data = doc.data();
-				// Convert  price to a number if its a string
-				const price =
-					typeof data.price === "string" ? parseFloat(data.price) : data.price;
-
-				menuItemsData.push({ id: doc.id, ...data, price: price });
-			});
-			setMenuItems(menuItemsData);
+			setLoading(true);
+			setError("");
+			try {
+				const getProfile = httpsCallable(functions, "getScervRestaurantProfile");
+				const response = await getProfile({ restaurantId: id });
+				const menuItemsData = (response.data?.menuItems || []).map((item) => ({
+					...item,
+					price:
+						typeof item.price === "string" ? parseFloat(item.price) : item.price,
+				}));
+				setMenuItems(menuItemsData);
+			} catch (err) {
+				console.error("Error loading menu items:", err);
+				setError("Failed to load menu items.");
+			} finally {
+				setLoading(false);
+			}
 		};
 		fetchMenuItems();
 	}, [id]);
 
 	const handleAddItem = async () => {
+		setLoading(true);
 		try {
 			// Basic Input Validation
 			if (!newMenuItem.name || !newMenuItem.price || !newMenuItem.category) {
@@ -69,14 +63,28 @@ const RestaurantMenu = () => {
 				alert("Price must be a number.");
 				return;
 			}
-			const docRef = await addDoc(collection(db, "menuItems"), {
-				...newMenuItem,
+			const saveMenuItem = httpsCallable(functions, "saveScervMenuItem");
+			const response = await saveMenuItem({
 				restaurantId: id,
-				price: parseFloat(newMenuItem.price), // Ensure price is a number
+				item: {
+					...newMenuItem,
+					price: parseFloat(newMenuItem.price),
+				},
 			});
+			const savedItem = response.data?.menuItem || {
+				...newMenuItem,
+				id: response.data?.itemId,
+				price: parseFloat(newMenuItem.price),
+			};
 			setMenuItems([
 				...menuItems,
-				{ id: docRef.id, ...newMenuItem, price: parseFloat(newMenuItem.price) },
+				{
+					...savedItem,
+					price:
+						typeof savedItem.price === "string"
+							? parseFloat(savedItem.price)
+							: savedItem.price,
+				},
 			]);
 			setNewMenuItem(getNewMenuItemTemplate()); // Clear the form
 			setIsAddingItem(false);
@@ -105,19 +113,31 @@ const RestaurantMenu = () => {
 				return;
 			}
 
-			const itemRef = doc(db, "menuItems", itemId);
-			await updateDoc(itemRef, {
-				...editFormData,
-				price: parseFloat(editFormData.price),
+			const saveMenuItem = httpsCallable(functions, "saveScervMenuItem");
+			const response = await saveMenuItem({
+				restaurantId: id,
+				itemId,
+				item: {
+					...editFormData,
+					price: parseFloat(editFormData.price),
+				},
 			});
+			const savedItem = response.data?.menuItem || {
+				...editFormData,
+				id: itemId,
+				price: parseFloat(editFormData.price),
+			};
 
 			setMenuItems(
 				menuItems.map((item) =>
 					item.id === itemId
 						? {
 								...item,
-								...editFormData,
-								price: parseFloat(editFormData.price),
+								...savedItem,
+								price:
+									typeof savedItem.price === "string"
+										? parseFloat(savedItem.price)
+										: savedItem.price,
 						  }
 						: item
 				)
@@ -133,17 +153,23 @@ const RestaurantMenu = () => {
 	};
 
 	const handleDeleteItem = async (itemId) => {
-		if (!window.confirm("Are you sure you want to delete this item?")) {
+		if (!window.confirm("Archive this item and preserve its review history?")) {
 			return;
 		}
 
 		setLoading(true);
 		try {
-			const itemRef = doc(db, "menuItems", itemId);
-			await deleteDoc(itemRef);
-			setMenuItems(menuItems.filter((item) => item.id !== itemId));
+			const archiveMenuItem = httpsCallable(functions, "archiveScervMenuItem");
+			await archiveMenuItem({ restaurantId: id, itemId });
+			setMenuItems(
+				menuItems.map((item) =>
+					item.id === itemId
+						? { ...item, isActive: false, isArchived: true }
+						: item
+				)
+			);
 		} catch (error) {
-			console.error("Error deleting menu item:", error);
+			console.error("Error archiving menu item:", error);
 			// Display an error message to the user
 		} finally {
 			setLoading(false);
@@ -180,6 +206,7 @@ const RestaurantMenu = () => {
 	return (
 		<div className="restaurant-menu-container">
 			<h2>Manage Menu Items</h2>
+			{error && <p className="error">{error}</p>}
 
 			<button
 				className="add-item-button"
@@ -275,6 +302,7 @@ const RestaurantMenu = () => {
 							<th>Category</th>
 							<th>Image</th>
 							<th>Active</th>
+							<th>Archived</th>
 							<th>Special</th>
 							<th>Featured</th>
 							<th>Actions</th>
@@ -333,6 +361,7 @@ const RestaurantMenu = () => {
 												onChange={(e) => handleInputChange(e, item.id)}
 											/>
 										</td>
+										<td>{editFormData.isArchived ? "Yes" : "No"}</td>
 										<td>
 											<input
 												type="checkbox"
@@ -366,7 +395,7 @@ const RestaurantMenu = () => {
 									<>
 										<td>{item.name}</td>
 										<td>{item.description}</td>
-										<td>${item.price.toFixed(2)}</td>
+										<td>${Number(item.price || 0).toFixed(2)}</td>
 										<td>{item.category}</td>
 										<td>
 											{item.imageUri ? (
@@ -380,6 +409,7 @@ const RestaurantMenu = () => {
 											)}
 										</td>
 										<td>{item.isActive ? "Yes" : "No"}</td>
+										<td>{item.isArchived ? "Yes" : "No"}</td>
 										<td>{item.isDailySpecial ? "Yes" : "No"}</td>
 										<td>{item.isFeatured ? "Yes" : "No"}</td>
 										<td>
@@ -393,7 +423,7 @@ const RestaurantMenu = () => {
 												onClick={() => handleDeleteItem(item.id)}
 												disabled={loading}
 											>
-												Delete
+												Archive
 											</button>
 										</td>
 									</>

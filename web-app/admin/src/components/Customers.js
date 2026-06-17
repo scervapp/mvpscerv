@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { httpsCallable } from "firebase/functions";
+import { useNavigate } from "react-router-dom";
 import { functions } from "../config/firebase";
 import "./styles/Customers.css";
 
@@ -10,6 +11,7 @@ const Customers = () => {
 	const [nextPageToken, setNextPageToken] = useState(null);
 	const [hasMore, setHasMore] = useState(true);
 	const [totalCustomers, setTotalCustomers] = useState(null);
+	const navigate = useNavigate();
 
 	const pageSize = 25; // Adjust as needed
 
@@ -82,7 +84,11 @@ const Customers = () => {
 					</thead>
 					<tbody>
 						{customers.map((customer) => (
-							<tr key={customer.id}>
+							<tr
+								key={customer.id}
+								className="customer-click-row"
+								onClick={() => navigate(`/customers/${customer.id}`)}
+							>
 								<td className="customer-id-cell">{customer.id}</td>
 								<td>{customer.displayName || "--"}</td>
 								<td>{customer.firstName}</td>

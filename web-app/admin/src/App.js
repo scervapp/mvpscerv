@@ -14,6 +14,8 @@ import HandleInvite from "./components/HandleInvite";
 import RestaurantDetails from "./components/RestaurantDetails";
 import RestaurantMenu from "./components/RestaurantMenu";
 import AdminUsers from "./components/AdminUsers";
+import CommandCenter from "./components/CommandCenter";
+import CustomerDetail from "./components/CustomerDetail";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -31,6 +33,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Dashboard />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/command-center"
+						element={
+							<ProtectedRoute requiredRole="admin">
+								<CommandCenter />
 							</ProtectedRoute>
 						}
 					/>
@@ -63,6 +73,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Customers />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/customers/:id"
+						element={
+							<ProtectedRoute requiredRole="admin">
+								<CustomerDetail />
 							</ProtectedRoute>
 						}
 					/>

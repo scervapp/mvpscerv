@@ -129,6 +129,13 @@ exports.saveRestaurantFeatureEntitlements =
 exports.getScervAdminDashboardStats =
 	adminFunctions.getScervAdminDashboardStats;
 exports.listScervCustomers = adminFunctions.listScervCustomers;
+exports.searchScervAdminRecords = adminFunctions.searchScervAdminRecords;
+exports.getScervCustomerProfile = adminFunctions.getScervCustomerProfile;
+exports.getScervRestaurantProfile = adminFunctions.getScervRestaurantProfile;
+exports.updateScervRestaurantProfile =
+	adminFunctions.updateScervRestaurantProfile;
+exports.saveScervMenuItem = adminFunctions.saveScervMenuItem;
+exports.archiveScervMenuItem = adminFunctions.archiveScervMenuItem;
 exports.listScervAdminUsers = adminFunctions.listScervAdminUsers;
 exports.createScervAdminUser = adminFunctions.createScervAdminUser;
 exports.updateScervAdminUserRole = adminFunctions.updateScervAdminUserRole;

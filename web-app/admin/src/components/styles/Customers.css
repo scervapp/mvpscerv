@@ -37,6 +37,14 @@
 .customers-table tr:nth-child(even) {
     background-color: #f9f9f9;
 }
+
+.customer-click-row {
+    cursor: pointer;
+}
+
+.customer-click-row:hover {
+    background-color: #eef6ff;
+}
 .load-more-button {
     background-color: #28a745; /* Green */
     color: white;
