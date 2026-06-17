@@ -19,6 +19,7 @@ const Container = styled.div`
 `;
 
 const Headline = styled.h2`
+	color: ${({ theme }) => theme.colors.white};
 	font-size: 2.5rem;
 	margin-bottom: ${({ theme }) => theme.spacing.md};
 	font-weight: 700;
@@ -30,9 +31,9 @@ const Headline = styled.h2`
 `;
 
 const Subheadline = styled.p`
+	color: rgba(255, 255, 255, 0.88);
 	font-size: 1.2rem;
 	margin-bottom: ${({ theme }) => theme.spacing.lg};
-	opacity: 0.88;
 
 	@media (min-width: ${({ theme }) => theme.breakpoints.md}) {
 		font-size: 1.3rem;
