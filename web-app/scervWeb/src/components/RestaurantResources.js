@@ -393,42 +393,6 @@ const ReadTime = styled.span`
 	padding-top: 20px;
 `;
 
-const EcosystemBand = styled.section`
-	background: ${({ theme }) => theme.colors.white};
-	border-top: 1px solid ${({ theme }) => theme.colors.gray};
-	padding: 48px ${({ theme }) => theme.spacing.md};
-`;
-
-const EcosystemGrid = styled.div`
-	display: grid;
-	gap: 20px;
-	grid-template-columns: 0.9fr 1.1fr;
-
-	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
-		grid-template-columns: 1fr;
-	}
-`;
-
-const PrincipleList = styled.div`
-	display: grid;
-	gap: 12px;
-`;
-
-const Principle = styled.div`
-	border-left: 4px solid ${({ theme }) => theme.colors.secondary};
-	padding-left: 14px;
-
-	strong {
-		display: block;
-		margin-bottom: 4px;
-	}
-
-	span {
-		color: ${({ theme }) => theme.colors.textLight};
-		line-height: 1.5;
-	}
-`;
-
 const ArticleWrap = styled.article`
 	background: ${({ theme }) => theme.colors.white};
 	border: 1px solid ${({ theme }) => theme.colors.gray};
@@ -611,11 +575,11 @@ const ResourceHub = () => (
 		<HeroBand>
 			<Container>
 				<Eyebrow>Scerv Restaurant Resources</Eyebrow>
-				<Title>Flagship playbooks for restaurants preparing to open and grow with discipline.</Title>
+				<Title>Restaurant guides for smarter openings, stronger operations, and better guest experiences.</Title>
 				<Subtitle>
-					We are starting with two deep guides: the technology checklist every
-					new restaurant should think through, and the opening mistakes that
-					quietly damage restaurants before the first guest arrives.
+					Explore practical resources for restaurant owners and operators
+					building modern hospitality businesses. New guides will be added as
+					the Scerv resource library grows.
 				</Subtitle>
 			</Container>
 		</HeroBand>
@@ -632,37 +596,6 @@ const ResourceHub = () => (
 				))}
 			</ResourceGrid>
 		</Container>
-
-		<EcosystemBand>
-			<Container>
-				<EcosystemGrid>
-					<div>
-						<Eyebrow>Brand ecosystem</Eyebrow>
-						<h2>Helpful first. Product second. Trust always.</h2>
-						<CardText>
-							Scerv should become the place restaurant operators visit when they
-							want sharper thinking, better systems, and more guests. These
-							resources teach the operating principles without exposing the deeper
-							product roadmap.
-						</CardText>
-					</div>
-					<PrincipleList>
-						<Principle>
-							<strong>Protect the secret sauce.</strong>
-							<span>Talk about outcomes, workflows, and restaurant value. Keep proprietary mechanics private.</span>
-						</Principle>
-						<Principle>
-							<strong>Earn operator credibility.</strong>
-							<span>Publish useful frameworks that help owners make better decisions before they ever book a demo.</span>
-						</Principle>
-						<Principle>
-							<strong>Build long-term demand.</strong>
-							<span>Use resources to attract restaurants, support onboarding, and create a trusted Scerv point of view.</span>
-						</Principle>
-					</PrincipleList>
-				</EcosystemGrid>
-			</Container>
-		</EcosystemBand>
 	</Page>
 );
 
