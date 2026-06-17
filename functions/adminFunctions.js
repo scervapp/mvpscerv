@@ -21,6 +21,22 @@ const FEATURE_KEYS = [
 	"hostCheckInRequests",
 	"reviews",
 	"rewards",
+	"qrSelfCheckIn",
+	"parties",
+	"pickup",
+	"tableScanOrdering",
+	"serviceRequests",
+	"advancedReporting",
+];
+
+const SUBSCRIPTION_PLANS = ["starter", "pro", "premium", "enterprise"];
+const SUBSCRIPTION_STATUSES = [
+	"trial",
+	"active",
+	"past_due",
+	"paused",
+	"cancelled",
+	"comped",
 ];
 
 const COUNTRY_NAMES = {
@@ -264,6 +280,12 @@ const getFeatureEntitlementDefaults = (input = {}) => {
 		hostCheckInRequests: false,
 		reviews: true,
 		rewards: false,
+		qrSelfCheckIn: true,
+		parties: true,
+		pickup: false,
+		tableScanOrdering: true,
+		serviceRequests: true,
+		advancedReporting: false,
 	};
 
 	return FEATURE_KEYS.reduce((acc, key) => {
@@ -337,6 +359,7 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 		const uid = requireScervAdmin(context);
 		const restaurantId = sanitizeString(data && data.restaurantId, 120);
 		const entitlements = (data && data.featureEntitlements) || {};
+		const subscriptionInput = (data && data.subscription) || {};
 
 		if (!restaurantId) {
 			throw new functions.https.HttpsError(
@@ -351,26 +374,93 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
 		}
 
-		const cleanEntitlements = {};
+		const currentRestaurant = restaurantSnap.data() || {};
+		const cleanEntitlements = {
+			...(currentRestaurant.featureEntitlements || {}),
+		};
 		FEATURE_KEYS.forEach((key) => {
 			if (typeof entitlements[key] === "boolean") {
 				cleanEntitlements[key] = entitlements[key];
 			}
 		});
 
+		const planLevel = SUBSCRIPTION_PLANS.includes(
+			sanitizeString(subscriptionInput.planLevel, 40),
+		)
+			? sanitizeString(subscriptionInput.planLevel, 40)
+			: sanitizeString(currentRestaurant.planLevel || "starter", 40);
+		const subscriptionStatus = SUBSCRIPTION_STATUSES.includes(
+			sanitizeString(subscriptionInput.subscriptionStatus, 40),
+		)
+			? sanitizeString(subscriptionInput.subscriptionStatus, 40)
+			: sanitizeString(currentRestaurant.subscriptionStatus || "trial", 40);
+		const trialEndsAt = sanitizeString(subscriptionInput.trialEndsAt, 40);
+		const billingNotes = sanitizeString(subscriptionInput.billingNotes, 1000);
+		const billingProvider = sanitizeString(subscriptionInput.billingProvider, 80);
+		const externalSubscriptionId = sanitizeString(
+			subscriptionInput.externalSubscriptionId,
+			160,
+		);
+		const featurePatch = {};
+
+		// When Scerv revokes access, the restaurant-facing toggle should also
+		// switch off immediately so screens do not briefly advertise locked tools.
+		if (cleanEntitlements.reservations === false) {
+			featurePatch["features.reservations"] = false;
+			featurePatch["reservationSettings.enabled"] = false;
+			featurePatch["reservationSettings.reservationsEnabled"] = false;
+		}
+		if (cleanEntitlements.reservationWaitlist === false) {
+			featurePatch["features.reservationWaitlist"] = false;
+			featurePatch["reservationSettings.waitlistEnabled"] = false;
+		}
+		if (cleanEntitlements.hostCheckInRequests === false) {
+			featurePatch["features.hostCheckInRequests"] = false;
+			featurePatch["experienceSettings.hostCheckInRequestsEnabled"] = false;
+		}
+		if (cleanEntitlements.rewards === false) {
+			featurePatch["features.loyaltyClub"] = false;
+		}
+
 		await restaurantRef.set(
 			{
+				...featurePatch,
 				featureEntitlements: cleanEntitlements,
+				subscriptionFeatures: cleanEntitlements,
+				planLevel,
+				subscriptionStatus,
+				subscription: {
+					planLevel,
+					status: subscriptionStatus,
+					trialEndsAt: trialEndsAt || null,
+					billingProvider: billingProvider || null,
+					externalSubscriptionId: externalSubscriptionId || null,
+					billingNotes: billingNotes || null,
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedBy: uid,
+				},
 				entitlementsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				entitlementsUpdatedBy: uid,
 			},
 			{ merge: true },
 		);
 
+		await writeAdminAuditLog(uid, "save_restaurant_subscription_controls", {
+			restaurantId,
+			planLevel,
+			subscriptionStatus,
+			featureEntitlements: cleanEntitlements,
+		});
+
 		return {
 			success: true,
 			restaurantId,
 			featureEntitlements: cleanEntitlements,
+			subscription: {
+				planLevel,
+				status: subscriptionStatus,
+				trialEndsAt: trialEndsAt || null,
+			},
 		};
 	},
 );

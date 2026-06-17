@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../config/firebase";
+import RestaurantFeatureControls from "./RestaurantFeatureControls";
 import "./styles/RestaurantDetails.css";
 
 const RestaurantDetails = () => {
@@ -122,6 +123,14 @@ const RestaurantDetails = () => {
 			<p>
 				<Link to={`/restaurants/${id}/menu`}>Manage Menu</Link>
 			</p>
+			<RestaurantFeatureControls
+				restaurantId={id}
+				restaurant={restaurant}
+				onSaved={(updatedRestaurant) => {
+					setRestaurant(updatedRestaurant);
+					setFormData(updatedRestaurant);
+				}}
+			/>
 			{isEditMode ? (
 				<form onSubmit={handleSubmit}>
 					{/* Input fields (editable) */}

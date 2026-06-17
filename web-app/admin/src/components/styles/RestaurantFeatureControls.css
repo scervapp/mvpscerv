@@ -1,0 +1,161 @@
+.restaurant-feature-panel {
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	margin: 18px 0;
+	padding: 16px;
+}
+
+.restaurant-feature-header {
+	align-items: flex-start;
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 14px;
+}
+
+.restaurant-feature-header h3 {
+	margin: 0 0 4px;
+}
+
+.restaurant-feature-header p {
+	color: #555;
+	margin: 0;
+}
+
+.subscription-badge {
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 700;
+	padding: 6px 9px;
+	text-transform: uppercase;
+}
+
+.status-active,
+.status-comped {
+	background: #eaf7ef;
+	color: #16703f;
+}
+
+.status-trial {
+	background: #eef6ff;
+	color: #075985;
+}
+
+.status-past_due,
+.status-paused {
+	background: #fff7e6;
+	color: #9a5b00;
+}
+
+.status-cancelled {
+	background: #fff1f1;
+	color: #b42318;
+}
+
+.restaurant-subscription-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.restaurant-feature-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(260px, 1fr));
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.restaurant-feature-toggle {
+	align-items: flex-start;
+	border: 1px solid #e5e5e5;
+	border-radius: 4px;
+	display: flex !important;
+	flex-direction: row !important;
+	gap: 10px;
+	padding: 10px;
+}
+
+.restaurant-feature-toggle input {
+	margin-top: 3px;
+}
+
+.restaurant-feature-toggle strong,
+.restaurant-feature-toggle small {
+	display: block;
+}
+
+.restaurant-feature-toggle small {
+	color: #555;
+	font-weight: 400;
+	margin-top: 3px;
+}
+
+.restaurant-feature-panel input,
+.restaurant-feature-panel select,
+.restaurant-feature-panel textarea {
+	border: 1px solid #cfcfcf;
+	border-radius: 4px;
+	box-sizing: border-box;
+	font: inherit;
+	padding: 10px;
+	width: 100%;
+}
+
+.restaurant-feature-notes {
+	margin-bottom: 14px;
+}
+
+.restaurant-feature-notes textarea {
+	min-height: 86px;
+	resize: vertical;
+}
+
+.restaurant-feature-panel button {
+	background: #007bff;
+	border: none;
+	border-radius: 4px;
+	color: #fff;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 700;
+	padding: 12px 16px;
+}
+
+.restaurant-feature-panel button:disabled {
+	cursor: not-allowed;
+	opacity: 0.7;
+}
+
+.restaurant-feature-message,
+.restaurant-feature-error {
+	border-radius: 4px;
+	padding: 10px;
+}
+
+.restaurant-feature-message {
+	background: #eaf7ef;
+	color: #16703f;
+}
+
+.restaurant-feature-error {
+	background: #fff1f1;
+	color: #b42318;
+}
+
+@media (max-width: 760px) {
+	.restaurant-feature-header {
+		display: block;
+	}
+
+	.subscription-badge {
+		display: inline-block;
+		margin-top: 10px;
+	}
+
+	.restaurant-subscription-grid,
+	.restaurant-feature-grid {
+		grid-template-columns: 1fr;
+	}
+}
