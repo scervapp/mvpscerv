@@ -510,6 +510,10 @@ exports.redeemCustomerPromotion = functions.https.onCall(async (data, context) =
 			fundedBy: sanitizeString(promotion.fundedBy, 80) || "scerv",
 			reimbursementPolicy:
 				sanitizeString(promotion.reimbursementPolicy, 120) || "reconcile",
+			walletValueType:
+				sanitizeString(promotion.walletValueType, 80) ||
+				(promotion.isFoodCredit === true ? "food_credit" : "promotion"),
+			isFoodCredit: promotion.isFoodCredit === true,
 			status: "redeemed",
 			restaurantId,
 			customerId,
@@ -549,6 +553,29 @@ exports.redeemCustomerPromotion = functions.https.onCall(async (data, context) =
 			},
 			{ merge: true },
 		);
+		if (
+			promotion.walletValueType === "food_credit" ||
+			promotion.isFoodCredit === true
+		) {
+			const consumedCreditCents = normalizeCents(
+				promotion.maxDiscountCents || redemption.appliedDiscountCents,
+			);
+			transaction.set(
+				db.collection("customers").doc(customerId),
+				{
+					rewardsSummary: {
+						foodCreditCents:
+							admin.firestore.FieldValue.increment(-consumedCreditCents),
+						scervFoodCreditCents:
+							admin.firestore.FieldValue.increment(-consumedCreditCents),
+						availableFoodCreditCents:
+							admin.firestore.FieldValue.increment(-consumedCreditCents),
+						lastFoodCreditRedeemedAt: now,
+					},
+				},
+				{ merge: true },
+			);
+		}
 
 		return { success: true, redemptionId: reconciliationRef.id };
 	});

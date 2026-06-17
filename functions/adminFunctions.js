@@ -38,6 +38,17 @@ const SUBSCRIPTION_STATUSES = [
 	"cancelled",
 	"comped",
 ];
+const PROMOTION_TYPES = [
+	"discount_amount",
+	"discount_percent",
+	"free_item",
+	"perk",
+];
+const PROMOTION_STATUSES = ["available", "redeemed", "cancelled", "expired"];
+const WALLET_DEFINITION_COLLECTIONS = [
+	"scervWalletBadges",
+	"scervRewardRules",
+];
 
 const COUNTRY_NAMES = {
 	US: "United States",
@@ -61,6 +72,46 @@ const normalizeNonNegativeCents = (value, fallback = 0) => {
 	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
 	return Math.round(parsed);
 };
+
+const normalizeDollarsToCents = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	return Math.round(parsed * 100);
+};
+
+const normalizePercent = (value) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return 0;
+	return Math.round(parsed * 100) / 100;
+};
+
+const normalizePromotionType = (value) => {
+	const normalized = sanitizeString(value || "discount_amount", 80);
+	return PROMOTION_TYPES.includes(normalized) ? normalized : "discount_amount";
+};
+
+const normalizePromotionStatus = (value) => {
+	const normalized = sanitizeString(value || "available", 80);
+	return PROMOTION_STATUSES.includes(normalized) ? normalized : "available";
+};
+
+const parseOptionalTimestamp = (value) => {
+	if (!value) return null;
+	if (value instanceof admin.firestore.Timestamp) return value;
+	if (value instanceof Date && !Number.isNaN(value.getTime())) {
+		return admin.firestore.Timestamp.fromDate(value);
+	}
+
+	const parsed = new Date(value);
+	if (Number.isNaN(parsed.getTime())) return null;
+	return admin.firestore.Timestamp.fromDate(parsed);
+};
+
+const normalizeCriteria = (criteria = {}) => ({
+	metric: sanitizeString(criteria.metric, 80) || "availablePoints",
+	operator: sanitizeString(criteria.operator, 20) || "gte",
+	value: Number(criteria.value || 0),
+});
 
 const normalizeInternationalPhone = (value) => {
 	const cleaned = String(value || "")
@@ -233,6 +284,83 @@ const compactReservation = (doc) => {
 		reservationDate: serializeValue(data.reservationDate || data.date || null),
 		reservationTime: data.reservationTime || data.time || "",
 		createdAt: serializeValue(data.createdAt || null),
+	};
+};
+
+const resolveCustomerReference = async ({ customerId, customerEmail }) => {
+	const requestedCustomerId = sanitizeString(customerId, 128);
+	const requestedEmail = normalizeEmail(customerEmail);
+
+	if (requestedCustomerId) {
+		const customerSnap = await db
+			.collection("customers")
+			.doc(requestedCustomerId)
+			.get();
+		if (customerSnap.exists) {
+			return { customerId: customerSnap.id, customer: customerSnap.data() || {} };
+		}
+	}
+
+	if (requestedEmail) {
+		const emailSnap = await db
+			.collection("customers")
+			.where("email", "==", requestedEmail)
+			.limit(1)
+			.get();
+		if (!emailSnap.empty) {
+			const customerSnap = emailSnap.docs[0];
+			return { customerId: customerSnap.id, customer: customerSnap.data() || {} };
+		}
+	}
+
+	throw new functions.https.HttpsError("not-found", "Customer not found.");
+};
+
+const normalizePromotionInput = (input = {}) => {
+	const promotionType = normalizePromotionType(input.promotionType || input.type);
+	const amountCents = normalizeDollarsToCents(
+		input.amountDollars || input.discountAmountDollars || input.promotionValue,
+	);
+	const maxDiscountCents = normalizeDollarsToCents(
+		input.maxDiscountDollars || input.maxValueDollars,
+	);
+	const percent = normalizePercent(input.percent || input.promotionValue);
+	const isFoodCredit =
+		input.walletValueType === "food_credit" ||
+		input.isFoodCredit === true ||
+		input.type === "food_credit";
+	const computedMaxDiscount =
+		promotionType === "discount_amount"
+			? amountCents
+			: promotionType === "discount_percent"
+				? maxDiscountCents
+				: maxDiscountCents || amountCents;
+
+	return {
+		title: sanitizeString(input.title, 160),
+		description: sanitizeString(input.description, 500),
+		promotionType,
+		promotionValue:
+			promotionType === "discount_percent" ? percent : amountCents / 100,
+		maxDiscountCents: computedMaxDiscount,
+		itemLabel: sanitizeString(input.itemLabel, 120),
+		restaurantId: sanitizeString(input.restaurantId, 128) || "global",
+		restaurantName: sanitizeString(input.restaurantName, 160),
+		allowedRestaurantIds: Array.isArray(input.allowedRestaurantIds)
+			? input.allowedRestaurantIds
+					.map((id) => sanitizeString(id, 128))
+					.filter(Boolean)
+			: [],
+		fundedBy: sanitizeString(input.fundedBy || "scerv", 80),
+		reimbursementPolicy: sanitizeString(
+			input.reimbursementPolicy || "reconcile",
+			120,
+		),
+		internalMemo: sanitizeString(input.internalMemo, 1000),
+		campaignId: sanitizeString(input.campaignId, 128),
+		walletValueType: isFoodCredit ? "food_credit" : "promotion",
+		isFoodCredit,
+		expiresAt: parseOptionalTimestamp(input.expiresAt),
 	};
 };
 
@@ -1234,6 +1362,288 @@ exports.addScervSupportCaseNote = functions.https.onCall(async (data, context) =
 
 	return { success: true, noteId: noteRef.id };
 });
+
+exports.listScervPromotionLedger = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context);
+
+		const customerId = sanitizeString(data && data.customerId, 128);
+		const restaurantId = sanitizeString(data && data.restaurantId, 128);
+		const status = sanitizeString(data && data.status, 80);
+		const pageSize = Math.min(
+			Math.max(parseInt((data && data.pageSize) || 100, 10), 1),
+			200,
+		);
+
+		const [issuedSnap, redemptionsSnap, campaignsSnap] = await Promise.all([
+			db.collectionGroup("promotions").limit(400).get(),
+			db.collection("promotionRedemptions").limit(300).get(),
+			db.collection("scervPromotionCampaigns").limit(100).get(),
+		]);
+
+		let promotions = issuedSnap.docs.map((doc) => {
+			const parentCustomer = doc.ref.parent.parent;
+			return {
+				...serializeDoc(doc),
+				customerId: parentCustomer ? parentCustomer.id : null,
+			};
+		});
+		let redemptions = redemptionsSnap.docs.map(serializeDoc);
+
+		if (customerId) {
+			promotions = promotions.filter((item) => item.customerId === customerId);
+			redemptions = redemptions.filter((item) => item.customerId === customerId);
+		}
+		if (restaurantId) {
+			promotions = promotions.filter((item) => {
+				const allowed = Array.isArray(item.allowedRestaurantIds)
+					? item.allowedRestaurantIds
+					: [];
+				return item.restaurantId === restaurantId || allowed.includes(restaurantId);
+			});
+			redemptions = redemptions.filter(
+				(item) => item.restaurantId === restaurantId,
+			);
+		}
+		if (status) {
+			promotions = promotions.filter((item) => item.status === status);
+			redemptions = redemptions.filter((item) => item.status === status);
+		}
+
+		return {
+			promotions: promotions.slice(0, pageSize),
+			redemptions: redemptions.slice(0, pageSize),
+			campaigns: campaignsSnap.docs.map(serializeDoc),
+		};
+	},
+);
+
+exports.issueScervCustomerPromotion = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const input = (data && data.promotion) || {};
+		const { customerId, customer } = await resolveCustomerReference({
+			customerId: input.customerId || data.customerId,
+			customerEmail: input.customerEmail || data.customerEmail,
+		});
+		const promotion = normalizePromotionInput(input);
+
+		if (!promotion.title) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Promotion title is required.",
+			);
+		}
+		if (
+			promotion.promotionType !== "perk" &&
+			promotion.maxDiscountCents <= 0 &&
+			promotion.promotionValue <= 0
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Promotion value is required.",
+			);
+		}
+
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		const customerRef = db.collection("customers").doc(customerId);
+		const promotionRef = customerRef.collection("promotions").doc();
+		const campaignRef = promotion.campaignId
+			? db.collection("scervPromotionCampaigns").doc(promotion.campaignId)
+			: db.collection("scervPromotionCampaigns").doc();
+		const campaignId = promotion.campaignId || campaignRef.id;
+		const payload = {
+			...promotion,
+			id: promotionRef.id,
+			campaignId,
+			customerId,
+			customerEmail: normalizeEmail(customer.email || input.customerEmail),
+			customerName:
+				customer.displayName ||
+				customer.name ||
+				`${customer.firstName || ""} ${customer.lastName || ""}`.trim() ||
+				null,
+			status: "available",
+			source: "scerv_admin",
+			createdBy: actorUid,
+			createdAt: now,
+			updatedAt: now,
+		};
+		const campaignPayload = {
+			title: promotion.title,
+			description: promotion.description,
+			promotionType: promotion.promotionType,
+			promotionValue: promotion.promotionValue,
+			maxDiscountCents: promotion.maxDiscountCents,
+			restaurantId: promotion.restaurantId,
+			restaurantName: promotion.restaurantName || null,
+			fundedBy: promotion.fundedBy,
+			reimbursementPolicy: promotion.reimbursementPolicy,
+			walletValueType: promotion.walletValueType,
+			status: "active",
+			updatedAt: now,
+			updatedBy: actorUid,
+			createdAt: now,
+			createdBy: actorUid,
+		};
+
+		const customerUpdate = promotion.isFoodCredit
+			? {
+					rewardsSummary: {
+						foodCreditCents: admin.firestore.FieldValue.increment(
+							promotion.maxDiscountCents,
+						),
+						scervFoodCreditCents: admin.firestore.FieldValue.increment(
+							promotion.maxDiscountCents,
+						),
+						availableFoodCreditCents: admin.firestore.FieldValue.increment(
+							promotion.maxDiscountCents,
+						),
+						lastFoodCreditIssuedAt: now,
+					},
+				}
+			: {};
+
+		await db.runTransaction(async (transaction) => {
+			transaction.set(campaignRef, campaignPayload, { merge: true });
+			transaction.set(promotionRef, payload, { merge: true });
+			if (promotion.isFoodCredit) {
+				transaction.set(customerRef, customerUpdate, { merge: true });
+			}
+		});
+
+		await writeAdminAuditLog(actorUid, "issue_customer_promotion", {
+			customerId,
+			promotionId: promotionRef.id,
+			campaignId,
+			title: promotion.title,
+			walletValueType: promotion.walletValueType,
+			maxDiscountCents: promotion.maxDiscountCents,
+		});
+
+		return { success: true, customerId, promotionId: promotionRef.id, campaignId };
+	},
+);
+
+exports.cancelScervCustomerPromotion = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const customerId = sanitizeString(data && data.customerId, 128);
+		const promotionId = sanitizeString(data && data.promotionId, 128);
+		const reason = sanitizeString(data && data.reason, 500);
+
+		if (!customerId || !promotionId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Customer ID and promotion ID are required.",
+			);
+		}
+
+		const customerRef = db.collection("customers").doc(customerId);
+		const promotionRef = customerRef.collection("promotions").doc(promotionId);
+
+		await db.runTransaction(async (transaction) => {
+			const promotionSnap = await transaction.get(promotionRef);
+			if (!promotionSnap.exists) {
+				throw new functions.https.HttpsError("not-found", "Promotion not found.");
+			}
+			const promotion = promotionSnap.data() || {};
+			if (promotion.status === "redeemed") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Redeemed promotions cannot be cancelled.",
+				);
+			}
+
+			const now = admin.firestore.FieldValue.serverTimestamp();
+			transaction.set(
+				promotionRef,
+				{
+					status: "cancelled",
+					cancelledAt: now,
+					cancelledBy: actorUid,
+					cancelReason: reason || null,
+					updatedAt: now,
+				},
+				{ merge: true },
+			);
+
+			if (
+				promotion.walletValueType === "food_credit" ||
+				promotion.isFoodCredit === true
+			) {
+				const amount = normalizeNonNegativeCents(promotion.maxDiscountCents, 0);
+				transaction.set(
+					customerRef,
+					{
+						rewardsSummary: {
+							foodCreditCents: admin.firestore.FieldValue.increment(-amount),
+							scervFoodCreditCents:
+								admin.firestore.FieldValue.increment(-amount),
+							availableFoodCreditCents:
+								admin.firestore.FieldValue.increment(-amount),
+						},
+					},
+					{ merge: true },
+				);
+			}
+		});
+
+		await writeAdminAuditLog(actorUid, "cancel_customer_promotion", {
+			customerId,
+			promotionId,
+			reason,
+		});
+
+		return { success: true };
+	},
+);
+
+exports.saveScervWalletDefinition = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
+		const collection = sanitizeString(data && data.collection, 80);
+		const definitionId = sanitizeString(data && data.definitionId, 128);
+		const input = (data && data.definition) || {};
+
+		if (!WALLET_DEFINITION_COLLECTIONS.includes(collection)) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Unsupported wallet definition collection.",
+			);
+		}
+
+		const definitionRef = definitionId
+			? db.collection(collection).doc(definitionId)
+			: db.collection(collection).doc();
+		const payload = {
+			id: definitionRef.id,
+			title: sanitizeString(input.title, 160),
+			label: sanitizeString(input.label || input.title, 160),
+			description: sanitizeString(input.description, 500),
+			rewardLabel: sanitizeString(input.rewardLabel, 160),
+			icon: sanitizeString(input.icon || "sparkles-outline", 80),
+			isActive: input.isActive !== false,
+			isVisible: input.isVisible !== false,
+			sortOrder: Number(input.sortOrder || 0),
+			criteria: normalizeCriteria(input.criteria || {}),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedBy: actorUid,
+			...(definitionId
+				? {}
+				: { createdAt: admin.firestore.FieldValue.serverTimestamp(), createdBy: actorUid }),
+		};
+
+		await definitionRef.set(payload, { merge: true });
+		await writeAdminAuditLog(actorUid, "save_wallet_definition", {
+			collection,
+			definitionId: definitionRef.id,
+			title: payload.title,
+		});
+
+		return { success: true, definitionId: definitionRef.id };
+	},
+);
 
 exports.updateScervRestaurantProfile = functions.https.onCall(
 	async (data, context) => {

@@ -142,6 +142,11 @@ exports.resendRestaurantOwnerSetupEmail =
 exports.listScervSupportCases = adminFunctions.listScervSupportCases;
 exports.saveScervSupportCase = adminFunctions.saveScervSupportCase;
 exports.addScervSupportCaseNote = adminFunctions.addScervSupportCaseNote;
+exports.listScervPromotionLedger = adminFunctions.listScervPromotionLedger;
+exports.issueScervCustomerPromotion = adminFunctions.issueScervCustomerPromotion;
+exports.cancelScervCustomerPromotion =
+	adminFunctions.cancelScervCustomerPromotion;
+exports.saveScervWalletDefinition = adminFunctions.saveScervWalletDefinition;
 exports.saveScervMenuItem = adminFunctions.saveScervMenuItem;
 exports.archiveScervMenuItem = adminFunctions.archiveScervMenuItem;
 exports.getScervOrderSupportDetail =
