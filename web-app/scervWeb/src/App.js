@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from "react"; // Added useEffect
+import React, { Suspense } from "react";
 import {
 	BrowserRouter as Router,
 	Route,
@@ -9,9 +9,9 @@ import styled, { ThemeProvider } from "styled-components";
 import theme from "./styles/theme";
 import GlobalStyle from "./styles/globalStyles";
 import { HelmetProvider } from "react-helmet-async";
-import ReactGA from "react-ga4"; // <-- Added GA4 import
 
 // Main Components
+import AnalyticsTracker from "./components/AnalyticsTracker";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import Hero from "./components/Hero";
@@ -30,6 +30,8 @@ import ScanRedirect from "./components/ScanRedirect";
 import AboutUs from "./components/AboutUs";
 import RestaurantLanding from "./components/RestaurantLanding";
 import { ResourceArticle, ResourceHub } from "./components/RestaurantResources";
+import PrivacyPolicy from "./components/PrivacyPolicy";
+import TermsOfService from "./components/TermsOfService";
 
 // --- Styled Components ---
 const AppContainer = styled.div`
@@ -68,22 +70,13 @@ const WebsiteLayout = () => {
 };
 
 const App = () => {
-	// --- Initialize Google Analytics ---
-	useEffect(() => {
-		ReactGA.initialize("G-2CSDRNHNTH");
-		// Send initial pageview
-		ReactGA.send({
-			hitType: "pageview",
-			page: window.location.pathname + window.location.search,
-		});
-	}, []);
-
 	return (
 		<HelmetProvider>
 			<ThemeProvider theme={theme}>
 				<GlobalStyle />
 				<Suspense fallback={<LoadingScreen>Loading Scerv...</LoadingScreen>}>
 					<Router>
+						<AnalyticsTracker />
 						<Routes>
 							{/* 1. MAIN WEBSITE */}
 							<Route element={<WebsiteLayout />}>
@@ -107,6 +100,8 @@ const App = () => {
 									path="/resources/:slug"
 									element={<ResourceArticle />}
 								/>
+								<Route path="/privacy-policy" element={<PrivacyPolicy />} />
+								<Route path="/terms-of-service" element={<TermsOfService />} />
 								<Route
 									path="/restaurants/:slug"
 									element={<RestaurantLanding />}

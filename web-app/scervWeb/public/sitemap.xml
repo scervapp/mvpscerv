@@ -1,44 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://www.scerv.com/</loc>
-    <lastmod>2026-03-12</lastmod>
-    <priority>1.00</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/pricing</loc>
-    <lastmod>2026-03-12</lastmod>
-    <priority>0.80</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/request-demo</loc>
-    <lastmod>2026-03-12</lastmod>
-    <priority>0.80</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/contact</loc>
-    <lastmod>2026-03-12</lastmod>
-    <priority>0.50</priority>
-  </url>
-
-  <url>
-    <loc>https://www.scerv.com/resources</loc>
+    <loc>https://scerv.com/</loc>
     <lastmod>2026-06-17</lastmod>
-    <priority>0.85</priority>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
   </url>
-
   <url>
-    <loc>https://www.scerv.com/resources/restaurant-tech-checklist-new-restaurants</loc>
+    <loc>https://scerv.com/resources</loc>
     <lastmod>2026-06-17</lastmod>
-    <priority>0.80</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
-
   <url>
-    <loc>https://www.scerv.com/resources/mistakes-new-restaurants-make-before-opening</loc>
+    <loc>https://scerv.com/resources/restaurant-tech-checklist-new-restaurants</loc>
     <lastmod>2026-06-17</lastmod>
-    <priority>0.80</priority>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://scerv.com/resources/mistakes-new-restaurants-make-before-opening</loc>
+    <lastmod>2026-06-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://scerv.com/pricing</loc>
+    <lastmod>2026-06-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://scerv.com/request-demo</loc>
+    <lastmod>2026-06-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://scerv.com/contact</loc>
+    <lastmod>2026-06-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://scerv.com/about</loc>
+    <lastmod>2026-06-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
 </urlset>

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.scerv.com/sitemap.xml
+Sitemap: https://scerv.com/sitemap.xml

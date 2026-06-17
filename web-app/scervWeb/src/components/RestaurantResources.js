@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { Helmet } from "react-helmet-async";
+import { buildSeoUrl, SITE_URL } from "./SEO";
 
 const resources = [
 	{
@@ -12,7 +13,10 @@ const resources = [
 			"A practical, operator-first technology checklist for opening a restaurant without creating chaos for guests, staff, or ownership.",
 		readTime: "14 min read",
 		updated: "June 17, 2026",
+		updatedIso: "2026-06-17",
 		audience: "Owners, operators, general managers, and opening teams",
+		keywords:
+			"restaurant tech checklist, new restaurant technology checklist, restaurant POS checklist, restaurant opening checklist, restaurant startup operations, restaurant menu management, restaurant reservations waitlist",
 		intro: [
 			"Opening a restaurant is already hard. The technology stack should make the opening calmer, not add another layer of confusion. The challenge is that most restaurants do not buy technology in one clean decision. They buy a POS because they need to take payments, a reservation tool because the dining room needs structure, a payroll system because staff has to be paid, a marketing tool because seats need to be filled, and a loyalty tool later when they realize guests are not coming back often enough.",
 			"That piecemeal approach can work for a while, but it often creates hidden friction. Staff re-enter information. Managers jump between dashboards. Guests receive disconnected experiences. Owners cannot tell which dishes, servers, time slots, promotions, or guest behaviors are actually moving the business forward.",
@@ -168,7 +172,10 @@ const resources = [
 			"The most expensive restaurant mistakes often happen before the first guest sits down. Here is how to avoid them.",
 		readTime: "13 min read",
 		updated: "June 17, 2026",
+		updatedIso: "2026-06-17",
 		audience: "Restaurant founders, first-time owners, operators, and investors",
+		keywords:
+			"mistakes new restaurants make, restaurant opening mistakes, new restaurant owner tips, restaurant startup mistakes, restaurant pre opening checklist, how to open a restaurant",
 		intro: [
 			"Restaurants rarely fail because of one dramatic mistake. More often, they struggle because of small decisions made before opening: a menu that is too large, a lease that needs impossible sales, staff trained too late, systems chosen without testing, or marketing that brings first-time guests without a plan to bring them back.",
 			"Before opening, optimism is useful. But unchecked optimism is expensive. Owners are juggling construction, permits, hiring, vendors, menu costing, branding, social media, equipment, payroll, inspections, and family pressure. It is easy to confuse motion with readiness.",
@@ -563,14 +570,106 @@ const Missing = styled.div`
 	text-align: center;
 `;
 
+const getResourceUrl = (slug) => buildSeoUrl(`/resources/${slug}`);
+
+const buildHubSchema = () => ({
+	"@context": "https://schema.org",
+	"@type": "CollectionPage",
+	name: "Restaurant Growth Resources | Scerv",
+	url: buildSeoUrl("/resources"),
+	description:
+		"Restaurant startup and operations guides from Scerv for owners preparing to open, modernize, and grow.",
+	mainEntity: {
+		"@type": "ItemList",
+		itemListElement: resources.map((resource, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			url: getResourceUrl(resource.slug),
+			name: resource.title,
+		})),
+	},
+});
+
+const buildArticleSchema = (resource) => [
+	{
+		"@context": "https://schema.org",
+		"@type": "Article",
+		headline: resource.title,
+		description: resource.description,
+		author: {
+			"@type": "Organization",
+			name: "Scerv",
+			url: SITE_URL,
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "Scerv",
+			logo: {
+				"@type": "ImageObject",
+				url: buildSeoUrl("/logo512.png"),
+			},
+		},
+		datePublished: resource.updatedIso,
+		dateModified: resource.updatedIso,
+		mainEntityOfPage: getResourceUrl(resource.slug),
+		keywords: resource.keywords,
+		articleSection: resource.category,
+	},
+	{
+		"@context": "https://schema.org",
+		"@type": "FAQPage",
+		mainEntity: resource.faqs.map((faq) => ({
+			"@type": "Question",
+			name: faq.question,
+			acceptedAnswer: {
+				"@type": "Answer",
+				text: faq.answer,
+			},
+		})),
+	},
+	{
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Resources",
+				item: buildSeoUrl("/resources"),
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: resource.title,
+				item: getResourceUrl(resource.slug),
+			},
+		],
+	},
+];
+
 const ResourceHub = () => (
 	<Page>
 		<Helmet>
 			<title>Restaurant Growth Resources | Scerv</title>
+			<link rel="canonical" href={buildSeoUrl("/resources")} />
 			<meta
 				name="description"
 				content="Flagship restaurant startup and operations guides from Scerv for owners preparing to open, modernize, and grow."
 			/>
+			<meta
+				name="keywords"
+				content="restaurant resources, restaurant startup guide, restaurant operations guide, new restaurant checklist, restaurant owner resources"
+			/>
+			<meta property="og:title" content="Restaurant Growth Resources | Scerv" />
+			<meta
+				property="og:description"
+				content="Restaurant startup and operations guides from Scerv for owners preparing to open, modernize, and grow."
+			/>
+			<meta property="og:type" content="website" />
+			<meta property="og:url" content={buildSeoUrl("/resources")} />
+			<script type="application/ld+json">
+				{JSON.stringify(buildHubSchema())}
+			</script>
 		</Helmet>
 		<HeroBand>
 			<Container>
@@ -617,7 +716,22 @@ const ResourceArticle = () => {
 		<Page>
 			<Helmet>
 				<title>{resource.title} | Scerv</title>
+				<link rel="canonical" href={getResourceUrl(resource.slug)} />
 				<meta name="description" content={resource.description} />
+				<meta name="keywords" content={resource.keywords} />
+				<meta name="robots" content="index,follow" />
+				<meta property="og:title" content={`${resource.title} | Scerv`} />
+				<meta property="og:description" content={resource.description} />
+				<meta property="og:type" content="article" />
+				<meta property="og:url" content={getResourceUrl(resource.slug)} />
+				<meta property="article:published_time" content={resource.updatedIso} />
+				<meta property="article:modified_time" content={resource.updatedIso} />
+				<meta name="twitter:card" content="summary_large_image" />
+				<meta name="twitter:title" content={`${resource.title} | Scerv`} />
+				<meta name="twitter:description" content={resource.description} />
+				<script type="application/ld+json">
+					{JSON.stringify(buildArticleSchema(resource))}
+				</script>
 			</Helmet>
 			<HeroBand>
 				<Container>
