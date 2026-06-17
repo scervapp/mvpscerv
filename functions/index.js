@@ -128,6 +128,9 @@ exports.saveRestaurantFeatureEntitlements =
 	adminFunctions.saveRestaurantFeatureEntitlements;
 exports.getScervAdminDashboardStats =
 	adminFunctions.getScervAdminDashboardStats;
+exports.submitScervDemoRequest = adminFunctions.submitScervDemoRequest;
+exports.listScervDemoLeads = adminFunctions.listScervDemoLeads;
+exports.updateScervDemoLead = adminFunctions.updateScervDemoLead;
 exports.listScervCustomers = adminFunctions.listScervCustomers;
 exports.createScervRestaurantOnboarding =
 	adminFunctions.createScervRestaurantOnboarding;

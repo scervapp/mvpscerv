@@ -41,11 +41,13 @@
 
 .dashboard-stats {
     display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
     justify-content: space-between; /* Distribute stats evenly */
 }
 
 .dashboard-stat {
-    flex: 1; /* Each stat takes equal width */
+    flex: 1 1 160px; /* Each stat takes equal width */
     padding: 10px;
     border: 1px solid #eee;
     border-radius: 4px;

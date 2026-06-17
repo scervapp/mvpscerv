@@ -50,6 +50,15 @@ const WALLET_DEFINITION_COLLECTIONS = [
 	"scervRewardRules",
 ];
 
+const DEMO_LEAD_STATUSES = [
+	"new",
+	"contacted",
+	"scheduled",
+	"closed",
+	"spam",
+];
+const SCERV_DEMO_NOTIFICATION_EMAIL = "admin@scerv.com";
+
 const COUNTRY_NAMES = {
 	US: "United States",
 	PA: "Panama",
@@ -83,6 +92,11 @@ const normalizePercent = (value) => {
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed < 0) return 0;
 	return Math.round(parsed * 100) / 100;
+};
+
+const normalizeLeadStatus = (value) => {
+	const normalized = sanitizeString(value || "new", 40).toLowerCase();
+	return DEMO_LEAD_STATUSES.includes(normalized) ? normalized : "new";
 };
 
 const normalizePromotionType = (value) => {
@@ -632,6 +646,76 @@ const sendCustomerPasswordResetEmail = async ({
 	return { sent: true };
 };
 
+const buildDemoLeadNotificationEmail = ({ leadId, lead }) => {
+	const submittedAt = lead.createdAt && lead.createdAt.toDate
+		? lead.createdAt.toDate().toLocaleString("en-US", {
+			timeZone: "America/New_York",
+		})
+		: "Just now";
+
+	return `
+		<div style="font-family:Arial,sans-serif;line-height:1.6;color:#132027">
+			<h2 style="color:#082f3a;margin-bottom:8px">New Scerv demo request</h2>
+			<p>A restaurant lead just requested a demo through the Scerv website.</p>
+			<table style="border-collapse:collapse;width:100%;max-width:640px">
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Name</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(lead.name)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Restaurant</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(lead.restaurantName)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Email</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(lead.email)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Phone</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(lead.phone)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Submitted</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(submittedAt)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Lead ID</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(leadId)}</td></tr>
+			</table>
+			${lead.message ? `<h3 style="margin-top:22px">Message</h3><p style="white-space:pre-line">${escapeHtml(lead.message)}</p>` : ""}
+			<p style="margin-top:22px">
+				<a href="https://admin.scerv.com/demo-leads" style="background:#f18220;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none;font-weight:700">Open Demo Leads</a>
+			</p>
+		</div>
+	`;
+};
+
+const sendDemoLeadNotificationEmail = async ({ leadId, lead }) => {
+	const resend = getResendClient();
+	if (!resend) {
+		return { sent: false, reason: "RESEND_API_KEY is not configured." };
+	}
+
+	await resend.emails.send({
+		from: "Scerv <noreply@scerv.com>",
+		to: SCERV_DEMO_NOTIFICATION_EMAIL,
+		replyTo: lead.email,
+		subject: `New Scerv demo request: ${lead.restaurantName}`,
+		html: buildDemoLeadNotificationEmail({ leadId, lead }),
+	});
+
+	return { sent: true };
+};
+
+const serializeDemoLead = (doc) => {
+	const data = doc.data() || {};
+	return {
+		id: doc.id,
+		name: data.name || "",
+		restaurantName: data.restaurantName || "",
+		email: data.email || "",
+		phone: data.phone || "",
+		message: data.message || "",
+		status: data.status || "new",
+		source: data.source || "website",
+		notificationEmailSent: Boolean(data.notificationEmailSent),
+		notificationEmailError: data.notificationEmailError || null,
+		createdAt: data.createdAt instanceof admin.firestore.Timestamp
+			? data.createdAt.toDate().toISOString()
+			: null,
+		updatedAt: data.updatedAt instanceof admin.firestore.Timestamp
+			? data.updatedAt.toDate().toISOString()
+			: null,
+		contactedAt: data.contactedAt instanceof admin.firestore.Timestamp
+			? data.contactedAt.toDate().toISOString()
+			: null,
+		notes: data.notes || "",
+	};
+};
+
 exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 	async (data, context) => {
 		const uid = requireScervAdmin(context);
@@ -747,20 +831,173 @@ exports.getScervAdminDashboardStats = functions.https.onCall(
 	async (data, context) => {
 		requireScervAdmin(context);
 
-		const [restaurantsSnapshot, customersSnapshot, ordersSnapshot] =
+		const [restaurantsSnapshot, customersSnapshot, ordersSnapshot, leadsSnapshot] =
 			await Promise.all([
 				db.collection("restaurants").count().get(),
 				db.collection("customers").count().get(),
 				db.collection("orders").count().get(),
+				db
+					.collection("demoRequests")
+					.where("status", "==", "new")
+					.count()
+					.get(),
 			]);
 
 		return {
 			totalRestaurants: restaurantsSnapshot.data().count || 0,
 			totalCustomers: customersSnapshot.data().count || 0,
 			totalOrders: ordersSnapshot.data().count || 0,
+			newDemoLeads: leadsSnapshot.data().count || 0,
 		};
 	},
 );
+
+exports.submitScervDemoRequest = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const name = sanitizeString(data && data.name, 120);
+		const restaurantName = sanitizeString(data && data.restaurantName, 160);
+		const email = normalizeEmail(data && data.email);
+		const phone = sanitizeString(data && data.phone, 30);
+		const message = sanitizeString(data && data.message, 2000);
+		const now = admin.firestore.FieldValue.serverTimestamp();
+
+		if (
+			!name ||
+			!restaurantName ||
+			!email ||
+			!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+			!phone ||
+			phone.length < 8
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Name, restaurant, email, and phone are required.",
+			);
+		}
+
+		const leadPayload = {
+			name,
+			restaurantName,
+			email,
+			phone,
+			message,
+			status: "new",
+			source: "website",
+			pagePath: sanitizeString(data && data.pagePath, 240),
+			userAgent: sanitizeString(data && data.userAgent, 500),
+			createdAt: now,
+			updatedAt: now,
+			legacyTimestamp: now,
+			notificationEmailSent: false,
+			notificationEmailError: null,
+		};
+
+		const leadRef = await db.collection("demoRequests").add(leadPayload);
+		let emailResult = { sent: false, reason: "Email was not attempted." };
+
+		try {
+			emailResult = await sendDemoLeadNotificationEmail({
+				leadId: leadRef.id,
+				lead: {
+					...leadPayload,
+					createdAt: admin.firestore.Timestamp.now(),
+				},
+			});
+		} catch (error) {
+			console.warn("Demo lead notification email failed:", error);
+			emailResult = {
+				sent: false,
+				reason: error.message || "Email failed.",
+			};
+		}
+
+		await leadRef.set(
+			{
+				notificationEmailSent: emailResult.sent,
+				notificationEmailError: emailResult.sent
+					? null
+					: sanitizeString(emailResult.reason, 500),
+				notificationEmailTo: SCERV_DEMO_NOTIFICATION_EMAIL,
+				notificationEmailAttemptedAt:
+					admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		return {
+			success: true,
+			leadId: leadRef.id,
+			emailSent: emailResult.sent,
+			emailWarning: emailResult.sent ? null : emailResult.reason,
+		};
+	});
+
+exports.listScervDemoLeads = functions.https.onCall(async (data, context) => {
+	requireScervAdmin(context);
+	const status = sanitizeString(data && data.status, 40).toLowerCase();
+	let query = db
+		.collection("demoRequests")
+		.orderBy("createdAt", "desc")
+		.limit(100);
+
+	if (status && status !== "all") {
+		query = db
+			.collection("demoRequests")
+			.where("status", "==", normalizeLeadStatus(status))
+			.limit(100);
+	}
+
+	const snapshot = await query.get();
+	const leads = snapshot.docs
+		.map(serializeDemoLead)
+		.sort((a, b) => String(b.createdAt || "").localeCompare(a.createdAt || ""))
+		.slice(0, 75);
+
+	return {
+		leads,
+	};
+});
+
+exports.updateScervDemoLead = functions.https.onCall(async (data, context) => {
+	const actorUid = requireScervAdmin(context);
+	const leadId = sanitizeString(data && data.leadId, 160);
+	const status = normalizeLeadStatus(data && data.status);
+	const notes = sanitizeString(data && data.notes, 2000);
+
+	if (!leadId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Lead ID is required.",
+		);
+	}
+
+	const leadRef = db.collection("demoRequests").doc(leadId);
+	const leadSnap = await leadRef.get();
+	if (!leadSnap.exists) {
+		throw new functions.https.HttpsError("not-found", "Demo lead not found.");
+	}
+
+	const patch = {
+		status,
+		notes,
+		updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		updatedBy: actorUid,
+	};
+
+	if (status === "contacted" || status === "scheduled") {
+		patch.contactedAt = admin.firestore.FieldValue.serverTimestamp();
+	}
+
+	await leadRef.set(patch, { merge: true });
+	await writeAdminAuditLog(actorUid, "update_demo_lead", {
+		leadId,
+		status,
+	});
+
+	const updatedSnap = await leadRef.get();
+	return { lead: serializeDemoLead(updatedSnap) };
+});
 
 exports.createScervRestaurantOnboarding = functions
 	.runWith({ secrets: [RESEND_API_KEY] })

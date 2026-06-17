@@ -13,6 +13,7 @@ const Dashboard = () => {
 	const [totalRestaurants, setTotalRestaurants] = useState(null); //for total restaurants
 	const [totalCustomers, setTotalCustomers] = useState(null); //for total customers
 	const [totalOrders, setTotalOrders] = useState(null);
+	const [newDemoLeads, setNewDemoLeads] = useState(null);
 
 	const auth = getAuth();
 
@@ -33,6 +34,7 @@ const Dashboard = () => {
 					setTotalRestaurants(response.data?.totalRestaurants || 0);
 					setTotalCustomers(response.data?.totalCustomers || 0);
 					setTotalOrders(response.data?.totalOrders || 0);
+					setNewDemoLeads(response.data?.newDemoLeads || 0);
 				} catch (error) {
 					console.error("Error fetching data:", error);
 					setError("Failed to load dashboard data.");
@@ -76,6 +78,12 @@ const Dashboard = () => {
 				>
 					Command Center
 				</button>
+				<button
+					className="dashboard-button"
+					onClick={() => navigate("/demo-leads")}
+				>
+					Demo Leads
+				</button>
 				<button className="dashboard-button" onClick={handleSignOut}>
 					Sign Out
 				</button>
@@ -100,6 +108,12 @@ const Dashboard = () => {
 						<h3>Total Orders</h3>
 						<p className="stat-count">
 							{totalOrders !== null ? totalOrders : "Loading..."}
+						</p>
+					</div>
+					<div className="dashboard-stat">
+						<h3>New Demo Leads</h3>
+						<p className="stat-count">
+							{newDemoLeads !== null ? newDemoLeads : "Loading..."}
 						</p>
 					</div>
 				</div>

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../config/firebase";
 import { useTranslation } from "react-i18next"; // <-- 1. Import i18n hook
 import SEO from "./SEO";
 
@@ -239,9 +239,14 @@ const RequestDemo = () => {
 		setLoading(true);
 
 		try {
-			await addDoc(collection(db, "demoRequests"), {
+			const submitDemoRequest = httpsCallable(
+				functions,
+				"submitScervDemoRequest",
+			);
+			await submitDemoRequest({
 				...formData,
-				timestamp: serverTimestamp(),
+				pagePath: window.location.pathname,
+				userAgent: window.navigator.userAgent,
 			});
 			setFormData({
 				name: "",

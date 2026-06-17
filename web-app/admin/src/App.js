@@ -22,6 +22,7 @@ import AuditLogs from "./components/AuditLogs";
 import SupportCases from "./components/SupportCases";
 import Promotions from "./components/Promotions";
 import DataExplorer from "./components/DataExplorer";
+import DemoLeads from "./components/DemoLeads";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -119,6 +120,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<Promotions />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/demo-leads"
+						element={
+							<ProtectedRoute requiredRole="admin">
+								<DemoLeads />
 							</ProtectedRoute>
 						}
 					/>
