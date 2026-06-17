@@ -158,7 +158,7 @@ const RestaurantDetails = () => {
 					<Link to="/restaurants">Back to restaurants</Link>
 					<h1>{restaurant.restaurantName || "Restaurant"}</h1>
 					<p>
-						Store #{restaurant.restaurantNumber || "--"} ·{" "}
+						Store #{restaurant.restaurantNumber || "--"} -{" "}
 						{restaurant.city || "--"}, {restaurant.state || "--"}
 					</p>
 				</div>
@@ -301,13 +301,23 @@ const RestaurantDetails = () => {
 						Manage Menu
 					</Link>
 					<table className="restaurant-table">
-						<thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th></tr></thead>
+						<thead><tr><th>Item</th><th>Category</th><th>Tags</th><th>Rating</th><th>Status</th></tr></thead>
 						<tbody>
 							{menuItems.slice(0, 25).map((item) => (
 								<tr key={item.id}>
 									<td>{item.name}</td>
 									<td>{item.category || "--"}</td>
-									<td>{formatMoney(Number(item.price || 0) * 100)}</td>
+									<td>
+										{[
+											...(item.tags || []),
+											...(item.cuisineTags || []),
+											...(item.dietaryTags || []),
+										].slice(0, 4).join(", ") || "--"}
+									</td>
+									<td>
+										{Number(item.averageRating || item.rating || 0).toFixed(1)} /{" "}
+										{item.ratingCount || 0}
+									</td>
 									<td>{item.isArchived ? "Archived" : item.isActive ? "Active" : "Inactive"}</td>
 								</tr>
 							))}

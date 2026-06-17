@@ -408,15 +408,92 @@ const normalizePriceCents = (price) => {
 	return Math.round(numericPrice * 100) / 100;
 };
 
+const normalizeStringList = (value, maxItems = 24, maxLength = 80) => {
+	const rawItems = Array.isArray(value)
+		? value
+		: String(value || "")
+				.split(",")
+				.map((item) => item.trim());
+	const seen = new Set();
+
+	return rawItems
+		.map((item) => sanitizeString(item, maxLength))
+		.filter(Boolean)
+		.filter((item) => {
+			const key = item.toLowerCase();
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		})
+		.slice(0, maxItems);
+};
+
+const normalizeInteger = (value, fallback = 0, min = 0, max = 100) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) return fallback;
+	return Math.max(min, Math.min(max, Math.round(parsed)));
+};
+
+const getMenuSearchKeywords = (item) => {
+	const terms = [
+		item.name,
+		item.description,
+		item.category,
+		item.subcategory,
+		item.menuSection,
+		item.preparationStyle,
+		item.popularityLabel,
+		...item.tags,
+		...item.cuisineTags,
+		...item.dietaryTags,
+		...item.allergenTags,
+		...item.flavorTags,
+		...item.mealPeriodTags,
+		...item.dishAliases,
+		...item.ingredients,
+	]
+		.join(" ")
+		.toLowerCase()
+		.replace(/[^a-z0-9\s]/g, " ")
+		.split(/\s+/)
+		.filter((term) => term.length >= 2);
+
+	return Array.from(new Set(terms)).slice(0, 120);
+};
+
 const getMenuItemPayload = (data) => ({
 	name: sanitizeString(data && data.name, 120),
 	description: sanitizeString(data && data.description, 800),
 	price: normalizePriceCents(data && data.price),
 	category: sanitizeString(data && data.category, 120),
+	subcategory: sanitizeString(data && data.subcategory, 120),
+	menuSection: sanitizeString(data && data.menuSection, 120),
 	imageUri: sanitizeString(data && data.imageUri, 1000),
+	thumbnailUri: sanitizeString(data && data.thumbnailUri, 1000),
+	preparationStyle: sanitizeString(data && data.preparationStyle, 120),
+	popularityLabel: sanitizeString(data && data.popularityLabel, 120),
+	metadataNotes: sanitizeString(data && data.metadataNotes, 1000),
+	spiceLevel: normalizeInteger(data && data.spiceLevel, 0, 0, 5),
+	sortOrder: normalizeInteger(data && data.sortOrder, 0, 0, 10000),
+	calories: normalizeInteger(data && data.calories, 0, 0, 10000),
+	tags: normalizeStringList(data && data.tags),
+	cuisineTags: normalizeStringList(data && data.cuisineTags),
+	dietaryTags: normalizeStringList(data && data.dietaryTags),
+	allergenTags: normalizeStringList(data && data.allergenTags),
+	flavorTags: normalizeStringList(data && data.flavorTags),
+	mealPeriodTags: normalizeStringList(data && data.mealPeriodTags),
+	dishAliases: normalizeStringList(data && data.dishAliases),
+	ingredients: normalizeStringList(data && data.ingredients, 40, 80),
 	isActive: Boolean(data && data.isActive),
 	isDailySpecial: Boolean(data && data.isDailySpecial),
 	isFeatured: Boolean(data && data.isFeatured),
+	isSignatureDish: Boolean(data && data.isSignatureDish),
+	chefRecommended: Boolean(data && data.chefRecommended),
+	isVegetarian: Boolean(data && data.isVegetarian),
+	isVegan: Boolean(data && data.isVegan),
+	isGlutenFree: Boolean(data && data.isGlutenFree),
+	containsAlcohol: Boolean(data && data.containsAlcohol),
+	ageRestricted: Boolean(data && data.ageRestricted),
 });
 
 const generateUniqueRestaurantNumber = async () => {
@@ -2044,11 +2121,22 @@ exports.saveScervMenuItem = functions.https.onCall(async (data, context) => {
 		{
 			...item,
 			restaurantId,
+			searchKeywords: getMenuSearchKeywords(item),
+			discoveryMetadata: {
+				managedByAdminPortal: true,
+				lastTaggedAt: admin.firestore.FieldValue.serverTimestamp(),
+				tagsVersion: 1,
+			},
 			adminUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			adminUpdatedBy: actorUid,
 			...(itemId
 				? {}
 				: {
+						averageRating: 0,
+						confidenceAdjustedRating: 0,
+						rating: 0,
+						ratingCount: 0,
+						reviewCount: 0,
 						createdAt: admin.firestore.FieldValue.serverTimestamp(),
 						createdBy: actorUid,
 					}),
