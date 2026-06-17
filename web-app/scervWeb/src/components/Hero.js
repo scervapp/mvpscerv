@@ -258,18 +258,18 @@ const Hero = () => {
 				</Content>
 
 				<ProductPanel aria-label="Scerv platform preview">
-					<PanelLabel>Dining room command layer</PanelLabel>
+					<PanelLabel>{t("hero.panel.label")}</PanelLabel>
 					<PanelMetric>
-						<strong>Arrival</strong>
-						<span>Reservations, waitlist, host check-ins, party flow, and table status.</span>
+						<strong>{t("hero.panel.arrival.title")}</strong>
+						<span>{t("hero.panel.arrival.desc")}</span>
 					</PanelMetric>
 					<PanelMetric>
-						<strong>Service</strong>
-						<span>Ordering, kitchen visibility, checkout, reviews, and staff clarity.</span>
+						<strong>{t("hero.panel.service.title")}</strong>
+						<span>{t("hero.panel.service.desc")}</span>
 					</PanelMetric>
 					<PanelMetric>
-						<strong>Retention</strong>
-						<span>Rewards, offers, guest history, and repeat-visit signals.</span>
+						<strong>{t("hero.panel.retention.title")}</strong>
+						<span>{t("hero.panel.retention.desc")}</span>
 					</PanelMetric>
 				</ProductPanel>
 

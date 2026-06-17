@@ -7,25 +7,69 @@
   },
   "hero": {
     "eyebrow": "Built for New York hospitality",
-    "headline": "Modern restaurant operations, connected.",
-    "subheadline": "Scerv helps restaurants in Brooklyn, Manhattan, Queens, and beyond connect reservations, check-ins, ordering, payments, rewards, reviews, and operator visibility into one polished hospitality experience.",
+    "headline": "Run the room. Remember the guest.",
+    "subheadline": "Scerv connects reservations, host check-ins, table service, ordering, checkout, reviews, rewards, and reporting so restaurants can move faster without making hospitality feel automated.",
     "intro": "Scerv gives restaurant teams a cleaner way to serve guests, understand demand, and build repeat visits without adding more disconnected tools.",
     "requestDemoBtn": "Request a Demo",
     "resourcesBtn": "Explore Resources",
+    "panel": {
+      "label": "Dining room command layer",
+      "arrival": {
+        "title": "Arrival",
+        "desc": "Reservations, waitlist, host check-ins, party flow, and table status."
+      },
+      "service": {
+        "title": "Service",
+        "desc": "Ordering, kitchen visibility, checkout, reviews, and staff clarity."
+      },
+      "retention": {
+        "title": "Retention",
+        "desc": "Rewards, offers, guest history, and repeat-visit signals."
+      }
+    },
     "proof": {
       "service": {
-        "title": "Service-first workflows",
-        "desc": "Support hosts, servers, kitchens, and guests without making the dining room feel robotic."
+        "title": "Service stays human",
+        "desc": "Give hosts, servers, and kitchens cleaner signals so staff can spend more time with guests."
       },
       "guest": {
-        "title": "Guest memory",
-        "desc": "Turn food discovery, reviews, rewards, and return visits into a stronger relationship."
+        "title": "The guest is remembered",
+        "desc": "Connect food discovery, reviews, rewards, and return visits into a relationship restaurants can build on."
       },
       "operator": {
-        "title": "Operator clarity",
-        "desc": "Give owners and managers cleaner visibility into sales, service, loyalty, and support."
+        "title": "Operators see the room",
+        "desc": "Surface the patterns behind sales, service, loyalty, discounts, refunds, and support."
       }
     }
+  },
+  "platformStory": {
+    "eyebrow": "The Scerv point of view",
+    "title": "Restaurants do not need another disconnected app.",
+    "intro": "The dining room is a live system. A reservation affects the host stand. The host stand affects the table. The table affects the kitchen. The meal affects the review, the reward, and the next visit. Scerv is being built around that full loop.",
+    "steps": [
+      {
+        "step": "Arrival",
+        "title": "Reservations, waitlist, and host check-in",
+        "copy": "Let guests request the right experience while the restaurant controls rules, capacity, party flow, and table readiness."
+      },
+      {
+        "step": "Service",
+        "title": "Parties, tables, servers, and kitchen flow",
+        "copy": "Keep the front and back of house aligned as guests order, staff route items, tables move, and service pressure rises."
+      },
+      {
+        "step": "Checkout",
+        "title": "Payments, discounts, refunds, and receipts",
+        "copy": "Make payment easier for guests while giving operators clearer records of fees, taxes, gratuity, promos, and payouts."
+      },
+      {
+        "step": "Return",
+        "title": "Reviews, rewards, offers, and guest memory",
+        "copy": "Turn every meal into better dish feedback, stronger loyalty signals, and more precise reasons for guests to come back."
+      }
+    ],
+    "operatorLine": "Scerv should feel invisible to the guest when service is great, and indispensable to the operator when the room gets complicated.",
+    "badge": "Built for real service"
   },
   "features": {
     "restaurants": {
@@ -46,8 +90,8 @@
     }
   },
   "solutions": {
-    "title": "One platform for the full dining room journey",
-    "subtitle": "Scerv supports the moments that matter most: arrival, ordering, service, payment, feedback, and the next visit.",
+    "title": "The workflows restaurants actually fight every night",
+    "subtitle": "Scerv is designed around the moments where service breaks down, margins leak, and guests decide whether they are coming back.",
     "tabs": {
       "foh": "Front of House",
       "boh": "Back of House",
@@ -55,16 +99,16 @@
     },
     "content": {
       "foh": {
-        "headline": "Host, seat, serve, and recover with more control",
-        "desc": "Give hosts and service teams a cleaner view of check-ins, parties, tables, reservations, and next actions. The goal is not to replace hospitality. It is to remove the friction that keeps staff from delivering it."
+        "headline": "A calmer host stand and a smarter dining room",
+        "desc": "Track reservation intent, check-in requests, party status, table readiness, server assignment, and next actions in one place. The point is not to make service robotic. It is to give the team enough clarity to be warmer, faster, and more composed."
       },
       "boh": {
-        "headline": "Keep order flow clear when the room gets busy",
-        "desc": "Organize order routing, item status, table activity, and kitchen communication so teams can protect accuracy during high-pressure service periods."
+        "headline": "Protect the kitchen when the room gets loud",
+        "desc": "Route items clearly, keep table context attached to orders, and reduce the messy handoffs that create mistakes during rushes, split checks, modifications, and late-stage service changes."
       },
       "guests": {
-        "headline": "Make the guest feel known before, during, and after the meal",
-        "desc": "Help guests discover the right dishes, join parties, request service, pay with less waiting, leave feedback, and return through rewards and targeted offers."
+        "headline": "Make guests feel known without being creepy",
+        "desc": "Help people find the right dish, join a party, check out without waiting, leave useful feedback, earn meaningful rewards, and return because the restaurant remembered what mattered."
       }
     }
   },
@@ -83,8 +127,8 @@
     "rights": "All rights reserved."
   },
   "cta": {
-    "headline": "Build a restaurant experience guests remember.",
-    "subheadline": "Scerv is partnering with ambitious restaurants ready to modernize service, improve visibility, and grow repeat guest relationships.",
+    "headline": "Build the restaurant guests come back to.",
+    "subheadline": "We are looking for serious operators who want cleaner service, sharper guest memory, and better control over the full dining room journey.",
     "primaryBtn": "Request a Demo",
     "secondaryBtn": "Contact Sales"
   },

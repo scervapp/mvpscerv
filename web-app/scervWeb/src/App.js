@@ -16,6 +16,7 @@ import Header from "./components/Header";
 import Footer from "./components/Footer";
 import Hero from "./components/Hero";
 import Solutions from "./components/Solutions";
+import PlatformStory from "./components/PlatformStory";
 import CallToAction from "./components/CallToAction";
 
 // Pages
@@ -91,6 +92,7 @@ const App = () => {
 									element={
 										<>
 											<Hero />
+											<PlatformStory />
 											<Solutions />
 											<CallToAction />
 										</>

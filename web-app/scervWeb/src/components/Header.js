@@ -27,6 +27,7 @@ const Container = styled.div`
 const LogoLink = styled(Link)`
 	align-items: center;
 	display: flex;
+	gap: 10px;
 	text-decoration: none;
 	z-index: 101;
 `;
@@ -40,6 +41,30 @@ const Logo = styled.img`
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
 		height: 46px;
 		width: 46px;
+	}
+`;
+
+const BrandText = styled.span`
+	color: ${({ theme }) => theme.colors.text};
+	display: flex;
+	flex-direction: column;
+	font-family: ${({ theme }) => theme.fonts.heading};
+	font-weight: 800;
+	letter-spacing: 0;
+	line-height: 1;
+
+	small {
+		color: ${({ theme }) => theme.colors.textLight};
+		font-family: ${({ theme }) => theme.fonts.body};
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0;
+		margin-top: 4px;
+		text-transform: uppercase;
+	}
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+		display: none;
 	}
 `;
 
@@ -194,6 +219,10 @@ const Header = () => {
 			<Container>
 				<LogoLink to="/" onClick={closeMenu}>
 					<Logo src={logo} alt="Scerv Logo" />
+					<BrandText>
+						Scerv
+						<small>Hospitality OS</small>
+					</BrandText>
 				</LogoLink>
 
 				<MobileMenuIcon onClick={() => setIsOpen(!isOpen)}>

@@ -7,25 +7,69 @@
   },
   "hero": {
     "eyebrow": "Creado para la hospitalidad de Nueva York",
-    "headline": "Operaciones modernas de restaurante, conectadas.",
-    "subheadline": "Scerv ayuda a restaurantes en Brooklyn, Manhattan, Queens y mas a conectar reservas, check-ins, pedidos, pagos, recompensas, resenas y visibilidad operativa en una experiencia pulida.",
+    "headline": "Controla el salon. Recuerda al cliente.",
+    "subheadline": "Scerv conecta reservas, check-ins, servicio de mesa, pedidos, pago, resenas, recompensas y reportes para que los restaurantes se muevan mas rapido sin hacer que la hospitalidad se sienta automatica.",
     "intro": "Scerv ofrece a los equipos una forma mas clara de servir, entender la demanda y crear visitas repetidas sin sumar herramientas desconectadas.",
     "requestDemoBtn": "Solicitar Demo",
     "resourcesBtn": "Ver Recursos",
+    "panel": {
+      "label": "Capa de control del salon",
+      "arrival": {
+        "title": "Llegada",
+        "desc": "Reservas, waitlist, check-ins, grupos y estado de mesas."
+      },
+      "service": {
+        "title": "Servicio",
+        "desc": "Pedidos, visibilidad de cocina, pago, resenas y claridad para staff."
+      },
+      "retention": {
+        "title": "Retencion",
+        "desc": "Recompensas, ofertas, historial del cliente y senales de regreso."
+      }
+    },
     "proof": {
       "service": {
-        "title": "Flujos pensados para servicio",
-        "desc": "Apoya a anfitriones, meseros, cocina y clientes sin hacer que la hospitalidad se sienta automatica."
+        "title": "El servicio sigue humano",
+        "desc": "Da mejores senales a hosts, meseros y cocina para que el equipo pase mas tiempo con los clientes."
       },
       "guest": {
-        "title": "Memoria del cliente",
-        "desc": "Convierte descubrimiento, resenas, recompensas y visitas repetidas en una relacion mas fuerte."
+        "title": "El cliente se recuerda",
+        "desc": "Conecta descubrimiento, resenas, recompensas y visitas repetidas en una relacion que el restaurante puede crecer."
       },
       "operator": {
-        "title": "Claridad operativa",
-        "desc": "Da a propietarios y gerentes mejor visibilidad sobre ventas, servicio, lealtad y soporte."
+        "title": "El operador ve el salon",
+        "desc": "Muestra patrones de ventas, servicio, lealtad, descuentos, reembolsos y soporte."
       }
     }
+  },
+  "platformStory": {
+    "eyebrow": "La perspectiva Scerv",
+    "title": "Los restaurantes no necesitan otra app desconectada.",
+    "intro": "El salon es un sistema vivo. Una reserva afecta el host stand. El host stand afecta la mesa. La mesa afecta la cocina. La comida afecta la resena, la recompensa y la proxima visita. Scerv se construye alrededor de ese ciclo completo.",
+    "steps": [
+      {
+        "step": "Llegada",
+        "title": "Reservas, waitlist y check-in",
+        "copy": "Permite que los clientes pidan la experiencia correcta mientras el restaurante controla reglas, capacidad, grupos y mesas listas."
+      },
+      {
+        "step": "Servicio",
+        "title": "Grupos, mesas, meseros y cocina",
+        "copy": "Mantiene alineados el salon y la cocina mientras los clientes ordenan, el equipo enruta items y la presion sube."
+      },
+      {
+        "step": "Pago",
+        "title": "Pagos, descuentos, reembolsos y recibos",
+        "copy": "Hace el pago mas simple para clientes y da mejores registros de fees, impuestos, propina, promos y payouts."
+      },
+      {
+        "step": "Regreso",
+        "title": "Resenas, recompensas, ofertas y memoria",
+        "copy": "Convierte cada comida en mejor feedback por plato, senales de lealtad y razones mas precisas para volver."
+      }
+    ],
+    "operatorLine": "Scerv debe sentirse invisible para el cliente cuando el servicio va bien, e indispensable para el operador cuando el salon se complica.",
+    "badge": "Creado para servicio real"
   },
   "features": {
     "restaurants": {
@@ -46,8 +90,8 @@
     }
   },
   "solutions": {
-    "title": "Una plataforma para todo el recorrido del comedor",
-    "subtitle": "Scerv apoya llegada, pedidos, servicio, pago, feedback y la proxima visita.",
+    "title": "Los flujos que los restaurantes enfrentan cada noche",
+    "subtitle": "Scerv esta disenado para los momentos donde el servicio se rompe, el margen se pierde y el cliente decide si vuelve.",
     "tabs": {
       "foh": "Salon",
       "boh": "Cocina",
@@ -55,16 +99,16 @@
     },
     "content": {
       "foh": {
-        "headline": "Mas control para recibir, sentar, servir y recuperar",
-        "desc": "Da a hosts y equipos de servicio una vista mas clara de check-ins, grupos, mesas, reservas y proximas acciones."
+        "headline": "Un host stand mas claro y un salon mas inteligente",
+        "desc": "Controla reservas, solicitudes de check-in, grupos, mesas listas, asignacion de servidor y proximas acciones en un solo lugar."
       },
       "boh": {
-        "headline": "Claridad cuando el restaurante se llena",
-        "desc": "Organiza pedidos, estados, actividad de mesas y comunicacion con cocina para proteger precision en momentos de alta presion."
+        "headline": "Protege la cocina cuando el salon se llena",
+        "desc": "Enruta items, mantiene contexto de mesa y reduce entregas confusas durante rushes, cuentas divididas, cambios y modificaciones."
       },
       "guests": {
-        "headline": "Haz que el cliente se sienta conocido",
-        "desc": "Ayuda a descubrir platos, unirse a grupos, pedir servicio, pagar con menos espera, dejar feedback y volver con recompensas."
+        "headline": "Haz que el cliente se sienta conocido sin sentirse vigilado",
+        "desc": "Ayuda a encontrar platos, unirse a grupos, pagar sin esperar, dejar feedback util, ganar recompensas y volver porque el restaurante recordo lo importante."
       }
     }
   },
@@ -83,8 +127,8 @@
     "rights": "Todos los derechos reservados."
   },
   "cta": {
-    "headline": "Construye una experiencia que los clientes recuerden.",
-    "subheadline": "Scerv trabaja con restaurantes listos para modernizar servicio, mejorar visibilidad y crecer relaciones con clientes recurrentes.",
+    "headline": "Construye el restaurante al que los clientes vuelven.",
+    "subheadline": "Buscamos operadores serios que quieren servicio mas claro, mejor memoria del cliente y mas control sobre todo el recorrido del salon.",
     "primaryBtn": "Solicitar Demo",
     "secondaryBtn": "Contactar Ventas"
   },
