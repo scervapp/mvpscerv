@@ -53,6 +53,50 @@ const calculateCloseoutTotalsCents = (items = [], taxRate = 0) => {
 	return { subtotalCents, taxAmountCents };
 };
 
+const getActivePromotionDiscount = (basketData = {}) => {
+	const discount = basketData.activePromotionDiscount || null;
+	return discount?.status === "active" ? discount : null;
+};
+
+const getActivePromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
+	if (!activePromotionDiscount) return 0;
+	const requestedDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.appliedDiscountCents || 0)),
+	);
+	const maxDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.maxDiscountCents || 0)),
+	);
+	const cappedDiscount =
+		maxDiscount > 0 ? Math.min(requestedDiscount, maxDiscount) : requestedDiscount;
+	return Math.min(Math.max(0, Number(subtotalCents || 0)), cappedDiscount);
+};
+
+const applyActivePromotionDiscount = ({
+	totals,
+	activePromotionDiscount,
+	taxRate,
+}) => {
+	const promotionDiscountCents = getActivePromotionDiscountCents(
+		activePromotionDiscount,
+		totals.subtotalCents,
+	);
+	if (promotionDiscountCents <= 0) {
+		return { ...totals, promotionDiscountCents: 0 };
+	}
+
+	return {
+		...totals,
+		subtotalCents: Math.max(0, totals.subtotalCents - promotionDiscountCents),
+		taxAmountCents: Math.max(
+			0,
+			totals.taxAmountCents - Math.round(promotionDiscountCents * taxRate),
+		),
+		promotionDiscountCents,
+	};
+};
+
 const DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE = 0.03;
 
 const normalizePercentage = (value, fallback = 0) => {
@@ -97,15 +141,60 @@ const isCustomerAppInitiatedItem = (item = {}) =>
 		item.orderedByPipName?.startsWith("Server:")
 	);
 
+const getPromotionDisplayLabel = (promotion = {}) => {
+	if (promotion.title) return promotion.title;
+	if (promotion.promotionType === "discount_percent") {
+		const percent = Number(promotion.promotionValue || promotion.value || 0);
+		const maxCents = Number(promotion.maxDiscountCents || 0);
+		return `${percent}% off${maxCents > 0 ? ` up to $${(maxCents / 100).toFixed(0)}` : ""}`;
+	}
+	if (promotion.promotionType === "free_item") {
+		return promotion.itemLabel || "Free item";
+	}
+	return promotion.rewardLabel || "Scerv promotion";
+};
+
+const calculatePromotionDiscountCents = (promotion = {}, eligibleSubtotalCents = 0) => {
+	const subtotalCents = Math.max(0, Number(eligibleSubtotalCents || 0));
+	const maxDiscountCents = Math.max(
+		0,
+		Number(promotion.maxDiscountCents || promotion.maxValueCents || 0),
+	);
+
+	if (promotion.promotionType === "discount_percent") {
+		const percent = Math.max(
+			0,
+			Number(promotion.promotionValue || promotion.value || 0),
+		);
+		const calculated = Math.round(subtotalCents * (percent / 100));
+		return maxDiscountCents > 0 ? Math.min(calculated, maxDiscountCents) : calculated;
+	}
+	if (promotion.promotionType === "discount_amount") {
+		const amountCents = Math.round(
+			Number(promotion.promotionValue || promotion.value || 0) * 100,
+		);
+		return Math.min(subtotalCents, Math.max(0, amountCents));
+	}
+	if (promotion.promotionType === "free_item") {
+		return Math.min(subtotalCents, maxDiscountCents);
+	}
+	return maxDiscountCents;
+};
+
 const calculateCustomerServiceFeeCents = ({
 	items = [],
 	taxRate = 0,
 	feePercentage = DEFAULT_CUSTOMER_SERVICE_FEE_PERCENTAGE,
+	activePromotionDiscount = null,
 }) => {
-	const customerAppTotals = calculateCloseoutTotalsCents(
-		items.filter(isCustomerAppInitiatedItem),
+	const customerAppTotals = applyActivePromotionDiscount({
+		totals: calculateCloseoutTotalsCents(
+			items.filter(isCustomerAppInitiatedItem),
+			taxRate,
+		),
+		activePromotionDiscount,
 		taxRate,
-	);
+	});
 	const basisAmount =
 		customerAppTotals.subtotalCents + customerAppTotals.taxAmountCents;
 
@@ -124,6 +213,7 @@ const ManagePartyScreen = () => {
 
 	const [partyData, setPartyData] = useState(null);
 	const [basketItems, setBasketItems] = useState([]);
+	const [activePromotionDiscount, setActivePromotionDiscount] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isClosing, setIsClosing] = useState(false);
 	const [receiptEmail, setReceiptEmail] = useState("");
@@ -138,6 +228,11 @@ const ManagePartyScreen = () => {
 	const [selectedCloseoutSeatIds, setSelectedCloseoutSeatIds] = useState([]);
 	const [isTicketSummaryCollapsed, setIsTicketSummaryCollapsed] =
 		useState(true);
+	const [guestClub, setGuestClub] = useState(null);
+	const [guestPromotions, setGuestPromotions] = useState([]);
+	const [isLoadingGuestClub, setIsLoadingGuestClub] = useState(false);
+	const [redeemingRewardId, setRedeemingRewardId] = useState(null);
+	const [redeemingPromotionId, setRedeemingPromotionId] = useState(null);
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
 	const goToActiveTables = () => {
@@ -176,9 +271,12 @@ const ManagePartyScreen = () => {
 
 		const unsubscribeBasket = onSnapshot(basketRef, (snapshot) => {
 			if (snapshot.exists) {
-				setBasketItems(snapshot.data().items || []);
+				const basketData = snapshot.data() || {};
+				setBasketItems(basketData.items || []);
+				setActivePromotionDiscount(getActivePromotionDiscount(basketData));
 			} else {
 				setBasketItems([]);
+				setActivePromotionDiscount(null);
 			}
 			setIsLoading(false);
 		});
@@ -219,6 +317,71 @@ const ManagePartyScreen = () => {
 
 		loadPricingTiers();
 	}, []);
+
+	useEffect(() => {
+		const restaurantId = partyData?.restaurantId || currentUserData?.uid;
+		const customerId =
+			partyData?.hostUserId || partyData?.customerId || partyData?.currentCustomerId;
+		if (!restaurantId || !customerId) {
+			setGuestClub(null);
+			setGuestPromotions([]);
+			setIsLoadingGuestClub(false);
+			return undefined;
+		}
+
+		setIsLoadingGuestClub(true);
+		const clubRef = db
+			.collection("customers")
+			.doc(customerId)
+			.collection("restaurantClubs")
+			.doc(restaurantId);
+		const promotionsRef = db
+			.collection("customers")
+			.doc(customerId)
+			.collection("promotions")
+			.where("restaurantId", "in", [restaurantId, "global"]);
+		const unsubscribeClub = clubRef.onSnapshot(
+			(snapshot) => {
+				setGuestClub(snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null);
+				setIsLoadingGuestClub(false);
+			},
+			(error) => {
+				console.error("ManageParty: Failed to load guest rewards:", error);
+				setGuestClub(null);
+				setIsLoadingGuestClub(false);
+			},
+		);
+		const unsubscribePromotions = promotionsRef.onSnapshot(
+			(snapshot) => {
+				setGuestPromotions(
+					snapshot.docs
+						.map((doc) => ({ id: doc.id, ...doc.data() }))
+						.filter((promotion) => {
+							return (
+								(!promotion.status || promotion.status === "available") &&
+								(promotion.restaurantId === "global" ||
+									promotion.restaurantId === restaurantId)
+							);
+						}),
+				);
+			},
+			(error) => {
+				console.error("ManageParty: Failed to load guest promotions:", error);
+				setGuestPromotions([]);
+			},
+		);
+
+		return () => {
+			unsubscribeClub();
+			unsubscribePromotions();
+		};
+	}, [
+		currentUserData?.uid,
+		partyData?.customerId,
+		partyData?.currentCustomerId,
+		partyData?.hostUserId,
+		partyData?.restaurantId,
+	]);
 
 	// 2. Filter & Group Items
 	const officiallyOrderedItems = useMemo(() => {
@@ -355,11 +518,18 @@ const ManagePartyScreen = () => {
 	}, [currentUserData?.taxRate, restaurantDetails?.taxRate]);
 
 	const tableTotalsCents = useMemo(
-		() => calculateCloseoutTotalsCents(unpaidOrderedItems, restaurantTaxRate),
-		[restaurantTaxRate, unpaidOrderedItems],
+		() =>
+			applyActivePromotionDiscount({
+				totals: calculateCloseoutTotalsCents(unpaidOrderedItems, restaurantTaxRate),
+				activePromotionDiscount,
+				taxRate: restaurantTaxRate,
+			}),
+		[activePromotionDiscount, restaurantTaxRate, unpaidOrderedItems],
 	);
 	const tableTotal = tableTotalsCents.subtotalCents / 100;
 	const taxTotal = tableTotalsCents.taxAmountCents / 100;
+	const promotionDiscountTotal =
+		Number(tableTotalsCents.promotionDiscountCents || 0) / 100;
 
 	// 3. Handlers
 	const handleCloseTable = () => {
@@ -393,11 +563,21 @@ const ManagePartyScreen = () => {
 	}, [selectedCloseoutSeatIds, unpaidOrderedItems]);
 
 	const closeoutTotalsCents = useMemo(
-		() => calculateCloseoutTotalsCents(selectedCloseoutItems, restaurantTaxRate),
-		[restaurantTaxRate, selectedCloseoutItems],
+		() =>
+			applyActivePromotionDiscount({
+				totals: calculateCloseoutTotalsCents(
+					selectedCloseoutItems,
+					restaurantTaxRate,
+				),
+				activePromotionDiscount,
+				taxRate: restaurantTaxRate,
+			}),
+		[activePromotionDiscount, restaurantTaxRate, selectedCloseoutItems],
 	);
 	const closeoutSubtotal = closeoutTotalsCents.subtotalCents / 100;
 	const closeoutTaxTotal = closeoutTotalsCents.taxAmountCents / 100;
+	const closeoutPromotionDiscount =
+		Number(closeoutTotalsCents.promotionDiscountCents || 0) / 100;
 
 	const selectedSeatBreakdown = useMemo(() => {
 		const selectedSet = new Set(selectedCloseoutSeatIds);
@@ -415,8 +595,14 @@ const ManagePartyScreen = () => {
 				items: unpaidOrderedItems,
 				taxRate: restaurantTaxRate,
 				feePercentage: customerServiceFeePercentage,
+				activePromotionDiscount,
 			}),
-		[customerServiceFeePercentage, restaurantTaxRate, unpaidOrderedItems],
+		[
+			activePromotionDiscount,
+			customerServiceFeePercentage,
+			restaurantTaxRate,
+			unpaidOrderedItems,
+		],
 	);
 	const closeoutServiceFeeTotalCents = useMemo(
 		() =>
@@ -424,8 +610,14 @@ const ManagePartyScreen = () => {
 				items: selectedCloseoutItems,
 				taxRate: restaurantTaxRate,
 				feePercentage: customerServiceFeePercentage,
+				activePromotionDiscount,
 			}),
-		[customerServiceFeePercentage, restaurantTaxRate, selectedCloseoutItems],
+		[
+			activePromotionDiscount,
+			customerServiceFeePercentage,
+			restaurantTaxRate,
+			selectedCloseoutItems,
+		],
 	);
 	const serviceFeeTotal = serviceFeeTotalCents / 100;
 	const closeoutServiceFeeTotal = closeoutServiceFeeTotalCents / 100;
@@ -433,6 +625,15 @@ const ManagePartyScreen = () => {
 	const grandTotal = useMemo(() => {
 		return tableTotal + taxTotal + gratuityTotal + serviceFeeTotal;
 	}, [tableTotal, taxTotal, gratuityTotal, serviceFeeTotal]);
+	const tablePulse = useMemo(
+		() => ({
+			openItems: unpaidOrderedItems.length,
+			seats: seatSummaries.length,
+			paid: paidSubtotal,
+			due: grandTotal,
+		}),
+		[grandTotal, paidSubtotal, seatSummaries.length, unpaidOrderedItems.length],
+	);
 	const closeoutGrandTotalCents = useMemo(
 		() =>
 			closeoutTotalsCents.subtotalCents +
@@ -632,7 +833,6 @@ const ManagePartyScreen = () => {
 			setIsCloseoutModalVisible(false);
 			setTipInput("");
 			setCashReceivedInput("");
-			setExternalReference("");
 			setCloseoutNotes("");
 			setSelectedCloseoutSeatIds([]);
 			const isFinalCloseout = result?.data?.isFinalCloseout !== false;
@@ -684,6 +884,131 @@ const ManagePartyScreen = () => {
 					? seatSummaries.map((seat) => ({ id: seat.id, name: seat.name }))
 					: partyData.staffOrderSeats || [],
 		});
+	};
+
+	const availableRewards = useMemo(() => {
+		const rewards = Array.isArray(guestClub?.unlockedRewards)
+			? guestClub.unlockedRewards
+			: [];
+		return rewards.filter((reward) => reward.status !== "redeemed");
+	}, [guestClub?.unlockedRewards]);
+	const availablePromotions = useMemo(
+		() => guestPromotions.filter((promotion) => promotion.status !== "redeemed"),
+		[guestPromotions],
+	);
+
+	const handleRedeemReward = async (reward) => {
+		const restaurantId = partyData?.restaurantId || currentUserData?.uid;
+		const customerId =
+			partyData?.hostUserId || partyData?.customerId || partyData?.currentCustomerId;
+		const rewardId = reward?.id || reward?.tierId || reward?.rewardLabel;
+		if (!restaurantId || !customerId || !rewardId) {
+			Alert.alert(
+				t("reward_unavailable", "Reward unavailable"),
+				t("could_not_identify_reward", "Could not identify this guest reward."),
+			);
+			return;
+		}
+
+		Alert.alert(
+			t("redeem_reward", "Redeem reward?"),
+			reward.rewardLabel || reward.tierName || t("restaurant_perk", "Restaurant perk"),
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("redeem", "Redeem"),
+					onPress: async () => {
+						setRedeemingRewardId(rewardId);
+						try {
+							const redeemReward = httpsCallable(
+								functions,
+								"redeemRestaurantReward",
+							);
+							await redeemReward({
+								restaurantId,
+								customerId,
+								rewardId,
+								partyId,
+							});
+							Alert.alert(
+								t("reward_redeemed", "Reward redeemed"),
+								t("guest_perk_marked_redeemed", "The guest perk was marked redeemed."),
+							);
+						} catch (error) {
+							console.error("Reward redemption failed:", error);
+							Alert.alert(
+								t("could_not_redeem", "Could not redeem"),
+								error.message || t("please_try_again", "Please try again."),
+							);
+						} finally {
+							setRedeemingRewardId(null);
+						}
+					},
+				},
+			],
+		);
+	};
+
+	const handleRedeemPromotion = async (promotion) => {
+		const restaurantId = partyData?.restaurantId || currentUserData?.uid;
+		const customerId =
+			partyData?.hostUserId || partyData?.customerId || partyData?.currentCustomerId;
+		const promotionId = promotion?.id;
+		const eligibleSubtotalCents = tableTotalsCents.subtotalCents;
+		const appliedDiscountCents = calculatePromotionDiscountCents(
+			promotion,
+			eligibleSubtotalCents,
+		);
+		if (!restaurantId || !customerId || !promotionId) {
+			Alert.alert(
+				t("promotion_unavailable", "Promotion unavailable"),
+				t("could_not_identify_promotion", "Could not identify this guest promotion."),
+			);
+			return;
+		}
+
+		Alert.alert(
+			t("redeem_promotion", "Redeem promotion?"),
+			getPromotionDisplayLabel(promotion),
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("redeem", "Redeem"),
+					onPress: async () => {
+						setRedeemingPromotionId(promotionId);
+						try {
+							const redeemPromotion = httpsCallable(
+								functions,
+								"redeemCustomerPromotion",
+							);
+							await redeemPromotion({
+								restaurantId,
+								customerId,
+								promotionId,
+								partyId,
+								eligibleSubtotalCents,
+								appliedDiscountCents,
+							});
+							Alert.alert(
+								t("promotion_redeemed", "Promotion redeemed"),
+								t(
+									"promotion_marked_for_reconciliation",
+									"The promotion was marked redeemed for reconciliation.",
+								),
+							);
+						} catch (error) {
+							console.error("Promotion redemption failed:", error);
+							Alert.alert(
+								t("could_not_redeem", "Could not redeem"),
+								error.message || t("please_try_again", "Please try again."),
+							);
+						} finally {
+							setRedeemingPromotionId(null);
+						}
+					},
+				},
+			],
+		);
 	};
 
 	// 4. Render Layouts
@@ -855,11 +1180,35 @@ const ManagePartyScreen = () => {
 				</View>
 				{permissions.canEnterStaffOrders ? (
 					<TouchableOpacity onPress={handleAddItemManually} style={styles.addBtn}>
-						<Ionicons name="add" size={24} color={colors.primary} />
+						<Ionicons name="add" size={18} color={colors.surfaceWhite} />
+						<Text style={styles.addBtnText}>{t("add", "Add")}</Text>
 					</TouchableOpacity>
 				) : (
-					<View style={{ width: 34 }} />
+					<View style={styles.headerSpacer} />
 				)}
+			</View>
+
+			<View style={styles.tablePulseRow}>
+				<View style={styles.tablePulseTile}>
+					<Text style={styles.tablePulseValue}>{tablePulse.openItems}</Text>
+					<Text style={styles.tablePulseLabel}>{t("items", "Items")}</Text>
+				</View>
+				<View style={styles.tablePulseTile}>
+					<Text style={styles.tablePulseValue}>{tablePulse.seats}</Text>
+					<Text style={styles.tablePulseLabel}>{t("seats", "Seats")}</Text>
+				</View>
+				<View style={styles.tablePulseTile}>
+					<Text style={[styles.tablePulseValue, styles.paidPulseValue]}>
+						{formatCurrencyFromDollars(tablePulse.paid)}
+					</Text>
+					<Text style={styles.tablePulseLabel}>{t("paid", "Paid")}</Text>
+				</View>
+				<View style={styles.tablePulseTile}>
+					<Text style={[styles.tablePulseValue, styles.duePulseValue]}>
+						{formatCurrencyFromDollars(tablePulse.due)}
+					</Text>
+					<Text style={styles.tablePulseLabel}>{t("due", "Due")}</Text>
+				</View>
 			</View>
 
 			{/* ORDER LIST */}
@@ -868,6 +1217,138 @@ const ManagePartyScreen = () => {
 				keyExtractor={(item, index) => item.id || index.toString()}
 				renderItem={renderOrderItem}
 				renderSectionHeader={renderSectionHeader}
+				ListHeaderComponent={
+					<View style={styles.rewardsPanel}>
+						<View style={styles.rewardsPanelHeader}>
+							<View>
+								<Text style={styles.rewardsPanelTitle}>
+									{t("guest_rewards", "Guest Rewards")}
+								</Text>
+								<Text style={styles.rewardsPanelSubtitle}>
+									{guestClub?.programName ||
+										t("restaurant_club", "Restaurant Club")}
+								</Text>
+							</View>
+							<View style={styles.rewardsStatusPill}>
+								<Text style={styles.rewardsStatusText}>
+									{guestClub?.currentTierName ||
+										t("new_guest", "New Guest")}
+								</Text>
+							</View>
+						</View>
+
+						{isLoadingGuestClub ? (
+							<ActivityIndicator color={colors.primary} />
+						) : availableRewards.length > 0 || availablePromotions.length > 0 ? (
+							<>
+								{availablePromotions.slice(0, 3).map((promotion) => {
+									const isRedeeming = redeemingPromotionId === promotion.id;
+									const estimatedValueCents = calculatePromotionDiscountCents(
+										promotion,
+										tableTotalsCents.subtotalCents,
+									);
+									return (
+										<View key={promotion.id} style={styles.rewardRow}>
+											<View style={styles.rewardIcon}>
+												<Ionicons
+													name="ticket-outline"
+													size={17}
+													color={colors.primary}
+												/>
+											</View>
+											<View style={styles.rewardTextWrap}>
+												<Text style={styles.rewardTitle}>
+													{getPromotionDisplayLabel(promotion)}
+												</Text>
+												<Text style={styles.rewardMeta}>
+													{promotion.fundedBy
+														? `Promo · funded by ${promotion.fundedBy}`
+														: t("promotion", "Promotion")}
+													{estimatedValueCents > 0
+														? ` · est. ${formatCurrencyFromDollars(
+																estimatedValueCents / 100,
+															)}`
+														: ""}
+												</Text>
+											</View>
+											<TouchableOpacity
+												style={[
+													styles.redeemButton,
+													isRedeeming && styles.redeemButtonDisabled,
+												]}
+												onPress={() => handleRedeemPromotion(promotion)}
+												disabled={isRedeeming}
+											>
+												{isRedeeming ? (
+													<ActivityIndicator color="#fff" size="small" />
+												) : (
+													<Text style={styles.redeemButtonText}>
+														{t("redeem", "Redeem")}
+													</Text>
+												)}
+											</TouchableOpacity>
+										</View>
+									);
+								})}
+								{availableRewards.slice(0, 3).map((reward) => {
+									const rewardId =
+										reward?.id || reward?.tierId || reward?.rewardLabel;
+									const isRedeeming = redeemingRewardId === rewardId;
+									return (
+										<View key={rewardId} style={styles.rewardRow}>
+											<View style={styles.rewardIcon}>
+												<Ionicons
+													name="sparkles-outline"
+													size={17}
+													color={colors.primary}
+												/>
+											</View>
+											<View style={styles.rewardTextWrap}>
+												<Text style={styles.rewardTitle}>
+													{reward.rewardLabel ||
+														reward.tierName ||
+														t("restaurant_perk", "Restaurant perk")}
+												</Text>
+												<Text style={styles.rewardMeta}>
+													{reward.tierName ||
+														t("available_perk", "Available perk")}
+												</Text>
+											</View>
+											<TouchableOpacity
+												style={[
+													styles.redeemButton,
+													isRedeeming && styles.redeemButtonDisabled,
+												]}
+												onPress={() => handleRedeemReward(reward)}
+												disabled={isRedeeming}
+											>
+												{isRedeeming ? (
+													<ActivityIndicator color="#fff" size="small" />
+												) : (
+													<Text style={styles.redeemButtonText}>
+														{t("redeem", "Redeem")}
+													</Text>
+												)}
+											</TouchableOpacity>
+										</View>
+									);
+								})}
+							</>
+						) : (
+							<Text style={styles.rewardsEmptyText}>
+								{guestClub
+									? t(
+											"no_available_rewards",
+											"No available perks for this guest yet.",
+										)
+									: t(
+											"no_guest_club_progress",
+											"No restaurant club progress for this guest yet.",
+										)}
+							</Text>
+						)}
+					</View>
+				}
 				contentContainerStyle={[
 					styles.listContent,
 					isTicketSummaryCollapsed && styles.listContentCollapsed,
@@ -902,6 +1383,12 @@ const ManagePartyScreen = () => {
 								{formatCurrencyFromDollars(serviceFeeTotal)}
 							</Text>
 						)}
+						{promotionDiscountTotal > 0 && (
+							<Text style={styles.footerCompactSubAmount}>
+								{t("promo_applied", "Promo applied")} -{" "}
+								{formatCurrencyFromDollars(promotionDiscountTotal)}
+							</Text>
+						)}
 					</View>
 					<Ionicons
 						name={
@@ -924,6 +1411,17 @@ const ManagePartyScreen = () => {
 							{formatCurrencyFromDollars(tableTotal)}
 						</Text>
 					</View>
+
+					{promotionDiscountTotal > 0 && (
+						<View style={styles.summaryRow}>
+							<Text style={styles.summaryLabel}>
+								{t("promotion_discount", "Promotion Discount")}:
+							</Text>
+							<Text style={[styles.summaryValue, styles.discountText]}>
+								-{formatCurrencyFromDollars(promotionDiscountTotal)}
+							</Text>
+						</View>
+					)}
 
 					<View style={styles.summaryRow}>
 						<Text style={styles.summaryLabel}>{t("tax", "Tax")}:</Text>
@@ -1199,6 +1697,16 @@ const ManagePartyScreen = () => {
 									{formatCurrencyFromDollars(closeoutSubtotal)}
 								</Text>
 							</View>
+							{closeoutPromotionDiscount > 0 && (
+								<View style={styles.summaryRow}>
+									<Text style={styles.summaryLabel}>
+										{t("promotion_discount", "Promotion Discount")}
+									</Text>
+									<Text style={[styles.summaryValue, styles.discountText]}>
+										-{formatCurrencyFromDollars(closeoutPromotionDiscount)}
+									</Text>
+								</View>
+							)}
 							<View style={styles.summaryRow}>
 								<View>
 									<Text style={styles.summaryLabel}>{t("tax", "Tax")}</Text>
@@ -1366,23 +1874,89 @@ const styles = StyleSheet.create({
 	header: {
 		flexDirection: "row",
 		alignItems: "center",
-		padding: 15,
+		paddingHorizontal: 14,
+		paddingVertical: 12,
 		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
-	backBtn: { padding: 5 },
-	headerTitles: { flex: 1, alignItems: "center" },
-	tableName: { fontSize: 20, fontWeight: "bold", color: colors.textDark },
-	serverName: { fontSize: 14, color: colors.textMedium },
-	addBtn: {
-		padding: 5,
-		backgroundColor: colors.primary + "15",
+	backBtn: {
+		width: 38,
+		height: 38,
 		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	headerTitles: { flex: 1, alignItems: "center" },
+	tableName: { fontSize: 21, fontWeight: "900", color: colors.textDark },
+	serverName: {
+		fontSize: 12,
+		color: colors.textMedium,
+		fontWeight: "800",
+		marginTop: 2,
+	},
+	addBtn: {
+		minWidth: 62,
+		height: 38,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+		borderRadius: 8,
+		paddingHorizontal: 10,
+	},
+	addBtnText: {
+		color: colors.surfaceWhite,
+		fontWeight: "900",
+		fontSize: 13,
+		marginLeft: 4,
+	},
+	headerSpacer: {
+		width: 62,
+	},
+	tablePulseRow: {
+		flexDirection: "row",
+		paddingHorizontal: 10,
+		paddingTop: 10,
+		paddingBottom: 4,
+		backgroundColor: colors.backgroundLight,
+	},
+	tablePulseTile: {
+		flex: 1,
+		minHeight: 62,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 8,
+		justifyContent: "center",
+		marginHorizontal: 4,
+	},
+	tablePulseValue: {
+		fontSize: 17,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	paidPulseValue: {
+		color: colors.statusSuccess,
+		fontSize: 14,
+	},
+	duePulseValue: {
+		color: colors.primary,
+		fontSize: 14,
+	},
+	tablePulseLabel: {
+		fontSize: 10,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginTop: 3,
 	},
 
 	// List & Sections
-	listContent: { padding: 15, paddingBottom: 250 },
+	listContent: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 250 },
 	listContentCollapsed: { paddingBottom: 132 },
 	emptyText: {
 		textAlign: "center",
@@ -1390,47 +1964,138 @@ const styles = StyleSheet.create({
 		marginTop: 40,
 		fontSize: 16,
 	},
+	rewardsPanel: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+		marginTop: 6,
+		marginBottom: 8,
+	},
+	rewardsPanelHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 10,
+	},
+	rewardsPanelTitle: {
+		fontSize: 15,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	rewardsPanelSubtitle: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	rewardsStatusPill: {
+		backgroundColor: "#eef6ff",
+		borderRadius: 8,
+		paddingHorizontal: 9,
+		paddingVertical: 6,
+	},
+	rewardsStatusText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+	},
+	rewardRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 10,
+		marginTop: 8,
+	},
+	rewardIcon: {
+		width: 34,
+		height: 34,
+		borderRadius: 8,
+		backgroundColor: "#eef6ff",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 9,
+	},
+	rewardTextWrap: { flex: 1 },
+	rewardTitle: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	rewardMeta: {
+		fontSize: 11,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	redeemButton: {
+		minHeight: 34,
+		minWidth: 74,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: 10,
+	},
+	redeemButtonDisabled: { opacity: 0.72 },
+	redeemButtonText: {
+		color: colors.surfaceWhite,
+		fontSize: 12,
+		fontWeight: "900",
+	},
+	rewardsEmptyText: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		lineHeight: 17,
+	},
 	sectionHeader: {
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		paddingVertical: 10,
-		paddingHorizontal: 5,
-		marginTop: 15,
+		paddingVertical: 9,
+		paddingHorizontal: 2,
+		marginTop: 12,
 		marginBottom: 5,
-		borderBottomWidth: 2,
+		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
 	sectionHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-	sectionTitle: { fontSize: 18, fontWeight: "bold", color: colors.textDark },
-	sectionSubtotal: { fontSize: 18, fontWeight: "900", color: colors.primary },
+	sectionTitle: { fontSize: 15, fontWeight: "900", color: colors.textDark },
+	sectionSubtotal: { fontSize: 15, fontWeight: "900", color: colors.primary },
 
 	// Item Row
 	itemRow: {
 		flexDirection: "row",
 		backgroundColor: colors.surfaceWhite,
-		padding: 12,
-		borderRadius: 10,
+		padding: 11,
+		borderRadius: 8,
 		marginBottom: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.05,
+		shadowOpacity: 0.03,
 		elevation: 1,
 	},
 	itemQtyBox: {
-		backgroundColor: colors.backgroundMedium,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
 		borderRadius: 6,
-		width: 35,
-		height: 35,
+		width: 34,
+		height: 34,
 		justifyContent: "center",
 		alignItems: "center",
-		marginRight: 12,
+		marginRight: 10,
 	},
-	itemQtyText: { fontWeight: "bold", fontSize: 16, color: colors.textDark },
+	itemQtyText: { fontWeight: "900", fontSize: 15, color: colors.textDark },
 	itemDetails: { flex: 1, justifyContent: "center" },
 	itemName: {
-		fontSize: 16,
-		fontWeight: "600",
+		fontSize: 15,
+		fontWeight: "900",
 		color: colors.textDark,
 		marginBottom: 2,
 	},
@@ -1494,13 +2159,16 @@ const styles = StyleSheet.create({
 		left: 0,
 		right: 0,
 		backgroundColor: colors.surfaceWhite,
-		padding: 20,
+		paddingHorizontal: 16,
+		paddingTop: 14,
+		paddingBottom: 18,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: -3 },
-		shadowOpacity: 0.1,
-		elevation: 10,
+		shadowOffset: { width: 0, height: -2 },
+		shadowOpacity: 0.08,
+		shadowRadius: 6,
+		elevation: 8,
 	},
 	footerCompactHeader: {
 		flexDirection: "row",
@@ -1510,7 +2178,7 @@ const styles = StyleSheet.create({
 	},
 	footerCompactLabel: {
 		fontSize: 12,
-		fontWeight: "700",
+		fontWeight: "900",
 		color: colors.textMedium,
 		textTransform: "uppercase",
 	},
@@ -1529,10 +2197,10 @@ const styles = StyleSheet.create({
 	totalsRow: {
 		flexDirection: "row",
 		justifyContent: "space-between",
-		marginBottom: 15,
+		marginBottom: 12,
 	},
-	totalLabel: { fontSize: 20, fontWeight: "bold", color: colors.textDark },
-	totalAmount: { fontSize: 24, fontWeight: "900", color: colors.primary },
+	totalLabel: { fontSize: 17, fontWeight: "900", color: colors.textDark },
+	totalAmount: { fontSize: 22, fontWeight: "900", color: colors.primary },
 	actionRow: { flexDirection: "row", gap: 15 },
 	emailInput: {
 		backgroundColor: colors.backgroundMedium,
@@ -1551,13 +2219,13 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		alignItems: "center",
 		backgroundColor: colors.statusDanger,
-		padding: 15,
-		borderRadius: 10,
+		minHeight: 50,
+		borderRadius: 8,
 	},
 	closeBtnText: {
 		color: colors.surfaceWhite,
 		fontSize: 16,
-		fontWeight: "bold",
+		fontWeight: "900",
 	},
 	priceContainer: {
 		alignItems: "flex-end",

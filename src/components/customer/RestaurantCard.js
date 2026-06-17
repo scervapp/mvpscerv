@@ -4,10 +4,30 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
 
-const RestaurantCard = ({ restaurant, onPress }) => {
+const getFoodRating = (menuItem = {}) => {
+	const safeMenuItem = menuItem || {};
+	const rating =
+		safeMenuItem.averageRating ||
+		safeMenuItem.rating ||
+		safeMenuItem.customerRating;
+	const parsed = Number(rating);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getRatingCount = (menuItem = {}) => {
+	const safeMenuItem = menuItem || {};
+	const count = Number(safeMenuItem.ratingCount || safeMenuItem.reviewCount || 0);
+	return Number.isFinite(count) ? count : 0;
+};
+
+const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
 	const { t } = useTranslation();
 	const isComingSoon = restaurant.isComingSoon === true;
 	const imageUri = restaurant.imageUri;
+	const bestFoodRating = getFoodRating(bestMatchingFood);
+	const bestFoodRatingCount = getRatingCount(bestMatchingFood);
+	const bestFoodName =
+		bestMatchingFood?.name || bestMatchingFood?.dishName || null;
 	const area = [
 		restaurant.area || restaurant.neighborhood || restaurant.city,
 		restaurant.state,
@@ -75,6 +95,26 @@ const RestaurantCard = ({ restaurant, onPress }) => {
 					</Text>
 				) : null}
 
+				{bestFoodName ? (
+					<View style={styles.bestFoodBox}>
+						<Text style={styles.bestFoodLabel}>
+							{t("best_match_label", "Best match")}
+						</Text>
+						<Text style={styles.bestFoodName} numberOfLines={1}>
+							{bestFoodName}
+						</Text>
+						{bestFoodRating ? (
+							<View style={styles.bestFoodRatingRow}>
+								<Ionicons name="star" size={13} color="#B45309" />
+								<Text style={styles.bestFoodRatingText}>
+									{bestFoodRating.toFixed(1)}
+									{bestFoodRatingCount > 0 ? ` (${bestFoodRatingCount})` : ""}
+								</Text>
+							</View>
+						) : null}
+					</View>
+				) : null}
+
 				<View style={styles.bottomRow}>
 					{restaurant.cuisineType ? (
 						<View style={styles.cuisinePill}>
@@ -105,12 +145,12 @@ const styles = StyleSheet.create({
 	},
 	thumbnail: {
 		width: 112,
-		height: 116,
+		height: 132,
 		backgroundColor: "#EAF5F5",
 	},
 	thumbnailPlaceholder: {
 		width: 112,
-		height: 116,
+		height: 132,
 		alignItems: "center",
 		justifyContent: "center",
 		backgroundColor: "#EAF5F5",
@@ -119,7 +159,7 @@ const styles = StyleSheet.create({
 		flex: 1,
 		padding: 12,
 		justifyContent: "space-between",
-		minHeight: 116,
+		minHeight: 132,
 	},
 	topRow: {
 		flexDirection: "row",
@@ -168,6 +208,38 @@ const styles = StyleSheet.create({
 		lineHeight: 17,
 		color: colors.textMedium,
 		marginTop: 3,
+	},
+	bestFoodBox: {
+		marginTop: 8,
+		padding: 8,
+		borderRadius: 8,
+		backgroundColor: "#FFF7E6",
+		borderWidth: 1,
+		borderColor: "#FDE68A",
+	},
+	bestFoodLabel: {
+		fontSize: 10,
+		fontWeight: "900",
+		textTransform: "uppercase",
+		letterSpacing: 0,
+		color: "#92400E",
+	},
+	bestFoodName: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 2,
+	},
+	bestFoodRatingRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		marginTop: 4,
+	},
+	bestFoodRatingText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: "#92400E",
 	},
 	bottomRow: {
 		flexDirection: "row",

@@ -566,6 +566,7 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 	}
 	const leavingUserId = context.auth.uid;
 	const { partyId } = data;
+	const shouldPreserveUnsentItems = data.preserveUnsentItems === true;
 
 	if (!partyId) {
 		throw new functions.https.HttpsError(
@@ -640,9 +641,9 @@ exports.leaveParty = functions.https.onCall(async (data, context) => {
 					(!item.status || item.status === "new" || item.status === "draft"),
 			);
 
-			// 4. Preserve unsent items in a new personal party basket, then remove
-			// them from the shared party the user is leaving.
-			if (userUnsentItems.length > 0) {
+			// Normal leave should fully remove the user from the party. A future
+			// "keep my cart" flow can opt in by passing preserveUnsentItems.
+			if (shouldPreserveUnsentItems && userUnsentItems.length > 0) {
 				const preservedPartyRef = db.collection("parties").doc();
 				const preservedBasketRef = db
 					.collection("shared_baskets")

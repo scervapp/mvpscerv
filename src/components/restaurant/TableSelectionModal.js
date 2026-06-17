@@ -41,7 +41,7 @@ const TableSelectionModal = ({
 		if (isVisible) {
 			const unsubscribe = fetchTables(currentRestaurantId, (allTables) => {
 				const availableTables = allTables.filter(
-					(table) => table.status === "available"
+					(table) => table.status === "available" && table.isActive !== false
 				);
 				setTables(availableTables); // Update available tables in state
 			});

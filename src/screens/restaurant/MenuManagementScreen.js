@@ -8,11 +8,10 @@ import {
 	SectionList,
 	ActivityIndicator,
 	TextInput,
-	Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
-import app, { db } from "../../config/firebase";
+import { db } from "../../config/firebase";
 
 import { AuthContext } from "../../context/authContext";
 import MenuItem from "../../components/restaurant/MenuItem";
@@ -60,6 +59,8 @@ const MenuManagementScreen = () => {
 	const [error, setError] = useState(null);
 	const [menuItems, setMenuItems] = useState([]);
 	const [searchTerm, setSearchTerm] = useState("");
+	const visibleItemCount = menuItems.filter((item) => item.isAvailable !== false).length;
+	const hiddenItemCount = menuItems.length - visibleItemCount;
 
 	// --- Robust Data Fetching ---
 	useEffect(() => {
@@ -197,10 +198,17 @@ const MenuManagementScreen = () => {
 			<View style={styles.container}>
 				{/* --- Header --- */}
 				<View style={styles.header}>
-					<Text style={styles.headerTitle}>{t("manage_menu")}</Text>
+					<View>
+						<Text style={styles.eyebrow}>{t("menu_builder", "Menu Builder")}</Text>
+						<Text style={styles.headerTitle}>{t("manage_menu")}</Text>
+						<Text style={styles.headerSubtitle}>
+							{menuItems.length} {t("items", "items")} - {visibleItemCount}{" "}
+							{t("visible", "visible")} - {hiddenItemCount}{" "}
+							{t("hidden", "hidden")}
+						</Text>
+					</View>
 					<TouchableOpacity style={styles.headerButton} onPress={handleAddItem}>
-						<Ionicons name="add" size={24} color={colors.primary} />
-						<Text style={styles.headerButtonText}>{t("add_item")}</Text>
+						<Ionicons name="add" size={22} color="#fff" />
 					</TouchableOpacity>
 				</View>
 
@@ -221,7 +229,7 @@ const MenuManagementScreen = () => {
 					/>
 				</View>
 
-				<View style={{ flex: 1 }}>
+				<View style={styles.listWrap}>
 					{menuItems.length === 0 ? (
 						<EmptyMenu onAddItem={handleAddItem} />
 					) : processedMenu.length === 0 ? (
@@ -281,53 +289,63 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		justifyContent: "space-between",
 		alignItems: "center",
-		paddingHorizontal: 20,
-		paddingVertical: 15,
+		paddingHorizontal: 18,
+		paddingVertical: 16,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 		backgroundColor: colors.surfaceWhite,
 	},
-	headerTitle: { fontSize: 24, fontWeight: "bold", color: colors.textDark },
-	headerButton: {
-		flexDirection: "row",
-		alignItems: "center",
-		backgroundColor: colors.primary + "20",
-		paddingHorizontal: 12,
-		paddingVertical: 8,
-		borderRadius: 20,
-	},
-	headerButtonText: {
+	eyebrow: {
+		fontSize: 11,
+		fontWeight: "900",
 		color: colors.primary,
-		fontWeight: "bold",
-		fontSize: 14,
-		marginLeft: 4,
+		textTransform: "uppercase",
+		marginBottom: 3,
+	},
+	headerTitle: { fontSize: 24, fontWeight: "900", color: colors.textDark },
+	headerSubtitle: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 3,
+	},
+	headerButton: {
+		width: 46,
+		height: 46,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+		borderRadius: 8,
 	},
 	searchContainer: {
 		flexDirection: "row",
 		alignItems: "center",
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 8,
-		marginHorizontal: 20,
-		marginVertical: 15,
-		paddingHorizontal: 10,
+		marginHorizontal: 18,
+		marginTop: 14,
+		marginBottom: 10,
+		paddingHorizontal: 12,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 	},
 	searchIcon: { marginRight: 10 },
-	searchInput: { flex: 1, height: 45, fontSize: 16, color: colors.textDark },
+	searchInput: { flex: 1, height: 46, fontSize: 15, color: colors.textDark },
+	listWrap: { flex: 1 },
 	menuList: {
-		paddingHorizontal: 20,
+		paddingHorizontal: 18,
 		paddingBottom: 40,
 	},
 	sectionHeaderContainer: {
-		paddingTop: 10,
-		paddingBottom: 10,
+		paddingTop: 14,
+		paddingBottom: 8,
 		backgroundColor: colors.backgroundLight,
 	},
 	sectionHeaderText: {
-		fontSize: 18,
-		fontWeight: "bold",
+		fontSize: 13,
+		fontWeight: "900",
 		color: colors.textDark,
+		textTransform: "uppercase",
 	},
 	emptyContainer: {
 		flex: 1,
@@ -352,7 +370,7 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.primary,
 		paddingVertical: 12,
 		paddingHorizontal: 30,
-		borderRadius: 25,
+		borderRadius: 8,
 		marginTop: 25,
 	},
 	emptyButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "bold" },

@@ -86,6 +86,13 @@ const getDiscoveryScore = (item) => {
 	);
 };
 
+const getReviewHighlight = (item) =>
+	item.reviewHighlight ||
+	item.topReview ||
+	item.guestHighlight ||
+	item.featuredReview ||
+	"";
+
 const itemMatchesSearch = (item, query) => {
 	if (!query) return true;
 	const searchableValues = [
@@ -126,12 +133,13 @@ const MenuItemRow = ({
 		Number.isFinite(Number(price))
 			? formatMenuPrice(price)
 			: t("not_available_abbreviation");
-	const { averageRating = 0, ratingCount = 0 } = item;
+	const { averageRating = 0, ratingCount = 0, reviewCount = 0 } = item;
 	const visibleTags = [
 		...(item.ingredientTags || []),
 		...(item.flavorTags || []),
 		...(item.topReviewTags || []),
 	].slice(0, 3);
+	const reviewHighlight = getReviewHighlight(item);
 
 	return (
 		<View style={styles.menuItemWrapper}>
@@ -173,10 +181,20 @@ const MenuItemRow = ({
 							<StarRatingDisplay rating={averageRating} />
 							<Text style={styles.ratingText}>
 								{averageRating.toFixed(1)} ({ratingCount}{" "}
-								{ratingCount === 1 ? t("rating") : t("ratings")})
+								{ratingCount === 1 ? t("rating") : t("ratings")}
+								{reviewCount > 0
+									? ` - ${reviewCount} ${t("reviews_label", "reviews")}`
+									: ""}
+								)
 							</Text>
 						</View>
 					)}
+
+					{reviewHighlight ? (
+						<Text style={styles.reviewHighlightText} numberOfLines={2}>
+							"{reviewHighlight}"
+						</Text>
+					) : null}
 
 					{visibleTags.length > 0 && (
 						<View style={styles.itemTagRow}>
@@ -199,6 +217,62 @@ const MenuItemRow = ({
 				)}
 			</TouchableOpacity>
 		</View>
+	);
+};
+
+const FavoriteDishCard = ({ item, rank, onPress }) => {
+	const { t } = useTranslation();
+	const displayName = getLocalizedValue(item, "name");
+	const rating = Number(item.averageRating || item.rating || 0);
+	const ratingCount = Number(item.ratingCount || 0);
+	const reviewCount = Number(item.reviewCount || 0);
+	const topTag = [
+		...(item.topReviewTags || []),
+		...(item.flavorTags || []),
+		...(item.ingredientTags || []),
+	][0];
+
+	return (
+		<TouchableOpacity
+			style={styles.favoriteDishCard}
+			onPress={onPress}
+			activeOpacity={0.86}
+		>
+			<View style={styles.favoriteRankBadge}>
+				<Text style={styles.favoriteRankText}>#{rank}</Text>
+			</View>
+			{item.imageUri ? (
+				<Image
+					source={{ uri: item.imageUri }}
+					style={styles.favoriteDishImage}
+					resizeMode="cover"
+				/>
+			) : (
+				<View style={styles.favoriteDishImagePlaceholder}>
+					<Ionicons name="restaurant" size={24} color={colors.primary} />
+				</View>
+			)}
+			<Text style={styles.favoriteDishName} numberOfLines={2}>
+				{displayName}
+			</Text>
+			<View style={styles.favoriteDishRatingRow}>
+				<StarRatingDisplay rating={rating} size={12} />
+				<Text style={styles.favoriteDishRatingText}>
+					{rating > 0 ? rating.toFixed(1) : t("new_item_label", "New")}
+				</Text>
+			</View>
+			<Text style={styles.favoriteDishMeta} numberOfLines={1}>
+				{ratingCount} {ratingCount === 1 ? t("rating") : t("ratings")}
+				{reviewCount > 0
+					? ` - ${reviewCount} ${t("reviews_label", "reviews")}`
+					: ""}
+			</Text>
+			{topTag ? (
+				<Text style={styles.favoriteDishTag} numberOfLines={1}>
+					{topTag}
+				</Text>
+			) : null}
+		</TouchableOpacity>
 	);
 };
 
@@ -344,9 +418,77 @@ const MenuItemsList = ({
 			.filter((section) => section.data.length > 0);
 	}, [menuItems, searchQuery, sortMode, t, i18n.language]);
 
+	const favoriteDishes = useMemo(() => {
+		if (!menuItems || menuItems.length === 0) return [];
+
+		// This keeps discovery honest by blending score, ratings, volume, and reviews instead of only showing the highest raw average.
+		return menuItems
+			.filter((item) => {
+				const rating = Number(item.averageRating || item.rating || 0);
+				const ratingCount = Number(item.ratingCount || 0);
+				const reviewCount = Number(item.reviewCount || 0);
+				return (
+					item.isAvailable !== false &&
+					(rating > 0 || reviewCount > 0 || ratingCount > 0)
+				);
+			})
+			.sort((a, b) => {
+				const scoreDiff = getDiscoveryScore(b) - getDiscoveryScore(a);
+				if (scoreDiff !== 0) return scoreDiff;
+				return Number(b.ratingCount || 0) - Number(a.ratingCount || 0);
+			})
+			.slice(0, 8);
+	}, [menuItems]);
+
 	const renderHeader = () => (
 		<>
 			{ListHeaderComponent}
+			{favoriteDishes.length > 0 && (
+				<View style={styles.favoriteRailSection}>
+					<View style={styles.favoriteRailHeader}>
+						<View>
+							<Text style={styles.favoriteRailTitle}>
+								{t("guest_favorites_title", "Guest favorites")}
+							</Text>
+							<Text style={styles.favoriteRailSubtitle}>
+								{t(
+									"guest_favorites_subtitle",
+									"Top dishes by ratings, reviews, and order signals.",
+								)}
+							</Text>
+						</View>
+						<TouchableOpacity
+							style={styles.favoriteRailAction}
+							onPress={() => setSortMode("best")}
+						>
+							<Text style={styles.favoriteRailActionText}>
+								{t("see_best_label", "Best")}
+							</Text>
+							<Ionicons
+								name="chevron-forward"
+								size={15}
+								color={colors.primary}
+							/>
+						</TouchableOpacity>
+					</View>
+					<ScrollView
+						horizontal
+						showsHorizontalScrollIndicator={false}
+						contentContainerStyle={styles.favoriteRailContent}
+					>
+						{favoriteDishes.map((item, index) => (
+							<FavoriteDishCard
+								key={
+									item.id || `${getLocalizedValue(item, "name")}-${index}`
+								}
+								item={item}
+								rank={index + 1}
+								onPress={() => handleSelectItemForModal(item)}
+							/>
+						))}
+					</ScrollView>
+				</View>
+			)}
 			<View style={styles.discoveryControls}>
 				<View style={styles.searchBox}>
 					<Ionicons name="search" size={18} color={colors.textMedium} />
@@ -541,6 +683,128 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 15,
 		color: "#333",
 	},
+	favoriteRailSection: {
+		backgroundColor: colors.surfaceWhite,
+		paddingTop: 14,
+		paddingBottom: 12,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	favoriteRailHeader: {
+		paddingHorizontal: 15,
+		marginBottom: 10,
+		flexDirection: "row",
+		justifyContent: "space-between",
+		alignItems: "center",
+	},
+	favoriteRailTitle: {
+		fontSize: 18,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	favoriteRailSubtitle: {
+		marginTop: 2,
+		fontSize: 12,
+		color: colors.textMedium,
+		fontWeight: "600",
+	},
+	favoriteRailAction: {
+		minHeight: 34,
+		borderRadius: 18,
+		paddingHorizontal: 10,
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.primary + "12",
+	},
+	favoriteRailActionText: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.primary,
+		marginRight: 2,
+	},
+	favoriteRailContent: {
+		paddingHorizontal: 15,
+	},
+	favoriteDishCard: {
+		width: 152,
+		minHeight: 218,
+		marginRight: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		padding: 10,
+	},
+	favoriteRankBadge: {
+		position: "absolute",
+		top: 16,
+		left: 16,
+		zIndex: 2,
+		minWidth: 32,
+		height: 28,
+		borderRadius: 14,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+	},
+	favoriteRankText: {
+		color: colors.textOnPrimaryBrand || colors.surfaceWhite,
+		fontSize: 12,
+		fontWeight: "900",
+	},
+	favoriteDishImage: {
+		width: "100%",
+		height: 84,
+		borderRadius: 8,
+		backgroundColor: colors.backgroundLight,
+		marginBottom: 9,
+	},
+	favoriteDishImagePlaceholder: {
+		width: "100%",
+		height: 84,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "10",
+		alignItems: "center",
+		justifyContent: "center",
+		marginBottom: 9,
+	},
+	favoriteDishName: {
+		minHeight: 38,
+		fontSize: 14,
+		lineHeight: 18,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginBottom: 6,
+	},
+	favoriteDishRatingRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 4,
+	},
+	favoriteDishRatingText: {
+		marginLeft: 4,
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	favoriteDishMeta: {
+		fontSize: 11,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginBottom: 7,
+	},
+	favoriteDishTag: {
+		alignSelf: "flex-start",
+		maxWidth: "100%",
+		borderRadius: 12,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+		fontSize: 11,
+		fontWeight: "800",
+		color: colors.textMedium,
+		textTransform: "capitalize",
+	},
 	discoveryControls: {
 		backgroundColor: colors.surfaceWhite,
 		paddingHorizontal: 15,
@@ -599,6 +863,13 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		color: "#777",
 		marginLeft: 5,
+	},
+	reviewHighlightText: {
+		fontSize: 12,
+		lineHeight: 17,
+		color: colors.textDark,
+		fontWeight: "700",
+		marginBottom: 6,
 	},
 	itemTagRow: {
 		flexDirection: "row",

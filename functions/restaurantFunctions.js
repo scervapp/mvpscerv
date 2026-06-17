@@ -16,6 +16,24 @@ const generateTableId = (name) => {
 		.replace(/[^a-z0-9_]/g, ""); // Remove special characters
 };
 
+const normalizeTableMetadata = (data = {}) => {
+	const cleanString = (value, fallback) => {
+		const normalized = String(value || "").trim();
+		return normalized || fallback;
+	};
+
+	return {
+		section: cleanString(data.section || data.area, "Main Dining"),
+		tableType: cleanString(data.tableType, "dining"),
+		isActive: data.isActive !== false,
+	};
+};
+
+const extractTableNumber = (name) => {
+	const match = String(name || "").match(/\d+/);
+	return Number(match ? match[0] : 0);
+};
+
 const getRestaurantSeatIdForItem = (item = {}) => {
 	if (item.seatId) return String(item.seatId);
 	if (item.orderedForSeatId) return String(item.orderedForSeatId);
@@ -185,6 +203,55 @@ const calculateRestaurantCloseoutTotals = (items, restaurantTaxRate) => {
 		originalSubtotalCents,
 		taxAmountCents,
 		discountTotalCents: Math.max(0, originalSubtotalCents - subtotalCents),
+	};
+};
+
+const getActivePromotionDiscount = (basketData = {}) => {
+	const discount = basketData.activePromotionDiscount || null;
+	if (!discount || discount.status !== "active") return null;
+	return discount;
+};
+
+const getPromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
+	if (!activePromotionDiscount) return 0;
+	const requestedDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.appliedDiscountCents || 0)),
+	);
+	const maxDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.maxDiscountCents || 0)),
+	);
+	const cappedDiscount =
+		maxDiscount > 0 ? Math.min(requestedDiscount, maxDiscount) : requestedDiscount;
+	return Math.min(Math.max(0, subtotalCents), cappedDiscount);
+};
+
+const applyPromotionDiscountToTotals = ({
+	totals,
+	activePromotionDiscount,
+	restaurantTaxRate,
+}) => {
+	const promotionDiscountCents = getPromotionDiscountCents(
+		activePromotionDiscount,
+		totals.subtotalCents,
+	);
+	if (promotionDiscountCents <= 0) {
+		return { ...totals, promotionDiscountCents: 0, activePromotionDiscount: null };
+	}
+
+	const nextSubtotalCents = Math.max(0, totals.subtotalCents - promotionDiscountCents);
+	const taxReductionCents = Math.round(
+		promotionDiscountCents * Math.max(0, Number(restaurantTaxRate || 0)),
+	);
+
+	return {
+		...totals,
+		subtotalCents: nextSubtotalCents,
+		taxAmountCents: Math.max(0, totals.taxAmountCents - taxReductionCents),
+		discountTotalCents: totals.discountTotalCents + promotionDiscountCents,
+		promotionDiscountCents,
+		activePromotionDiscount,
 	};
 };
 
@@ -1395,6 +1462,7 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		const tableMetadata = normalizeTableMetadata(data);
 		// Generate the custom ID using the helper function
 		const customTableId = generateTableId(name);
 
@@ -1416,10 +1484,13 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 		await newTableRef.set({
 			id: customTableId,
 			name: name, // Keep the pretty "Table 1" for the UI display
+			tableNumber: extractTableNumber(name),
 			capacity: Number(capacity),
+			...tableMetadata,
 			status: "available",
 			restaurantId: restaurantId,
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
 
 		return { success: true, tableId: customTableId };
@@ -1454,6 +1525,7 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		const tableMetadata = normalizeTableMetadata(data);
 		const tablesCollection = db
 			.collection("restaurants")
 			.doc(restaurantId)
@@ -1468,7 +1540,10 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 		if (tableId === newTableId) {
 			await oldTableRef.update({
 				name: name,
+				tableNumber: extractTableNumber(name),
 				capacity: Number(capacity),
+				...tableMetadata,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
 			return { success: true, tableId: tableId };
 		}
@@ -1498,7 +1573,10 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 				...oldTableDoc.data(), // Copy all old data
 				id: newTableId, // Update the ID
 				name: name, // Update the Name
+				tableNumber: extractTableNumber(name),
 				capacity: Number(capacity), // Update the capacity
+				...tableMetadata,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
 
 			// Delete the old document
@@ -1639,6 +1717,29 @@ exports.discountOrderItem = functions.https.onCall(async (data, context) => {
 				const data = docSnap.data();
 				let items = data.items || [];
 				let itemUpdated = false;
+				if (
+					data.activePromotionDiscount &&
+					data.activePromotionDiscount.status === "active"
+				) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"This party already has an active promotion. Only one discount can be used at a time.",
+					);
+				}
+				const hasExistingDiscount = items.some((item) => {
+					const discount = Number(item.discount || 0);
+					const hasDiscountedPrice =
+						item.discountedPrice !== undefined &&
+						item.discountedPrice !== null &&
+						Number(item.discountedPrice) < Number(item.price || 0);
+					return discount > 0 || hasDiscountedPrice;
+				});
+				if (hasExistingDiscount) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"This party already has a discount. Only one discount can be used at a time.",
+					);
+				}
 
 				const updatedItems = items.map((item) => {
 					if (item.id === itemId) {
@@ -3688,18 +3789,28 @@ exports.closePartyTable = functions
 					originalSubtotalCents,
 					taxAmountCents,
 					discountTotalCents,
-				} = calculateRestaurantCloseoutTotals(
-					selectedCloseoutItems,
+					promotionDiscountCents,
+					activePromotionDiscount,
+				} = applyPromotionDiscountToTotals({
+					totals: calculateRestaurantCloseoutTotals(
+						selectedCloseoutItems,
+						restaurantTaxRate,
+					),
+					activePromotionDiscount: getActivePromotionDiscount(basketData),
 					restaurantTaxRate,
-				);
+				});
 				const customerServiceFeePolicy = resolveCustomerServiceFeePolicy({
 					restaurantData,
 					tierConfig,
 				});
-				const customerAppTotals = calculateRestaurantCloseoutTotals(
-					selectedCloseoutItems.filter(isCustomerAppInitiatedItem),
+				const customerAppTotals = applyPromotionDiscountToTotals({
+					totals: calculateRestaurantCloseoutTotals(
+						selectedCloseoutItems.filter(isCustomerAppInitiatedItem),
+						restaurantTaxRate,
+					),
+					activePromotionDiscount,
 					restaurantTaxRate,
-				);
+				});
 				const customerServiceFeeBasisAmountCents =
 					customerAppTotals.subtotalCents + customerAppTotals.taxAmountCents;
 				const customerServiceFeeCents = calculatePercentageFee(
@@ -3883,6 +3994,7 @@ exports.closePartyTable = functions
 					subtotalCents,
 					originalSubtotalCents,
 					discountTotalCents,
+					promotionDiscountCents,
 					taxAmountCents,
 					gratuityAmountCents,
 					customerServiceFeeCents,
@@ -3934,6 +4046,8 @@ exports.closePartyTable = functions
 					subtotal: subtotalCents,
 					originalSubtotal: originalSubtotalCents,
 					discountTotal: discountTotalCents,
+					promotionDiscount: promotionDiscountCents,
+					activePromotionDiscount: activePromotionDiscount || null,
 					taxAmount: taxAmountCents,
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",
@@ -4004,6 +4118,7 @@ exports.closePartyTable = functions
 						acc.subtotal += Number(payment.subtotal || 0);
 						acc.originalSubtotal += Number(payment.originalSubtotal || 0);
 						acc.discountTotal += Number(payment.discountTotal || 0);
+						acc.promotionDiscount += Number(payment.promotionDiscount || 0);
 						acc.taxAmount += Number(payment.taxAmount || 0);
 						acc.gratuityAmount += Number(payment.gratuityAmount || 0);
 						acc.customerServiceFee += Number(
@@ -4028,6 +4143,7 @@ exports.closePartyTable = functions
 						subtotal: 0,
 						originalSubtotal: 0,
 						discountTotal: 0,
+						promotionDiscount: 0,
 						taxAmount: 0,
 						gratuityAmount: 0,
 						customerServiceFee: 0,
@@ -4046,6 +4162,14 @@ exports.closePartyTable = functions
 				);
 				const balanceDueCents =
 					balanceTotals.subtotalCents + balanceTotals.taxAmountCents;
+				const consumedPromotionDiscount = activePromotionDiscount
+					? {
+							...activePromotionDiscount,
+							status: "consumed",
+							consumedAt: admin.firestore.FieldValue.serverTimestamp(),
+							closeoutPaymentId: paymentId,
+						}
+					: null;
 				const updatedBasketItems = allItems.map((item) =>
 					item && selectedCloseoutItemIdSet.has(item.id)
 						? {
@@ -4099,6 +4223,9 @@ exports.closePartyTable = functions
 							items: updatedBasketItems,
 							paymentStatus: isTableFullyPaid ? "paid" : "partially_paid",
 							closeoutPayments,
+							...(consumedPromotionDiscount
+								? { activePromotionDiscount: consumedPromotionDiscount }
+								: {}),
 							openBalance: {
 								subtotal: balanceTotals.subtotalCents,
 								taxAmount: balanceTotals.taxAmountCents,
@@ -4234,6 +4361,9 @@ exports.closePartyTable = functions
 							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
 							archivedOrderId: partyId,
 							closeoutId: partyId,
+							...(consumedPromotionDiscount
+								? { activePromotionDiscount: consumedPromotionDiscount }
+								: {}),
 							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 						},
 						{ merge: true },
@@ -4272,6 +4402,10 @@ exports.closePartyTable = functions
 					subtotal: aggregateCloseout.subtotal,
 					originalSubtotal: aggregateCloseout.originalSubtotal,
 					discountTotal: aggregateCloseout.discountTotal,
+					promotionDiscount: aggregateCloseout.promotionDiscount,
+					promotionDiscounts: closeoutPayments
+						.map((payment) => payment.activePromotionDiscount)
+						.filter(Boolean),
 					taxAmount: aggregateCloseout.taxAmount,
 					taxRate: restaurantTaxRate,
 					taxSource: "restaurant.taxRate",

@@ -43,10 +43,15 @@ import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
 import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
 import OrderDetailScreen from "../screens/restaurant/OrderDetailScreen.js";
 import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
+import RestaurantReservationsScreen from "../screens/restaurant/RestaurantReservationsScreen.js";
+import HostStandScreen from "../screens/restaurant/HostStandScreen.js";
+import RestaurantRewardsScreen from "../screens/restaurant/RestaurantRewardsScreen.js";
+import ReservationSettingsScreen from "../screens/restaurant/ReservationSettingsScreen.js";
 import { getRestaurantPermissions } from "../utils/restaurantPermissions.js";
 import RestaurantLockButton from "../components/restaurant/RestaurantLockButton.js";
 import { AuthContext } from "../context/authContext.js";
 import { isPickupEnabledForRestaurant } from "../config/featureFlags.js";
+import { useRestaurantOperationsBadges } from "../hooks/restaurant/useRestaurantOperationsBadges.js";
 import {
 	RestaurantTerminalIndicator,
 	RestaurantTerminalProvider,
@@ -149,6 +154,16 @@ const BackOfficeStackNavigator = () => {
 				component={TableManagementScreen}
 				options={{ headerTitle: t("table_management", "Table Management") }}
 			/>
+			<Stack.Screen
+				name="RestaurantRewardsScreen"
+				component={RestaurantRewardsScreen}
+				options={{ headerTitle: "Rewards" }}
+			/>
+			<Stack.Screen
+				name="ReservationSettingsScreen"
+				component={ReservationSettingsScreen}
+				options={{ headerTitle: "Reservation Settings" }}
+			/>
 		</Stack.Navigator>
 	);
 };
@@ -229,6 +244,16 @@ const ActiveTablesStack = () => (
 			component={ServiceRequestsScreen}
 			options={{ headerTitle: "Service Requests" }}
 		/>
+		<Stack.Screen
+			name="RestaurantReservationsScreen"
+			component={RestaurantReservationsScreen}
+			options={{ headerTitle: "Reservations" }}
+		/>
+		<Stack.Screen
+			name="HostStandScreen"
+			component={HostStandScreen}
+			options={{ headerTitle: "Host Stand" }}
+		/>
 	</Stack.Navigator>
 );
 
@@ -240,6 +265,7 @@ const RestaurantBottomNavigation = () => {
 	const { activeSession } = useEmployeeSession();
 	const permissions = getRestaurantPermissions(activeSession);
 	const pickupEnabled = isPickupEnabledForRestaurant(currentUserData);
+	const operationsBadges = useRestaurantOperationsBadges(currentUserData?.uid);
 	const insets = useSafeAreaInsets();
 
 	return (
@@ -266,6 +292,9 @@ const RestaurantBottomNavigation = () => {
 					switch (route.name) {
 						case "Dashboard":
 							iconName = focused ? "view-dashboard" : "view-dashboard-outline";
+							badgeCount = permissions.canSeatWalkIn
+								? operationsBadges.attentionCount || 0
+								: 0;
 							break;
 						case "ChefsQ":
 							iconName = focused

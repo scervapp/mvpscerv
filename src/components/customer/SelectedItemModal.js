@@ -14,10 +14,35 @@ import { Button, Divider, IconButton, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
+import { db } from "../../config/firebase";
 import {
 	formatCurrencyFromDollars,
 	normalizeMenuPriceToDollars,
 } from "../../utils/currencyFormatter";
+
+const StarRatingDisplay = ({ rating = 0, size = 15 }) => {
+	const fullStars = Math.floor(rating);
+	const hasHalf = rating % 1 >= 0.5;
+	return (
+		<View style={styles.starRow}>
+			{[1, 2, 3, 4, 5].map((index) => (
+				<Ionicons
+					key={index}
+					name={
+						index <= fullStars
+							? "star"
+							: index === fullStars + 1 && hasHalf
+								? "star-half"
+								: "star-outline"
+					}
+					size={size}
+					color="#F5B301"
+					style={styles.starIcon}
+				/>
+			))}
+		</View>
+	);
+};
 
 const PipInstructionModal = ({
 	visible,
@@ -106,6 +131,8 @@ const SelectedItemModal = ({
 	const [quantity, setQuantity] = useState(1);
 	const [partyModeTarget, setPartyModeTarget] = useState(null);
 	const [orderTargets, setOrderTargets] = useState([]);
+	const [reviewHighlights, setReviewHighlights] = useState([]);
+	const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
 	const [isPipInstructionModalVisible, setIsPipInstructionModalVisible] =
 		useState(false);
@@ -184,6 +211,74 @@ const SelectedItemModal = ({
 			setOrderTargets(initialTarget ? [initialTarget] : []);
 		}
 	}, [visible, selectedItem, orderingMode, displayOptions]);
+
+	useEffect(() => {
+		if (!visible || !selectedItem?.id) {
+			setReviewHighlights([]);
+			setIsLoadingReviews(false);
+			return undefined;
+		}
+
+		setIsLoadingReviews(true);
+		const unsubscribe = db
+			.collection("menuItems")
+			.doc(selectedItem.id)
+			.collection("ratings")
+			.orderBy("ratingValue", "desc")
+			.limit(5)
+			.onSnapshot(
+				(snapshot) => {
+					const reviews = snapshot.docs
+						.map((doc) => ({ id: doc.id, ...doc.data() }))
+						.filter((review) => review.status !== "hidden")
+						.sort((a, b) => Number(b.ratingValue || 0) - Number(a.ratingValue || 0));
+					setReviewHighlights(reviews);
+					setIsLoadingReviews(false);
+				},
+				(error) => {
+					console.error("Error loading menu item reviews:", error);
+					setReviewHighlights([]);
+					setIsLoadingReviews(false);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [visible, selectedItem?.id]);
+
+	const topReviewTags = useMemo(() => {
+		const counts = new Map();
+		const itemTags = Array.isArray(selectedItem?.topReviewTags)
+			? selectedItem.topReviewTags
+			: [];
+		itemTags.forEach((tag) => {
+			const normalized = String(tag || "").trim();
+			if (normalized) counts.set(normalized, (counts.get(normalized) || 0) + 2);
+		});
+		reviewHighlights.forEach((review) => {
+			(review.reviewTags || []).forEach((tag) => {
+				const normalized = String(tag || "").trim();
+				if (normalized) counts.set(normalized, (counts.get(normalized) || 0) + 1);
+			});
+		});
+		return [...counts.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([tag]) => tag)
+			.slice(0, 6);
+	}, [reviewHighlights, selectedItem?.topReviewTags]);
+
+	const ratingSummary = useMemo(() => {
+		const averageRating = Number(selectedItem?.averageRating || 0);
+		const ratingCount = Number(selectedItem?.ratingCount || 0);
+		const reviewCount = Number(selectedItem?.reviewCount || 0);
+		return { averageRating, ratingCount, reviewCount };
+	}, [selectedItem]);
+
+	const hasGuestSignals =
+		ratingSummary.averageRating > 0 ||
+		ratingSummary.ratingCount > 0 ||
+		ratingSummary.reviewCount > 0 ||
+		topReviewTags.length > 0 ||
+		reviewHighlights.length > 0;
 
 	const openInstructionModalForTarget = (target) => {
 		const existingTarget = orderTargets.find((t) => t.id === target.id);
@@ -536,6 +631,89 @@ const SelectedItemModal = ({
 		);
 	};
 
+	const renderGuestSignals = () => {
+		if (!hasGuestSignals) return null;
+
+		return (
+			<>
+				<Divider style={styles.divider} />
+				<View style={styles.sectionContainer}>
+					<View style={styles.reviewSummaryHeader}>
+						<Text style={styles.sectionTitle}>
+							{t("guest_reviews_title", "Guest reviews")}
+						</Text>
+						{ratingSummary.averageRating > 0 && (
+							<View style={styles.ratingSummaryPill}>
+								<StarRatingDisplay rating={ratingSummary.averageRating} size={13} />
+								<Text style={styles.ratingSummaryText}>
+									{ratingSummary.averageRating.toFixed(1)}
+								</Text>
+							</View>
+						)}
+					</View>
+
+					{ratingSummary.ratingCount > 0 && (
+						<Text style={styles.reviewMetaText}>
+							{ratingSummary.ratingCount}{" "}
+							{ratingSummary.ratingCount === 1
+								? t("rating", "rating")
+								: t("ratings", "ratings")}
+							{ratingSummary.reviewCount > 0
+								? ` - ${ratingSummary.reviewCount} ${t(
+										"reviews_label",
+										"reviews",
+									)}`
+								: ""}
+						</Text>
+					)}
+
+					{topReviewTags.length > 0 && (
+						<View style={styles.reviewTagRow}>
+							{topReviewTags.map((tag) => (
+								<Text key={tag} style={styles.reviewTag}>
+									{tag}
+								</Text>
+							))}
+						</View>
+					)}
+
+					{isLoadingReviews ? (
+						<Text style={styles.reviewMetaText}>
+							{t("loading_reviews", "Loading reviews...")}
+						</Text>
+					) : (
+						reviewHighlights.slice(0, 3).map((review) => {
+							const reviewText = review.reviewText || review.comment || "";
+							if (!reviewText) return null;
+							const reviewAuthor =
+								review.customerId === currentUserData?.uid
+									? t("you_label", "You")
+									: review.customerDisplayName ||
+										review.customerName ||
+										t("scerv_guest", "Scerv guest");
+							return (
+								<View key={review.id} style={styles.reviewCard}>
+									<View style={styles.reviewCardHeader}>
+										<StarRatingDisplay
+											rating={Number(review.ratingValue || 0)}
+											size={12}
+										/>
+										<Text style={styles.reviewAuthorText}>
+											{reviewAuthor}
+										</Text>
+									</View>
+									<Text style={styles.reviewQuoteText} numberOfLines={3}>
+										"{reviewText}"
+									</Text>
+								</View>
+							);
+						})
+					)}
+				</View>
+			</>
+		);
+	};
+
 	return (
 		<Modal
 			visible={visible}
@@ -808,6 +986,8 @@ const SelectedItemModal = ({
 								)}
 							</View>
 						)}
+
+						{renderGuestSignals()}
 					</ScrollView>
 
 					<View style={styles.modalActionButtonsContainer}>
@@ -918,6 +1098,13 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		textAlign: "center",
 	},
+	starRow: {
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	starIcon: {
+		marginRight: 1,
+	},
 	divider: {
 		marginVertical: 15,
 		backgroundColor: colors.borderLight,
@@ -936,6 +1123,74 @@ const styles = StyleSheet.create({
 		fontWeight: "600",
 		color: colors.textDark,
 		marginBottom: 10,
+	},
+	reviewSummaryHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	ratingSummaryPill: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderRadius: 999,
+		backgroundColor: "#FFF7E6",
+		paddingHorizontal: 8,
+		paddingVertical: 5,
+	},
+	ratingSummaryText: {
+		marginLeft: 4,
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	reviewMetaText: {
+		fontSize: 13,
+		color: colors.textMedium,
+		fontWeight: "700",
+		marginBottom: 10,
+	},
+	reviewTagRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		marginBottom: 8,
+	},
+	reviewTag: {
+		borderRadius: 999,
+		backgroundColor: colors.primary + "12",
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "800",
+		paddingHorizontal: 9,
+		paddingVertical: 5,
+		marginRight: 6,
+		marginBottom: 6,
+		textTransform: "capitalize",
+	},
+	reviewCard: {
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		padding: 10,
+		marginTop: 8,
+	},
+	reviewCardHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 6,
+	},
+	reviewAuthorText: {
+		fontSize: 12,
+		color: colors.textMedium,
+		fontWeight: "700",
+		marginLeft: 8,
+	},
+	reviewQuoteText: {
+		fontSize: 13,
+		lineHeight: 18,
+		color: colors.textDark,
+		fontWeight: "600",
 	},
 	groupDescription: {
 		fontSize: 13,

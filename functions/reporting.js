@@ -381,6 +381,9 @@ const buildOwnerPulse = async (restaurantId) => {
 
 const aggregateOrders = (orders) => {
 	let grossSales = 0;
+	let netSales = 0;
+	let customerPayments = 0;
+	let restaurantGrossReceipts = 0;
 	let totalTax = 0;
 	let totalGratuity = 0;
 	let totalProcessorFees = 0;
@@ -400,7 +403,10 @@ const aggregateOrders = (orders) => {
 	const salesByCategory = { Food: 0, Bar: 0 };
 
 	for (const order of orders) {
-		grossSales += order.subtotal;
+		grossSales += order.originalSubtotal;
+		netSales += order.subtotal;
+		customerPayments += order.totalPrice;
+		restaurantGrossReceipts += order.restaurantGrossAmount;
 		totalTax += order.taxAmount;
 		totalGratuity += order.gratuityAmount;
 		totalProcessorFees += order.processorFee;
@@ -467,9 +473,12 @@ const aggregateOrders = (orders) => {
 		}
 	}
 
-	const totalFees = totalProcessorFees + totalPlatformFees;
+	const totalCustomerFees = totalPlatformFees + totalCustomerServiceFees;
+	const totalRestaurantCosts =
+		totalProcessorFees + totalRestaurantProcessingFees;
+	const totalFees = totalCustomerFees + totalRestaurantCosts;
 	const averageOrderValue =
-		totalOrders > 0 ? Math.round(grossSales / totalOrders) : 0;
+		totalOrders > 0 ? Math.round(netSales / totalOrders) : 0;
 	const avgTurnoverRate =
 		ordersWithTurnover > 0
 			? Math.round(sumTurnoverMinutes / ordersWithTurnover)
@@ -477,15 +486,23 @@ const aggregateOrders = (orders) => {
 
 	return {
 		grossSales,
+		netSales,
+		customerPayments,
+		restaurantGrossReceipts,
 		totalTax,
+		taxLiability: totalTax,
 		totalGratuity,
+		tipsCollected: totalGratuity,
 		totalProcessorFees,
 		totalPlatformFees,
 		totalCustomerServiceFees,
 		totalRestaurantProcessingFees,
+		totalCustomerFees,
+		totalRestaurantCosts,
 		totalDiscounts,
 		totalFees,
 		netPayout,
+		estimatedDeposit: netPayout,
 		totalOrders,
 		averageOrderValue,
 		avgTurnoverRate,

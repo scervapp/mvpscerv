@@ -22,6 +22,19 @@
     "preview": {
       "extends": "testing"
     },
+    "storeTesting": {
+      "env": {
+        "APP_ENV": "storeTesting",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp-dev"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
+      }
+    },
     "production": {
       "env": {
         "APP_ENV": "production",
@@ -36,6 +49,15 @@
     "production": {
       "android": {
         "serviceAccountKeyPath": "./eas-submit-key.json"
+      },
+      "ios": {
+        "ascAppId": "1591335061"
+      }
+    },
+    "storeTesting": {
+      "android": {
+        "serviceAccountKeyPath": "./eas-submit-key.json",
+        "track": "internal"
       },
       "ios": {
         "ascAppId": "1591335061"

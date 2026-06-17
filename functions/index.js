@@ -16,6 +16,8 @@ const terminalFunctions = require("./terminalFunctions");
 const paypalHandlers = require("./paypalHandlers");
 const dLocalFunctions = require("./dLocalFunctions");
 const rewardsFunctions = require("./rewardsFunctions");
+const reservationFunctions = require("./reservationFunctions");
+const adminFunctions = require("./adminFunctions");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -35,6 +37,7 @@ exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
 exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
+exports.createHostCheckInRequest = checkInFunctions.createHostCheckInRequest;
 exports.selfSeatingCheckIn = checkInFunctions.selfSeatingCheckIn;
 exports.handleQRScan = checkInFunctions.handleQRScan;
 exports.convertIndividualToParty = checkInFunctions.convertIndividualToParty;
@@ -52,6 +55,7 @@ exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.discountOrderItem = restaurantFunctions.discountOrderItem;
 
 exports.preparePayment = paymentFunctions.preparePayment;
+exports.finalizeStripePayment = paymentFunctions.finalizeStripePayment;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
 exports.stripeWebhookLive = paymentFunctions.stripeWebhookLive;
@@ -93,6 +97,35 @@ exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
 exports.aggregateMenuItemOrderStats =
 	dishRatingFunction.aggregateMenuItemOrderStats;
 exports.awardRewardsForPaidOrder = rewardsFunctions.awardRewardsForPaidOrder;
+exports.saveRestaurantLoyaltyProgram =
+	rewardsFunctions.saveRestaurantLoyaltyProgram;
+exports.redeemRestaurantReward = rewardsFunctions.redeemRestaurantReward;
+exports.redeemCustomerPromotion = rewardsFunctions.redeemCustomerPromotion;
+
+// Reservation Functions
+exports.getAvailableReservationSlots =
+	reservationFunctions.getAvailableReservationSlots;
+exports.saveReservationSettings = reservationFunctions.saveReservationSettings;
+exports.saveRestaurantExperienceSettings =
+	reservationFunctions.saveRestaurantExperienceSettings;
+exports.createReservationRequest =
+	reservationFunctions.createReservationRequest;
+exports.joinReservationWaitlist =
+	reservationFunctions.joinReservationWaitlist;
+exports.acceptWaitlistOffer = reservationFunctions.acceptWaitlistOffer;
+exports.passWaitlistOffer = reservationFunctions.passWaitlistOffer;
+exports.cancelCustomerReservation =
+	reservationFunctions.cancelCustomerReservation;
+exports.seatReservation = reservationFunctions.seatReservation;
+exports.approveReservation = reservationFunctions.approveReservation;
+exports.declineReservation = reservationFunctions.declineReservation;
+exports.updateReservationStatus = reservationFunctions.updateReservationStatus;
+exports.updateReservationTrustStats =
+	reservationFunctions.updateReservationTrustStats;
+
+// Scerv Admin Controls
+exports.saveRestaurantFeatureEntitlements =
+	adminFunctions.saveRestaurantFeatureEntitlements;
 
 // Party Functions
 exports.createParty = partyFunctions.createParty;

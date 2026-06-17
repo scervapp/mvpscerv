@@ -129,6 +129,18 @@ const AccountScreen = () => {
 						iconName="receipt-outline"
 						onPress={() => navigation.navigate("OrderHistoryScreenInner")}
 					/>
+					<View style={styles.divider} />
+					<AccountRow
+						label={t("my_reservations", "My Reservations")}
+						iconName="calendar-outline"
+						onPress={() => navigation.navigate("CustomerReservationsScreen")}
+					/>
+					<View style={styles.divider} />
+					<AccountRow
+						label={t("scerv_wallet", "Scerv Wallet")}
+						iconName="wallet-outline"
+						onPress={() => navigation.navigate("CustomerRewardsScreen")}
+					/>
 				</SettingsCard>
 				<SettingsCard>
 					<AccountRow

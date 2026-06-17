@@ -9,6 +9,7 @@ import {
 	TouchableOpacity,
 } from "react-native";
 import { useTranslation } from "react-i18next";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AddItemModal from "./AddItemModal";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
@@ -28,10 +29,10 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 	const handleDelete = () => {
 		try {
 			Alert.alert(
-				t("delete_menu_item_title", "Delete Item"),
+				t("archive_menu_item_title", "Archive Item"),
 				t(
-					"confirm_delete_menu_item_message",
-					"Are you sure you want to delete this?",
+					"confirm_archive_menu_item_message",
+					"Archive this item? It will be hidden from customers, but ratings and review history will stay protected.",
 				),
 				[
 					{
@@ -39,7 +40,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 						style: "cancel",
 					},
 					{
-						text: t("delete_button", "Delete"),
+						text: t("archive_button", "Archive"),
 						style: "destructive", // Makes it red on iOS
 						onPress: () => deleteMenuItem(restaurantId, item),
 					},
@@ -52,7 +53,13 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 
 	const deleteMenuItem = async (restaurantId, menuItem) => {
 		try {
-			await db.collection("menuItems").doc(menuItem.id).delete();
+			// Archive instead of deleting so restaurants cannot reset dish reputation.
+			await db.collection("menuItems").doc(menuItem.id).update({
+				isAvailable: false,
+				isArchived: true,
+				archivedAt: new Date(),
+				archivedByRestaurantId: restaurantId,
+			});
 		} catch (error) {
 			console.log("Error deleting menu item:", error);
 			Alert.alert(t("error_title"), t("error_deleting_menu_item_message"));
@@ -62,8 +69,15 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 	// --- NEW: Toggle Visibility Logic ---
 	const handleToggleVisibility = async () => {
 		try {
+			const nextIsAvailable = !isAvailable;
 			await db.collection("menuItems").doc(item.id).update({
-				isAvailable: !isAvailable,
+				isAvailable: nextIsAvailable,
+				...(nextIsAvailable
+					? {
+							isArchived: false,
+							archivedAt: null,
+						}
+					: {}),
 			});
 		} catch (error) {
 			console.log("Error toggling availability:", error);
@@ -112,34 +126,42 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 
 			<View style={styles.infoContainer}>
 				<Text style={[styles.title, !isAvailable && styles.textHidden]}>
-					{item.name} - {formatMenuPrice(item.price)}
+					{item.name}
 				</Text>
-				<Text style={styles.category}>{item.category}</Text>
+				<View style={styles.metaRow}>
+					<Text style={styles.price}>{formatMenuPrice(item.price)}</Text>
+					<Text style={styles.category}>{item.category}</Text>
+				</View>
 				<Text style={styles.description} numberOfLines={2}>
 					{item.description}
 				</Text>
 			</View>
 
-			{/* Action Buttons */}
 			<View style={styles.actionButtonsContainer}>
-				{/* Hide / Show Toggle Button */}
 				<TouchableOpacity
-					style={[styles.toggleButton, !isAvailable && styles.showButton]}
+					style={[styles.iconButton, !isAvailable && styles.showButton]}
 					onPress={handleToggleVisibility}
 				>
-					<Text style={styles.toggleButtonText}>
-						{isAvailable ? t("hide_button", "Hide") : t("show_button", "Show")}
-					</Text>
+					<Ionicons
+						name={isAvailable ? "eye-off-outline" : "eye-outline"}
+						size={18}
+						color={isAvailable ? colors.textMedium : "#fff"}
+					/>
 				</TouchableOpacity>
 
-				<TouchableOpacity style={styles.editButton} onPress={handleEdit}>
-					<Text style={styles.editButtonText}>{t("edit_button", "Edit")}</Text>
+				<TouchableOpacity style={styles.iconButton} onPress={handleEdit}>
+					<MaterialCommunityIcons
+						name="pencil-outline"
+						size={18}
+						color={colors.primary}
+					/>
 				</TouchableOpacity>
 
-				<TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-					<Text style={styles.deleteButtonText}>
-						{t("delete_button", "Delete")}
-					</Text>
+				<TouchableOpacity
+					style={[styles.iconButton, styles.deleteIconButton]}
+					onPress={handleDelete}
+				>
+					<Ionicons name="trash-outline" size={18} color={colors.statusDanger} />
 				</TouchableOpacity>
 			</View>
 
@@ -159,35 +181,49 @@ const styles = StyleSheet.create({
 	container: {
 		flexDirection: "row",
 		alignItems: "center",
-		padding: 15,
-		borderBottomWidth: 1,
-		borderBottomColor: "#eee",
-		backgroundColor: "white",
+		padding: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
 		borderRadius: 8,
-		marginBottom: 10,
+		marginBottom: 8,
 	},
 	containerHidden: {
-		backgroundColor: "#f8f9fa", // Slight grey tint for hidden items
+		backgroundColor: colors.backgroundLight,
 	},
 	infoContainer: {
 		flex: 1,
-		paddingLeft: 10,
+		paddingLeft: 12,
 	},
 	title: {
-		fontSize: 18,
-		fontWeight: "bold",
+		fontSize: 15,
+		fontWeight: "900",
 		color: colors.textDark,
 	},
 	textHidden: {
-		color: colors.textMedium, // Dim the text if hidden
+		color: colors.textMedium,
+	},
+	metaRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 4,
+	},
+	price: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.primary,
+		marginRight: 8,
 	},
 	category: {
-		fontSize: 14,
-		color: "#666",
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
 	},
 	description: {
-		fontSize: 14,
-		color: "#666",
+		fontSize: 12,
+		color: colors.textMedium,
+		lineHeight: 17,
+		marginTop: 4,
 	},
 	image: {
 		width: 70,
@@ -195,7 +231,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 	},
 	imageHidden: {
-		opacity: 0.4, // Greys out the image
+		opacity: 0.4,
 	},
 	outOfStockBadge: {
 		position: "absolute",
@@ -213,44 +249,30 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 	},
 	actionButtonsContainer: {
-		marginLeft: 10,
-		width: 70, // Keep buttons uniform
-	},
-	toggleButton: {
-		backgroundColor: colors.statusWarning || "#f39c12", // Orange for Hide
-		padding: 8,
-		borderRadius: 5,
-		marginBottom: 5,
+		marginLeft: 8,
+		width: 42,
 		alignItems: "center",
+		justifyContent: "center",
+	},
+	iconButton: {
+		width: 36,
+		height: 36,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		alignItems: "center",
+		justifyContent: "center",
+		marginBottom: 6,
 	},
 	showButton: {
-		backgroundColor: colors.statusSuccess || "#2ecc71", // Green for Show
+		backgroundColor: colors.statusSuccess,
+		borderColor: colors.statusSuccess,
 	},
-	toggleButtonText: {
-		color: "white",
-		fontSize: 14,
-		fontWeight: "bold",
-	},
-	editButton: {
-		backgroundColor: colors.primary,
-		padding: 8,
-		borderRadius: 5,
-		marginBottom: 5,
-		alignItems: "center",
-	},
-	editButtonText: {
-		color: "white",
-		fontSize: 14,
-	},
-	deleteButton: {
-		backgroundColor: "red",
-		padding: 8,
-		borderRadius: 5,
-		alignItems: "center",
-	},
-	deleteButtonText: {
-		color: "white",
-		fontSize: 14,
+	deleteIconButton: {
+		backgroundColor: "#fff5f5",
+		borderColor: "#fecaca",
+		marginBottom: 0,
 	},
 });
 

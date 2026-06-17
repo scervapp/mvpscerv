@@ -1,51 +1,66 @@
 import React, { useContext, useState } from "react";
 import {
-	View,
-	Text,
-	StyleSheet,
-	SafeAreaView,
 	ActivityIndicator,
 	Alert,
+	SafeAreaView,
 	ScrollView,
+	StyleSheet,
+	Text,
 	TouchableOpacity,
+	View,
 } from "react-native";
-import { Button, Surface } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import moment from "moment";
+import { useTranslation } from "react-i18next";
 
-import { useWorkDay } from "../../context/restaurant/WorkDayContext";
+import i18n from "../../config/i18n";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
-import colors from "../../utils/styles/appStyles";
-import { useTranslation } from "react-i18next";
-import i18n from "../../config/i18n";
-import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import { useWorkDay } from "../../context/restaurant/WorkDayContext";
 import RestaurantLockButton from "../../components/restaurant/RestaurantLockButton";
 import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
+import { useRestaurantOperationsBadges } from "../../hooks/restaurant/useRestaurantOperationsBadges";
+import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import colors from "../../utils/styles/appStyles";
 
 const DashboardCard = ({
 	label,
+	description,
 	iconName,
 	onPress,
 	color = colors.primary,
+	badgeCount = 0,
+	badgeTone = "neutral",
 }) => {
 	const { t } = useTranslation();
+	const badgeText = badgeCount > 9 ? "9+" : String(badgeCount);
+
 	return (
-		<TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
-			<Surface style={styles.cardSurface}>
+		<TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.78}>
+			<View style={styles.cardSurface}>
 				<View style={[styles.iconCircle, { backgroundColor: color + "15" }]}>
-					<MaterialCommunityIcons name={iconName} size={32} color={color} />
+					<MaterialCommunityIcons name={iconName} size={22} color={color} />
 				</View>
-				<Text style={styles.cardLabel}>{t(label)}</Text>
-				<View style={styles.cardArrow}>
-					<Ionicons
-						name="chevron-forward"
-						size={16}
-						color={colors.textMedium}
-					/>
+				<View style={styles.cardTextWrap}>
+					<Text style={styles.cardLabel}>{t(label)}</Text>
+					{description ? (
+						<Text style={styles.cardDescription} numberOfLines={1}>
+							{description}
+						</Text>
+					) : null}
 				</View>
-			</Surface>
+				{badgeCount > 0 ? (
+					<View style={[styles.cardBadge, styles[`cardBadge_${badgeTone}`]]}>
+						<Text
+							style={[styles.cardBadgeText, styles[`cardBadgeText_${badgeTone}`]]}
+						>
+							{badgeText}
+						</Text>
+					</View>
+				) : null}
+				<Ionicons name="chevron-forward" size={18} color={colors.textMedium} />
+			</View>
 		</TouchableOpacity>
 	);
 };
@@ -54,14 +69,15 @@ const RestaurantDashboardScreen = () => {
 	const { t } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
-	const { currentWorkDay, workDayStatus, isLoading, startWorkDay, endWorkDay } =
+	const { currentWorkDay, workDayStatus, startWorkDay, endWorkDay } =
 		useWorkDay();
 	const { activeSession } = useEmployeeSession();
 	const [isActionLoading, setIsActionLoading] = useState(false);
 
-	// 🚨 1. DEFINE ENTERPRISE ROLE GATES
 	const permissions = getRestaurantPermissions(activeSession);
 	const pickupEnabled = isPickupEnabledForRestaurant(currentUserData);
+	const isOpen = workDayStatus === "OPEN" && currentWorkDay;
+	const operationsBadges = useRestaurantOperationsBadges(currentUserData?.uid);
 
 	const handleBackOfficePress = () => {
 		navigation.navigate("BackOfficeNavigator", { screen: "BackOffice" });
@@ -79,7 +95,6 @@ const RestaurantDashboardScreen = () => {
 		}
 
 		const targetNavigation = navigation.getParent() || navigation;
-
 		if (screenName) {
 			targetNavigation.navigate(tabName, { screen: screenName });
 			return;
@@ -88,30 +103,74 @@ const RestaurantDashboardScreen = () => {
 		targetNavigation.navigate(tabName);
 	};
 
+	const handleEndDay = () => {
+		Alert.alert(
+			t("close_day_title", "Close out the day?"),
+			t(
+				"close_day_message",
+				"This closes the books, clears active tables, archives Chef Q and Bar Q tickets, and prepares the restaurant for the next open day.",
+			),
+			[
+				{ text: t("cancel") },
+				{
+					text: t("close_day_confirm", "Close Day"),
+					style: "destructive",
+					onPress: async () => {
+						setIsActionLoading(true);
+						const result = await endWorkDay();
+						setIsActionLoading(false);
+						if (result?.success) {
+							Alert.alert(
+								t("day_closed", "Day Closed"),
+								t(
+									"day_closed_summary",
+									"Books closed. Cleared {{tables}} table(s), archived {{orders}} kitchen/bar ticket(s), and closed {{parties}} active party record(s).",
+									{
+										tables: result.tablesCleared || 0,
+										orders: result.ordersArchived || 0,
+										parties: result.partiesClosed || 0,
+									},
+								),
+							);
+						}
+					},
+				},
+			],
+		);
+	};
+
+	const toggleLanguage = () => {
+		const newLang = i18n.language === "en" ? "es" : "en";
+		i18n.changeLanguage(newLang);
+	};
+
 	const renderStatusHeader = () => {
-		const isOpen = workDayStatus === "OPEN" && currentWorkDay;
 		const statusColor = isOpen ? colors.statusSuccess : colors.statusDanger;
 
 		return (
-			<View style={[styles.statusBanner, { backgroundColor: statusColor }]}>
+			<View style={styles.statusBanner}>
 				<View style={styles.statusInfo}>
-					<Text style={styles.statusLabel}>
-						{isOpen ? t("LIVE OPERATIONS") : t("OFFLINE")}
-					</Text>
-					<Text style={styles.statusMainText}>
-						{isOpen ? t("Restaurant is Open") : t("Restaurant is Closed")}
-					</Text>
-					{isOpen && (
-						<Text style={styles.statusTime}>
-							{t("Started at")}{" "}
-							{moment(currentWorkDay.startTime?.toDate()).format("LT")}
+					<View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+					<View style={styles.statusTextWrap}>
+						<Text style={styles.statusLabel}>
+							{isOpen ? t("LIVE OPERATIONS") : t("OFFLINE")}
 						</Text>
-					)}
+						<Text style={styles.statusMainText}>
+							{isOpen ? t("Restaurant is Open") : t("Restaurant is Closed")}
+						</Text>
+						{isOpen ? (
+							<Text style={styles.statusTime}>
+								{t("Started at")}{" "}
+								{moment(currentWorkDay.startTime?.toDate()).format("LT")}
+							</Text>
+						) : null}
+					</View>
 				</View>
 				<TouchableOpacity
-					style={styles.statusToggleBtn}
-					onPress={isOpen ? handleEndDay : handleStartDay}
+					style={[styles.statusToggleBtn, { borderColor: statusColor }]}
+					onPress={isOpen ? handleEndDay : startWorkDay}
 					disabled={isActionLoading}
+					activeOpacity={0.8}
 				>
 					{isActionLoading ? (
 						<ActivityIndicator color={statusColor} />
@@ -125,105 +184,139 @@ const RestaurantDashboardScreen = () => {
 		);
 	};
 
-	const handleStartDay = async () => {
-		await startWorkDay();
-	};
+	const renderOperationsBadges = () => {
+		if (!permissions.canSeatWalkIn) return null;
 
-	const handleEndDay = () => {
-		Alert.alert(
-			t("close_day_title", "Close out the day?"),
-			t(
-				"close_day_message",
-				"This closes the books, clears active tables, archives Chef Q and Bar Q tickets, and prepares the restaurant for the next open day.",
-			),
-			[
-			{ text: t("cancel") },
-			{
-				text: t("close_day_confirm", "Close Day"),
-				style: "destructive",
-				onPress: async () => {
-					setIsActionLoading(true);
-					const result = await endWorkDay();
-					setIsActionLoading(false);
-					if (result?.success) {
-						Alert.alert(
-							t("day_closed", "Day Closed"),
-							t(
-								"day_closed_summary",
-								"Books closed. Cleared {{tables}} table(s), archived {{orders}} kitchen/bar ticket(s), and closed {{parties}} active party record(s).",
-								{
-									tables: result.tablesCleared || 0,
-									orders: result.ordersArchived || 0,
-									parties: result.partiesClosed || 0,
-								},
-							),
-						);
+		return (
+			<View style={styles.operationsBadgeRow}>
+				<TouchableOpacity
+					style={styles.operationsBadge}
+					activeOpacity={0.8}
+					onPress={() =>
+						openRestaurantTab(
+							"ActiveTablesNavigator",
+							"RestaurantReservationsScreen",
+						)
 					}
-				},
-			},
-			],
-		);
-	};
+				>
+					<View style={styles.operationsBadgeIcon}>
+						<MaterialCommunityIcons
+							name="calendar-clock"
+							size={18}
+							color="#7c3aed"
+						/>
+					</View>
+					<View style={styles.operationsBadgeTextWrap}>
+						<Text style={styles.operationsBadgeValue}>
+							{operationsBadges.reservationsTotal}
+						</Text>
+						<Text style={styles.operationsBadgeLabel}>
+							{t("reservations", "Reservations")}
+						</Text>
+					</View>
+				</TouchableOpacity>
 
-	const toggleLanguage = () => {
-		const newLang = i18n.language === "en" ? "es" : "en";
-		i18n.changeLanguage(newLang);
+				<TouchableOpacity
+					style={[
+						styles.operationsBadge,
+						operationsBadges.checkInRequests > 0 &&
+							styles.operationsBadgeUrgent,
+					]}
+					activeOpacity={0.8}
+					onPress={() =>
+						openRestaurantTab(
+							"ActiveTablesNavigator",
+							"HostStandScreen",
+						)
+					}
+				>
+					<View style={styles.operationsBadgeIcon}>
+						<MaterialCommunityIcons
+							name="account-clock-outline"
+							size={18}
+							color={
+								operationsBadges.checkInRequests > 0
+									? colors.statusDanger
+									: colors.textMedium
+							}
+						/>
+					</View>
+					<View style={styles.operationsBadgeTextWrap}>
+						<Text style={styles.operationsBadgeValue}>
+							{operationsBadges.checkInRequests}
+						</Text>
+						<Text style={styles.operationsBadgeLabel}>
+							{t("check_in_requests", "Check-ins")}
+						</Text>
+					</View>
+				</TouchableOpacity>
+			</View>
+		);
 	};
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+			<ScrollView
+				style={styles.container}
+				contentContainerStyle={styles.content}
+				showsVerticalScrollIndicator={false}
+			>
 				<View style={styles.brandHeader}>
-					<View>
+					<View style={styles.brandTextWrap}>
+						<Text style={styles.eyebrow}>
+							{isOpen
+								? t("open_for_service", "Open for service")
+								: t("pre_service", "Pre-service")}
+						</Text>
 						<Text style={styles.brandName}>
 							{currentUserData?.restaurantName || "SCERV POS"}
 						</Text>
 						<Text style={styles.userRole}>
-							{activeSession?.name} • {activeSession?.jobTitle?.toUpperCase()}
+							{activeSession?.name || t("staff", "Staff")} -{" "}
+							{activeSession?.jobTitle?.toUpperCase?.() || t("TEAM", "TEAM")}
 						</Text>
 					</View>
 					<View style={styles.headerActions}>
 						<TouchableOpacity
 							onPress={toggleLanguage}
-							style={{ marginBottom: 5 }}
+							style={styles.languageButton}
+							activeOpacity={0.8}
 						>
-							<Text style={{ fontSize: 16 }}>
-								{i18n.language === "en" ? "🇪🇸 Español" : "🇺🇸 English"}
+							<Text style={styles.languageText}>
+								{i18n.language === "en" ? "ES" : "EN"}
 							</Text>
 						</TouchableOpacity>
 						<RestaurantLockButton style={styles.lockButton} />
 						<View style={styles.dateContainer}>
-							<Text style={styles.dateText}>
-								{moment().format("ddd, MMM Do")}
-							</Text>
+							<Text style={styles.dateText}>{moment().format("ddd, MMM Do")}</Text>
 						</View>
 					</View>
 				</View>
 
-				{/* 🚨 2. ONLY MANAGERS SEE IF THE RESTAURANT IS OPEN/CLOSED */}
-				{permissions.isManagement && renderStatusHeader()}
+				{permissions.isManagement ? renderStatusHeader() : null}
+				{renderOperationsBadges()}
 
-				<Text style={styles.sectionTitle}>
-					{t("Main Operations", "Main Operations")}
-				</Text>
-
-				<View style={styles.navigationGrid}>
-					{/* 🚨 3. FRONT OF HOUSE: Servers, Hosts, and Managers */}
-					{(permissions.canViewTickets ||
-						permissions.canSeatWalkIn ||
-						permissions.canViewServiceRequests) && (
-						<>
-							{permissions.canViewTickets && (
+				{(permissions.canViewTickets ||
+					permissions.canSeatWalkIn ||
+					permissions.canViewServiceRequests) && (
+					<View style={styles.section}>
+						<Text style={styles.sectionTitle}>
+							{t("front_of_house", "Front of House")}
+						</Text>
+						<View style={styles.navigationStack}>
+							{permissions.canViewTickets ? (
 								<DashboardCard
 									label={t("active_tables", "Active Tables")}
+									description={t("tables_orders_guests", "Tables, orders, guests")}
 									iconName="clipboard-text-outline"
 									color="#2563eb"
 									onPress={() => openRestaurantTab("ActiveTablesNavigator")}
 								/>
-							)}
-							{permissions.canSeatWalkIn && (
+							) : null}
+							{permissions.canSeatWalkIn ? (
 								<DashboardCard
 									label={t("seat_walk_in", "Seat Walk-in")}
+									description={t("assign_table_server", "Assign table and server")}
 									iconName="table-chair"
 									color="#0ea5e9"
 									onPress={() =>
@@ -233,12 +326,72 @@ const RestaurantDashboardScreen = () => {
 										)
 									}
 								/>
-							)}
-							{permissions.canViewServiceRequests && (
+							) : null}
+							{permissions.canSeatWalkIn ? (
+								<DashboardCard
+									label={t("reservations", "Reservations")}
+									description={
+										operationsBadges.pendingReservations > 0
+											? t(
+													"reservation_requests_waiting",
+													"{{count}} request(s) need approval",
+													{
+														count: operationsBadges.pendingReservations,
+													},
+												)
+											: t("confirmed_reservations", "Confirmed reservations")
+									}
+									iconName="calendar-clock"
+									color="#7c3aed"
+									badgeCount={operationsBadges.reservationsTotal}
+									badgeTone={
+										operationsBadges.pendingReservations > 0
+											? "warning"
+											: "primary"
+									}
+									onPress={() =>
+										openRestaurantTab(
+											"ActiveTablesNavigator",
+											"RestaurantReservationsScreen",
+										)
+									}
+								/>
+							) : null}
+							{permissions.canSeatWalkIn ? (
+								<DashboardCard
+									label={t("host_check_ins", "Host Check-ins")}
+									description={
+										operationsBadges.checkInRequests > 0
+											? t(
+													"parties_waiting_to_be_seated",
+													"{{count}} waiting to be seated",
+													{
+														count: operationsBadges.checkInRequests,
+													},
+												)
+											: t(
+													"no_waiting_check_ins",
+													"No waiting check-in requests",
+												)
+									}
+									iconName="account-clock-outline"
+									color="#dc2626"
+									badgeCount={operationsBadges.checkInRequests}
+									badgeTone="danger"
+									onPress={() =>
+										openRestaurantTab(
+											"ActiveTablesNavigator",
+											"HostStandScreen",
+										)
+									}
+								/>
+							) : null}
+							{permissions.canViewServiceRequests ? (
 								<DashboardCard
 									label={t("service_requests", "Service Requests")}
+									description={t("guest_needs_attention", "Guest needs attention")}
 									iconName="bell-ring-outline"
-									color="#ef4444"
+									color="#dc2626"
 									onPress={() =>
 										openRestaurantTab(
 											"ActiveTablesNavigator",
@@ -246,152 +399,300 @@ const RestaurantDashboardScreen = () => {
 										)
 									}
 								/>
-							)}
-						</>
-					)}
+							) : null}
+						</View>
+					</View>
+				)}
 
-					{/* 🚨 4. BACK OF HOUSE: Support, Chefs, Bartenders, and Managers */}
-					{(permissions.canViewKitchen ||
-						(pickupEnabled && permissions.canViewPickupQueue)) && (
-						<>
-							{permissions.canViewKitchen && (
+				{(permissions.canViewKitchen ||
+					(pickupEnabled && permissions.canViewPickupQueue)) && (
+					<View style={styles.section}>
+						<Text style={styles.sectionTitle}>
+							{t("back_of_house", "Back of House")}
+						</Text>
+						<View style={styles.navigationStack}>
+							{permissions.canViewKitchen ? (
 								<DashboardCard
 									label={t("kitchen", "Kitchen / Bar")}
+									description={t("live_ticket_flow", "Live ticket flow")}
 									iconName="silverware-fork-knife"
-									color="#f59e0b"
+									color="#d97706"
 									onPress={() => openRestaurantTab("ChefsQ")}
 								/>
-							)}
-							{pickupEnabled && permissions.canViewPickupQueue && (
+							) : null}
+							{pickupEnabled && permissions.canViewPickupQueue ? (
 								<DashboardCard
 									label={t("pickup_queue", "Pickup Queue")}
+									description={t("orders_ready_to_go", "Orders ready to go")}
 									iconName="bag-personal-outline"
-									color="#14b8a6"
+									color="#0f766e"
 									onPress={() => openRestaurantTab("Pickups")}
 								/>
-							)}
-						</>
-					)}
+							) : null}
+						</View>
+					</View>
+				)}
 
-					{/* 🚨 5. BACK OFFICE: Strictly Management */}
-					{permissions.canManageBackOffice && (
-						<DashboardCard
-							label={t("back_office", "Back Office")}
-							iconName="shield-check-outline"
-							color="#10b981"
-							onPress={handleBackOfficePress}
-						/>
-					)}
-				</View>
+				{permissions.canManageBackOffice ? (
+					<View style={styles.section}>
+						<Text style={styles.sectionTitle}>
+							{t("management", "Management")}
+						</Text>
+						<View style={styles.navigationStack}>
+							<DashboardCard
+								label={t("back_office", "Back Office")}
+								description={t("menu_staff_reports", "Menu, staff, reports")}
+								iconName="shield-check-outline"
+								color="#059669"
+								onPress={handleBackOfficePress}
+							/>
+							<DashboardCard
+								label={t("rewards", "Rewards")}
+								description={t("loyalty_tiers_guest_perks", "Loyalty tiers and guest perks")}
+								iconName="star-four-points-outline"
+								color="#2563eb"
+								onPress={() =>
+									navigation.navigate("BackOfficeNavigator", {
+										screen: "RestaurantRewardsScreen",
+									})
+								}
+							/>
+						</View>
+					</View>
+				) : null}
 			</ScrollView>
 		</SafeAreaView>
 	);
 };
 
 const styles = StyleSheet.create({
-	safeArea: { flex: 1, backgroundColor: "#F3F4F6" },
+	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
 	container: { flex: 1 },
+	content: { paddingBottom: 28 },
 	brandHeader: {
 		flexDirection: "row",
 		justifyContent: "space-between",
-		alignItems: "center",
-		padding: 24,
+		alignItems: "flex-start",
+		paddingHorizontal: 20,
+		paddingTop: 18,
+		paddingBottom: 16,
 		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
-		borderBottomColor: "#E5E7EB",
+		borderBottomColor: colors.borderLight,
 	},
-	headerActions: { alignItems: "flex-end" },
-	lockButton: {
+	brandTextWrap: { flex: 1, paddingRight: 12 },
+	eyebrow: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+		textTransform: "uppercase",
 		marginBottom: 4,
-		minWidth: 38,
-		minHeight: 38,
 	},
 	brandName: {
 		fontSize: 22,
-		fontWeight: "800",
+		fontWeight: "900",
 		color: colors.textDark,
-		letterSpacing: -0.5,
 	},
 	userRole: {
 		fontSize: 12,
-		fontWeight: "600",
-		color: colors.textMedium,
-		marginTop: 2,
-	},
-	dateContainer: {
-		backgroundColor: "#F3F4F6",
-		paddingHorizontal: 12,
-		paddingVertical: 6,
-		borderRadius: 20,
-	},
-	dateText: { fontSize: 12, fontWeight: "700", color: colors.textDark },
-	statusBanner: {
-		margin: 20,
-		borderRadius: 20,
-		padding: 20,
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		elevation: 8,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 4 },
-		shadowOpacity: 0.2,
-		shadowRadius: 10,
-	},
-	statusInfo: { flex: 1 },
-	statusLabel: {
-		color: "rgba(255,255,255,0.7)",
-		fontSize: 10,
-		fontWeight: "900",
-		letterSpacing: 1,
-	},
-	statusMainText: {
-		color: "#FFF",
-		fontSize: 20,
 		fontWeight: "700",
+		color: colors.textMedium,
 		marginTop: 4,
 	},
-	statusTime: { color: "#FFF", fontSize: 13, marginTop: 2, opacity: 0.9 },
-	statusToggleBtn: {
-		backgroundColor: "#FFF",
-		paddingHorizontal: 16,
-		paddingVertical: 10,
-		borderRadius: 12,
+	headerActions: {
+		alignItems: "flex-end",
 	},
-	statusToggleText: { fontWeight: "800", fontSize: 14 },
-	sectionTitle: {
-		paddingHorizontal: 24,
-		fontSize: 14,
-		fontWeight: "800",
-		color: colors.textMedium,
-		textTransform: "uppercase",
-		letterSpacing: 1,
-		marginBottom: 12,
-		marginTop: 20, // Added margin top here since header banner might be hidden
-	},
-	navigationGrid: {
-		paddingHorizontal: 12,
-		flexDirection: "row",
-		flexWrap: "wrap",
-	},
-	card: { width: "50%", padding: 8 },
-	cardSurface: {
-		backgroundColor: "#FFF",
-		borderRadius: 20,
-		padding: 20,
-		height: 160,
-		justifyContent: "space-between",
-		elevation: 2,
-	},
-	iconCircle: {
-		width: 56,
-		height: 56,
-		borderRadius: 18,
+	languageButton: {
+		minWidth: 38,
+		minHeight: 34,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		alignItems: "center",
 		justifyContent: "center",
+		backgroundColor: colors.surfaceWhite,
+		marginBottom: 6,
+	},
+	languageText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	lockButton: {
+		marginBottom: 6,
+		minWidth: 38,
+		minHeight: 38,
+	},
+	dateContainer: {
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		borderRadius: 8,
+	},
+	dateText: { fontSize: 12, fontWeight: "800", color: colors.textDark },
+	statusBanner: {
+		marginHorizontal: 16,
+		marginTop: 16,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		padding: 14,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	statusInfo: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		paddingRight: 10,
+	},
+	statusDot: {
+		width: 12,
+		height: 12,
+		borderRadius: 6,
+		marginRight: 10,
+	},
+	statusTextWrap: { flex: 1 },
+	statusLabel: {
+		color: colors.textMedium,
+		fontSize: 10,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
+	statusMainText: {
+		color: colors.textDark,
+		fontSize: 16,
+		fontWeight: "900",
+		marginTop: 2,
+	},
+	statusTime: {
+		color: colors.textMedium,
+		fontSize: 12,
+		marginTop: 2,
+	},
+	statusToggleBtn: {
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		paddingHorizontal: 14,
+		paddingVertical: 10,
+		borderRadius: 8,
+	},
+	statusToggleText: { fontWeight: "900", fontSize: 13 },
+	operationsBadgeRow: {
+		flexDirection: "row",
+		gap: 10,
+		marginHorizontal: 16,
+		marginTop: 12,
+	},
+	operationsBadge: {
+		flex: 1,
+		minHeight: 66,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		padding: 10,
+		flexDirection: "row",
 		alignItems: "center",
 	},
-	cardLabel: { fontSize: 16, fontWeight: "700", color: colors.textDark },
-	cardArrow: { position: "absolute", right: 15, bottom: 20 },
+	operationsBadgeUrgent: {
+		borderColor: colors.statusDanger,
+		backgroundColor: "#fff5f5",
+	},
+	operationsBadgeIcon: {
+		width: 34,
+		height: 34,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.backgroundLight,
+		marginRight: 9,
+	},
+	operationsBadgeTextWrap: { flex: 1 },
+	operationsBadgeValue: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	operationsBadgeLabel: {
+		fontSize: 11,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 1,
+	},
+	section: {
+		marginTop: 18,
+		paddingHorizontal: 16,
+	},
+	sectionTitle: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginBottom: 8,
+	},
+	navigationStack: {
+		borderRadius: 8,
+		overflow: "hidden",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+	},
+	card: {
+		backgroundColor: colors.surfaceWhite,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
+	},
+	cardSurface: {
+		minHeight: 72,
+		paddingHorizontal: 14,
+		paddingVertical: 12,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	iconCircle: {
+		width: 42,
+		height: 42,
+		borderRadius: 8,
+		justifyContent: "center",
+		alignItems: "center",
+		marginRight: 12,
+	},
+	cardTextWrap: { flex: 1 },
+	cardLabel: {
+		fontSize: 15,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	cardDescription: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 3,
+	},
+	cardBadge: {
+		minWidth: 28,
+		height: 28,
+		borderRadius: 14,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: 8,
+		marginLeft: 8,
+		marginRight: 8,
+	},
+	cardBadge_primary: { backgroundColor: "#ede9fe" },
+	cardBadge_warning: { backgroundColor: "#fff7ed" },
+	cardBadge_danger: { backgroundColor: "#fee2e2" },
+	cardBadge_neutral: { backgroundColor: colors.backgroundLight },
+	cardBadgeText: {
+		fontSize: 12,
+		fontWeight: "900",
+	},
+	cardBadgeText_primary: { color: "#6d28d9" },
+	cardBadgeText_warning: { color: "#c2410c" },
+	cardBadgeText_danger: { color: colors.statusDanger },
+	cardBadgeText_neutral: { color: colors.textMedium },
 });
 
 export default RestaurantDashboardScreen;

@@ -457,11 +457,19 @@ const ServerMenuScreen = () => {
 	return (
 		<SafeAreaView style={styles.screen}>
 			<View style={styles.topNav}>
+				<View style={styles.orderContext}>
+					<Text style={styles.orderEyebrow}>
+						{t("server_ordering_title", "Server Ordering")}
+					</Text>
+					<Text style={styles.orderTableName} numberOfLines={1}>
+						{tableName}
+					</Text>
+				</View>
 				<TouchableOpacity
 					onPress={() => navigation.goBack()}
 					style={styles.closeBtn}
 				>
-					<Ionicons name="chevron-down" size={28} color={colors.textDark} />
+					<Ionicons name="chevron-down" size={20} color={colors.textDark} />
 					<Text style={styles.closeText}>{t("done", "Done")}</Text>
 				</TouchableOpacity>
 			</View>
@@ -482,30 +490,34 @@ const ServerMenuScreen = () => {
 							<TouchableOpacity
 								key={category}
 								style={[
-									styles.categoryCard,
-									{ backgroundColor: visual.bg },
+									styles.categoryChip,
 									isActive && styles.categoryCardActive,
 								]}
 								onPress={() => setSelectedCategory(category)}
 								activeOpacity={0.85}
 							>
-								<View style={styles.categoryCardTop}>
+								<View
+									style={[
+										styles.categoryIconWrap,
+										{ backgroundColor: visual.bg },
+									]}
+								>
 									<Ionicons
 										name={visual.icon}
-										size={22}
+										size={16}
 										color={visual.iconColor}
 									/>
-									<Text style={styles.categoryCount}>{count}</Text>
 								</View>
 								<Text
 									style={[
 										styles.categoryCardText,
 										isActive && styles.categoryCardTextActive,
 									]}
-									numberOfLines={2}
+									numberOfLines={1}
 								>
 									{category}
 								</Text>
+								<Text style={styles.categoryCount}>{count}</Text>
 							</TouchableOpacity>
 						);
 					})}
@@ -562,13 +574,15 @@ const ServerMenuScreen = () => {
 				isLoading={isLoadingMenu}
 				ListHeaderComponent={
 					<View style={styles.headerContainer}>
-						<Text style={styles.headerTitle}>
-							{t("server_ordering_title", "Server Ordering")}
-						</Text>
-						<Text style={styles.headerSubtitle}>{tableName}</Text>
-						<Text style={styles.categoryLabel}>
-							{t("category", "Category")}: {selectedCategory}
-						</Text>
+						<View>
+							<Text style={styles.categoryLabel}>
+								{t("category", "Category")}
+							</Text>
+							<Text style={styles.headerTitle}>{selectedCategory}</Text>
+						</View>
+						<View style={styles.headerCountPill}>
+							<Text style={styles.headerCountText}>{filteredMenuItems.length}</Text>
+						</View>
 					</View>
 				}
 				pips={[{ userId: currentUserData.uid, name: "Table Share" }]}
@@ -783,43 +797,77 @@ const styles = StyleSheet.create({
 	topNav: {
 		flexDirection: "row",
 		alignItems: "center",
-		justifyContent: "flex-end",
-		paddingHorizontal: 20,
+		justifyContent: "space-between",
+		paddingHorizontal: 18,
 		paddingVertical: 12,
 		backgroundColor: colors.surfaceWhite,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.05,
-		elevation: 2,
 		zIndex: 10,
+	},
+	orderContext: {
+		flex: 1,
+		paddingRight: 12,
+	},
+	orderEyebrow: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+		textTransform: "uppercase",
+		marginBottom: 3,
+	},
+	orderTableName: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
 	},
 	closeBtn: {
 		flexDirection: "row",
 		alignItems: "center",
-		backgroundColor: colors.backgroundMedium,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
 		paddingHorizontal: 12,
-		paddingVertical: 6,
-		borderRadius: 20,
+		paddingVertical: 8,
+		borderRadius: 8,
 	},
 	closeText: {
-		fontSize: 16,
+		fontSize: 14,
 		color: colors.textDark,
 		marginLeft: 4,
-		fontWeight: "bold",
+		fontWeight: "900",
 	},
 
 	// ✅ NEW category styles
 	categorySection: {
 		backgroundColor: colors.surfaceWhite,
-		paddingTop: 12,
-		paddingBottom: 10,
+		paddingTop: 10,
+		paddingBottom: 9,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
 	categoryScrollContent: {
-		paddingHorizontal: 16,
+		paddingHorizontal: 14,
+	},
+	categoryChip: {
+		height: 42,
+		maxWidth: 180,
+		borderRadius: 8,
+		marginRight: 8,
+		paddingHorizontal: 9,
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	categoryIconWrap: {
+		width: 28,
+		height: 28,
+		borderRadius: 8,
+		justifyContent: "center",
+		alignItems: "center",
+		marginRight: 7,
 	},
 	categoryCard: {
 		width: 124,
@@ -832,6 +880,7 @@ const styles = StyleSheet.create({
 		borderColor: "transparent",
 	},
 	categoryCardActive: {
+		backgroundColor: colors.primary + "10",
 		borderColor: colors.primary,
 	},
 	categoryCardTop: {
@@ -841,14 +890,15 @@ const styles = StyleSheet.create({
 	},
 	categoryCount: {
 		fontSize: 12,
-		fontWeight: "700",
+		fontWeight: "900",
 		color: colors.textMedium,
+		marginLeft: 7,
 	},
 	categoryCardText: {
-		fontSize: 14,
-		fontWeight: "700",
+		fontSize: 13,
+		fontWeight: "900",
 		color: colors.textDark,
-		lineHeight: 18,
+		maxWidth: 96,
 	},
 	categoryCardTextActive: {
 		color: colors.primary,
@@ -914,25 +964,43 @@ const styles = StyleSheet.create({
 		color: colors.surfaceWhite,
 	},
 
-	headerContainer: { padding: 20 },
-	headerTitle: {
-		fontSize: 24,
-		fontWeight: "bold",
-		color: colors.textDark,
-		textAlign: "center",
+	headerContainer: {
+		marginHorizontal: 16,
+		marginTop: 12,
+		marginBottom: 4,
+		padding: 12,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
 	},
-	headerSubtitle: {
-		fontSize: 16,
-		color: colors.textMedium,
-		textAlign: "center",
+	headerTitle: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
 		marginTop: 4,
 	},
 	categoryLabel: {
+		fontSize: 11,
+		color: colors.textMedium,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
+	headerCountPill: {
+		minWidth: 34,
+		height: 34,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	headerCountText: {
+		color: colors.surfaceWhite,
+		fontWeight: "900",
 		fontSize: 14,
-		color: colors.primary,
-		textAlign: "center",
-		marginTop: 8,
-		fontWeight: "700",
 	},
 
 	bulkAddContainer: {

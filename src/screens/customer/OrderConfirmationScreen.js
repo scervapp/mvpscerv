@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useContext, useMemo, useState, useEffect } from "react";
 import {
 	View,
 	Text,
@@ -22,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { moderateScale } from "react-native-size-matters";
 import { useTranslation } from "react-i18next";
+import { AuthContext } from "../../context/authContext";
 
 const StarRating = ({ rating, onRate }) => {
 	return (
@@ -51,8 +52,24 @@ const REVIEW_TAGS = [
 	"would order again",
 ];
 
+const buildCustomerReviewName = (customer = {}) => {
+	const fullName = String(customer.fullName || customer.name || "").trim();
+	const firstName = String(customer.firstName || "").trim();
+	const lastName = String(customer.lastName || "").trim();
+
+	if (firstName && lastName) return `${firstName} ${lastName.charAt(0)}.`;
+	if (firstName) return firstName;
+	if (fullName) {
+		const parts = fullName.split(/\s+/).filter(Boolean);
+		if (parts.length > 1) return `${parts[0]} ${parts[1].charAt(0)}.`;
+		return parts[0];
+	}
+	return "";
+};
+
 const OrderConfirmationScreen = () => {
 	const { t } = useTranslation();
+	const { currentUserData } = useContext(AuthContext);
 	const route = useRoute();
 	const navigation = useNavigation();
 	const {
@@ -70,6 +87,10 @@ const OrderConfirmationScreen = () => {
 	const [reviewTexts, setReviewTexts] = useState({});
 	const [reviewTags, setReviewTags] = useState({});
 	const [submitting, setSubmitting] = useState(false);
+	const customerReviewName = useMemo(
+		() => buildCustomerReviewName(currentUserData),
+		[currentUserData],
+	);
 
 	useEffect(() => {
 		if (status === "processing") {
@@ -119,6 +140,8 @@ const OrderConfirmationScreen = () => {
 						reviewText: reviewTexts[item.id] || "",
 						reviewTags: reviewTags[item.id] || [],
 						orderId: appOrderId || basketId || null,
+						customerName: customerReviewName || null,
+						customerDisplayName: customerReviewName || null,
 						isIndividual: isIndividual, // ← from route.params
 					});
 				}

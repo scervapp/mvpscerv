@@ -62,6 +62,26 @@ const firstDefined = (...values) => {
 	return match === undefined ? null : match;
 };
 
+const getActivePromotionDiscount = (sharedBasket = {}) => {
+	const discount = sharedBasket.activePromotionDiscount || null;
+	return discount?.status === "active" ? discount : null;
+};
+
+const getPromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
+	if (!activePromotionDiscount) return 0;
+	const requestedDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.appliedDiscountCents || 0)),
+	);
+	const maxDiscount = Math.max(
+		0,
+		Math.round(Number(activePromotionDiscount.maxDiscountCents || 0)),
+	);
+	const cappedDiscount =
+		maxDiscount > 0 ? Math.min(requestedDiscount, maxDiscount) : requestedDiscount;
+	return Math.min(Math.max(0, Number(subtotalCents || 0)), cappedDiscount);
+};
+
 const isDateInFuture = (value) => {
 	if (!value) return false;
 	const date =
@@ -153,7 +173,9 @@ const PartyCheckoutScreen = () => {
 
 	const { partyId } = route.params;
 
-	const sharedBasketItems = sharedBaskets[partyId]?.items || [];
+	const sharedBasket = sharedBaskets[partyId] || {};
+	const sharedBasketItems = sharedBasket.items || [];
+	const activePromotionDiscount = getActivePromotionDiscount(sharedBasket);
 	const party = partyDetails[partyId] || {};
 	const stripeBillingDetails = useMemo(() => {
 		const name = [
@@ -181,6 +203,8 @@ const PartyCheckoutScreen = () => {
 		party?.restaurantId,
 		currentUserData?.uid,
 	);
+	const resolvedCheckInId =
+		party?.checkInId || party?.activeCheckInId || checkInObj?.id || null;
 
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
@@ -205,26 +229,34 @@ const PartyCheckoutScreen = () => {
 	const [savedEmail, setSavedEmail] = useState("");
 	const [restaurantData, setRestaurantData] = useState(null);
 
-	const canAcceptPayments = restaurantData?.canAcceptPayments !== false;
-
 	const [pickupSpecialInstructions, setPickupSpecialInstructions] =
 		useState("");
 	const [isEditingPickupInstructions, setIsEditingPickupInstructions] =
 		useState(false);
 
-	const country =
+	const rawCountry =
 		restaurantData?.countryCode ||
 		restaurantData?.country ||
 		party?.restaurantCountryCode ||
 		party?.restaurantCountry ||
 		"US";
+	const normalizedCountry = String(rawCountry || "US")
+		.trim()
+		.toLowerCase();
 	const isPanama =
-		country === "PA" || country === "Panama" || country === "panama";
+		normalizedCountry === "pa" || normalizedCountry === "panama";
 	const isUS =
-		country === "US" ||
-		country === "USA" ||
-		country === "usa" ||
-		country === "United States";
+		normalizedCountry === "us" ||
+		normalizedCountry === "usa" ||
+		normalizedCountry === "united states" ||
+		normalizedCountry === "united states of america";
+	const restaurantStripeReady =
+		!!restaurantData?.stripeAccountId &&
+		(restaurantData?.stripeAccountStatus === "verified" ||
+			restaurantData?.stripeChargesEnabled === true);
+	const canAcceptPayments =
+		restaurantData?.canAcceptPayments !== false &&
+		(isPanama || (isUS && restaurantStripeReady));
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
@@ -332,6 +364,7 @@ const PartyCheckoutScreen = () => {
 		myPlatformFee,
 		myFinalTotal,
 		myTotalDiscount,
+		myPromotionDiscount,
 	} = useMemo(() => {
 		if (!sharedBasketItems || !currentUserData || !currentUserData.uid) {
 			return {
@@ -343,6 +376,7 @@ const PartyCheckoutScreen = () => {
 				myPlatformFee: 0,
 				myFinalTotal: 0,
 				myTotalDiscount: 0,
+				myPromotionDiscount: 0,
 			};
 		}
 
@@ -365,6 +399,7 @@ const PartyCheckoutScreen = () => {
 				myPlatformFee: 0,
 				myFinalTotal: 0,
 				myTotalDiscount: 0,
+				myPromotionDiscount: 0,
 			};
 		}
 
@@ -396,6 +431,21 @@ const PartyCheckoutScreen = () => {
 				effectiveUnitPriceInCents * quantity * restaurantTaxRate,
 			);
 		});
+
+		const promotionDiscountInCents = getPromotionDiscountCents(
+			activePromotionDiscount,
+			discountedSubtotalInCents,
+		);
+		if (promotionDiscountInCents > 0) {
+			discountedSubtotalInCents = Math.max(
+				0,
+				discountedSubtotalInCents - promotionDiscountInCents,
+			);
+			taxInCents = Math.max(
+				0,
+				taxInCents - Math.round(promotionDiscountInCents * restaurantTaxRate),
+			);
+		}
 
 		const gratuityInCents = canAcceptPayments
 			? Math.round(
@@ -497,8 +547,10 @@ const PartyCheckoutScreen = () => {
 			myPlatformFee: platformFeeInCents,
 			myFinalTotal: finalTotalInCents,
 			myTotalDiscount: totalDiscountInCents,
+			myPromotionDiscount: promotionDiscountInCents,
 		};
 	}, [
+		activePromotionDiscount,
 		sharedBasketItems,
 		currentUserData && currentUserData.uid,
 		gratuityPercentage,
@@ -532,7 +584,7 @@ const PartyCheckoutScreen = () => {
 		myFinalTotal > 0 &&
 		currentUserData?.uid &&
 		isPricingPolicyLoaded &&
-		(isPickupMode || (party?.id && party?.checkInId));
+		(isPickupMode || (party?.id && resolvedCheckInId));
 
 	useEffect(() => {
 		if (!resolvedRestaurantId) return;
@@ -631,6 +683,7 @@ const PartyCheckoutScreen = () => {
 						setStripePublishableKey(data.stripePublishableKey);
 					}
 				} catch (error) {
+					console.error("Stripe payment configuration failed:", error);
 					if (isMounted) {
 						setPaymentError(
 							t(
@@ -957,12 +1010,59 @@ const PartyCheckoutScreen = () => {
 	};
 
 	const handlePayment = async () => {
-		if (!isReadyToPay || isPreparing) return;
+		if (isPreparing) return;
+		if (!isReadyToPay) {
+			Alert.alert(
+				t("checkout_not_ready", "Checkout Not Ready"),
+				t(
+					"checkout_not_ready_message",
+					"We are still syncing your table and order. Please wait a moment and try again.",
+				),
+			);
+			return;
+		}
 
 		setIsPreparing(true);
 		setPaymentError(null);
 
 		try {
+			try {
+				const finalizeStripePayment = httpsCallable(
+					functions,
+					"finalizeStripePayment",
+				);
+				const recoveryResult = await finalizeStripePayment({
+					partyId: party.id,
+				});
+				if (recoveryResult?.data?.success) {
+					navigation.dispatch(
+						CommonActions.reset({
+							index: 0,
+							routes: [
+								{
+									name: "OrderConfirmation",
+									params: {
+										initialStatus: "processing",
+										itemsToRate: myItemsInBasket,
+										basketId: party.id,
+										origin: isPickupMode ? "pickup" : "party",
+										isIndividual: false,
+										appOrderId:
+											recoveryResult.data.fulfilledOrderId ||
+											recoveryResult.data.orderId ||
+											null,
+									},
+								},
+							],
+						}),
+					);
+					return;
+				}
+			} catch (recoveryError) {
+				// No already-paid pending order exists for this party, so continue
+				// with a new Stripe PaymentIntent instead of blocking checkout.
+			}
+
 			const preparePayment = httpsCallable(functions, "preparePayment");
 
 			const { data: prepData } = await preparePayment({
@@ -975,9 +1075,9 @@ const PartyCheckoutScreen = () => {
 				taxAmount: myTax,
 				platformFee: myPlatformFee,
 				expectedTotal: myFinalTotal,
-				checkInId: isPickupMode ? null : party.checkInId,
 				table: isPickupMode ? null : party.table || null,
 				server: isPickupMode ? null : party.server || null,
+				checkInId: isPickupMode ? null : resolvedCheckInId,
 				checkInTimestamp: null,
 				orderMode: isPickupMode ? "pickup" : "dineIn",
 				fulfillmentType,
@@ -1002,7 +1102,7 @@ const PartyCheckoutScreen = () => {
 				);
 			}
 
-			if (Math.abs(serverPaymentTotal - myFinalTotal) > 1) {
+			if (serverPaymentTotal - myFinalTotal > 1) {
 				throw new Error(
 					t(
 						"payment_total_changed",
@@ -1039,6 +1139,24 @@ const PartyCheckoutScreen = () => {
 				return;
 			}
 
+			const finalizeStripePayment = httpsCallable(
+				functions,
+				"finalizeStripePayment",
+			);
+			const finalizeResult = await finalizeStripePayment({
+				orderId: prepData.orderId,
+				paymentIntentId: prepData.paymentIntentId,
+				partyId: party.id,
+			});
+			if (!finalizeResult?.data?.success) {
+				throw new Error(
+					t(
+						"payment_cleanup_failed",
+						"Payment succeeded, but the table could not be closed. Please ask staff to refresh the table.",
+					),
+				);
+			}
+
 			navigation.dispatch(
 				CommonActions.reset({
 					index: 0,
@@ -1051,6 +1169,7 @@ const PartyCheckoutScreen = () => {
 								basketId: party.id,
 								origin: isPickupMode ? "pickup" : "party",
 								isIndividual: false,
+								appOrderId: prepData.orderId,
 							},
 						},
 					],
@@ -1088,14 +1207,92 @@ const PartyCheckoutScreen = () => {
 				: t("request_check", "Request Check");
 
 	const cardButtonLabel =
-		party?.customerStatus === "ready_to_pay"
-			? t("server_notified", "Server Notified")
-			: `${t("pay", "Pay")} ${formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}`;
+		`${t("pay", "Pay")} ${formatCurrency(canAcceptPayments ? myFinalTotal : mySubtotal)}`;
 	const taxesAndFeesTotal = myTax + myPlatformFee;
 	const paymentConfigReady =
 		!canAcceptPayments ||
 		(isPanama && dlocalPublicKey && dlocalCheckoutToken) ||
 		(isUS && stripePublishableKey);
+
+	const getPaymentConfigDebugMessage = () => {
+		const status = restaurantData?.stripeAccountStatus || "missing";
+		const chargesEnabled = String(restaurantData?.stripeChargesEnabled === true);
+		const accountLinked = String(!!restaurantData?.stripeAccountId);
+		return `Restaurant: ${resolvedRestaurantId || "missing"}\nCountry: ${rawCountry || "missing"}\nStripe account: ${accountLinked}\nStripe status: ${status}\nCharges enabled: ${chargesEnabled}`;
+	};
+
+	const ensurePaymentConfigReady = async () => {
+		if (paymentConfigReady) return true;
+
+		if (!resolvedRestaurantId) {
+			Alert.alert(
+				t("payment_unavailable", "Payment Unavailable"),
+				t(
+					"missing_restaurant_for_payment",
+					"We could not identify the restaurant for this payment.",
+				),
+			);
+			return false;
+		}
+
+		if (isUS) {
+			setIsPreparing(true);
+			try {
+				const getStripePublishableKeyFunction = httpsCallable(
+					functions,
+					"getStripePublishableKey",
+				);
+				const { data } = await getStripePublishableKeyFunction({
+					restaurantId: resolvedRestaurantId,
+				});
+
+				if (data?.stripePublishableKey) {
+					setStripePublishableKey(data.stripePublishableKey);
+					setPaymentError(null);
+					return true;
+				}
+
+				throw new Error("Stripe publishable key was empty.");
+			} catch (error) {
+				const message =
+					error?.message ||
+					t(
+						"could_not_load_payment_configuration_for_this_restaurant",
+						"Could not load payment configuration for this restaurant.",
+					);
+				console.error("Stripe payment configuration retry failed:", error);
+				setPaymentError(message);
+				Alert.alert(
+					t("payment_unavailable", "Payment Unavailable"),
+					`${message}\n\n${getPaymentConfigDebugMessage()}`,
+				);
+				return false;
+			} finally {
+				setIsPreparing(false);
+			}
+		}
+
+		if (isPanama) {
+			Alert.alert(
+				t("payment_unavailable", "Payment Unavailable"),
+				paymentError ||
+					t(
+						"payment_configuration_loading",
+						"We are still loading the secure payment configuration. Please try again in a moment.",
+					),
+			);
+			return false;
+		}
+
+		Alert.alert(
+			t("payment_unavailable", "Payment Unavailable"),
+			`${t(
+				"payment_region_not_supported",
+				"Online card payments are not configured for this restaurant region.",
+			)}\n\n${getPaymentConfigDebugMessage()}`,
+		);
+		return false;
+	};
 
 	return (
 		<StripeProvider publishableKey={stripePublishableKey || ""}>
@@ -1357,7 +1554,12 @@ const PartyCheckoutScreen = () => {
 									</Text>
 								</View>
 								<View style={styles.summaryRow}>
-									<Text style={styles.label}>{t("discount", "Discount")}:</Text>
+									<Text style={styles.label}>
+										{myPromotionDiscount > 0
+											? t("promotion_discount", "Promotion Discount")
+											: t("discount", "Discount")}
+										:
+									</Text>
 									<Text style={[styles.amount, styles.discountText]}>
 										-{formatCurrency(myTotalDiscount)}
 									</Text>
@@ -1454,11 +1656,19 @@ const PartyCheckoutScreen = () => {
 						<View style={{ flexDirection: "row", gap: 10 }}>
 							<Button
 								mode="contained"
-								onPress={() => {
+								onPress={async () => {
+									if (!isReadyToPay) {
+										handlePayment();
+										return;
+									}
+									const configReady = await ensurePaymentConfigReady();
+									if (!configReady) {
+										return;
+									}
 									if (isPanama) {
 										setIsPaymentModalVisible(true);
 									} else if (isUS) {
-										handlePayment();
+										setTimeout(() => handlePayment(), 100);
 									} else {
 										Alert.alert(
 											t("payment_unavailable", "Payment Unavailable"),
@@ -1469,12 +1679,7 @@ const PartyCheckoutScreen = () => {
 										);
 									}
 								}}
-								disabled={
-									!isReadyToPay ||
-									!paymentConfigReady ||
-									isPreparing ||
-									(!isPickupMode && party?.customerStatus === "ready_to_pay")
-								}
+								disabled={isPreparing}
 								loading={isPreparing}
 								style={[styles.payButton, { flex: 1 }]}
 								labelStyle={styles.payButtonText}

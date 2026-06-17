@@ -173,7 +173,7 @@ const OrdersLedgerScreen = ({ navigation, route }) => {
 						value={item.totalPrice}
 					/>
 					<LedgerMoneyMetric
-						label={t("net_received", "Net Received")}
+						label={t("estimated_deposit", "Estimated Deposit")}
 						value={netReceived}
 						highlight
 					/>

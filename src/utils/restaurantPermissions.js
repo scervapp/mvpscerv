@@ -41,6 +41,7 @@ export const getRestaurantPermissions = (activeSession) => {
 		canEnterStaffOrders: isManagement || isServer,
 		canManageBackOffice: isManagement,
 		canManageEmployees: isManagement,
+		canManageReservationSettings: isManagement,
 		canViewReports: isManagement,
 	};
 };

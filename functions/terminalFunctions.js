@@ -137,6 +137,51 @@ const calculateCloseoutTotals = (items, restaurantTaxRate) => {
 	};
 };
 
+const getActivePromotionDiscount = (basketData = {}) => {
+	const discount = basketData.activePromotionDiscount || null;
+	if (!discount || discount.status !== "active") return null;
+	return discount;
+};
+
+const getPromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
+	if (!activePromotionDiscount) return 0;
+	const requestedDiscount = normalizeNonNegativeCents(
+		activePromotionDiscount.appliedDiscountCents,
+	);
+	const maxDiscount = normalizeNonNegativeCents(
+		activePromotionDiscount.maxDiscountCents,
+	);
+	const cappedDiscount =
+		maxDiscount > 0 ? Math.min(requestedDiscount, maxDiscount) : requestedDiscount;
+	return Math.min(Math.max(0, subtotalCents), cappedDiscount);
+};
+
+const applyPromotionDiscountToTotals = ({
+	totals,
+	activePromotionDiscount,
+	restaurantTaxRate,
+}) => {
+	const promotionDiscountCents = getPromotionDiscountCents(
+		activePromotionDiscount,
+		totals.subtotalCents,
+	);
+	if (promotionDiscountCents <= 0) {
+		return { ...totals, promotionDiscountCents: 0, activePromotionDiscount: null };
+	}
+
+	const taxReductionCents = Math.round(
+		promotionDiscountCents * Math.max(0, Number(restaurantTaxRate || 0)),
+	);
+	return {
+		...totals,
+		subtotalCents: Math.max(0, totals.subtotalCents - promotionDiscountCents),
+		taxAmountCents: Math.max(0, totals.taxAmountCents - taxReductionCents),
+		discountTotalCents: totals.discountTotalCents + promotionDiscountCents,
+		promotionDiscountCents,
+		activePromotionDiscount,
+	};
+};
+
 const getRestaurantTier = async (restaurantData = {}) => {
 	const pricingTier = restaurantData.pricingTier || "basic";
 	const configSnap = await db.collection("appConfig").doc("pricingTiers").get();
@@ -500,7 +545,11 @@ exports.prepareStaffTerminalPayment = functions
 			}
 			if (restaurantTaxRate > 1) restaurantTaxRate = restaurantTaxRate / 100;
 
-			const totals = calculateCloseoutTotals(selectedItems, restaurantTaxRate);
+			const totals = applyPromotionDiscountToTotals({
+				totals: calculateCloseoutTotals(selectedItems, restaurantTaxRate),
+				activePromotionDiscount: getActivePromotionDiscount(basketData),
+				restaurantTaxRate,
+			});
 			const salesAndTaxAmount = totals.subtotalCents + totals.taxAmountCents;
 			if (salesAndTaxAmount <= 0) {
 				throw new functions.https.HttpsError(
@@ -561,6 +610,7 @@ exports.prepareStaffTerminalPayment = functions
 						userId: context.auth.uid,
 						staffId: staffMember.id || staffId || "",
 						subtotal: String(totals.subtotalCents),
+						promotionDiscount: String(totals.promotionDiscountCents || 0),
 						taxAmount: String(totals.taxAmountCents),
 						gratuity: "0",
 						total: String(preTipAmount),
@@ -612,6 +662,8 @@ exports.prepareStaffTerminalPayment = functions
 				subtotal: totals.subtotalCents,
 				originalSubtotal: totals.originalSubtotalCents,
 				discountTotal: totals.discountTotalCents,
+				promotionDiscount: totals.promotionDiscountCents || 0,
+				activePromotionDiscount: totals.activePromotionDiscount || null,
 				taxAmount: totals.taxAmountCents,
 				taxRate: restaurantTaxRate,
 				gratuityAmount: 0,

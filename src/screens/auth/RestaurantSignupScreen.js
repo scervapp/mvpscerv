@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons"; // Ensure you have this installed
 import PlatformSelect from "../../components/global/PlatformSelect";
 
+// Canonical country option shape across restaurant signup/profile is { code, label }.
 export const COUNTRY_OPTIONS = [
 	["US", "United States"],
 	["AF", "Afghanistan"],
@@ -436,8 +437,8 @@ const RestaurantSignupScreen = ({ navigation }) => {
 										}
 										title={t("country", "Country")}
 										options={COUNTRY_OPTIONS.map((country) => ({
-											label: country[1],
-											value: country[0],
+											label: country.label,
+											value: country.code,
 										}))}
 										pickerStyle={styles.picker}
 									/>

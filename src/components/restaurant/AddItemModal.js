@@ -76,6 +76,34 @@ const parseTagList = (value) =>
 
 const uniqueList = (values) => [...new Set(values.filter(Boolean))];
 
+const buildCanonicalDishId = ({ restaurantId, name, category }) => {
+	const normalizedName = normalizeToken(name).replace(/[^a-z0-9]+/g, "_");
+	const normalizedCategory = normalizeToken(category).replace(/[^a-z0-9]+/g, "_");
+	const safeName = normalizedName || "menu_item";
+	const safeCategory = normalizedCategory || "uncategorized";
+	return `${restaurantId}_${safeCategory}_${safeName}`.slice(0, 240);
+};
+
+const buildMenuIdentity = ({ name, category }) => ({
+	normalizedName: normalizeToken(name),
+	normalizedCategory: normalizeToken(category),
+});
+
+const pickReputationFields = (item = {}) => ({
+	totalRatingSum: item.totalRatingSum || 0,
+	ratingCount: item.ratingCount || 0,
+	averageRating: item.averageRating || 0,
+	reviewCount: item.reviewCount || 0,
+	orderCount: item.orderCount || 0,
+	reorderCount: item.reorderCount || 0,
+	favoriteCount: item.favoriteCount || 0,
+	confidenceAdjustedRating: item.confidenceAdjustedRating || 0,
+	discoveryScore: item.discoveryScore || item.averageRating || 0,
+	topReviewTags: item.topReviewTags || [],
+	reviewHighlight: item.reviewHighlight || item.topReview || "",
+	topReview: item.topReview || item.reviewHighlight || "",
+});
+
 const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
@@ -487,38 +515,93 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		};
 	};
 
+	const findExistingDishIdentity = async ({ restaurantId, name, category }) => {
+		const identity = buildMenuIdentity({ name, category });
+		const snapshot = await db
+			.collection("menuItems")
+			.where("restaurantId", "==", restaurantId)
+			.get();
+
+		const matches = snapshot.docs
+			.map((doc) => ({ id: doc.id, ...doc.data() }))
+			.filter((item) => {
+				const itemIdentity = buildMenuIdentity({
+					name: item.name,
+					category: item.category,
+				});
+				return (
+					itemIdentity.normalizedName === identity.normalizedName &&
+					itemIdentity.normalizedCategory === identity.normalizedCategory
+				);
+			})
+			.sort((a, b) => {
+				const bScore = Number(b.ratingCount || 0) + Number(b.reviewCount || 0);
+				const aScore = Number(a.ratingCount || 0) + Number(a.reviewCount || 0);
+				return bScore - aScore;
+			});
+
+		return matches[0] || null;
+	};
+
 	const handleSubmit = async () => {
 		if (!validateForm()) return;
 
 		setIsSubmitting(true);
-		const restaurantId = currentUserData.uid;
-		const cleanModifierGroups = buildCleanModifierGroups();
-		const metadata = buildMenuMetadata(cleanModifierGroups);
-
-		const menuItemData = {
-			restaurantId,
-			name: name.trim(),
-			description: description.trim(),
-			price: parseFloat(price),
-			category,
-			isDailySpecial,
-			imageUri: imageUri,
-			modifierGroups: cleanModifierGroups,
-			hasModifiers: modifierGroups.length > 0,
-			...metadata,
-			reviewCount: itemToEdit?.reviewCount || 0,
-			orderCount: itemToEdit?.orderCount || 0,
-			reorderCount: itemToEdit?.reorderCount || 0,
-			favoriteCount: itemToEdit?.favoriteCount || 0,
-			discoveryScore: itemToEdit?.discoveryScore || itemToEdit?.averageRating || 0,
-			updatedAt: new Date(),
-		};
-
-		if (!isEditMode) {
-			menuItemData.createdAt = new Date();
-		}
 
 		try {
+			const restaurantId = currentUserData.uid;
+			const cleanModifierGroups = buildCleanModifierGroups();
+			const metadata = buildMenuMetadata(cleanModifierGroups);
+			const identity = buildMenuIdentity({ name, category });
+			const existingDishIdentity = !isEditMode
+				? await findExistingDishIdentity({ restaurantId, name, category })
+				: null;
+			const canonicalDishId =
+				itemToEdit?.canonicalDishId ||
+				existingDishIdentity?.canonicalDishId ||
+				buildCanonicalDishId({
+					restaurantId,
+					name,
+					category,
+				});
+
+			const menuItemData = {
+				restaurantId,
+				canonicalDishId,
+				normalizedName: identity.normalizedName,
+				normalizedCategory: identity.normalizedCategory,
+				name: name.trim(),
+				description: description.trim(),
+				price: parseFloat(price),
+				category,
+				isDailySpecial,
+				imageUri: imageUri,
+				isArchived: false,
+				archivedAt: null,
+				modifierGroups: cleanModifierGroups,
+				hasModifiers: modifierGroups.length > 0,
+				...metadata,
+				...(isEditMode
+					? pickReputationFields(itemToEdit)
+					: existingDishIdentity
+						? pickReputationFields(existingDishIdentity)
+						: pickReputationFields()),
+				relistedFromMenuItemId: existingDishIdentity?.id || null,
+				reputationSourceMenuItemId:
+					existingDishIdentity?.id || itemToEdit?.id || null,
+				previousNames: uniqueList([
+					...(itemToEdit?.previousNames || []),
+					...(isEditMode && itemToEdit?.name && itemToEdit.name !== name.trim()
+						? [itemToEdit.name]
+						: []),
+				]),
+				updatedAt: new Date(),
+			};
+
+			if (!isEditMode) {
+				menuItemData.createdAt = new Date();
+			}
+
 			if (isEditMode) {
 				await db
 					.collection("menuItems")

@@ -250,6 +250,22 @@ const RestaurantActiveTables = () => {
 				}),
 		[rawActiveParties, kitchenTicketsByParty],
 	);
+	const tablePulse = useMemo(
+		() => ({
+			service: activeParties.filter((party) => party.serviceRequested === true)
+				.length,
+			server: activeParties.filter(
+				(party) =>
+					party.status !== "checkedOut" &&
+					(!party.server || party.server.id === "unassigned"),
+			).length,
+			food: activeParties.filter((party) => Number(party.foodReadyCount || 0) > 0)
+				.length,
+			dirty: activeParties.filter((party) => party.status === "checkedOut")
+				.length,
+		}),
+		[activeParties],
+	);
 
 	useEffect(() => {
 		if (!restaurantId) {
@@ -935,6 +951,33 @@ const RestaurantActiveTables = () => {
 					</View>
 				</View>
 
+				<View style={styles.pulseRow}>
+					<View style={styles.pulseTile}>
+						<Text style={[styles.pulseValue, { color: colors.statusDanger }]}>
+							{tablePulse.service}
+						</Text>
+						<Text style={styles.pulseLabel}>{t("service", "Service")}</Text>
+					</View>
+					<View style={styles.pulseTile}>
+						<Text style={[styles.pulseValue, { color: colors.brandOrange }]}>
+							{tablePulse.server}
+						</Text>
+						<Text style={styles.pulseLabel}>{t("server", "Server")}</Text>
+					</View>
+					<View style={styles.pulseTile}>
+						<Text style={[styles.pulseValue, { color: colors.statusSuccess }]}>
+							{tablePulse.food}
+						</Text>
+						<Text style={styles.pulseLabel}>{t("food", "Food")}</Text>
+					</View>
+					<View style={styles.pulseTile}>
+						<Text style={[styles.pulseValue, { color: colors.textDark }]}>
+							{tablePulse.dirty}
+						</Text>
+						<Text style={styles.pulseLabel}>{t("dirty", "Dirty")}</Text>
+					</View>
+				</View>
+
 				{renderContent()}
 
 				<ServerAssignmentModal
@@ -958,24 +1001,33 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
-		paddingHorizontal: 20,
-		paddingTop: 20,
-		paddingBottom: 15,
+		paddingHorizontal: 18,
+		paddingTop: 16,
+		paddingBottom: 12,
+		backgroundColor: colors.surfaceWhite,
+		borderBottomWidth: 1,
+		borderBottomColor: colors.borderLight,
 	},
-	title: { fontSize: 28, fontWeight: "bold", color: colors.textDark },
+	title: { fontSize: 24, fontWeight: "900", color: colors.textDark },
 	countBadge: {
-		backgroundColor: colors.primary + "20",
-		paddingHorizontal: 12,
-		paddingVertical: 6,
-		borderRadius: 20,
+		backgroundColor: colors.primary,
+		minWidth: 30,
+		height: 30,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 8,
 		marginLeft: 10,
 	},
-	countBadgeText: { color: colors.primary, fontWeight: "bold", fontSize: 16 },
+	countBadgeText: {
+		color: colors.surfaceWhite,
+		fontWeight: "900",
+		fontSize: 15,
+	},
 	manualSeatBtn: {
 		flexDirection: "row",
 		alignItems: "center",
 		backgroundColor: colors.primary,
-		paddingHorizontal: 14,
+		paddingHorizontal: 12,
 		paddingVertical: 10,
 		borderRadius: 8,
 	},
@@ -984,7 +1036,35 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginLeft: 4,
 	},
-	listContainer: { paddingHorizontal: 15, paddingBottom: 30 },
+	pulseRow: {
+		flexDirection: "row",
+		paddingHorizontal: 12,
+		paddingTop: 12,
+		paddingBottom: 4,
+	},
+	pulseTile: {
+		flex: 1,
+		minHeight: 62,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 8,
+		justifyContent: "center",
+		marginHorizontal: 4,
+	},
+	pulseValue: {
+		fontSize: 21,
+		fontWeight: "900",
+	},
+	pulseLabel: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginTop: 2,
+	},
+	listContainer: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 30 },
 	infoContainer: {
 		flex: 1,
 		justifyContent: "center",
@@ -1002,17 +1082,17 @@ const styles = StyleSheet.create({
 	// Card Styles
 	cardContainer: {
 		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
-		padding: 15,
-		marginBottom: 15,
+		borderRadius: 8,
+		padding: 13,
+		marginBottom: 10,
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.05,
-		shadowRadius: 4,
-		elevation: 2,
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.04,
+		shadowRadius: 3,
+		elevation: 1,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
-		borderLeftWidth: 6,
+		borderLeftWidth: 5,
 	},
 
 	cardNeedsAttention: {

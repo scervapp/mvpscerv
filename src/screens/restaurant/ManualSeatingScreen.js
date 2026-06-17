@@ -131,7 +131,7 @@ const ManualSeatScreen = () => {
 	const availableTables = tables.filter((table) => {
 		const isOccupiedByParty = activeTableIds.has(table.id);
 		const isStatusAvailable = !table.status || table.status === "available";
-		return !isOccupiedByParty && isStatusAvailable;
+		return !isOccupiedByParty && isStatusAvailable && table.isActive !== false;
 	});
 
 	// 🚨 UPDATED: Open the modal instead of the Alert

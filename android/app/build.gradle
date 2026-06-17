@@ -84,9 +84,24 @@ def appEnv = System.getenv("APP_ENV") ?: "production"
 def androidApplicationIds = [
     development: "com.scerv.eat.dev",
     testing: "com.scerv.eat.testing",
+    storeTesting: "com.scerv.eat",
     production: "com.scerv.eat"
 ]
 def androidApplicationId = androidApplicationIds.get(appEnv, androidApplicationIds.production)
+def androidAppNames = [
+    development: "Scerv Dev",
+    testing: "Scerv Testing",
+    storeTesting: "Scerv QA",
+    production: "Scerv"
+]
+def androidAppName = androidAppNames.get(appEnv, androidAppNames.production)
+def androidSchemes = [
+    development: "scerv-dev",
+    testing: "scerv-testing",
+    storeTesting: "scerv-qa",
+    production: "scerv"
+]
+def androidScheme = androidSchemes.get(appEnv, androidSchemes.production)
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -97,10 +112,14 @@ android {
     namespace 'com.scerv.eat'
     defaultConfig {
         applicationId androidApplicationId
+        manifestPlaceholders = [
+            appName: androidAppName,
+            appScheme: androidScheme
+        ]
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
-        versionName "0.0.37"
+        versionCode 27
+        versionName "0.0.38"
     }
     signingConfigs {
         debug {

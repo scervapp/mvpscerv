@@ -10,7 +10,6 @@ import {
 	ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import colors from "../../utils/styles/appStyles";
@@ -19,54 +18,55 @@ import { useTranslation } from "react-i18next";
 import formatCurrency from "../../utils/currencyFormatter";
 import { PICKUP_FLOW_ENABLED } from "../../config/featureFlags";
 
-// --- Reusable Helper Components ---
-const KPICard = ({ title, value, iconName, isDeduction = false }) => (
-	<View style={styles.kpiCard}>
-		<Ionicons
-			name={iconName}
-			size={22}
-			color={isDeduction ? colors.statusDanger : colors.primary}
-		/>
-		<Text style={[styles.kpiValue, isDeduction && styles.deductionValue]}>
-			{value}
-		</Text>
-		<Text style={styles.kpiTitle}>{title}</Text>
-	</View>
-);
-
-const DetailedReportCard = ({ title, children, iconName, action }) => (
-	<View style={styles.detailCard}>
-		<View style={styles.cardHeader}>
-			<View style={styles.cardHeaderLeft}>
-				<Ionicons name={iconName} size={20} color={colors.primary} />
-				<Text style={styles.cardTitle}>{title}</Text>
-			</View>
+const ReportSection = ({ title, children, action }) => (
+	<View style={styles.section}>
+		<View style={styles.sectionHeader}>
+			<Text style={styles.sectionTitle}>{title}</Text>
 			{action}
 		</View>
-		<View style={styles.cardContent}>{children}</View>
+		{children}
 	</View>
 );
 
-const DetailRow = ({ label, value }) => (
-	<View style={styles.summaryRow}>
-		<Text style={styles.summaryLabel}>{label}</Text>
-		<Text style={styles.summaryValue}>{value}</Text>
+const MoneyRow = ({ label, value, tone = "neutral" }) => (
+	<View style={styles.moneyRow}>
+		<Text style={styles.moneyLabel}>{label}</Text>
+		<Text
+			style={[
+				styles.moneyValue,
+				tone === "positive" && styles.moneyPositive,
+				tone === "negative" && styles.moneyNegative,
+			]}
+		>
+			{value}
+		</Text>
 	</View>
 );
 
-const PulseMetric = ({ label, value, iconName, highlight = false }) => (
-	<View style={[styles.pulseMetric, highlight && styles.pulseMetricHighlight]}>
+const OpsTile = ({ label, value, iconName, urgent = false }) => (
+	<View style={[styles.opsTile, urgent && styles.opsTileUrgent]}>
 		<Ionicons
 			name={iconName}
 			size={18}
-			color={highlight ? colors.surfaceWhite : colors.primary}
+			color={urgent ? colors.statusDanger : colors.primary}
 		/>
-		<Text style={[styles.pulseValue, highlight && styles.pulseTextHighlight]}>
-			{value}
-		</Text>
-		<Text style={[styles.pulseLabel, highlight && styles.pulseTextHighlight]}>
-			{label}
-		</Text>
+		<Text style={styles.opsValue}>{value}</Text>
+		<Text style={styles.opsLabel}>{label}</Text>
+	</View>
+);
+
+const RankedRow = ({ rank, label, value, subLabel }) => (
+	<View style={styles.rankRow}>
+		<View style={styles.rankBadge}>
+			<Text style={styles.rankText}>{rank}</Text>
+		</View>
+		<View style={styles.rankBody}>
+			<Text style={styles.rankLabel} numberOfLines={1}>
+				{label}
+			</Text>
+			{!!subLabel && <Text style={styles.rankSubLabel}>{subLabel}</Text>}
+		</View>
+		<Text style={styles.rankValue}>{value}</Text>
 	</View>
 );
 
@@ -121,7 +121,6 @@ const SalesReportScreen = ({ navigation }) => {
 	const [reportData, setReportData] = useState(null);
 	const [isFetching, setIsFetching] = useState(true);
 	const [selectedPeriod, setSelectedPeriod] = useState("Today");
-	const insets = useSafeAreaInsets();
 
 	useLayoutEffect(() => {
 		navigation.setOptions({
@@ -185,149 +184,200 @@ const SalesReportScreen = ({ navigation }) => {
 			);
 		}
 
+		const topItems = Array.isArray(reportData.topSellingItems)
+			? reportData.topSellingItems.slice(0, 5)
+			: [];
+		const serverTips = Array.isArray(reportData.serverTips)
+			? reportData.serverTips.slice(0, 4)
+			: [];
+		const customerServiceFees = Number(
+			reportData.totalCustomerFees ??
+				Number(reportData.totalPlatformFees || 0) +
+					Number(reportData.totalCustomerServiceFees || 0),
+		);
+		const restaurantCosts = Number(
+			reportData.totalRestaurantCosts ??
+				Number(reportData.totalProcessorFees || 0) +
+					Number(reportData.totalRestaurantProcessingFees || 0),
+		);
+		const grossSales = Number(
+			reportData.grossSales ||
+				Number(reportData.netSales || reportData.grossSales || 0) +
+					Number(reportData.totalDiscounts || 0),
+		);
+		const netSales = Number(reportData.netSales ?? reportData.grossSales ?? 0);
+		const customerPayments = Number(
+			reportData.customerPayments ||
+				netSales +
+					Number(reportData.totalTax || 0) +
+					Number(reportData.totalGratuity || 0) +
+					Number(reportData.totalPlatformFees || 0),
+		);
+		const estimatedDeposit = Number(
+			reportData.estimatedDeposit ?? reportData.netPayout ?? 0,
+		);
+		const activeTables = Number(reportData.ownerPulse?.activeTables || 0);
+		const openTickets = Number(reportData.ownerPulse?.openTickets || 0);
+		const serviceRequests = Number(reportData.ownerPulse?.serviceRequests || 0);
+		const checksRequested = Number(reportData.ownerPulse?.checksRequested || 0);
+		const pickupOrders = Number(reportData.ownerPulse?.pickupOrders || 0);
+
 		return (
 			<ScrollView contentContainerStyle={styles.scrollContent}>
-				<DetailedReportCard
-					title={t("owner_pulse", "Owner Pulse")}
-					iconName="pulse-outline"
-					action={
-						<Text style={styles.lastUpdatedText}>
-							{reportData.lastUpdatedAt
-								? new Date(reportData.lastUpdatedAt).toLocaleTimeString([], {
-										hour: "2-digit",
-										minute: "2-digit",
-									})
-								: ""}
-						</Text>
-					}
-				>
-					<View style={styles.pulseGrid}>
-						<PulseMetric
-							label={t("active_tables", "Active Tables")}
-							value={reportData.ownerPulse?.activeTables || 0}
-							iconName="restaurant-outline"
-						/>
-						<PulseMetric
-							label={t("open_tickets", "Open Tickets")}
-							value={reportData.ownerPulse?.openTickets || 0}
-							iconName="receipt-outline"
-						/>
-						<PulseMetric
-							label={t("service_requests", "Service Requests")}
-							value={reportData.ownerPulse?.serviceRequests || 0}
-							iconName="notifications-outline"
-							highlight={Number(reportData.ownerPulse?.serviceRequests || 0) > 0}
-						/>
-						<PulseMetric
-							label={t("checks_requested", "Checks Requested")}
-							value={reportData.ownerPulse?.checksRequested || 0}
-							iconName="cash-outline"
-							highlight={Number(reportData.ownerPulse?.checksRequested || 0) > 0}
-						/>
-						{PICKUP_FLOW_ENABLED && (
-							<PulseMetric
-								label={t("pickup_orders", "Pickup Orders")}
-								value={reportData.ownerPulse?.pickupOrders || 0}
-								iconName="bag-handle-outline"
-							/>
-						)}
-						<PulseMetric
-							label={t("average_order", "Avg Order")}
-							value={formatCurrency(reportData.averageOrderValue)}
-							iconName="trending-up-outline"
-						/>
-					</View>
-				</DetailedReportCard>
-
-				<View style={styles.kpiContainer}>
-					<KPICard
-						title={t("gross_sales", "Gross Sales")}
-						value={formatCurrency(reportData.grossSales)}
-						iconName="cash-outline"
-					/>
-					<KPICard
-						title={t("tax_collected", "Tax Collected")}
-						value={formatCurrency(reportData.totalTax)}
-						iconName="calculator-outline"
-					/>
-					<KPICard
-						title={t("tips_collected", "Tips Collected")}
-						value={formatCurrency(reportData.totalGratuity)}
-						iconName="gift-outline"
-					/>
-					<KPICard
-						title={t("net_payout", "Net Payout")}
-						value={formatCurrency(reportData.netPayout)}
-						iconName="wallet-outline"
-					/>
-
-					<View style={styles.fullWidthKpiWrapper}>
-						<View style={styles.centeredKpi}>
-							<KPICard
-								title={t("discounts_voids", "Discounts & Voids")}
-								value={`-${formatCurrency(reportData.totalDiscounts)}`}
-								iconName="pricetag-outline"
-								isDeduction={true}
-							/>
+				<View style={styles.moneyHero}>
+					<View style={styles.moneyHeroTop}>
+						<View>
+							<Text style={styles.heroLabel}>{t("net_sales", "Net Sales")}</Text>
+							<Text style={styles.heroValue}>
+								{formatCurrency(netSales)}
+							</Text>
 						</View>
-					</View>
-				</View>
-
-				<DetailedReportCard
-					title={t("operational_metrics", "Operational Metrics")}
-					iconName="stats-chart-outline"
-					action={
 						<TouchableOpacity
+							style={styles.ledgerButton}
 							onPress={() =>
 								navigation.navigate("OrdersLedgerScreen", {
 									initialPeriod: selectedPeriod.toLowerCase(),
 								})
 							}
 						>
-							<Text style={styles.viewAllText}>
-								{t("view_orders", "View Orders")}
+							<Ionicons
+								name="receipt-outline"
+								size={18}
+								color={colors.surfaceWhite}
+							/>
+							<Text style={styles.ledgerButtonText}>
+								{t("ledger", "Ledger")}
 							</Text>
 						</TouchableOpacity>
-					}
-				>
-					<DetailRow
-						label={t("total_orders", "Total Orders")}
-						value={reportData.totalOrders?.toString() || "0"}
-					/>
-					<DetailRow
-						label={t("avg_order_value", "Average Order Value")}
-						value={formatCurrency(reportData.averageOrderValue)}
-					/>
-					<DetailRow
-						label={t("avg_table_turnover", "Avg Table Turnover")}
-						value={`${reportData.avgTurnoverRate || 0} min`}
-					/>
-
-					<View style={styles.divider} />
-
-					<Text style={styles.subSectionTitle}>
-						{t("fee_breakdown", "Fee Breakdown")}
+					</View>
+					<View style={styles.heroStats}>
+						<View style={styles.heroStat}>
+							<Text style={styles.heroStatValue}>
+								{formatCurrency(customerPayments)}
+							</Text>
+							<Text style={styles.heroStatLabel}>
+								{t("customer_paid", "Customer Paid")}
+							</Text>
+						</View>
+						<View style={styles.heroStat}>
+							<Text style={styles.heroStatValue}>
+								{reportData.totalOrders || 0}
+							</Text>
+							<Text style={styles.heroStatLabel}>
+								{t("orders", "Orders")}
+							</Text>
+						</View>
+						<View style={styles.heroStat}>
+							<Text style={styles.heroStatValue}>
+								{formatCurrency(reportData.averageOrderValue)}
+							</Text>
+							<Text style={styles.heroStatLabel}>
+								{t("avg_order", "Avg Order")}
+							</Text>
+						</View>
+					</View>
+					<Text style={styles.lastUpdatedText}>
+						{reportData.lastUpdatedAt
+							? `${t("updated", "Updated")} ${new Date(
+									reportData.lastUpdatedAt,
+								).toLocaleTimeString([], {
+									hour: "2-digit",
+									minute: "2-digit",
+								})}`
+							: ""}
 					</Text>
-					<DetailRow
-						label={t("processing_fees", "Processing Fees")}
-						value={`-${formatCurrency(reportData.totalFees)}`}
-					/>
-				</DetailedReportCard>
+				</View>
 
-				<DetailedReportCard
-					title={t("revenue_breakdown", "Revenue Breakdown")}
-					iconName="pie-chart-outline"
-				>
-					<DetailRow
-						label={t("digital_in_app", "In-App / Digital Sales")}
+				<ReportSection title={t("floor_status", "Floor Status")}>
+					<View style={styles.opsGrid}>
+						<OpsTile
+							label={t("active_tables", "Active Tables")}
+							value={activeTables}
+							iconName="restaurant-outline"
+						/>
+						<OpsTile
+							label={t("open_tickets", "Open Tickets")}
+							value={openTickets}
+							iconName="receipt-outline"
+						/>
+						<OpsTile
+							label={t("service_requests", "Service Requests")}
+							value={serviceRequests}
+							iconName="notifications-outline"
+							urgent={serviceRequests > 0}
+						/>
+						<OpsTile
+							label={t("checks_requested", "Checks Requested")}
+							value={checksRequested}
+							iconName="cash-outline"
+							urgent={checksRequested > 0}
+						/>
+						{PICKUP_FLOW_ENABLED && (
+							<OpsTile
+								label={t("pickup_orders", "Pickup Orders")}
+								value={pickupOrders}
+								iconName="bag-handle-outline"
+							/>
+						)}
+						<OpsTile
+							label={t("turnover", "Turnover")}
+							value={`${reportData.avgTurnoverRate || 0}m`}
+							iconName="time-outline"
+						/>
+					</View>
+				</ReportSection>
+
+				<ReportSection title={t("money_breakdown", "Money Breakdown")}>
+					<MoneyRow
+						label={t("gross_item_sales", "Gross Item Sales")}
+						value={formatCurrency(grossSales)}
+					/>
+					{Number(reportData.totalDiscounts || 0) > 0 && (
+						<MoneyRow
+							label={t("discounts", "Discounts")}
+							value={`-${formatCurrency(reportData.totalDiscounts)}`}
+							tone="negative"
+						/>
+					)}
+					<MoneyRow
+						label={t("net_sales", "Net Sales")}
+						value={formatCurrency(netSales)}
+						tone="positive"
+					/>
+					<MoneyRow
+						label={t("digital_sales", "Digital Sales")}
 						value={formatCurrency(reportData.digitalSales)}
 					/>
-					<DetailRow
-						label={t("manual_sales", "Cash / External Terminal")}
+					<MoneyRow
+						label={t("manual_sales", "Manual Sales")}
 						value={formatCurrency(reportData.manualSales)}
 					/>
-					<View style={styles.divider} />
-					<DetailRow
+					<MoneyRow
+						label={t("tax_collected", "Tax Collected")}
+						value={formatCurrency(reportData.totalTax)}
+					/>
+					<MoneyRow
+						label={t("tips_collected", "Tips Collected")}
+						value={formatCurrency(reportData.totalGratuity)}
+					/>
+					<MoneyRow
+						label={t("customer_service_fees", "Customer Service Fees")}
+						value={formatCurrency(customerServiceFees)}
+					/>
+					<MoneyRow
+						label={t("restaurant_costs", "Restaurant Costs")}
+						value={`-${formatCurrency(restaurantCosts)}`}
+						tone="negative"
+					/>
+					<MoneyRow
+						label={t("estimated_deposit", "Estimated Deposit")}
+						value={formatCurrency(estimatedDeposit)}
+						tone="positive"
+					/>
+				</ReportSection>
+
+				<ReportSection title={t("sales_mix", "Sales Mix")}>
+					<MoneyRow
 						label={t("food_sales", "Food Sales")}
 						value={formatCurrency(
 							normalizeCategorySalesCents(
@@ -336,7 +386,7 @@ const SalesReportScreen = ({ navigation }) => {
 							),
 						)}
 					/>
-					<DetailRow
+					<MoneyRow
 						label={t("bar_sales", "Bar / Beverage Sales")}
 						value={formatCurrency(
 							normalizeCategorySalesCents(
@@ -345,7 +395,44 @@ const SalesReportScreen = ({ navigation }) => {
 							),
 						)}
 					/>
-				</DetailedReportCard>
+				</ReportSection>
+
+				<ReportSection title={t("top_sellers", "Top Sellers")}>
+					{topItems.length > 0 ? (
+						topItems.map((item, index) => (
+							<RankedRow
+								key={`${item.name || "item"}-${index}`}
+								rank={index + 1}
+								label={item.name || t("unknown_item", "Unknown Item")}
+								subLabel={t("quantity_sold", "{{count}} sold", {
+									count: item.quantity || 0,
+								})}
+								value={formatCurrency(item.totalRevenue)}
+							/>
+						))
+					) : (
+						<Text style={styles.emptySectionText}>
+							{t("no_item_sales_yet", "No item sales yet.")}
+						</Text>
+					)}
+				</ReportSection>
+
+				<ReportSection title={t("server_tips", "Server Tips")}>
+					{serverTips.length > 0 ? (
+						serverTips.map((server, index) => (
+							<RankedRow
+								key={`${server.serverId || "server"}-${index}`}
+								rank={index + 1}
+								label={server.serverName || t("unassigned", "Unassigned")}
+								value={formatCurrency(server.gratuityTotal)}
+							/>
+						))
+					) : (
+						<Text style={styles.emptySectionText}>
+							{t("no_server_tips_yet", "No server tips yet.")}
+						</Text>
+					)}
+				</ReportSection>
 			</ScrollView>
 		);
 	};
@@ -370,26 +457,31 @@ const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.surfaceWhite },
 	container: { flex: 1, backgroundColor: colors.backgroundLight },
 	header: {
-		paddingHorizontal: 15,
-		paddingTop: 10,
+		paddingHorizontal: 16,
+		paddingTop: 8,
+		paddingBottom: 12,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
 	headerTitle: {
-		fontSize: 28,
-		fontWeight: "bold",
+		fontSize: 24,
+		fontWeight: "800",
 		color: colors.textDark,
-		marginBottom: 15,
+		marginBottom: 12,
 	},
 	periodSelectorContainer: {
 		flexDirection: "row",
 		backgroundColor: colors.backgroundMedium,
-		borderRadius: 20,
+		borderRadius: 8,
 		padding: 4,
-		alignSelf: "center",
-		marginBottom: 15,
+		alignSelf: "stretch",
 	},
-	periodButton: { paddingVertical: 8, paddingHorizontal: 25, borderRadius: 16 },
+	periodButton: {
+		flex: 1,
+		paddingVertical: 9,
+		borderRadius: 6,
+		alignItems: "center",
+	},
 	periodButtonActive: {
 		backgroundColor: colors.surfaceWhite,
 		shadowColor: "#000",
@@ -404,89 +496,199 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 	},
 	periodButtonTextActive: { color: colors.primary },
-	scrollContent: { padding: 15, paddingBottom: 30 },
+	scrollContent: { padding: 14, paddingBottom: 30 },
+	moneyHero: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		padding: 16,
+		marginBottom: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	moneyHeroTop: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		justifyContent: "space-between",
+		gap: 12,
+	},
+	heroLabel: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+	},
+	heroValue: {
+		fontSize: 34,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 4,
+	},
+	ledgerButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		backgroundColor: colors.primary,
+		borderRadius: 6,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+	},
+	ledgerButtonText: {
+		color: colors.surfaceWhite,
+		fontSize: 13,
+		fontWeight: "800",
+	},
+	heroStats: {
+		flexDirection: "row",
+		marginTop: 16,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 14,
+	},
+	heroStat: {
+		flex: 1,
+		paddingRight: 8,
+	},
+	heroStatValue: {
+		fontSize: 17,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	heroStatLabel: {
+		fontSize: 11,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 3,
+		textTransform: "uppercase",
+	},
 	lastUpdatedText: {
 		fontSize: 12,
 		color: colors.textMedium,
 		fontWeight: "600",
+		marginTop: 12,
 	},
-	pulseGrid: {
-		flexDirection: "row",
-		flexWrap: "wrap",
-		justifyContent: "space-between",
-		gap: 10,
-	},
-	pulseMetric: {
-		width: "48%",
-		minHeight: 86,
+	section: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		marginBottom: 12,
 		borderWidth: 1,
 		borderColor: colors.borderLight,
-		borderRadius: 8,
-		padding: 12,
-		backgroundColor: colors.backgroundLight,
+	},
+	sectionHeader: {
+		flexDirection: "row",
 		justifyContent: "space-between",
+		alignItems: "center",
+		paddingHorizontal: 14,
+		paddingTop: 14,
+		paddingBottom: 8,
 	},
-	pulseMetricHighlight: {
-		backgroundColor: colors.primary,
-		borderColor: colors.primary,
-	},
-	pulseValue: {
-		fontSize: 22,
+	sectionTitle: {
+		fontSize: 16,
 		fontWeight: "800",
 		color: colors.textDark,
-		marginTop: 8,
 	},
-	pulseLabel: {
-		fontSize: 11,
-		color: colors.textMedium,
-		textTransform: "uppercase",
-		fontWeight: "700",
-	},
-	pulseTextHighlight: {
-		color: colors.surfaceWhite,
-	},
-
-	kpiContainer: {
+	opsGrid: {
 		flexDirection: "row",
 		flexWrap: "wrap",
-		justifyContent: "space-between",
-		marginBottom: 20,
+		paddingHorizontal: 10,
+		paddingBottom: 10,
 	},
-	kpiCard: {
-		flexBasis: "48%",
-		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
-		paddingVertical: 15,
-		paddingHorizontal: 5,
-		alignItems: "center",
-		marginBottom: 15,
-		elevation: 2,
-		shadowColor: "#000",
-		shadowOpacity: 0.05,
-		shadowRadius: 5,
+	opsTile: {
+		width: "50%",
+		minHeight: 82,
+		padding: 10,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
 	},
-	fullWidthKpiWrapper: {
-		width: "100%",
-		alignItems: "center",
-		marginTop: -5,
+	opsTileUrgent: {
+		backgroundColor: colors.dangerLight || "#fff5f5",
 	},
-	centeredKpi: {
-		width: "48%",
-	},
-
-	kpiValue: {
-		fontSize: 16,
-		fontWeight: "bold",
+	opsValue: {
+		fontSize: 22,
+		fontWeight: "900",
 		color: colors.textDark,
-		marginVertical: 6,
+		marginTop: 6,
 	},
-	deductionValue: { color: colors.statusDanger },
-	kpiTitle: {
-		fontSize: 10,
+	opsLabel: {
+		fontSize: 11,
+		fontWeight: "700",
 		color: colors.textMedium,
 		textTransform: "uppercase",
-		textAlign: "center",
+		marginTop: 2,
+	},
+	moneyRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingHorizontal: 14,
+		paddingVertical: 11,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+	},
+	moneyLabel: {
+		fontSize: 14,
 		fontWeight: "600",
+		color: colors.textMedium,
+		flex: 1,
+		paddingRight: 12,
+	},
+	moneyValue: {
+		fontSize: 15,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	moneyPositive: {
+		color: colors.statusSuccess,
+	},
+	moneyNegative: {
+		color: colors.statusDanger,
+	},
+	rankRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		paddingHorizontal: 14,
+		paddingVertical: 11,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+	},
+	rankBadge: {
+		width: 28,
+		height: 28,
+		borderRadius: 14,
+		backgroundColor: colors.backgroundMedium,
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	rankText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	rankBody: {
+		flex: 1,
+		minWidth: 0,
+	},
+	rankLabel: {
+		fontSize: 14,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	rankSubLabel: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	rankValue: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginLeft: 10,
+	},
+	emptySectionText: {
+		paddingHorizontal: 14,
+		paddingVertical: 14,
+		fontSize: 14,
+		color: colors.textMedium,
 	},
 	noDataText: {
 		textAlign: "center",
@@ -494,55 +696,6 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		color: colors.textLight,
 		paddingVertical: 10,
-	},
-	detailCard: {
-		backgroundColor: colors.surfaceWhite,
-		borderRadius: 12,
-		marginBottom: 20,
-		elevation: 2,
-	},
-	cardHeader: {
-		flexDirection: "row",
-		alignItems: "center",
-		justifyContent: "space-between",
-		padding: 15,
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
-	},
-	cardHeaderLeft: {
-		flexDirection: "row",
-		alignItems: "center",
-	},
-	cardTitle: {
-		fontSize: 18,
-		fontWeight: "bold",
-		color: colors.textDark,
-		marginLeft: 10,
-	},
-	cardContent: { paddingHorizontal: 15, paddingTop: 5, paddingBottom: 15 },
-	summaryRow: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		paddingVertical: 8,
-	},
-	summaryLabel: { fontSize: 16, color: colors.textMedium },
-	summaryValue: { fontSize: 16, fontWeight: "500", color: colors.textDark },
-	divider: {
-		height: 1,
-		backgroundColor: colors.borderLight,
-		marginVertical: 10,
-	},
-	subSectionTitle: {
-		fontSize: 16,
-		fontWeight: "bold",
-		color: colors.textDark,
-		marginBottom: 5,
-		marginTop: 5,
-	},
-	viewAllText: {
-		color: colors.primary,
-		fontWeight: "700",
-		fontSize: 14,
 	},
 });
 

@@ -66,7 +66,8 @@ const TableAndServerSelectionModal = ({
 					if (Array.isArray(allTables)) {
 						// Filter tables that are available and can fit the party
 						const suitableTables = allTables.filter(
-							(table) => table.status === "available"
+							(table) =>
+								table.status === "available" && table.isActive !== false
 						);
 						const sortedTables = suitableTables.sort((a, b) => {
 							// Use regex to extract numbers from the table names

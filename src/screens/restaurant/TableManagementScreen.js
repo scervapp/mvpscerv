@@ -15,6 +15,7 @@ import {
 	ActivityIndicator,
 	Alert,
 	Modal,
+	ScrollView,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
@@ -36,7 +37,26 @@ import * as Yup from "yup";
 import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 import { httpsCallable } from "@react-native-firebase/functions";
+import firestore from "@react-native-firebase/firestore";
 import { useTranslation } from "react-i18next";
+
+const TABLE_TYPE_OPTIONS = [
+	{ label: "Dining", value: "dining" },
+	{ label: "Bar", value: "bar" },
+	{ label: "Patio", value: "patio" },
+	{ label: "Private", value: "private" },
+	{ label: "High Top", value: "highTop" },
+];
+
+const normalizeTableId = (name) =>
+	String(name || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, "_")
+		.replace(/[^a-z0-9_]/g, "");
+
+const getTableNumber = (name = "") =>
+	parseInt(String(name).match(/\d+/)?.[0] || 0, 10);
 
 const AddEditTableModal = ({
 	isVisible,
@@ -49,6 +69,203 @@ const AddEditTableModal = ({
 	const { t } = useTranslation();
 	const validationSchema = Yup.object().shape({
 		name: Yup.string().required(t("table_name_is_required")),
+		capacity: Yup.number()
+			.min(1, t("capacity_must_be_at_least_1"))
+			.required(t("capacity_is_required"))
+			.typeError(t("must_be_a_number")),
+		section: Yup.string().max(
+			40,
+			t("section_name_too_long", "Keep section names short."),
+		),
+	});
+
+	return (
+		<Modal
+			visible={isVisible}
+			transparent={true}
+			animationType="fade"
+			onRequestClose={onClose}
+		>
+			<TouchableOpacity
+				style={styles.modalOverlay}
+				activeOpacity={1}
+				onPressOut={onClose}
+			>
+				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
+					<ScrollView showsVerticalScrollIndicator={false}>
+						<Text style={styles.modalTitle}>
+							{initialData
+								? `${t("edit")} ${initialData.name}`
+								: t("add_new_table")}
+						</Text>
+						<Formik
+							initialValues={{
+								name: initialData?.name || "",
+								capacity: initialData?.capacity?.toString() || "",
+								section: initialData?.section || initialData?.area || "Main Dining",
+								tableType: initialData?.tableType || "dining",
+								isActive: initialData?.isActive !== false,
+							}}
+							validationSchema={validationSchema}
+							enableReinitialize
+							onSubmit={onSubmit}
+						>
+							{({
+								handleChange,
+								handleBlur,
+								handleSubmit,
+								setFieldValue,
+								values,
+								errors,
+								touched,
+							}) => (
+								<>
+									<TextInput
+										style={styles.input}
+										placeholder={t("table_name_e_g_patio_5")}
+										value={values.name}
+										onChangeText={handleChange("name")}
+										onBlur={handleBlur("name")}
+										placeholderTextColor={colors.textLight}
+									/>
+									{touched.name && errors.name && (
+										<Text style={styles.errorText}>{errors.name}</Text>
+									)}
+									<TextInput
+										style={styles.input}
+										placeholder={t("seating_capacity")}
+										value={values.capacity}
+										onChangeText={handleChange("capacity")}
+										onBlur={handleBlur("capacity")}
+										keyboardType="number-pad"
+										placeholderTextColor={colors.textLight}
+									/>
+									{touched.capacity && errors.capacity && (
+										<Text style={styles.errorText}>{errors.capacity}</Text>
+									)}
+									<TextInput
+										style={styles.input}
+										placeholder={t("section_or_room", "Section or room")}
+										value={values.section}
+										onChangeText={handleChange("section")}
+										onBlur={handleBlur("section")}
+										placeholderTextColor={colors.textLight}
+									/>
+									{touched.section && errors.section && (
+										<Text style={styles.errorText}>{errors.section}</Text>
+									)}
+									<Text style={styles.fieldLabel}>
+										{t("table_style", "Table style")}
+									</Text>
+									<View style={styles.chipRow}>
+										{TABLE_TYPE_OPTIONS.map((option) => {
+											const active = values.tableType === option.value;
+											return (
+												<TouchableOpacity
+													key={option.value}
+													style={[
+														styles.choiceChip,
+														active && styles.choiceChipActive,
+													]}
+													onPress={() =>
+														setFieldValue("tableType", option.value)
+													}
+												>
+													<Text
+														style={[
+															styles.choiceChipText,
+															active && styles.choiceChipTextActive,
+														]}
+													>
+														{t(`table_type_${option.value}`, option.label)}
+													</Text>
+												</TouchableOpacity>
+											);
+										})}
+									</View>
+									<View style={styles.activeToggleRow}>
+										<View style={{ flex: 1 }}>
+											<Text style={styles.activeToggleTitle}>
+												{t("use_for_seating", "Use for seating")}
+											</Text>
+											<Text style={styles.activeToggleHint}>
+												{t(
+													"inactive_tables_are_hidden_from_host_seating",
+													"Turn off for seasonal rooms, broken tables, or setup-only records.",
+												)}
+											</Text>
+										</View>
+										<Switch
+											value={values.isActive}
+											onValueChange={(value) =>
+												setFieldValue("isActive", value)
+											}
+											color={colors.primary}
+										/>
+									</View>
+									<View style={styles.modalActions}>
+										<Button
+											onPress={onClose}
+											mode="outlined"
+											style={styles.modalButton}
+										>
+											{t("cancel")}
+										</Button>
+										<Button
+											onPress={handleSubmit}
+											mode="contained"
+											loading={isLoading}
+											disabled={isLoading}
+											style={[
+												styles.modalButton,
+												{ backgroundColor: colors.primary },
+											]}
+										>
+											{initialData ? t("save_changes") : t("add_table")}
+										</Button>
+									</View>
+								</>
+							)}
+						</Formik>
+
+						{/* Delete button only shows when editing an existing table */}
+						{initialData && (
+							<View style={styles.deleteAction}>
+								<Divider style={styles.divider} />
+								<Button
+									icon="trash-can-outline"
+									mode="contained"
+									onPress={onDelete}
+									loading={isLoading}
+									disabled={isLoading}
+									color={colors.statusDanger}
+								>
+									{t("delete_table")}
+								</Button>
+							</View>
+						)}
+					</ScrollView>
+				</TouchableOpacity>
+			</TouchableOpacity>
+		</Modal>
+	);
+};
+
+const QuickSetupModal = ({ isVisible, onClose, onSubmit, isLoading }) => {
+	const { t } = useTranslation();
+	const validationSchema = Yup.object().shape({
+		prefix: Yup.string().required(
+			t("table_prefix_required", "Prefix is required."),
+		),
+		startNumber: Yup.number()
+			.min(1, t("start_number_required", "Start at 1 or higher."))
+			.required(t("start_number_required", "Start number is required."))
+			.typeError(t("must_be_a_number")),
+		count: Yup.number()
+			.min(1, t("count_required", "Add at least one table."))
+			.max(80, t("too_many_tables_at_once", "Create 80 or fewer at once."))
+			.required(t("count_required", "Count is required."))
+			.typeError(t("must_be_a_number")),
 		capacity: Yup.number()
 			.min(1, t("capacity_must_be_at_least_1"))
 			.required(t("capacity_is_required"))
@@ -69,23 +286,25 @@ const AddEditTableModal = ({
 			>
 				<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 					<Text style={styles.modalTitle}>
-						{initialData
-							? `${t("edit")} ${initialData.name}`
-							: t("add_new_table")}
+						{t("quick_table_setup", "Quick Table Setup")}
 					</Text>
 					<Formik
 						initialValues={{
-							name: initialData?.name || "",
-							capacity: initialData?.capacity?.toString() || "",
+							prefix: "Table",
+							startNumber: "1",
+							count: "20",
+							capacity: "4",
+							section: "Main Dining",
+							tableType: "dining",
 						}}
 						validationSchema={validationSchema}
-						enableReinitialize // Important for pre-filling form when editing
 						onSubmit={onSubmit}
 					>
 						{({
 							handleChange,
 							handleBlur,
 							handleSubmit,
+							setFieldValue,
 							values,
 							errors,
 							touched,
@@ -93,27 +312,86 @@ const AddEditTableModal = ({
 							<>
 								<TextInput
 									style={styles.input}
-									placeholder={t("table_name_e_g_patio_5")}
-									value={values.name}
-									onChangeText={handleChange("name")}
-									onBlur={handleBlur("name")}
-									placeholderTextColor={colors.textLight}
+									placeholder={t("prefix", "Prefix")}
+									value={values.prefix}
+									onChangeText={handleChange("prefix")}
+									onBlur={handleBlur("prefix")}
 								/>
-								{touched.name && errors.name && (
-									<Text style={styles.errorText}>{errors.name}</Text>
+								{touched.prefix && errors.prefix && (
+									<Text style={styles.errorText}>{errors.prefix}</Text>
 								)}
-								<TextInput
-									style={styles.input}
-									placeholder={t("seating_capacity")}
-									value={values.capacity}
-									onChangeText={handleChange("capacity")}
-									onBlur={handleBlur("capacity")}
-									keyboardType="number-pad"
-									placeholderTextColor={colors.textLight}
-								/>
+								<View style={styles.twoColumnRow}>
+									<TextInput
+										style={[styles.input, styles.twoColumnInput]}
+										placeholder={t("start", "Start")}
+										value={values.startNumber}
+										onChangeText={handleChange("startNumber")}
+										onBlur={handleBlur("startNumber")}
+										keyboardType="number-pad"
+									/>
+									<TextInput
+										style={[styles.input, styles.twoColumnInput]}
+										placeholder={t("count", "Count")}
+										value={values.count}
+										onChangeText={handleChange("count")}
+										onBlur={handleBlur("count")}
+										keyboardType="number-pad"
+									/>
+								</View>
+								{(errors.startNumber || errors.count) && (
+									<Text style={styles.errorText}>
+										{errors.startNumber || errors.count}
+									</Text>
+								)}
+								<View style={styles.twoColumnRow}>
+									<TextInput
+										style={[styles.input, styles.twoColumnInput]}
+										placeholder={t("capacity")}
+										value={values.capacity}
+										onChangeText={handleChange("capacity")}
+										onBlur={handleBlur("capacity")}
+										keyboardType="number-pad"
+									/>
+									<TextInput
+										style={[styles.input, styles.twoColumnInput]}
+										placeholder={t("section_or_room", "Section or room")}
+										value={values.section}
+										onChangeText={handleChange("section")}
+										onBlur={handleBlur("section")}
+									/>
+								</View>
 								{touched.capacity && errors.capacity && (
 									<Text style={styles.errorText}>{errors.capacity}</Text>
 								)}
+								<Text style={styles.fieldLabel}>
+									{t("table_style", "Table style")}
+								</Text>
+								<View style={styles.chipRow}>
+									{TABLE_TYPE_OPTIONS.map((option) => {
+										const active = values.tableType === option.value;
+										return (
+											<TouchableOpacity
+												key={option.value}
+												style={[
+													styles.choiceChip,
+													active && styles.choiceChipActive,
+												]}
+												onPress={() =>
+													setFieldValue("tableType", option.value)
+												}
+											>
+												<Text
+													style={[
+														styles.choiceChipText,
+														active && styles.choiceChipTextActive,
+													]}
+												>
+													{t(`table_type_${option.value}`, option.label)}
+												</Text>
+											</TouchableOpacity>
+										);
+									})}
+								</View>
 								<View style={styles.modalActions}>
 									<Button
 										onPress={onClose}
@@ -132,29 +410,12 @@ const AddEditTableModal = ({
 											{ backgroundColor: colors.primary },
 										]}
 									>
-										{initialData ? t("save_changes") : t("add_table")}
+										{t("create_tables", "Create Tables")}
 									</Button>
 								</View>
 							</>
 						)}
 					</Formik>
-
-					{/* Delete button only shows when editing an existing table */}
-					{initialData && (
-						<View style={styles.deleteAction}>
-							<Divider style={styles.divider} />
-							<Button
-								icon="trash-can-outline"
-								mode="contained"
-								onPress={onDelete}
-								loading={isLoading}
-								disabled={isLoading}
-								color={colors.statusDanger}
-							>
-								{t("delete_table")}
-							</Button>
-						</View>
-					)}
 				</TouchableOpacity>
 			</TouchableOpacity>
 		</Modal>
@@ -186,6 +447,7 @@ const TableManagementScreen = () => {
 
 	const [isEditMode, setIsEditMode] = useState(false);
 	const [isModalVisible, setIsModalVisible] = useState(false);
+	const [isQuickSetupVisible, setIsQuickSetupVisible] = useState(false);
 	const [selectedTable, setSelectedTable] = useState(null);
 
 	const addTableFunction = httpsCallable(functions, "addTable");
@@ -207,9 +469,13 @@ const TableManagementScreen = () => {
 		// 1. Fetch Local Tables via Utility
 		const unsubscribe = fetchTables(currentUserData.uid, (fetchedTables) => {
 			const sortedTables = (fetchedTables || []).sort((a, b) => {
-				const numA = parseInt((a.name || "").match(/\d+/)?.[0] || 0, 10);
-				const numB = parseInt((b.name || "").match(/\d+/)?.[0] || 0, 10);
-				return numA - numB;
+				const sectionA = a.section || a.area || "";
+				const sectionB = b.section || b.area || "";
+				if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
+				const numA = getTableNumber(a.name);
+				const numB = getTableNumber(b.name);
+				if (numA !== numB) return numA - numB;
+				return String(a.name || "").localeCompare(String(b.name || ""));
 			});
 			setTables(sortedTables);
 			setIsLoading(false);
@@ -247,10 +513,7 @@ const TableManagementScreen = () => {
 		};
 	}, [currentUserData?.uid]);
 
-	// ==========================================
-	// AUTO POPULATE LOGIC
-	// ==========================================
-	const handleAutoPopulate = async () => {
+	const handleQuickSetupOpen = () => {
 		const hasUnavailableTables = tables.some(
 			(t) => (t.status && t.status !== "available") || activeTableIds.has(t.id),
 		);
@@ -266,70 +529,74 @@ const TableManagementScreen = () => {
 			return;
 		}
 
-		Alert.alert(
-			t("auto_populate", "Auto Populate Tables"),
-			t(
-				"auto_populate_confirm",
-				"This will automatically generate tables up to Table 50. Are you sure?",
-			),
-			[
-				{ text: t("cancel", "Cancel"), style: "cancel" },
-				{
-					text: t("confirm_button", "Confirm"),
-					onPress: async () => {
-						setIsActionLoading(true);
-						try {
-							const restaurantId = currentUserData?.uid;
-							const batch = db.batch();
-							let tablesAdded = 0;
+		setIsQuickSetupVisible(true);
+	};
 
-							for (let i = 1; i <= 50; i++) {
-								const tableId = `table_${i}`;
-								const alreadyExists = tables.some((t) => t.id === tableId);
+	const handleQuickSetupSubmit = async (values) => {
+		setIsActionLoading(true);
+		try {
+			const restaurantId = currentUserData?.uid;
+			const batch = db.batch();
+			const startNumber = Number(values.startNumber);
+			const count = Number(values.count);
+			const capacity = Number(values.capacity);
+			let tablesAdded = 0;
 
-								if (!alreadyExists) {
-									const tableRef = db
-										.collection("restaurants")
-										.doc(restaurantId)
-										.collection("tables")
-										.doc(tableId);
+			for (let offset = 0; offset < count; offset++) {
+				const tableNumber = startNumber + offset;
+				const name = `${values.prefix.trim()} ${tableNumber}`;
+				const tableId = normalizeTableId(name);
+				const alreadyExists = tables.some((table) => table.id === tableId);
 
-									batch.set(tableRef, {
-										name: `Table ${i}`,
-										tableNumber: i,
-										capacity: 4,
-										status: "available",
-									});
-									tablesAdded++;
-								}
-							}
+				if (!alreadyExists) {
+					const tableRef = db
+						.collection("restaurants")
+						.doc(restaurantId)
+						.collection("tables")
+						.doc(tableId);
 
-							if (tablesAdded > 0) {
-								await batch.commit();
-								Alert.alert(
-									t("success", "Success"),
-									`${tablesAdded} tables generated successfully.`,
-								);
-							} else {
-								Alert.alert(
-									t("info", "Info"),
-									"You already have 50 tables set up!",
-								);
-							}
-						} catch (error) {
-							console.error("Auto populate error:", error);
-							Alert.alert(
-								t("error", "Error"),
-								"Could not auto populate tables.",
-							);
-						} finally {
-							setIsActionLoading(false);
-							setIsEditMode(false);
-						}
-					},
-				},
-			],
-		);
+					// These metadata fields power host seating, QR labels, and future
+					// floor-plan reporting without needing a heavy editor for MVP.
+					batch.set(tableRef, {
+						id: tableId,
+						name,
+						tableNumber,
+						capacity,
+						section: values.section?.trim() || "Main Dining",
+						tableType: values.tableType || "dining",
+						isActive: true,
+						status: "available",
+						restaurantId,
+						setupSource: "quick_setup",
+						createdAt: firestore.FieldValue.serverTimestamp(),
+						updatedAt: firestore.FieldValue.serverTimestamp(),
+					});
+					tablesAdded++;
+				}
+			}
+
+			if (tablesAdded > 0) {
+				await batch.commit();
+				Alert.alert(
+					t("success", "Success"),
+					`${tablesAdded} ${t("tables_generated_successfully", "tables generated successfully.")}`,
+				);
+			} else {
+				Alert.alert(
+					t("info", "Info"),
+					t("tables_already_exist", "Those tables already exist."),
+				);
+			}
+			setIsQuickSetupVisible(false);
+		} catch (error) {
+			console.error("Quick setup error:", error);
+			Alert.alert(
+				t("error", "Error"),
+				t("could_not_auto_populate_tables", "Could not create tables."),
+			);
+		} finally {
+			setIsActionLoading(false);
+		}
 	};
 
 	const handleTablePress = (table) => {
@@ -452,16 +719,23 @@ const TableManagementScreen = () => {
 	const handleAddEditSubmit = async (values) => {
 		setIsActionLoading(true);
 		const restaurantId = currentUserData.uid;
+		const payload = {
+			...values,
+			capacity: Number(values.capacity),
+			section: values.section?.trim() || "Main Dining",
+			tableType: values.tableType || "dining",
+			isActive: values.isActive !== false,
+		};
 		try {
 			if (selectedTable) {
 				await updateTableFunction({
 					restaurantId,
 					tableId: selectedTable.id,
-					...values,
+					...payload,
 				});
 				Alert.alert(t("success"), t("table_updated_successfully"));
 			} else {
-				await addTableFunction({ restaurantId, ...values });
+				await addTableFunction({ restaurantId, ...payload });
 				Alert.alert(t("success"), t("new_table_added_successfully"));
 			}
 		} catch (error) {
@@ -529,7 +803,19 @@ const TableManagementScreen = () => {
 		const needsCleaning = tables.filter(
 			(t) => t.status === "checkedOut",
 		).length;
-		return { available, occupied, needsCleaning, total: tables.length };
+		const active = tables.filter((t) => t.isActive !== false).length;
+		const seats = tables.reduce(
+			(total, table) => total + Number(table.capacity || 0),
+			0,
+		);
+		return {
+			available,
+			occupied,
+			needsCleaning,
+			active,
+			seats,
+			total: tables.length,
+		};
 	}, [tables]);
 
 	if (isLoading) {
@@ -547,8 +833,29 @@ const TableManagementScreen = () => {
 					<Text style={styles.title}>{t("table_management")}</Text>
 					<Text style={styles.statsText}>
 						{tableStats.available} {t("available")} / {tableStats.total}{" "}
-						{t("total")}
+						{t("total")} - {tableStats.seats} {t("seats", "seats")}
 					</Text>
+
+					<View style={styles.statsGrid}>
+						<View style={styles.statPill}>
+							<Text style={styles.statPillValue}>{tableStats.occupied}</Text>
+							<Text style={styles.statPillLabel}>
+								{t("occupied", "Occupied")}
+							</Text>
+						</View>
+						<View style={styles.statPill}>
+							<Text style={styles.statPillValue}>
+								{tableStats.needsCleaning}
+							</Text>
+							<Text style={styles.statPillLabel}>
+								{t("needs_cleaning", "Cleaning")}
+							</Text>
+						</View>
+						<View style={styles.statPill}>
+							<Text style={styles.statPillValue}>{tableStats.active}</Text>
+							<Text style={styles.statPillLabel}>{t("active", "Active")}</Text>
+						</View>
+					</View>
 
 					<View style={styles.editToggleContainer}>
 						<Text style={styles.editToggleLabel}>{t("edit_floor_plan")}</Text>
@@ -569,7 +876,7 @@ const TableManagementScreen = () => {
 									opacity: isActionLoading ? 0.7 : 1,
 								},
 							]}
-							onPress={handleAutoPopulate}
+							onPress={handleQuickSetupOpen}
 							disabled={isActionLoading}
 						>
 							{isActionLoading ? (
@@ -582,7 +889,7 @@ const TableManagementScreen = () => {
 										color={colors.surfaceWhite}
 									/>
 									<Text style={styles.autoPopulateText}>
-										{t("auto_populate", "Auto Populate 50")}
+										{t("quick_setup", "Quick Setup")}
 									</Text>
 								</>
 							)}
@@ -679,6 +986,24 @@ const TableManagementScreen = () => {
 											{selectedTable.capacity} {t("guests")}
 										</Text>
 									</View>
+									<View style={styles.modalDetailRow}>
+										<Text style={styles.modalDetailLabel}>
+											{t("section", "Section")}:
+										</Text>
+										<Text style={styles.modalDetailValue}>
+											{selectedTable.section ||
+												selectedTable.area ||
+												t("main_dining", "Main Dining")}
+										</Text>
+									</View>
+									<View style={styles.modalDetailRow}>
+										<Text style={styles.modalDetailLabel}>
+											{t("qr_ready", "QR ready")}:
+										</Text>
+										<Text style={styles.modalDetailValue}>
+											{selectedTable.id ? t("yes", "Yes") : t("no", "No")}
+										</Text>
+									</View>
 									<View style={styles.modalActions}>
 										{selectedTable.status === "checkedOut" && (
 											<Button
@@ -713,6 +1038,12 @@ const TableManagementScreen = () => {
 					initialData={selectedTable}
 					isLoading={isActionLoading}
 				/>
+				<QuickSetupModal
+					isVisible={isQuickSetupVisible}
+					onClose={() => setIsQuickSetupVisible(false)}
+					onSubmit={handleQuickSetupSubmit}
+					isLoading={isActionLoading}
+				/>
 			</View>
 		</SafeAreaView>
 	);
@@ -735,6 +1066,31 @@ const styles = StyleSheet.create({
 	},
 	title: { fontSize: 28, fontWeight: "bold", color: colors.textDark },
 	statsText: { fontSize: 14, color: colors.textMedium, marginTop: 5 },
+	statsGrid: {
+		flexDirection: "row",
+		gap: 8,
+		marginTop: 12,
+	},
+	statPill: {
+		flex: 1,
+		backgroundColor: colors.surfaceWhite,
+		borderColor: colors.borderLight,
+		borderWidth: 1,
+		borderRadius: 8,
+		paddingVertical: 8,
+		paddingHorizontal: 10,
+	},
+	statPillValue: {
+		fontSize: 18,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	statPillLabel: {
+		fontSize: 11,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
 	editToggleContainer: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -790,9 +1146,10 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 25,
 		paddingTop: 30,
 		paddingBottom: 20,
-		borderRadius: 12,
+		borderRadius: 8,
 		width: "100%",
 		maxWidth: 400,
+		maxHeight: "90%",
 	},
 	modalTitle: {
 		fontSize: 22,
@@ -817,6 +1174,63 @@ const styles = StyleSheet.create({
 		marginLeft: 5,
 		fontSize: 13,
 	},
+	twoColumnRow: {
+		flexDirection: "row",
+		gap: 10,
+	},
+	twoColumnInput: { flex: 1 },
+	fieldLabel: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+		marginTop: 4,
+		marginBottom: 8,
+	},
+	chipRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 8,
+		marginBottom: 12,
+	},
+	choiceChip: {
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		paddingVertical: 8,
+		paddingHorizontal: 10,
+		backgroundColor: colors.surfaceWhite,
+	},
+	choiceChipActive: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	choiceChipText: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+	},
+	choiceChipTextActive: { color: colors.surfaceWhite },
+	activeToggleRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		padding: 12,
+		marginTop: 4,
+		backgroundColor: colors.backgroundLight,
+	},
+	activeToggleTitle: {
+		fontSize: 14,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	activeToggleHint: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 3,
+		lineHeight: 16,
+	},
 	modalActions: {
 		flexDirection: "row",
 		justifyContent: "space-between",
@@ -834,7 +1248,7 @@ const styles = StyleSheet.create({
 	statusModalContent: {
 		backgroundColor: colors.surfaceWhite,
 		padding: 25,
-		borderRadius: 12,
+		borderRadius: 8,
 		width: "95%",
 		maxWidth: 400,
 	},

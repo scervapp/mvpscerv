@@ -2,6 +2,7 @@
 
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { assertFeatureAllowed } = require("./featureEntitlements");
 const db = admin.firestore();
 
 const makeSafeDocId = (value) =>
@@ -234,8 +235,13 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 		orderId = null,
 		origin = null,
 		isIndividual = null,
+		customerName = "",
+		customerDisplayName = "",
 	} = data;
 	const cleanReviewText = String(reviewText || comment || "").trim().slice(0, 800);
+	const cleanClientName = String(customerDisplayName || customerName || "")
+		.trim()
+		.slice(0, 80);
 	const cleanReviewTags = Array.isArray(reviewTags)
 		? [
 				...new Set(
@@ -254,6 +260,37 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 
 	if (!menuItemId || !restaurantId || ratingValue < 1 || ratingValue > 5) {
 		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
+	}
+
+	const restaurantSnap = await db.collection("restaurants").doc(restaurantId).get();
+	if (!restaurantSnap.exists) {
+		throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+	}
+	assertFeatureAllowed(
+		restaurantSnap.data() || {},
+		"reviews",
+		"Reviews are not enabled for this restaurant plan.",
+	);
+	const customerSnap = cleanClientName
+		? null
+		: await db.collection("customers").doc(uid).get();
+	const customerData = customerSnap && customerSnap.exists ? customerSnap.data() : {};
+	const profileFirstName = String(customerData.firstName || "").trim();
+	const profileLastName = String(customerData.lastName || "").trim();
+	const profileFullName = String(
+		customerData.fullName || customerData.name || ""
+	).trim();
+	let safeCustomerName = cleanClientName;
+	if (!safeCustomerName && profileFirstName && profileLastName) {
+		safeCustomerName = `${profileFirstName} ${profileLastName.charAt(0)}.`;
+	} else if (!safeCustomerName && profileFirstName) {
+		safeCustomerName = profileFirstName;
+	} else if (!safeCustomerName && profileFullName) {
+		const nameParts = profileFullName.split(/\s+/).filter(Boolean);
+		safeCustomerName =
+			nameParts.length > 1
+				? `${nameParts[0]} ${nameParts[1].charAt(0)}.`
+				: nameParts[0];
 	}
 
 	const ratingDocId = makeSafeDocId(
@@ -283,6 +320,8 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				comment: cleanReviewText || null,
 				reviewText: cleanReviewText || null,
 				reviewTags: cleanReviewTags,
+				customerName: safeCustomerName || null,
+				customerDisplayName: safeCustomerName || null,
 				orderId,
 				origin,
 				isIndividual,

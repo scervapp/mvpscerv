@@ -20,6 +20,8 @@
     "backup:prod:firestore": "node scripts/backup-clean-firestore.js",
     "clean:prod:auth": "node scripts/clean-production-auth.js --delete --confirm-production-auth-wipe",
     "clean:prod:firestore": "node scripts/backup-clean-firestore.js --delete --confirm-production-wipe",
+    "seed:dev:restaurants": "node scripts/seed-dev-restaurants.js --confirm-dev-seed",
+    "eas-build-pre-install": "node scripts/prepare-eas-env.js",
     "postinstall": "patch-package"
   },
   "dependencies": {
@@ -90,6 +92,8 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@react-native-community/cli": "^20.1.3",
+    "@react-native-community/cli-platform-android": "^20.1.3",
     "eslint-config-prettier": "^9.1.0",
     "i18next-parser": "^9.3.0"
   },

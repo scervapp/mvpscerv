@@ -8,8 +8,11 @@ node_modules/
 .expo/
 dist/
 web-build/
+.expo-dev-server.*.log
+.codex-remote-attachments/
 
 # EAS Submit Key
+credentials.json
 eas-submit-key.json
 *-service-account.json
 scervmvp-*.json
@@ -22,6 +25,7 @@ credentials/firebase/**/*
 # Native
 *.orig.*
 *.jks
+android/app/src/debug/google-services.json
 *.p8
 *.p12
 *.key

@@ -86,6 +86,14 @@ const OrderHistoryDetailScreen = () => {
 					setOrderDetails({
 						id: docSnap.id,
 						...data,
+						gratuity: data.gratuity ?? data.gratuityAmount ?? 0,
+						platformFeeActual:
+							data.platformFeeActual ??
+							data.platformFee ??
+							data.scervFee ??
+							data.paymentTrace?.platformFeeActual ??
+							0,
+						taxActual: data.taxActual ?? data.taxAmount ?? 0,
 						items: itemWithRatingFlag,
 					});
 					setRatingStates({});

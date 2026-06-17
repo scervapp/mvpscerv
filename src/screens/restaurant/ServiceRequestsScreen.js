@@ -63,6 +63,15 @@ const ServiceRequestsScreen = ({ navigation }) => {
 	);
 
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const requestPulse = useMemo(
+		() => ({
+			service: requests.filter((request) => getRequestType(request) === "service")
+				.length,
+			checkout: requests.filter((request) => getRequestType(request) === "checkout")
+				.length,
+		}),
+		[requests],
+	);
 	const acknowledgePartyServiceRequestFunction = httpsCallable(
 		functions,
 		"acknowledgePartyServiceRequest",
@@ -277,11 +286,28 @@ const ServiceRequestsScreen = ({ navigation }) => {
 	return (
 		<View style={[styles.container, { paddingTop: insets.top }]}>
 			<View style={styles.headerRow}>
-				<Text style={styles.heading}>
-					{t("service_requests", "Service Requests")}
-				</Text>
+				<View>
+					<Text style={styles.eyebrow}>{t("floor_queue", "Floor Queue")}</Text>
+					<Text style={styles.heading}>
+						{t("service_requests", "Service Requests")}
+					</Text>
+				</View>
 				<View style={styles.badgeContainer}>
 					<Text style={styles.badgeText}>{requests.length}</Text>
+				</View>
+			</View>
+			<View style={styles.pulseRow}>
+				<View style={styles.pulseTile}>
+					<Text style={[styles.pulseValue, { color: colors.statusDanger }]}>
+						{requestPulse.service}
+					</Text>
+					<Text style={styles.pulseLabel}>{t("service", "Service")}</Text>
+				</View>
+				<View style={styles.pulseTile}>
+					<Text style={[styles.pulseValue, { color: colors.statusSuccess }]}>
+						{requestPulse.checkout}
+					</Text>
+					<Text style={styles.pulseLabel}>{t("checkout", "Checkout")}</Text>
 				</View>
 			</View>
 
@@ -322,30 +348,66 @@ const styles = StyleSheet.create({
 	headerRow: {
 		flexDirection: "row",
 		alignItems: "center",
+		justifyContent: "space-between",
 		paddingHorizontal: 20,
-		paddingBottom: 15,
+		paddingTop: 16,
+		paddingBottom: 14,
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 		backgroundColor: colors.surfaceWhite,
 	},
+	eyebrow: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+		textTransform: "uppercase",
+		marginBottom: 3,
+	},
 	heading: {
 		fontSize: 24,
-		fontWeight: "bold",
+		fontWeight: "900",
 		color: colors.textDark,
-		marginRight: 10,
 	},
 	badgeContainer: {
 		backgroundColor: colors.statusDanger,
-		borderRadius: 12,
-		paddingHorizontal: 10,
-		paddingVertical: 2,
+		borderRadius: 8,
+		minWidth: 34,
+		height: 34,
 		justifyContent: "center",
 		alignItems: "center",
 	},
 	badgeText: {
 		color: colors.surfaceWhite,
 		fontSize: 14,
-		fontWeight: "bold",
+		fontWeight: "900",
+	},
+	pulseRow: {
+		flexDirection: "row",
+		paddingHorizontal: 14,
+		paddingTop: 12,
+		paddingBottom: 2,
+	},
+	pulseTile: {
+		flex: 1,
+		minHeight: 62,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 12,
+		justifyContent: "center",
+		marginHorizontal: 4,
+	},
+	pulseValue: {
+		fontSize: 22,
+		fontWeight: "900",
+	},
+	pulseLabel: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginTop: 2,
 	},
 	emptyText: {
 		fontSize: 18,
@@ -354,20 +416,22 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 	},
 	listContainer: {
-		padding: 15,
+		padding: 14,
 	},
 	cardContainer: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 8,
-		padding: 15,
-		marginBottom: 15,
-		borderLeftWidth: 6,
+		padding: 13,
+		marginBottom: 10,
+		borderLeftWidth: 5,
 		borderLeftColor: colors.statusDanger,
 		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 2 },
-		shadowOpacity: 0.1,
-		shadowRadius: 4,
-		elevation: 3,
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.04,
+		shadowRadius: 3,
+		elevation: 1,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
 	},
 	cardHeader: {
 		flexDirection: "row",
@@ -384,8 +448,8 @@ const styles = StyleSheet.create({
 	cardIcon: { marginRight: 10 },
 	tableTextBlock: { flex: 1, minWidth: 0 },
 	tableName: {
-		fontSize: 22,
-		fontWeight: "bold",
+		fontSize: 20,
+		fontWeight: "900",
 		color: colors.textDark,
 	},
 	requestLabel: {
@@ -432,8 +496,8 @@ const styles = StyleSheet.create({
 	openButton: {
 		flexDirection: "row",
 		backgroundColor: "#EFF6FF",
-		paddingVertical: 10,
-		paddingHorizontal: 16,
+		paddingVertical: 9,
+		paddingHorizontal: 13,
 		borderRadius: 8,
 		alignItems: "center",
 		marginRight: 10,
@@ -441,13 +505,13 @@ const styles = StyleSheet.create({
 	openButtonText: {
 		color: colors.primary,
 		fontSize: 15,
-		fontWeight: "bold",
+		fontWeight: "900",
 	},
 	acknowledgeButton: {
 		flexDirection: "row",
 		backgroundColor: colors.statusSuccess,
-		paddingVertical: 10,
-		paddingHorizontal: 16,
+		paddingVertical: 9,
+		paddingHorizontal: 13,
 		borderRadius: 8,
 		alignItems: "center",
 	},
@@ -456,7 +520,7 @@ const styles = StyleSheet.create({
 	acknowledgeButtonText: {
 		color: colors.surfaceWhite,
 		fontSize: 15,
-		fontWeight: "bold",
+		fontWeight: "900",
 	},
 });
 

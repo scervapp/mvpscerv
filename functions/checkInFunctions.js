@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { assertFeatureAllowed } = require("./featureEntitlements");
 const db = admin.firestore();
 
 const generateCode = () => {
@@ -164,6 +165,184 @@ exports.cancelCheckIn = functions.https.onCall(async (data, context) => {
 		console.error("Error canceling check-in:", error);
 		throw new functions.https.HttpsError("internal", error.message);
 	}
+});
+
+/**
+ * Creates a host-assigned check-in request for full-service/fine-dining flows.
+ * This is separate from QR self-seating: the guest asks to be received, then
+ * the host assigns a table and server from the restaurant app.
+ */
+exports.createHostCheckInRequest = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated to request check-in.",
+		);
+	}
+
+	const customerId = context.auth.uid;
+	const {
+		restaurantId,
+		customerName,
+		numberOfPeople = 1,
+		reservationId = null,
+		partyId = null,
+		occasion = "",
+		seatingPreference = "",
+		allergyNotes = "",
+		guestNotes = "",
+	} = data || {};
+
+	if (!restaurantId || !customerName || Number(numberOfPeople) < 1) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant, customer name, and party size are required.",
+		);
+	}
+
+	const checkInRef = db.collection("checkIns").doc();
+	const customerRef = db.collection("customers").doc(customerId);
+	const reservationRef = reservationId
+		? db.collection("reservations").doc(reservationId)
+		: null;
+	const partyRef = partyId ? db.collection("parties").doc(partyId) : null;
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+
+	await db.runTransaction(async (transaction) => {
+		let resolvedPartySize = Number(numberOfPeople);
+		const restaurantSnap = await transaction.get(restaurantRef);
+		const customerSnap = await transaction.get(customerRef);
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+		}
+		assertFeatureAllowed(
+			restaurantSnap.data() || {},
+			"hostCheckInRequests",
+			"Host check-in is not enabled for this restaurant plan.",
+		);
+		const activeCheckIn = customerSnap.exists
+			? (customerSnap.data() || {}).activeCheckIn || null
+			: null;
+		if (
+			activeCheckIn &&
+			activeCheckIn.restaurantId === restaurantId &&
+			["REQUESTED", "ACCEPTED"].includes(activeCheckIn.status)
+		) {
+			throw new functions.https.HttpsError(
+				"already-exists",
+				"You already have an active check-in request at this restaurant.",
+			);
+		}
+
+		if (reservationRef) {
+			const reservationSnap = await transaction.get(reservationRef);
+			if (!reservationSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Reservation not found.",
+				);
+			}
+			const reservationData = reservationSnap.data() || {};
+			if (
+				reservationData.customerId !== customerId ||
+				reservationData.restaurantId !== restaurantId ||
+				reservationData.status !== "confirmed"
+			) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Reservation is not ready for arrival check-in.",
+				);
+			}
+		}
+
+		if (partyRef) {
+			const partySnap = await transaction.get(partyRef);
+			if (!partySnap.exists) {
+				throw new functions.https.HttpsError("not-found", "Party not found.");
+			}
+			const partyData = partySnap.data() || {};
+			if (
+				partyData.hostUserId !== customerId ||
+				partyData.restaurantId !== restaurantId ||
+				!["pending", "AWAITING_TABLE", "active"].includes(partyData.status)
+			) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Only the host can bring an active party to this reservation.",
+				);
+			}
+
+			resolvedPartySize = Math.max(
+				1,
+				(partyData.guestPips || []).length ||
+					(partyData.guestUserIds || []).length ||
+					Number(numberOfPeople) ||
+					1,
+			);
+		}
+
+		transaction.set(checkInRef, {
+			restaurantId,
+			customerId,
+			customerName,
+			numberOfPeople: resolvedPartySize,
+			status: "REQUESTED",
+			type: reservationId ? "reservation_arrival" : "host_assigned_walk_in",
+			reservationId,
+			partyId,
+			associatedPartyId: partyId,
+			occasion,
+			seatingPreference,
+			allergyNotes,
+			guestNotes,
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+
+		transaction.set(
+			customerRef,
+			{
+				activeCheckIn: {
+					checkInId: checkInRef.id,
+					restaurantId,
+					status: "REQUESTED",
+					type: reservationId ? "reservation_arrival" : "host_assigned_walk_in",
+					reservationId,
+					partyId,
+				},
+			},
+			{ merge: true },
+		);
+
+		if (reservationRef) {
+			transaction.set(
+				reservationRef,
+				{
+					status: "arrival_requested",
+					arrivalCheckInId: checkInRef.id,
+					partyId,
+					arrivedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+
+		if (partyRef) {
+			transaction.set(
+				partyRef,
+				{
+					status: "AWAITING_TABLE",
+					checkInId: checkInRef.id,
+					activeCheckInId: checkInRef.id,
+					reservationId,
+					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+	});
+
+	return { success: true, checkInId: checkInRef.id };
 });
 
 /**
@@ -393,7 +572,15 @@ exports.handleCheckInResponse = functions.https.onCall(
 		} = data;
 
 		// --- Validation ---
-		if (!checkInId || !table.id || !server.id || !customerId || !restaurantId) {
+		if (
+			!checkInId ||
+			!table ||
+			!table.id ||
+			!server ||
+			!server.id ||
+			!customerId ||
+			!restaurantId
+		) {
 			console.error(
 				"handleCheckInResponse: Invalid input. Missing required IDs.",
 				data,
@@ -405,11 +592,26 @@ exports.handleCheckInResponse = functions.https.onCall(
 		}
 
 		const checkInRef = db.collection("checkIns").doc(checkInId);
+		const tableAssignment = {
+			id: String(table.id || "").trim(),
+			name: String(table.name || table.tableName || table.label || "Table").trim(),
+		};
+		const serverAssignment = {
+			id: String(server.id || "").trim(),
+			name:
+				String(
+					server.name ||
+						`${server.firstName || ""} ${server.lastName || ""}`.trim() ||
+						server.displayName ||
+						"Server",
+				).trim() || "Server",
+		};
 		const tableRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
 			.collection("tables")
-			.doc(table.id);
+			.doc(tableAssignment.id);
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
 		const customerRef = db.collection("customers").doc(customerId);
 
 		try {
@@ -422,67 +624,185 @@ exports.handleCheckInResponse = functions.https.onCall(
 					);
 				}
 				const checkInData = checkInDoc.data();
+				const restaurantDoc = await transaction.get(restaurantRef);
 
-				if (checkInData.status !== "REQUESTED") {
+				const canRepairAcceptedWithoutParty =
+					checkInData.status === "ACCEPTED" &&
+					!checkInData.associatedPartyId &&
+					!checkInData.partyId;
+				if (checkInData.status !== "REQUESTED" && !canRepairAcceptedWithoutParty) {
 					throw new functions.https.HttpsError(
 						"failed-precondition",
 						`This check-in has already been processed.`,
 					);
 				}
 
+				const now = admin.firestore.FieldValue.serverTimestamp();
+				const restaurantData = restaurantDoc.exists
+					? restaurantDoc.data() || {}
+					: {};
+				const restaurantName =
+					restaurantData.name ||
+					restaurantData.restaurantName ||
+					checkInData.restaurantName ||
+					"Restaurant";
+				const restaurantTaxRate =
+					typeof restaurantData.taxRate === "number" &&
+					!isNaN(restaurantData.taxRate)
+						? restaurantData.taxRate
+						: 0;
+				const restaurantStripeAccountId =
+					restaurantData.stripeAccountId || null;
+				const resolvedPartyId =
+					checkInData.associatedPartyId || checkInData.partyId || null;
+				const newPartyRef = resolvedPartyId
+					? null
+					: db.collection("parties").doc();
+				const partyIdForSession = resolvedPartyId || newPartyRef.id;
+
 				// Update the check-in document
 				transaction.update(checkInRef, {
 					status: "ACCEPTED",
-					table: { id: table.id, name: table.name },
-					server: { id: server.id, name: server.name },
-					acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+					table: tableAssignment,
+					server: serverAssignment,
+					associatedPartyId: partyIdForSession,
+					partyId: partyIdForSession,
+					acceptedAt: now,
 				});
 
 				// Update the table's status
-				transaction.update(tableRef, {
+				transaction.set(
+					tableRef,
+					{
 					status: "OCCUPIED",
 					currentCheckInId: checkInId,
 					currentCustomerId: customerId,
-					seatedAt: admin.firestore.FieldValue.serverTimestamp(),
-				});
+					currentPartyId: partyIdForSession,
+					seatedAt: now,
+					},
+					{ merge: true },
+				);
 
 				// Update the customer's activeCheckIn status
-				transaction.update(customerRef, {
-					activeCheckIn: {
-						checkInId: checkInId,
-						restaurantId: restaurantId,
-						status: "ACCEPTED",
-						table: { id: table.id, name: table.name },
+				transaction.set(
+					customerRef,
+					{
+						activeCheckIn: {
+							checkInId: checkInId,
+							restaurantId: restaurantId,
+							status: "ACCEPTED",
+							table: tableAssignment,
+							server: serverAssignment,
+							partyId: partyIdForSession,
+						},
+						partyIds: admin.firestore.FieldValue.arrayUnion(partyIdForSession),
 					},
-				});
+					{ merge: true },
+				);
 
-				// If this check-in is associated with a party, update the party's status too
-				if (checkInData.associatedPartyId) {
-					const partyRef = db
-						.collection("parties")
-						.doc(checkInData.associatedPartyId);
+				if (newPartyRef) {
+					const sharedBasketRef = db
+						.collection("shared_baskets")
+						.doc(partyIdForSession);
+					const guestName = checkInData.customerName || "Guest";
 
-					// --- THIS IS THE FIX ---
-					// We must also save the checkInId to the party document itself.
-					// This is the missing link that was causing the cleanup to fail.
-					transaction.update(partyRef, {
+					// Host-seated walk-ins do not pass through createParty, so we create
+					// the same dine-in session shape the customer app already listens for.
+					transaction.set(newPartyRef, {
+						id: partyIdForSession,
+						restaurantId,
+						restaurantName,
+						restaurantTaxRate,
+						restaurantStripeAccountId,
+						restaurantCanAcceptPayments: !!restaurantStripeAccountId,
+						sharedBasketId: partyIdForSession,
+						orderMode: "dineIn",
+						fulfillmentType: "table",
+						joinable: true,
+						table: tableAssignment,
+						server: serverAssignment,
+						hostUserId: customerId,
+						hostName: guestName,
+						guestUserIds: [customerId],
+						guestPips: [
+							{
+								userId: customerId,
+								name: guestName,
+								joinedAt: new Date(),
+								isLocal: true,
+							},
+						],
+						guestNames: [],
 						status: "active",
-						table: { id: table.id, name: table.name },
-						server: { id: server.id, name: server.name },
-						checkInId: checkInId, // This is the crucial line we are adding
-						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+						checkInId,
+						activeCheckInId: checkInId,
+						reservationId: checkInData.reservationId || null,
+						inviteCode: null,
+						inviteCodeExpiry: null,
+						createdAt: now,
+						lastUpdated: now,
 					});
-					// --- END OF FIX ---
+
+					transaction.set(sharedBasketRef, {
+						partyId: partyIdForSession,
+						restaurantId,
+						orderMode: "dineIn",
+						fulfillmentType: "table",
+						items: [],
+						createdAt: now,
+						lastUpdated: now,
+					});
+				}
+
+				// If this request was tied to an existing party/reservation party,
+				// move that session from awaiting-table into active service.
+				if (resolvedPartyId) {
+					const partyRef = db.collection("parties").doc(partyIdForSession);
+
+					transaction.set(
+						partyRef,
+						{
+							status: "active",
+							table: tableAssignment,
+							server: serverAssignment,
+							checkInId: checkInId,
+							activeCheckInId: checkInId,
+							reservationId: checkInData.reservationId || null,
+							lastUpdated: now,
+						},
+						{ merge: true },
+					);
 
 					console.log(
-						`handleCheckInResponse: Updated associated party ${checkInData.associatedPartyId} to active.`,
+						`handleCheckInResponse: Updated associated party ${partyIdForSession} to active.`,
+					);
+				}
+
+				// Reservation arrivals still finish through the host seating flow.
+				// Keeping this sync here makes the table assignment the source of truth.
+				if (checkInData.reservationId) {
+					const reservationRef = db
+						.collection("reservations")
+						.doc(checkInData.reservationId);
+					transaction.set(
+						reservationRef,
+						{
+							status: "seated",
+							checkInId: checkInId,
+							partyId: partyIdForSession,
+							table: tableAssignment,
+							server: serverAssignment,
+							seatedAt: now,
+							updatedAt: now,
+						},
+						{ merge: true },
 					);
 				}
 
 				console.log(
-					`handleCheckInResponse: Successfully accepted check-in ${checkInId} for table ${table.name}.`,
+					`handleCheckInResponse: Successfully accepted check-in ${checkInId} for table ${tableAssignment.name}.`,
 				);
-				return { success: true };
+				return { success: true, partyId: partyIdForSession };
 			});
 		} catch (error) {
 			console.error(
@@ -551,6 +871,13 @@ exports.selfSeatingCheckIn = functions.https.onCall(async (data, context) => {
 			}
 
 			const tableData = tableDoc.data();
+
+			if (tableData.isActive === false) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This table is not currently open for guest seating.",
+				);
+			}
 
 			// CRITICAL: Make sure someone else didn't just sit here!
 			if (tableData.status !== "available") {
@@ -688,6 +1015,13 @@ exports.handleQRScan = functions.https.onCall(async (data, context) => {
 		}
 
 		const tableData = tableDoc.data();
+
+		if (tableData.isActive === false) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This table is not currently open for guest seating.",
+			);
+		}
 
 		// =================================================================
 		// SCENARIO 1: Table is empty -> Start a new party of 1

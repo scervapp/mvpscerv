@@ -55,7 +55,7 @@ const LabeledInput = ({
 );
 
 const getCountryOption = (countryCode) =>
-	COUNTRY_OPTIONS.find((country) => country[0] === countryCode) ||
+	COUNTRY_OPTIONS.find((country) => country.code === countryCode) ||
 	COUNTRY_OPTIONS[0];
 
 const cleanString = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -405,13 +405,13 @@ const RestaurantProfile = () => {
 								value={formData.countryCode}
 								onValueChange={(val) => {
 									const country = getCountryOption(val);
-									handleInputChange("countryCode", country[0]);
-									handleInputChange("country", country[1]);
+									handleInputChange("countryCode", country.code);
+									handleInputChange("country", country.label);
 								}}
 								title={t("country", "Country")}
 								options={COUNTRY_OPTIONS.map((country) => ({
-									label: country[1],
-									value: country[0],
+									label: country.label,
+									value: country.code,
 								}))}
 								pickerStyle={styles.picker}
 							/>

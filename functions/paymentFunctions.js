@@ -9,6 +9,7 @@ const { updateDoc } = require("firebase-admin/firestore");
 const { FieldValue } = require("firebase-admin/firestore");
 const { generateOrderId } = require("./orderFunctions");
 const { getStripeKeys, createStripeCustomerHelper } = require("./stripeUtils");
+const { isFeatureAllowed } = require("./featureEntitlements");
 
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
 const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
@@ -33,6 +34,8 @@ const DRINK_CATEGORIES = [
 const DEFAULT_SCERV_FEE_PERCENTAGE = 0.03;
 const DEFAULT_RESTAURANT_PROCESSING_FEE_PERCENTAGE = 0.04;
 const DEFAULT_PAYOUT_PERCENTAGE = 0.97;
+const AUTO_REWARD_TYPES = ["discount_percent", "discount_amount", "free_item"];
+const AUTO_REWARD_THRESHOLD_TYPES = ["visits", "spend", "points"];
 
 const isBarCategory = (category) => {
 	const normalized = String(category || "")
@@ -95,12 +98,210 @@ const normalizeNonNegativeCents = (value, fallback = 0) => {
 	return Math.round(parsed);
 };
 
+const sanitizeString = (value, maxLength = 240) =>
+	String(value || "")
+		.trim()
+		.replace(/\s+/g, " ")
+		.slice(0, maxLength);
+
+const normalizeRewardType = (value) => {
+	const normalized = sanitizeString(value, 80);
+	return AUTO_REWARD_TYPES.includes(normalized) ? normalized : "perk";
+};
+
+const normalizeThresholdType = (value) => {
+	const normalized = sanitizeString(value || "visits", 80);
+	return AUTO_REWARD_THRESHOLD_TYPES.includes(normalized)
+		? normalized
+		: "visits";
+};
+
+const getRewardKey = (reward = {}) =>
+	sanitizeString(reward.id || reward.tierId || reward.rewardLabel, 160);
+
+const parseRewardNumber = (reward = {}) => {
+	const direct = Number(reward.rewardValue || reward.value || 0);
+	if (Number.isFinite(direct) && direct > 0) return direct;
+	const labelMatch = String(reward.rewardLabel || reward.tierName || "").match(
+		/(\d+(\.\d+)?)/,
+	);
+	return labelMatch ? Number(labelMatch[1]) : 0;
+};
+
+const getProgressValue = (progress = {}, thresholdType = "visits") => {
+	if (thresholdType === "spend") return Number(progress.lifetimeSpend || 0);
+	if (thresholdType === "points") return Number(progress.clubPoints || 0);
+	return Number(progress.visitCount || 0);
+};
+
 const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
 	Math.max(
 		0,
 		Math.round(Number(amountCents || 0) * normalizePercentage(percentage)) +
 			normalizeNonNegativeCents(fixedCents),
 	);
+
+const getActivePromotionDiscount = (basketData = {}) => {
+	const discount = basketData.activePromotionDiscount || null;
+	if (!discount || discount.status !== "active") return null;
+	return discount;
+};
+
+const getPromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
+	if (!activePromotionDiscount) return 0;
+	const requestedDiscount = normalizeNonNegativeCents(
+		activePromotionDiscount.appliedDiscountCents,
+	);
+	const maxDiscount = normalizeNonNegativeCents(
+		activePromotionDiscount.maxDiscountCents,
+	);
+	const cappedDiscount =
+		maxDiscount > 0 ? Math.min(requestedDiscount, maxDiscount) : requestedDiscount;
+	return Math.min(Math.max(0, subtotalCents), cappedDiscount);
+};
+
+const getEnabledLoyaltyProgram = (restaurantData = {}) => {
+	if (!isFeatureAllowed(restaurantData, "rewards")) return null;
+	const program = restaurantData.loyaltyProgram || restaurantData.rewardsProgram;
+	if (!program || program.enabled !== true) return null;
+
+	const tiers = Array.isArray(program.tiers)
+		? program.tiers
+				.map((tier, index) => ({
+					id: sanitizeString(tier.id || `tier_${index + 1}`, 160),
+					name: sanitizeString(tier.name || `Tier ${index + 1}`, 160),
+					thresholdType: normalizeThresholdType(tier.thresholdType),
+					thresholdValue: Number(tier.thresholdValue || 0),
+					rewardType: normalizeRewardType(tier.rewardType),
+					rewardValue: tier.rewardValue || tier.value || null,
+					rewardLabel:
+						sanitizeString(tier.rewardLabel || tier.name, 160) ||
+						"Restaurant reward",
+					maxDiscountCents: normalizeNonNegativeCents(
+						tier.maxDiscountCents || tier.maxValueCents,
+					),
+				}))
+				.filter((tier) => tier.id && tier.thresholdValue > 0)
+				.sort((a, b) => a.thresholdValue - b.thresholdValue)
+		: [];
+
+	if (tiers.length === 0) return null;
+
+	return {
+		name: sanitizeString(program.name, 120) || "Restaurant Club",
+		pointsPerDollar: Number(program.pointsPerDollar || 1),
+		tiers,
+	};
+};
+
+const calculateAutomaticRewardDiscountCents = (reward = {}, subtotalCents = 0) => {
+	const rewardType = normalizeRewardType(reward.rewardType);
+	const rewardNumber = parseRewardNumber(reward);
+	const maxDiscountCents = normalizeNonNegativeCents(
+		reward.maxDiscountCents || reward.maxValueCents,
+	);
+	let requestedDiscountCents = 0;
+
+	if (rewardType === "discount_percent") {
+		const percent = rewardNumber > 1 ? rewardNumber / 100 : rewardNumber;
+		requestedDiscountCents = Math.round(
+			Math.max(0, subtotalCents) * Math.min(Math.max(percent, 0), 1),
+		);
+	} else if (rewardType === "discount_amount" || rewardType === "free_item") {
+		requestedDiscountCents = maxDiscountCents || Math.round(rewardNumber * 100);
+	}
+
+	const cappedDiscount =
+		maxDiscountCents > 0
+			? Math.min(requestedDiscountCents, maxDiscountCents)
+			: requestedDiscountCents;
+
+	return Math.min(Math.max(0, subtotalCents), Math.max(0, cappedDiscount));
+};
+
+const buildAutomaticRestaurantRewardDiscount = async ({
+	restaurantId,
+	restaurantData,
+	customerId,
+	subtotalCents,
+}) => {
+	if (!restaurantId || !customerId || subtotalCents <= 0) return null;
+
+	const program = getEnabledLoyaltyProgram(restaurantData);
+	if (!program) return null;
+
+	const clubRef = db
+		.collection("customers")
+		.doc(customerId)
+		.collection("restaurantClubs")
+		.doc(restaurantId);
+	const clubSnap = await clubRef.get();
+	const clubData = clubSnap.exists ? clubSnap.data() || {} : {};
+	const currentProgress = {
+		visitCount: Number(clubData.visitCount || 0),
+		lifetimeSpend: Number(clubData.lifetimeSpend || 0),
+		clubPoints: Number(clubData.clubPoints || 0),
+	};
+	const nextProgress = {
+		visitCount: currentProgress.visitCount + 1,
+		lifetimeSpend: currentProgress.lifetimeSpend + subtotalCents,
+		clubPoints:
+			currentProgress.clubPoints +
+			Math.floor((subtotalCents / 100) * Math.max(0, program.pointsPerDollar)),
+	};
+	const existingRewards = Array.isArray(clubData.unlockedRewards)
+		? clubData.unlockedRewards
+		: [];
+	const rewardStatusByKey = new Map(
+		existingRewards.map((reward) => [getRewardKey(reward), reward.status]),
+	);
+
+	const candidates = program.tiers
+		.filter((tier) => AUTO_REWARD_TYPES.includes(tier.rewardType))
+		.filter((tier) => {
+			const key = getRewardKey(tier);
+			const status = rewardStatusByKey.get(key);
+			if (status === "redeemed" || status === "consumed") return false;
+			const currentValue = getProgressValue(currentProgress, tier.thresholdType);
+			const nextValue = getProgressValue(nextProgress, tier.thresholdType);
+			return currentValue >= tier.thresholdValue || nextValue >= tier.thresholdValue;
+		})
+		.map((tier) => ({
+			...tier,
+			appliedDiscountCents: calculateAutomaticRewardDiscountCents(
+				tier,
+				subtotalCents,
+			),
+		}))
+		.filter((tier) => tier.appliedDiscountCents > 0)
+		.sort((a, b) => b.appliedDiscountCents - a.appliedDiscountCents);
+
+	const reward = candidates[0];
+	if (!reward) return null;
+
+	return {
+		source: "automatic_restaurant_reward",
+		discountSource: "restaurant_reward",
+		status: "active",
+		rewardId: reward.id,
+		tierId: reward.id,
+		tierName: reward.name,
+		rewardType: reward.rewardType,
+		rewardValue: reward.rewardValue || null,
+		rewardLabel: reward.rewardLabel || reward.name || "Restaurant reward",
+		title: reward.rewardLabel || reward.name || "Restaurant reward",
+		programName: program.name,
+		restaurantId,
+		customerId,
+		appliedDiscountCents: reward.appliedDiscountCents,
+		eligibleSubtotalCents: subtotalCents,
+		maxDiscountCents:
+			reward.maxDiscountCents || reward.appliedDiscountCents || 0,
+		visitNumber: nextProgress.visitCount,
+		autoApplied: true,
+		appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+	};
+};
 
 const resolvePaymentPolicy = ({
 	restaurantData = {},
@@ -982,6 +1183,7 @@ exports.preparePayment = functions
 			let itemsToProcess = [];
 			let isUserVerifiedForParty = false;
 			let paidForOwnerIds = [userId];
+			let activePromotionDiscount = null;
 
 			const isSharedBasketPayment =
 				paymentType === "party" || paymentType === "pickup";
@@ -1066,7 +1268,9 @@ exports.preparePayment = functions
 					);
 				}
 
-				const allItemsInBasket = sharedBasketDoc.data().items || [];
+				const sharedBasketData = sharedBasketDoc.data() || {};
+				activePromotionDiscount = getActivePromotionDiscount(sharedBasketData);
+				const allItemsInBasket = sharedBasketData.items || [];
 				const clientItemIds = new Set(items.map((item) => item.id));
 				const targetOwnerIdSet = new Set(targetOwnerIds);
 				itemsToProcess = allItemsInBasket.filter(
@@ -1131,6 +1335,7 @@ exports.preparePayment = functions
 			const restaurantTaxRate = normalizePercentage(restaurantData.taxRate, 0);
 			let calculatedSubtotal = 0;
 			let calculatedTax = 0;
+			let hasItemLevelDiscount = false;
 			const fullItemDetails = [];
 
 			itemsToProcess.forEach((basketData) => {
@@ -1159,6 +1364,16 @@ exports.preparePayment = functions
 				const quantity = basketData.quantity || 1;
 				const lineSubtotal = priceInCents * quantity;
 				const lineTax = Math.round(lineSubtotal * restaurantTaxRate);
+				const originalPriceInCents = Math.round(
+					Number(
+						basketData.price !== undefined && basketData.price !== null
+							? basketData.price
+							: (basketData.dish && basketData.dish.price) || price,
+					) * 100,
+				);
+				if (priceInCents < originalPriceInCents) {
+					hasItemLevelDiscount = true;
+				}
 				const itemDetails = {
 					...basketData,
 					price: priceInCents,
@@ -1173,6 +1388,31 @@ exports.preparePayment = functions
 				calculatedTax += lineTax;
 				fullItemDetails.push(itemDetails);
 			});
+
+			if (!activePromotionDiscount && !hasItemLevelDiscount) {
+				activePromotionDiscount = await buildAutomaticRestaurantRewardDiscount({
+					restaurantId,
+					restaurantData,
+					customerId: userId,
+					subtotalCents: calculatedSubtotal,
+				});
+			}
+
+			const promotionDiscountCents = getPromotionDiscountCents(
+				activePromotionDiscount,
+				calculatedSubtotal,
+			);
+			if (promotionDiscountCents > 0) {
+				calculatedSubtotal = Math.max(
+					0,
+					calculatedSubtotal - promotionDiscountCents,
+				);
+				calculatedTax = Math.max(
+					0,
+					calculatedTax -
+						Math.round(promotionDiscountCents * restaurantTaxRate),
+				);
+			}
 
 			if (calculatedSubtotal <= 0) {
 				console.warn("[preparePayment] Payment subtotal was not positive.", {
@@ -1226,16 +1466,22 @@ exports.preparePayment = functions
 
 			if (
 				clientExpectedTotal > 0 &&
-				Math.abs(clientExpectedTotal - finalAmount) > 1
+				finalAmount - clientExpectedTotal > 1
 			) {
 				console.error("[preparePayment] Client/server total mismatch", {
 					orderTotalFromClient: clientExpectedTotal,
 					serverTotal: finalAmount,
+					discountSource: activePromotionDiscount
+						? activePromotionDiscount.source ||
+							activePromotionDiscount.discountSource ||
+							null
+						: null,
 					clientTaxAmount: taxAmount,
 					serverTaxAmount: calculatedTax,
 					clientPlatformFee: platformFee,
 					serverPlatformFee: calculatedPlatformFee,
 					serverSubtotal: calculatedSubtotal,
+					promotionDiscountCents,
 					serverScervFeePercentage: scervFeePercentage,
 					scervFeeWaived: paymentPolicy.scervFeeWaived,
 					feeWaiverReason: paymentPolicy.feeWaiverReason,
@@ -1301,6 +1547,10 @@ exports.preparePayment = functions
 				restaurantTaxRate,
 				items: sanitizeFirestoreValue(fullItemDetails),
 				subtotal: calculatedSubtotal,
+				promotionDiscount: promotionDiscountCents,
+				activePromotionDiscount: activePromotionDiscount
+					? sanitizeFirestoreValue(activePromotionDiscount)
+					: null,
 				taxAmount: calculatedTax,
 				gratuity,
 				gratuityPassthroughAmount,
@@ -1369,9 +1619,15 @@ exports.preparePayment = functions
 					savedPaymentMethodBehavior: "payment_intent_setup_future_usage",
 					payerUserId: userId,
 					paidForUserIds: isSharedBasketPayment ? paidForOwnerIds : [userId],
-					restaurantTaxRate,
-					itemIds: fullItemDetails.map((item) => item.id),
-				}),
+						restaurantTaxRate,
+						promotionDiscountCents,
+						promotionDiscountSource: activePromotionDiscount
+							? activePromotionDiscount.source ||
+								activePromotionDiscount.discountSource ||
+								null
+							: null,
+						itemIds: fullItemDetails.map((item) => item.id),
+					}),
 				...(isSharedBasketPayment && { partyId }),
 			});
 
@@ -1436,6 +1692,20 @@ exports.preparePayment = functions
 							fulfillmentType ||
 							(paymentType === "pickup" ? "hotel_pickup" : "table"),
 						subtotal: String(calculatedSubtotal),
+						promotionDiscount: String(promotionDiscountCents),
+						promotionDiscountSource: activePromotionDiscount
+							? String(
+									activePromotionDiscount.source ||
+										activePromotionDiscount.discountSource ||
+										"",
+								)
+							: "",
+						rewardId:
+							activePromotionDiscount &&
+							activePromotionDiscount.source ===
+								"automatic_restaurant_reward"
+								? String(activePromotionDiscount.rewardId || "")
+								: "",
 						taxAmount: String(calculatedTax),
 						gratuity: String(gratuity),
 						gratuityPassthroughAmount: String(gratuityPassthroughAmount),
@@ -1480,6 +1750,8 @@ exports.preparePayment = functions
 
 			// 7. ============== RETURN SECRETS TO REACT NATIVE ==============
 			return {
+				orderId: newOrderId,
+				paymentIntentId: paymentIntent.id,
 				paymentIntentClientSecret: paymentIntent.client_secret,
 				ephemeralKeySecret: ephemeralKey.secret,
 				customerId: stripeCustomerId,
@@ -1490,12 +1762,217 @@ exports.preparePayment = functions
 				taxAmount: calculatedTax,
 				gratuity,
 				platformFee: calculatedPlatformFee,
+				promotionDiscount: promotionDiscountCents,
+				activePromotionDiscount: activePromotionDiscount
+					? sanitizeFirestoreValue(activePromotionDiscount)
+					: null,
+				automaticRewardApplied:
+					activePromotionDiscount &&
+					activePromotionDiscount.source === "automatic_restaurant_reward",
 				paidForUserIds: isSharedBasketPayment ? paidForOwnerIds : [userId],
 			};
 		} catch (error) {
 			console.error("Error in preparePayment:", error);
 			throw toPreparePaymentHttpsError(error);
 		}
+	});
+
+/**
+ * Finalizes a Stripe payment immediately after the mobile PaymentSheet succeeds.
+ * The Stripe webhook still runs as the long-term source of truth; this callable
+ * gives dev/prod clients a fast, verified cleanup path so parties do not remain
+ * active while waiting on webhook delivery.
+ */
+exports.finalizeStripePayment = functions
+	.runWith({
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated to finalize payment.",
+			);
+		}
+
+		let { orderId, paymentIntentId } = data || {};
+		const { partyId = null } = data || {};
+		if ((!orderId || !paymentIntentId) && partyId) {
+			const pendingOrdersSnap = await db
+				.collection("pending_orders")
+				.where("customerId", "==", context.auth.uid)
+				.get();
+
+			const candidates = pendingOrdersSnap.docs
+				.map((doc) => ({ id: doc.id, ...doc.data() }))
+				.filter((order) => {
+					if (order.partyId !== partyId) return false;
+					if (order.status === "fulfilled" || order.fulfilledOrderId) return true;
+					return !!(order.paymentIntentId || order.stripePaymentIntentId);
+				})
+				.sort((a, b) => {
+					const aMs = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+					const bMs = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+					return bMs - aMs;
+				});
+
+			const recoverableOrder = candidates[0] || null;
+			if (recoverableOrder) {
+				orderId = recoverableOrder.id;
+				paymentIntentId =
+					recoverableOrder.paymentIntentId ||
+					recoverableOrder.stripePaymentIntentId ||
+					paymentIntentId;
+			}
+		}
+
+		if (!orderId || !paymentIntentId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID and payment intent ID are required.",
+			);
+		}
+
+		const pendingOrderRef = db.collection("pending_orders").doc(orderId);
+		const pendingOrderSnap = await pendingOrderRef.get();
+		if (!pendingOrderSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Pending order was not found.",
+			);
+		}
+
+		const pendingOrderData = pendingOrderSnap.data() || {};
+		if (pendingOrderData.customerId !== context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Only the payer can finalize this payment.",
+			);
+		}
+
+		if (
+			pendingOrderData.status === "fulfilled" ||
+			pendingOrderData.fulfilledOrderId
+		) {
+			return {
+				success: true,
+				orderId,
+				fulfilledOrderId: pendingOrderData.fulfilledOrderId || orderId,
+				alreadyFulfilled: true,
+			};
+		}
+
+		if (
+			pendingOrderData.paymentIntentId &&
+			pendingOrderData.paymentIntentId !== paymentIntentId
+		) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Payment intent does not match this order.",
+			);
+		}
+
+		const keys = await getStripeKeys(pendingOrderData.restaurantId);
+		const stripeInstance = stripe(keys.stripeSecretKey, {
+			apiVersion: "2024-04-10",
+		});
+		const paymentIntent = await stripeInstance.paymentIntents.retrieve(
+			paymentIntentId,
+			{ expand: ["payment_method"] },
+		);
+
+		if (paymentIntent.status !== "succeeded") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				`Payment has not succeeded yet. Current status: ${paymentIntent.status}`,
+			);
+		}
+
+		let stripeFeeActual = 0;
+		let stripeApplicationFeeAmount = Number(
+			pendingOrderData.stripeApplicationFeeAmount ||
+				pendingOrderData.applicationFeeAmount ||
+				0,
+		);
+		let stripeDestinationTransferId = null;
+		try {
+			if (paymentIntent.latest_charge) {
+				const charge = await stripeInstance.charges.retrieve(
+					paymentIntent.latest_charge,
+					{ expand: ["balance_transaction"] },
+				);
+				if (charge.balance_transaction) {
+					stripeFeeActual = charge.balance_transaction.fee;
+				}
+				if (charge.application_fee_amount) {
+					stripeApplicationFeeAmount = charge.application_fee_amount;
+				}
+				stripeDestinationTransferId = getStripeObjectId(charge.transfer);
+			}
+		} catch (feeError) {
+			console.warn(
+				`[FinalizeStripePayment] Could not retrieve exact fee for PI ${paymentIntent.id}.`,
+				feeError,
+			);
+		}
+		if (stripeFeeActual === 0) {
+			stripeFeeActual =
+				Math.round((paymentIntent.amount_received || paymentIntent.amount) * 0.029) +
+				30;
+		}
+
+		const stripePaymentMethodId = getStripeObjectId(paymentIntent.payment_method);
+		const paymentMethodSummary = await saveStripePaymentMethodSummary({
+			stripeInstance,
+			paymentIntent,
+			userId: pendingOrderData.customerId,
+		});
+
+		await pendingOrderRef.set(
+			{
+				status: "processing",
+				paymentStatus: "paid",
+				paymentIntentId,
+				stripePaymentIntentId: paymentIntentId,
+				stripeLatestChargeId: paymentIntent.latest_charge || null,
+				stripePaymentMethodId,
+				paymentMethodSummary,
+				stripeApplicationFeeAmount,
+				stripeDestinationTransferId,
+				amountReceived:
+					paymentIntent.amount_received || paymentIntent.amount || 0,
+				finalizedByClientAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		await fulfillOrder({
+			orderId,
+			paymentType: pendingOrderData.type || pendingOrderData.paymentType,
+			userId: pendingOrderData.customerId,
+			customerEmail: pendingOrderData.customerEmail || null,
+			customerName: pendingOrderData.customerName || null,
+			restaurantId: pendingOrderData.restaurantId,
+			processor: "stripe",
+			processorTransactionId: paymentIntentId,
+			totalPrice: paymentIntent.amount_received || paymentIntent.amount,
+			processorFeeActual: stripeFeeActual,
+			platformFeeActual: Number(pendingOrderData.platformFee || 0),
+			applicationFeeActual: stripeApplicationFeeAmount,
+			stripeInstance,
+			latestChargeId: paymentIntent.latest_charge || null,
+			stripeDestinationTransferId,
+			stripePaymentMethodId,
+			paymentMethodSummary,
+		});
+
+		return { success: true, orderId, fulfilledOrderId: orderId };
 	});
 
 /**
@@ -1892,6 +2369,8 @@ const fulfillOrder = async ({
 
 		subtotal,
 		taxAmount,
+		taxActual: taxAmount,
+		gratuity,
 		gratuityAmount: gratuity,
 		gratuityPassthroughAmount,
 		restaurantSalesAndTaxAmount,
@@ -1899,6 +2378,7 @@ const fulfillOrder = async ({
 		processorFeeAppliedToRestaurantSales,
 		processorFeeRecoveryAmount,
 		platformFee,
+		platformFeeActual: platformFee,
 		scervFee: platformFee,
 		scervFeePercentage,
 		scervFeeBasis: pendingOrderData.scervFeeBasis || "sales_and_tax",
@@ -1968,6 +2448,8 @@ const fulfillOrder = async ({
 		paymentStatus: "paid",
 		orderStatus: "confirmed",
 		currency: pendingOrderData.currency || "usd",
+		promotionDiscount: pendingOrderData.promotionDiscount || 0,
+		activePromotionDiscount: pendingOrderData.activePromotionDiscount || null,
 		paymentTrace: {
 			...(pendingOrderData.paymentTrace || {}),
 			processor: processor || "unknown",
@@ -2023,6 +2505,15 @@ const fulfillOrder = async ({
 
 			const transactionalPendingOrderData =
 				transactionalPendingOrderSnap.data() || {};
+			const consumedPromotionDiscount =
+				transactionalPendingOrderData.activePromotionDiscount
+					? {
+							...transactionalPendingOrderData.activePromotionDiscount,
+							status: "consumed",
+							consumedAt: admin.firestore.FieldValue.serverTimestamp(),
+							orderId,
+						}
+					: null;
 
 			if (
 				transactionalPendingOrderData.status === "fulfilled" ||
@@ -2168,6 +2659,9 @@ const fulfillOrder = async ({
 					if (remainingItems.length > 0) {
 						t.update(basketSnap.ref, {
 							items: remainingItems,
+							...(consumedPromotionDiscount
+								? { activePromotionDiscount: consumedPromotionDiscount }
+								: {}),
 							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 						});
 					} else {
@@ -2182,6 +2676,9 @@ const fulfillOrder = async ({
 						t.update(basketSnap.ref, {
 							items: [],
 							status: "archived_paid",
+							...(consumedPromotionDiscount
+								? { activePromotionDiscount: consumedPromotionDiscount }
+								: {}),
 							archivedForAudit: true,
 							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
 							archivedOrderId: orderId,
@@ -2328,6 +2825,9 @@ const fulfillOrder = async ({
 
 					t.update(basketSnap.ref, {
 						items: remainingItems,
+						...(consumedPromotionDiscount
+							? { activePromotionDiscount: consumedPromotionDiscount }
+							: {}),
 						remainingPayableItemCount: remainingCustomerPayableItems.length,
 						remainingPosCloseoutItemCount: remainingPosCloseoutItems.length,
 						lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
@@ -2389,6 +2889,9 @@ const fulfillOrder = async ({
 						t.update(basketSnap.ref, {
 							items: [],
 							status: "archived_paid",
+							...(consumedPromotionDiscount
+								? { activePromotionDiscount: consumedPromotionDiscount }
+								: {}),
 							archivedForAudit: true,
 							archivedAt: admin.firestore.FieldValue.serverTimestamp(),
 							archivedOrderId: orderId,

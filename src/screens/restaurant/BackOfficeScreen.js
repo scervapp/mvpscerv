@@ -102,6 +102,14 @@ const BackOfficeScreen = ({ navigation }) => {
 				color: "#64748b",
 				desc: "Shop Settings",
 			},
+			{
+				id: "reservation-settings",
+				name: "ReservationSettingsScreen",
+				label: t("reservation_settings", "Reservation Settings"),
+				iconName: "calendar-clock",
+				color: "#14b8a6",
+				desc: "Slots & Guest Controls",
+			},
 		];
 
 		const country =
@@ -361,76 +369,94 @@ const BackOfficeScreen = ({ navigation }) => {
 	const allSetupComplete = completedStepCount === onboardingSteps.length;
 
 	const renderOnboardingGuide = () => (
-		<View style={styles.onboardingPanel}>
-			<View style={styles.onboardingHeader}>
-				<View>
-					<Text style={styles.onboardingEyebrow}>
-						{t("launch_checklist", "Launch Checklist")}
-					</Text>
-					<Text style={styles.onboardingTitle}>
-						{allSetupComplete
-							? t("ready_for_live_operations", "Ready for operations")
-							: t("finish_restaurant_setup", "Finish restaurant setup")}
-					</Text>
+		allSetupComplete ? (
+			<View style={styles.readyBadge}>
+				<View style={styles.readyBadgeIcon}>
+					<MaterialCommunityIcons
+						name="check-decagram"
+						size={22}
+						color={colors.statusSuccess}
+					/>
 				</View>
-				<View style={styles.progressBadge}>
-					<Text style={styles.progressText}>
-						{completedStepCount}/{onboardingSteps.length}
+				<View style={styles.readyBadgeCopy}>
+					<Text style={styles.readyBadgeTitle}>
+						{t("ready_for_operations", "Ready for operations")}
+					</Text>
+					<Text style={styles.readyBadgeText}>
+						{t("setup_complete", "Profile, tables, menu, staff, and payouts are set.")}
 					</Text>
 				</View>
 			</View>
-			<View style={styles.progressTrack}>
-				<View
-					style={[
-						styles.progressFill,
-						{
-							width: `${Math.round(
-								(completedStepCount / onboardingSteps.length) * 100,
-							)}%`,
-						},
-					]}
-				/>
-			</View>
-			{onboardingSteps.map((step) => (
-				<TouchableOpacity
-					key={step.id}
-					style={styles.setupStep}
-					onPress={
-						step.complete && step.id !== "payouts" ? undefined : step.action
-					}
-					activeOpacity={step.complete && step.id !== "payouts" ? 1 : 0.75}
-					disabled={
-						isStripeLoading || (step.complete && step.id !== "payouts")
-					}
-				>
+		) : (
+			<View style={styles.onboardingPanel}>
+				<View style={styles.onboardingHeader}>
+					<View>
+						<Text style={styles.onboardingEyebrow}>
+							{t("launch_checklist", "Launch Checklist")}
+						</Text>
+						<Text style={styles.onboardingTitle}>
+							{t("finish_restaurant_setup", "Finish restaurant setup")}
+						</Text>
+					</View>
+					<View style={styles.progressBadge}>
+						<Text style={styles.progressText}>
+							{completedStepCount}/{onboardingSteps.length}
+						</Text>
+					</View>
+				</View>
+				<View style={styles.progressTrack}>
 					<View
 						style={[
-							styles.setupIcon,
-							step.complete ? styles.setupIconComplete : styles.setupIconOpen,
+							styles.progressFill,
+							{
+								width: `${Math.round(
+									(completedStepCount / onboardingSteps.length) * 100,
+								)}%`,
+							},
 						]}
+					/>
+				</View>
+				{onboardingSteps.map((step) => (
+					<TouchableOpacity
+						key={step.id}
+						style={styles.setupStep}
+						onPress={
+							step.complete && step.id !== "payouts" ? undefined : step.action
+						}
+						activeOpacity={step.complete && step.id !== "payouts" ? 1 : 0.75}
+						disabled={
+							isStripeLoading || (step.complete && step.id !== "payouts")
+						}
 					>
-						<MaterialCommunityIcons
-							name={step.complete ? "check" : step.iconName}
-							size={22}
-							color={step.complete ? "#FFF" : colors.primary}
-						/>
-					</View>
-					<View style={styles.setupInfo}>
-						<Text style={styles.setupLabel}>{step.label}</Text>
-						<Text style={styles.setupDesc}>{step.desc}</Text>
-					</View>
-					{isStripeLoading && step.id === "payouts" ? (
-						<ActivityIndicator size="small" color={colors.primary} />
-					) : (
-						<MaterialCommunityIcons
-							name={step.complete ? "check-circle" : "chevron-right"}
-							size={22}
-							color={step.complete ? colors.statusSuccess : colors.textMedium}
-						/>
-					)}
-				</TouchableOpacity>
-			))}
-		</View>
+						<View
+							style={[
+								styles.setupIcon,
+								step.complete ? styles.setupIconComplete : styles.setupIconOpen,
+							]}
+						>
+							<MaterialCommunityIcons
+								name={step.complete ? "check" : step.iconName}
+								size={22}
+								color={step.complete ? "#FFF" : colors.primary}
+							/>
+						</View>
+						<View style={styles.setupInfo}>
+							<Text style={styles.setupLabel}>{step.label}</Text>
+							<Text style={styles.setupDesc}>{step.desc}</Text>
+						</View>
+						{isStripeLoading && step.id === "payouts" ? (
+							<ActivityIndicator size="small" color={colors.primary} />
+						) : (
+							<MaterialCommunityIcons
+								name={step.complete ? "check-circle" : "chevron-right"}
+								size={22}
+								color={step.complete ? colors.statusSuccess : colors.textMedium}
+							/>
+						)}
+					</TouchableOpacity>
+				))}
+			</View>
+		)
 	);
 
 	return (
@@ -514,6 +540,41 @@ const styles = StyleSheet.create({
 		marginBottom: 16,
 		borderWidth: 1,
 		borderColor: "#E2E8F0",
+	},
+	readyBadge: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "#F0FDF4",
+		borderRadius: 12,
+		padding: 12,
+		marginBottom: 14,
+		borderWidth: 1,
+		borderColor: "#BBF7D0",
+	},
+	readyBadgeIcon: {
+		width: 42,
+		height: 42,
+		borderRadius: 21,
+		backgroundColor: "#DCFCE7",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 12,
+	},
+	readyBadgeCopy: {
+		flex: 1,
+		minWidth: 0,
+	},
+	readyBadgeTitle: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: "#166534",
+	},
+	readyBadgeText: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: "#15803D",
+		marginTop: 2,
+		lineHeight: 16,
 	},
 	onboardingHeader: {
 		flexDirection: "row",

@@ -10,36 +10,48 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 		return null; // Render nothing to prevent the crash
 	}
 
+	const isInactive = item.isActive === false;
+	const section = item.section || item.area || t("main_dining", "Main Dining");
+	const tableType =
+		item.tableType &&
+		t(`table_type_${item.tableType}`, item.tableType.replace(/([A-Z])/g, " $1"));
+
 	// --- Determine table status and corresponding Pastel/Deep styles ---
-	let statusText = t("unknown_status");
+	let statusText = isInactive ? t("inactive", "Inactive") : t("unknown_status");
 	let bgColor = colors.surfaceWhite;
 	let textColor = colors.textDark;
 	let borderColor = colors.borderLight;
-	let iconName = "help-circle-outline";
+	let iconName = isInactive ? "pause-circle-outline" : "help-circle-outline";
 
-	switch (item.status) {
-		case "available":
-			statusText = t("available_status");
-			bgColor = "#D1FAE5"; // Pastel Mint Green
-			textColor = "#065F46"; // Deep Emerald Text
-			borderColor = "#6EE7B7";
-			iconName = "checkmark-circle-outline";
-			break;
-		case "OCCUPIED":
-		case "occupied":
-			statusText = t("occupied_status");
-			bgColor = "#FEE2E2"; // Pastel Rose Red
-			textColor = "#991B1B"; // Deep Crimson Text
-			borderColor = "#FCA5A5";
-			iconName = "people";
-			break;
-		case "checkedOut":
-			statusText = t("needs_cleaning_status");
-			bgColor = "#FEF3C7"; // Pastel Lemon Yellow
-			textColor = "#92400E"; // Deep Amber Text
-			borderColor = "#FCD34D";
-			iconName = "alert-circle-outline";
-			break;
+	if (isInactive) {
+		bgColor = colors.backgroundMedium;
+		textColor = colors.textMedium;
+		borderColor = colors.borderLight;
+	} else {
+		switch (item.status) {
+			case "available":
+				statusText = t("available_status");
+				bgColor = "#D1FAE5"; // Pastel Mint Green
+				textColor = "#065F46"; // Deep Emerald Text
+				borderColor = "#6EE7B7";
+				iconName = "checkmark-circle-outline";
+				break;
+			case "OCCUPIED":
+			case "occupied":
+				statusText = t("occupied_status");
+				bgColor = "#FEE2E2"; // Pastel Rose Red
+				textColor = "#991B1B"; // Deep Crimson Text
+				borderColor = "#FCA5A5";
+				iconName = "people";
+				break;
+			case "checkedOut":
+				statusText = t("needs_cleaning_status");
+				bgColor = "#FEF3C7"; // Pastel Lemon Yellow
+				textColor = "#92400E"; // Deep Amber Text
+				borderColor = "#FCD34D";
+				iconName = "alert-circle-outline";
+				break;
+		}
 	}
 
 	// Dynamic styles to handle the pastel theme OR the selected state
@@ -70,6 +82,10 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 
 			<View style={styles.body}>
 				<Text style={[styles.statusText, dynamicTextStyle]}>{statusText}</Text>
+				<Text style={[styles.metaText, dynamicTextStyle]} numberOfLines={1}>
+					{section}
+					{tableType ? ` - ${tableType}` : ""}
+				</Text>
 				{/* Adding slight opacity to capacity so it visually separates from the bold status */}
 				<Text style={[styles.capacityText, dynamicTextStyle, { opacity: 0.8 }]}>
 					{t("seats_label")}: {item.capacity}
@@ -83,8 +99,8 @@ const styles = StyleSheet.create({
 	cardContainer: {
 		flex: 1,
 		margin: 8,
-		height: 110, // Consistent height
-		borderRadius: 12,
+		height: 126, // Consistent height
+		borderRadius: 8,
 		justifyContent: "space-between", // Space out header and body
 		padding: 12,
 		// Professional shadow
@@ -110,7 +126,12 @@ const styles = StyleSheet.create({
 	statusText: {
 		fontSize: 15,
 		fontWeight: "700",
-		marginBottom: 4,
+		marginBottom: 3,
+	},
+	metaText: {
+		fontSize: 12,
+		fontWeight: "700",
+		marginBottom: 3,
 	},
 	capacityText: {
 		fontSize: 14,

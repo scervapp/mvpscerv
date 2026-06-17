@@ -28,6 +28,7 @@ import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
 import MenuItemsList from "./MenuItemsList";
 import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
+import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
 
 const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
@@ -67,6 +68,12 @@ const RestaurantDetailScreen = () => {
 		() => isPickupEnabledForRestaurant(liveRestaurantData || restaurant),
 		[liveRestaurantData, restaurant],
 	);
+	const experienceConfig = useMemo(
+		() => getRestaurantExperienceConfig(liveRestaurantData || restaurant),
+		[liveRestaurantData, restaurant],
+	);
+	const reservationsEnabled = experienceConfig.features.reservations;
+	const hostCheckInEnabled = experienceConfig.features.hostCheckInRequests;
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
@@ -85,6 +92,25 @@ const RestaurantDetailScreen = () => {
 			? currentUserData.uid
 			: null,
 	);
+	const hasActiveHostCheckInRequest = useMemo(() => {
+		const activeCheckIn = currentUserData?.activeCheckIn || null;
+		const activeStatus = String(activeCheckIn?.status || "").toUpperCase();
+		const liveStatus = String(checkInObj?.status || checkInStatus || "").toUpperCase();
+		const activeRestaurantId = activeCheckIn?.restaurantId || checkInObj?.restaurantId;
+		const isSameRestaurant = activeRestaurantId === restaurant?.id;
+
+		return (
+			isSameRestaurant &&
+			(["REQUESTED", "ACCEPTED"].includes(activeStatus) ||
+				["REQUESTED", "ACCEPTED"].includes(liveStatus))
+		);
+	}, [
+		checkInObj?.restaurantId,
+		checkInObj?.status,
+		checkInStatus,
+		currentUserData?.activeCheckIn,
+		restaurant?.id,
+	]);
 
 	// --- NEW: dual session shape from PartyContext ---
 	const restaurantSessions = useMemo(() => {
@@ -446,6 +472,38 @@ const RestaurantDetailScreen = () => {
 			params: {
 				partyId: dineInPartyId,
 			},
+		});
+	};
+
+	const handleOpenReservationRequest = () => {
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			return;
+		}
+
+		navigation.navigate("ReservationRequest", {
+			restaurant: liveRestaurantData || restaurant,
+		});
+	};
+
+	const handleOpenHostCheckInRequest = () => {
+		if (currentUserData?.role === "guest") {
+			handleRequireAuth();
+			return;
+		}
+		if (hasActiveHostCheckInRequest) {
+			Alert.alert(
+				t("check_in_request_sent", "Check-in request sent"),
+				t(
+					"host_has_your_request",
+					"The host already has your request and will seat you soon.",
+				),
+			);
+			return;
+		}
+
+		navigation.navigate("HostCheckInRequest", {
+			restaurant: liveRestaurantData || restaurant,
 		});
 	};
 
@@ -970,11 +1028,114 @@ const RestaurantDetailScreen = () => {
 				menuItems={menuItems}
 				isLoading={isLoadingMenu}
 				ListHeaderComponent={
-					<RestaurantHeader
-						restaurant={liveRestaurantData || restaurant}
-						initialView={initialView}
-						renderActionButtons={renderActionButtons}
-					/>
+					<>
+						<RestaurantHeader
+							restaurant={liveRestaurantData || restaurant}
+							initialView={initialView}
+							renderActionButtons={renderActionButtons}
+						/>
+						{reservationsEnabled || hostCheckInEnabled ? (
+							<View style={styles.actionPanel}>
+								<View style={styles.actionPanelHeader}>
+									<Text style={styles.actionPanelTitle}>
+										{t("visit_options", "Visit Options")}
+									</Text>
+									<Text style={styles.actionPanelHint}>
+										{experienceConfig.hospitalityStyle === "fine_dining"
+											? t("premium_hosted_visit", "Hosted arrival")
+											: t("choose_how_to_visit", "Choose your flow")}
+									</Text>
+								</View>
+								{reservationsEnabled ? (
+									<TouchableOpacity
+										style={styles.reservationButton}
+										onPress={handleOpenReservationRequest}
+										activeOpacity={0.85}
+									>
+										<MaterialCommunityIcons
+											name="calendar-clock"
+											size={20}
+											color={colors.primary}
+										/>
+										<View style={styles.reservationTextWrap}>
+											<Text style={styles.reservationButtonTitle}>
+												{t("request_reservation", "Request Reservation")}
+											</Text>
+											<Text style={styles.reservationButtonSubtitle}>
+												{t(
+													"reservation_manual_approval",
+													"Choose a restaurant-defined time and wait for confirmation.",
+												)}
+											</Text>
+										</View>
+										<MaterialCommunityIcons
+											name="chevron-right"
+											size={20}
+											color={colors.textLight}
+										/>
+									</TouchableOpacity>
+								) : null}
+								{hostCheckInEnabled ? (
+									<TouchableOpacity
+										style={[
+											styles.reservationButton,
+											!reservationsEnabled && styles.firstVisitOption,
+											hasActiveHostCheckInRequest &&
+												styles.reservationButtonDisabled,
+										]}
+										onPress={handleOpenHostCheckInRequest}
+										disabled={hasActiveHostCheckInRequest}
+										activeOpacity={0.85}
+									>
+										<MaterialCommunityIcons
+											name={
+												hasActiveHostCheckInRequest
+													? "clock-check-outline"
+													: "account-arrow-right-outline"
+											}
+											size={20}
+											color={
+												hasActiveHostCheckInRequest
+													? colors.textMedium
+													: colors.primary
+											}
+										/>
+										<View style={styles.reservationTextWrap}>
+											<Text style={styles.reservationButtonTitle}>
+												{hasActiveHostCheckInRequest
+													? t("check_in_request_sent", "Check-In Requested")
+													: t("request_check_in", "Request Check-In")}
+											</Text>
+											<Text style={styles.reservationButtonSubtitle}>
+												{hasActiveHostCheckInRequest
+													? t(
+															"host_has_your_request",
+															"The host has your request and will seat you soon.",
+														)
+													: t(
+															"host_check_in_request",
+															"Let the host assign your table and server.",
+														)}
+											</Text>
+										</View>
+										<MaterialCommunityIcons
+											name={
+												hasActiveHostCheckInRequest
+													? "check-circle-outline"
+													: "chevron-right"
+											}
+											size={20}
+											color={
+												hasActiveHostCheckInRequest
+													? colors.statusSuccess
+													: colors.textLight
+											}
+										/>
+									</TouchableOpacity>
+								) : null}
+							</View>
+						) : null}
+					</>
 				}
 				onConfirmAddItemToContext={handleAddDineInMenuItem}
 			/>
@@ -1020,6 +1181,63 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		alignItems: "center",
 		padding: 20,
+	},
+	actionPanel: {
+		marginHorizontal: 15,
+		marginTop: 14,
+		marginBottom: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		overflow: "hidden",
+	},
+	actionPanelHeader: {
+		paddingHorizontal: 14,
+		paddingTop: 13,
+		paddingBottom: 10,
+		backgroundColor: colors.backgroundLight,
+	},
+	actionPanelTitle: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+		textTransform: "uppercase",
+	},
+	actionPanelHint: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 3,
+	},
+	reservationButton: {
+		paddingHorizontal: 14,
+		paddingVertical: 15,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	firstVisitOption: {
+		borderTopWidth: 1,
+	},
+	reservationButtonDisabled: {
+		backgroundColor: colors.backgroundLight,
+		opacity: 0.75,
+	},
+	reservationTextWrap: {
+		flex: 1,
+		marginHorizontal: 10,
+	},
+	reservationButtonTitle: {
+		fontSize: 15,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	reservationButtonSubtitle: {
+		fontSize: 12,
+		color: colors.textMedium,
+		marginTop: 2,
+		lineHeight: 17,
 	},
 	actionsRow: {
 		paddingVertical: 15,

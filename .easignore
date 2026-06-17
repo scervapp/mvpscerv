@@ -1,0 +1,38 @@
+# Dependencies and generated Expo output
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Local logs and Codex attachments
+.expo-dev-server.*.log
+.codex-remote-attachments/
+
+# Local backups and debug artifacts
+backups/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.metro-health-check*
+
+# Native credentials that should stay local. Firebase client config files are
+# intentionally not ignored here because EAS needs the QA files during builds.
+eas-submit-key.json
+*-service-account.json
+scervmvp-*.json
+credentials.json
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Local environment files
+.env*.local
+
+# Miscellaneous
+.DS_Store
+*.tsbuildinfo
+.codegpt

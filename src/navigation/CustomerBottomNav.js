@@ -12,6 +12,10 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
 import CustomerProfile from "../screens/customer/CustomerProfile";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
+import ReservationRequestScreen from "../screens/customer/ReservationRequestScreen";
+import CustomerReservationsScreen from "../screens/customer/CustomerReservationsScreen";
+import HostCheckInRequestScreen from "../screens/customer/HostCheckInRequestScreen";
+import CustomerRewardsScreen from "../screens/customer/CustomerRewardsScreen";
 import BasketScreen from "../screens/customer/BasketScreen";
 
 import AccountScreen from "../screens/customer/AccountScreen";
@@ -120,6 +124,23 @@ const CustomerDashboardStack = () => {
 				options={() => ({
 					headerTitle: t("restaurant_details_title"),
 				})}
+			/>
+			<Stack.Screen
+				name="ReservationRequest"
+				component={ReservationRequestScreen}
+				options={{ headerTitle: "Request Reservation" }}
+			/>
+			<Stack.Screen
+				name="HostCheckInRequest"
+				component={HostCheckInRequestScreen}
+				options={{ headerTitle: "Request Check-In" }}
+			/>
+			<Stack.Screen
+				name="CustomerRewardsScreen"
+				component={CustomerRewardsScreen}
+				options={{
+					headerTitle: t("scerv_wallet", "Scerv Wallet"),
+				}}
 			/>
 			<Stack.Screen
 				name="QRScannerScreen"
@@ -307,6 +328,20 @@ const AccountScreenStack = () => {
 				}}
 			/>
 			<Stack.Screen
+				name="CustomerReservationsScreen"
+				component={CustomerReservationsScreen}
+				options={{
+					headerTitle: t("my_reservations", "My Reservations"),
+				}}
+			/>
+			<Stack.Screen
+				name="CustomerRewardsScreen"
+				component={CustomerRewardsScreen}
+				options={{
+					headerTitle: t("scerv_wallet", "Scerv Wallet"),
+				}}
+			/>
+			<Stack.Screen
 				name="OrderHistoryDetail" // New screen name for details
 				component={OrderHistoryDetailScreen}
 				options={{
@@ -325,6 +360,21 @@ const AccountScreenStack = () => {
 				name="ManageAccountScreen"
 				component={ManageAccountScreen}
 				options={{ headerTitle: t("manage_account_title") }}
+			/>
+		</Stack.Navigator>
+	);
+};
+
+const WalletStackScreen = () => {
+	const { t } = useTranslation();
+	return (
+		<Stack.Navigator screenOptions={defaultHeaderOptions}>
+			<Stack.Screen
+				name="CustomerWallet"
+				component={CustomerRewardsScreen}
+				options={{
+					headerTitle: t("scerv_wallet", "Scerv Wallet"),
+				}}
 			/>
 		</Stack.Navigator>
 	);
@@ -559,6 +609,8 @@ const CustomerBottomNavigation = () => {
 					let iconName;
 					if (route.name === "CustomerDashboard")
 						iconName = focused ? "home" : "home-outline";
+					else if (route.name === "WalletTab")
+						iconName = focused ? "wallet" : "wallet-outline";
 					else if (route.name === "AccountScreen") {
 						// If the user is a guest, show a login icon.
 						// Otherwise, show the person icon.
@@ -607,6 +659,20 @@ const CustomerBottomNavigation = () => {
 					),
 					tabBarBadge: currentPartyId ? "●" : undefined,
 					tabBarBadgeStyle: { backgroundColor: colors.success },
+				}}
+			/>
+			<Tab.Screen
+				name="WalletTab"
+				component={WalletStackScreen}
+				options={{
+					headerShown: false,
+					tabBarIcon: ({ focused }) => (
+						<Ionicons
+							name={focused ? "wallet" : "wallet-outline"}
+							size={34}
+							color={focused ? colors.primary : "black"}
+						/>
+					),
 				}}
 			/>
 			<Tab.Screen

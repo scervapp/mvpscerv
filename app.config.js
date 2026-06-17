@@ -9,7 +9,7 @@ const FIREBASE_EMULATOR_HOST =
 const ENV_CONFIG = {
 	development: {
 		name: "Scerv Dev",
-		slug: "scerv-dev",
+		slug: "scerv",
 		scheme: "scerv-dev",
 		iosBundleIdentifier: "com.scerv.app.dev",
 		androidPackage: "com.scerv.eat.dev",
@@ -22,7 +22,7 @@ const ENV_CONFIG = {
 	},
 	testing: {
 		name: "Scerv Testing",
-		slug: "scerv-testing",
+		slug: "scerv",
 		scheme: "scerv-testing",
 		iosBundleIdentifier: "com.scerv.app.testing",
 		androidPackage: "com.scerv.eat.testing",
@@ -32,6 +32,19 @@ const ENV_CONFIG = {
 		},
 		firebaseProjectId:
 			process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "scervmvp-testing",
+	},
+	storeTesting: {
+		name: "Scerv QA",
+		slug: "scerv",
+		scheme: "scerv-qa",
+		iosBundleIdentifier: "com.scerv.app",
+		androidPackage: "com.scerv.eat",
+		googleServicesFile: {
+			ios: "./credentials/firebase/development-store/GoogleService-Info.plist",
+			android: "./credentials/firebase/development-store/google-services.json",
+		},
+		firebaseProjectId:
+			process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "scervmvp-dev",
 	},
 	production: {
 		name: "Scerv",
