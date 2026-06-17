@@ -127,7 +127,11 @@ const CustomerDetail = () => {
 						<tbody>
 							{profile.orders.map((order) => (
 								<tr key={order.id}>
-									<td>{order.readableOrderId || order.id}</td>
+									<td>
+										<Link to={`/orders/${order.id}`}>
+											{order.readableOrderId || order.id}
+										</Link>
+									</td>
 									<td>{order.restaurantName || order.restaurantId || "--"}</td>
 									<td>{order.paymentStatus || order.orderStatus || "--"}</td>
 									<td>{formatMoney(order.totalPrice)}</td>

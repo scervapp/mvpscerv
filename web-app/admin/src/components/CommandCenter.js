@@ -122,14 +122,18 @@ const CommandCenter = () => {
 						<section className="command-panel">
 							<h2>Orders</h2>
 							{results.orders.map((order) => (
-								<div className="command-result-row" key={order.id}>
+								<Link
+									className="command-result-row"
+									to={`/orders/${order.id}`}
+									key={order.id}
+								>
 									<strong>{order.readableOrderId || order.id}</strong>
 									<span>
 										{order.restaurantName || order.restaurantId || "--"} ·{" "}
 										{formatMoney(order.totalPrice)} ·{" "}
 										{order.paymentStatus || "unknown"}
 									</span>
-								</div>
+								</Link>
 							))}
 						</section>
 					)}

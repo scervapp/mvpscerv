@@ -1,7 +1,16 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const stripe = require("stripe");
+const { defineSecret } = require("firebase-functions/params");
+const { getStripeKeys } = require("./stripeUtils");
+const { normalizeOrderForReporting } = require("./reportingHelpers");
 
 const db = admin.firestore();
+
+const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
+const STRIPE_SECRET_KEY_TEST = defineSecret("STRIPE_SECRET_KEY_TEST");
+const STRIPE_PUBLISHABLE_KEY_LIVE = defineSecret("STRIPE_PUBLISHABLE_KEY_LIVE");
+const STRIPE_SECRET_KEY_LIVE = defineSecret("STRIPE_SECRET_KEY_LIVE");
 
 const FEATURE_KEYS = [
 	"reservations",
@@ -19,6 +28,12 @@ const sanitizeString = (value, maxLength = 160) =>
 		.trim()
 		.replace(/\s+/g, " ")
 		.slice(0, maxLength);
+
+const normalizeNonNegativeCents = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	return Math.round(parsed);
+};
 
 const normalizeAdminRole = (role) => {
 	const normalized = String(role || "")
@@ -126,6 +141,7 @@ const compactRestaurant = (doc) => {
 
 const compactOrder = (doc) => {
 	const data = doc.data() || {};
+	const refundSummary = data.refundSummary || {};
 	return {
 		id: doc.id,
 		readableOrderId: data.readableOrderId || "",
@@ -137,6 +153,8 @@ const compactOrder = (doc) => {
 		paymentStatus: data.paymentStatus || "",
 		orderStatus: data.orderStatus || "",
 		totalPrice: data.totalPrice || 0,
+		refundedAmount:
+			refundSummary.totalRefundedCents || data.refundedAmount || 0,
 		subtotal: data.subtotal || 0,
 		taxAmount: data.taxAmount || data.tax || 0,
 		gratuityAmount: data.gratuityAmount || data.gratuity || 0,
@@ -698,6 +716,362 @@ exports.archiveScervMenuItem = functions.https.onCall(async (data, context) => {
 
 	return { success: true, itemId };
 });
+
+exports.getScervOrderSupportDetail = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context);
+
+		const orderId = sanitizeString(data && data.orderId, 128);
+		if (!orderId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID is required.",
+			);
+		}
+
+		const orderSnap = await db.collection("orders").doc(orderId).get();
+		if (!orderSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Order not found.");
+		}
+
+		const order = normalizeOrderForReporting(orderSnap);
+		const rawOrder = serializeValue(order.raw || {});
+		const [customerSnap, restaurantSnap, notesSnap, refundsSnap] =
+			await Promise.all([
+				order.customerId
+					? db.collection("customers").doc(order.customerId).get()
+					: Promise.resolve(null),
+				order.restaurantId
+					? db.collection("restaurants").doc(order.restaurantId).get()
+					: Promise.resolve(null),
+				db
+					.collection("orders")
+					.doc(orderId)
+					.collection("supportNotes")
+					.orderBy("createdAt", "desc")
+					.limit(50)
+					.get(),
+				db
+					.collection("orders")
+					.doc(orderId)
+					.collection("refunds")
+					.orderBy("createdAt", "desc")
+					.limit(50)
+					.get(),
+			]);
+
+		const refundSummary = rawOrder.refundSummary || {};
+		const refundedCents = normalizeNonNegativeCents(
+			refundSummary.totalRefundedCents || rawOrder.refundedAmount,
+		);
+		const pendingRefundCents = normalizeNonNegativeCents(
+			refundSummary.pendingRefundCents,
+		);
+		const refundableCents = Math.max(
+			0,
+			normalizeNonNegativeCents(order.totalPrice) -
+				refundedCents -
+				pendingRefundCents,
+		);
+
+		return {
+			order: {
+				...serializeValue(order),
+				raw: rawOrder,
+				paymentIntentId:
+					rawOrder.stripePaymentIntentId ||
+					rawOrder.paymentIntentId ||
+					rawOrder.paymentProcessorId ||
+					null,
+				stripeConnectChargeType: rawOrder.stripeConnectChargeType || null,
+				stripeApplicationFeeAmount:
+					rawOrder.stripeApplicationFeeAmount ||
+					rawOrder.applicationFeeAmount ||
+					0,
+				stripeDestinationTransferId:
+					rawOrder.stripeDestinationTransferId || null,
+				refundSummary: {
+					...refundSummary,
+					totalRefundedCents: refundedCents,
+					pendingRefundCents,
+					refundableCents,
+				},
+			},
+			customer:
+				customerSnap && customerSnap.exists ? serializeDoc(customerSnap) : null,
+			restaurant:
+				restaurantSnap && restaurantSnap.exists
+					? compactRestaurant(restaurantSnap)
+					: null,
+			notes: notesSnap.docs.map(serializeDoc),
+			refunds: refundsSnap.docs.map(serializeDoc),
+		};
+	},
+);
+
+exports.addScervOrderSupportNote = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const orderId = sanitizeString(data && data.orderId, 128);
+		const note = sanitizeString(data && data.note, 2000);
+		const status = sanitizeString(data && data.status, 80);
+
+		if (!orderId || !note) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID and note are required.",
+			);
+		}
+
+		const orderRef = db.collection("orders").doc(orderId);
+		const orderSnap = await orderRef.get();
+		if (!orderSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Order not found.");
+		}
+
+		const noteRef = orderRef.collection("supportNotes").doc();
+		await noteRef.set({
+			note,
+			status: status || "note",
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			createdBy: actorUid,
+		});
+
+		await orderRef.set(
+			{
+				supportStatus: status || "needs_review",
+				lastSupportNoteAt: admin.firestore.FieldValue.serverTimestamp(),
+				lastSupportNoteBy: actorUid,
+			},
+			{ merge: true },
+		);
+
+		await writeAdminAuditLog(actorUid, "add_order_support_note", {
+			orderId,
+			status: status || "note",
+		});
+
+		return { success: true, noteId: noteRef.id };
+	},
+);
+
+exports.refundScervStripeOrder = functions
+	.runWith({
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
+		const orderId = sanitizeString(data && data.orderId, 128);
+		const amountCents = normalizeNonNegativeCents(data && data.amountCents);
+		const reason = sanitizeString(data && data.reason, 600);
+		const refundType = sanitizeString(data && data.refundType, 40) || "partial";
+
+		if (!orderId || amountCents <= 0 || !reason) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID, refund amount, and reason are required.",
+			);
+		}
+
+		const orderRef = db.collection("orders").doc(orderId);
+		const refundRef = orderRef.collection("refunds").doc();
+		let orderDataForStripe = null;
+
+		// Reserve the refund amount before touching Stripe so two admins cannot
+		// accidentally refund more than the paid order total.
+		await db.runTransaction(async (transaction) => {
+			const orderSnap = await transaction.get(orderRef);
+			if (!orderSnap.exists) {
+				throw new functions.https.HttpsError("not-found", "Order not found.");
+			}
+
+			const orderData = orderSnap.data() || {};
+			const paymentIntentId =
+				orderData.stripePaymentIntentId ||
+				orderData.paymentIntentId ||
+				orderData.paymentProcessorId ||
+				null;
+			if (!paymentIntentId || orderData.paymentProcessor !== "stripe") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Only paid Stripe orders can be refunded here.",
+				);
+			}
+
+			const refundSummary = orderData.refundSummary || {};
+			const totalPrice = normalizeNonNegativeCents(orderData.totalPrice);
+			const alreadyRefunded = normalizeNonNegativeCents(
+				refundSummary.totalRefundedCents || orderData.refundedAmount,
+			);
+			const pendingRefunds = normalizeNonNegativeCents(
+				refundSummary.pendingRefundCents,
+			);
+			const refundable = Math.max(0, totalPrice - alreadyRefunded - pendingRefunds);
+			if (amountCents > refundable) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Refund amount exceeds the remaining refundable balance.",
+				);
+			}
+
+			orderDataForStripe = {
+				...orderData,
+				id: orderId,
+				paymentIntentId,
+			};
+
+			transaction.set(refundRef, {
+				orderId,
+				restaurantId: orderData.restaurantId || null,
+				customerId: orderData.customerId || null,
+				amountCents,
+				reason,
+				refundType,
+				status: "pending",
+				paymentIntentId,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				createdBy: actorUid,
+			});
+			transaction.set(
+				orderRef,
+				{
+					refundSummary: {
+						pendingRefundCents:
+							admin.firestore.FieldValue.increment(amountCents),
+						lastRefundRequestedAt:
+							admin.firestore.FieldValue.serverTimestamp(),
+						lastRefundRequestedBy: actorUid,
+					},
+					supportStatus: "refund_pending",
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		});
+
+		const keys = await getStripeKeys(orderDataForStripe.restaurantId);
+		const stripeInstance = stripe(keys.stripeSecretKey, {
+			apiVersion: "2024-04-10",
+		});
+		const usesDestinationCharge =
+			orderDataForStripe.stripeConnectChargeType === "destination_charge";
+		const shouldRefundApplicationFee =
+			usesDestinationCharge &&
+			normalizeNonNegativeCents(
+				orderDataForStripe.stripeApplicationFeeAmount ||
+					orderDataForStripe.applicationFeeAmount,
+			) > 0;
+
+		try {
+			const stripeRefund = await stripeInstance.refunds.create(
+				{
+					payment_intent: orderDataForStripe.paymentIntentId,
+					amount: amountCents,
+					reason: "requested_by_customer",
+					metadata: {
+						orderId,
+						scervRefundId: refundRef.id,
+						adminUid: actorUid,
+						supportReason: reason,
+						refundType,
+					},
+					...(usesDestinationCharge && { reverse_transfer: true }),
+					...(shouldRefundApplicationFee && { refund_application_fee: true }),
+				},
+				{
+					idempotencyKey: `scerv_admin_refund:${orderId}:${refundRef.id}`,
+				},
+			);
+
+			await db.runTransaction(async (transaction) => {
+				transaction.set(
+					refundRef,
+					{
+						status: stripeRefund.status || "succeeded",
+						stripeRefundId: stripeRefund.id,
+						stripeRefundStatus: stripeRefund.status || null,
+						stripeRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+				transaction.set(
+					orderRef,
+					{
+						paymentStatus:
+							refundType === "full" ? "refunded" : "partially_refunded",
+						supportStatus: "refund_processed",
+						refundSummary: {
+							totalRefundedCents:
+								admin.firestore.FieldValue.increment(amountCents),
+							pendingRefundCents:
+								admin.firestore.FieldValue.increment(-amountCents),
+							lastRefundedAt:
+								admin.firestore.FieldValue.serverTimestamp(),
+							lastRefundedBy: actorUid,
+							lastStripeRefundId: stripeRefund.id,
+						},
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+			});
+
+			await writeAdminAuditLog(actorUid, "refund_stripe_order", {
+				orderId,
+				refundId: refundRef.id,
+				stripeRefundId: stripeRefund.id,
+				amountCents,
+				reason,
+				refundType,
+			});
+
+			return {
+				success: true,
+				refundId: refundRef.id,
+				stripeRefundId: stripeRefund.id,
+				status: stripeRefund.status || "succeeded",
+			};
+		} catch (error) {
+			await db.runTransaction(async (transaction) => {
+				transaction.set(
+					refundRef,
+					{
+						status: "failed",
+						errorMessage: error.message || String(error),
+						failedAt: admin.firestore.FieldValue.serverTimestamp(),
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+				transaction.set(
+					orderRef,
+					{
+						supportStatus: "refund_failed",
+						refundSummary: {
+							pendingRefundCents:
+								admin.firestore.FieldValue.increment(-amountCents),
+							lastRefundFailedAt:
+								admin.firestore.FieldValue.serverTimestamp(),
+							lastRefundFailedBy: actorUid,
+						},
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+			});
+			console.error("refundScervStripeOrder failed:", error);
+			throw new functions.https.HttpsError(
+				"internal",
+				error.message || "Refund failed.",
+			);
+		}
+	});
 
 exports.listScervAdminUsers = functions.https.onCall(async (data, context) => {
 	requireScervAdmin(context, { godmodeOnly: true });
