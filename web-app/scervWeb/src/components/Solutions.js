@@ -10,6 +10,7 @@ import guestImage from "../images/language.png";
 const Section = styled.section`
 	padding: 72px 0;
 	background-color: ${({ theme }) => theme.colors.background};
+	scroll-margin-top: 86px;
 `;
 
 const Container = styled.div`
@@ -137,7 +138,7 @@ const Solutions = () => {
 	};
 
 	return (
-		<Section>
+		<Section id="solutions">
 			<Container>
 				<SectionHeader>
 					<Title>{t("solutions.title")}</Title>

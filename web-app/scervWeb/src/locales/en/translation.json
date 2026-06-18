@@ -1,16 +1,19 @@
 {
   "header": {
-    "home": "Home",
+    "platform": "Platform",
+    "solutions": "Solutions",
+    "resources": "Resources",
     "pricing": "Pricing",
     "contact": "Contact",
-    "requestDemo": "Request a Demo"
+    "company": "Company",
+    "requestDemo": "Book a Demo"
   },
   "hero": {
     "eyebrow": "Built for New York hospitality",
     "headline": "The future of dining, built for modern hospitality.",
     "subheadline": "Scerv connects reservations, host check-ins, table service, ordering, checkout, reviews, rewards, and reporting so restaurants can move faster without making hospitality feel automated.",
     "intro": "Scerv gives restaurant teams a cleaner way to serve guests, understand demand, and build repeat visits without adding more disconnected tools.",
-    "requestDemoBtn": "Request a Demo",
+    "requestDemoBtn": "Book a Demo",
     "resourcesBtn": "Explore Resources",
     "panel": {
       "label": "Dining room command layer",
@@ -129,7 +132,7 @@
   "cta": {
     "headline": "Build the restaurant guests come back to.",
     "subheadline": "We are looking for serious operators who want cleaner service, sharper guest memory, and better control over the full dining room journey.",
-    "primaryBtn": "Request a Demo",
+    "primaryBtn": "Book a Demo",
     "secondaryBtn": "Contact Sales"
   },
   "demo": {

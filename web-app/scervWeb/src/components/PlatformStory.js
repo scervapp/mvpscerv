@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 const Section = styled.section`
 	background: ${({ theme }) => theme.colors.white};
 	padding: 78px 0;
+	scroll-margin-top: 86px;
 `;
 
 const Container = styled.div`
@@ -141,7 +142,7 @@ const PlatformStory = () => {
 	const steps = t("platformStory.steps", { returnObjects: true });
 
 	return (
-		<Section>
+		<Section id="platform">
 			<Container>
 				<Header>
 					<div>

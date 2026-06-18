@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import { useTranslation } from "react-i18next";
 import logo from "../scerv_logo.png";
@@ -8,8 +8,9 @@ const HeaderWrapper = styled.header`
 	background-color: rgba(255, 255, 255, 0.95);
 	backdrop-filter: blur(10px);
 	-webkit-backdrop-filter: blur(10px);
-	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-	padding: ${({ theme }) => theme.spacing.md} 0;
+	border-bottom: 1px solid rgba(223, 229, 231, 0.82);
+	box-shadow: 0 10px 30px rgba(19, 32, 39, 0.04);
+	padding: 10px 0;
 	position: sticky;
 	top: 0;
 	z-index: 100;
@@ -27,20 +28,20 @@ const Container = styled.div`
 const LogoLink = styled(Link)`
 	align-items: center;
 	display: flex;
-	gap: 10px;
+	gap: 9px;
 	text-decoration: none;
 	z-index: 101;
 `;
 
 const Logo = styled.img`
 	display: block;
-	height: 58px;
+	height: 48px;
 	object-fit: contain;
-	width: 58px;
+	width: 48px;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
-		height: 46px;
-		width: 46px;
+		height: 42px;
+		width: 42px;
 	}
 `;
 
@@ -49,6 +50,7 @@ const BrandText = styled.span`
 	display: flex;
 	flex-direction: column;
 	font-family: ${({ theme }) => theme.fonts.heading};
+	font-size: 1.02rem;
 	font-weight: 800;
 	letter-spacing: 0;
 	line-height: 1;
@@ -68,11 +70,14 @@ const BrandText = styled.span`
 	}
 `;
 
-const MobileMenuIcon = styled.div`
+const MobileMenuIcon = styled.button`
+	background: transparent;
+	border: 0;
 	cursor: pointer;
 	display: none;
 	flex-direction: column;
 	gap: 6px;
+	padding: 8px;
 	z-index: 101;
 
 	span {
@@ -92,20 +97,28 @@ const Nav = styled.nav`
 	align-items: center;
 	display: flex;
 	flex-grow: 1;
+	gap: ${({ theme }) => theme.spacing.lg};
+	justify-content: flex-end;
 
 	ul {
 		align-items: center;
 		display: flex;
+		gap: ${({ theme }) => theme.spacing.xl};
 		list-style: none;
-		margin: 0 auto 0 0;
+		margin: 0;
 		padding: 0;
 
 		li {
-			margin-left: ${({ theme }) => theme.spacing.lg};
-
-			a {
+			a,
+			button {
+				background: transparent;
+				border: 0;
 				color: ${({ theme }) => theme.colors.text};
+				cursor: pointer;
+				font: inherit;
+				font-size: 0.95rem;
 				font-weight: 600;
+				padding: 0;
 				text-decoration: none;
 				transition: color 0.2s ease;
 
@@ -118,14 +131,14 @@ const Nav = styled.nav`
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
 		background-color: ${({ theme }) => theme.colors.white};
-		box-shadow: ${({ isOpen }) =>
-			isOpen ? "0 10px 15px rgba(0,0,0,0.05)" : "none"};
+		box-shadow: ${({ $isOpen }) =>
+			$isOpen ? "0 18px 35px rgba(19, 32, 39, 0.08)" : "none"};
 		flex-direction: column;
-		height: ${({ isOpen }) => (isOpen ? "auto" : "0")};
+		height: ${({ $isOpen }) => ($isOpen ? "auto" : "0")};
 		left: 0;
-		opacity: ${({ isOpen }) => (isOpen ? "1" : "0")};
+		opacity: ${({ $isOpen }) => ($isOpen ? "1" : "0")};
 		overflow: hidden;
-		padding: ${({ isOpen }) => (isOpen ? "20px 0" : "0")};
+		padding: ${({ $isOpen }) => ($isOpen ? "20px 0" : "0")};
 		position: absolute;
 		top: 100%;
 		transition: all 0.3s ease-in-out;
@@ -133,7 +146,7 @@ const Nav = styled.nav`
 
 		ul {
 			flex-direction: column;
-			margin-right: 0;
+			gap: 0;
 			width: 100%;
 
 			li {
@@ -146,7 +159,7 @@ const Nav = styled.nav`
 const ActionButtons = styled.div`
 	align-items: center;
 	display: flex;
-	gap: 20px;
+	gap: 12px;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
 		flex-direction: column;
@@ -159,14 +172,14 @@ const LangToggle = styled.button`
 	align-items: center;
 	background: transparent;
 	border: 1px solid ${({ theme }) => theme.colors.gray}40;
-	border-radius: 20px;
+	border-radius: 999px;
 	color: ${({ theme }) => theme.colors.text};
 	cursor: pointer;
 	display: flex;
-	font-size: 0.9rem;
-	font-weight: 600;
+	font-size: 0.84rem;
+	font-weight: 800;
 	gap: 8px;
-	padding: 8px 16px;
+	padding: 8px 12px;
 	transition: all 0.2s ease;
 
 	&:hover {
@@ -178,8 +191,9 @@ const LangToggle = styled.button`
 const Button = styled(Link)`
 	border-radius: ${({ theme }) => theme.radius.md};
 	display: inline-block;
-	font-weight: 600;
-	padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.lg};
+	font-size: 0.95rem;
+	font-weight: 800;
+	padding: 10px 16px;
 	text-decoration: none;
 	transition:
 		background-color 0.2s ease,
@@ -205,9 +219,32 @@ const PrimaryButton = styled(Button)`
 const Header = () => {
 	const { t, i18n } = useTranslation();
 	const [isOpen, setIsOpen] = useState(false);
+	const location = useLocation();
+	const navigate = useNavigate();
 	const isEnglish = i18n.language.startsWith("en");
 
 	const closeMenu = () => setIsOpen(false);
+
+	const scrollToSection = (sectionId) => {
+		window.setTimeout(() => {
+			document.getElementById(sectionId)?.scrollIntoView({
+				behavior: "smooth",
+				block: "start",
+			});
+		}, 40);
+	};
+
+	const goToSection = (sectionId) => {
+		closeMenu();
+		if (location.pathname !== "/") {
+			navigate(`/#${sectionId}`);
+			scrollToSection(sectionId);
+			return;
+		}
+
+		window.history.replaceState(null, "", `/#${sectionId}`);
+		scrollToSection(sectionId);
+	};
 
 	const toggleLanguage = () => {
 		i18n.changeLanguage(isEnglish ? "es" : "en");
@@ -225,7 +262,12 @@ const Header = () => {
 					</BrandText>
 				</LogoLink>
 
-				<MobileMenuIcon onClick={() => setIsOpen(!isOpen)}>
+				<MobileMenuIcon
+					aria-expanded={isOpen}
+					aria-label="Toggle navigation"
+					onClick={() => setIsOpen(!isOpen)}
+					type="button"
+				>
 					<span
 						style={{
 							transform: isOpen ? "rotate(45deg) translate(5px, 5px)" : "none",
@@ -241,26 +283,26 @@ const Header = () => {
 					/>
 				</MobileMenuIcon>
 
-				<Nav isOpen={isOpen}>
+				<Nav $isOpen={isOpen}>
 					<ul>
 						<li>
-							<Link to="/" onClick={closeMenu}>
-								{t("header.home")}
-							</Link>
+							<button type="button" onClick={() => goToSection("platform")}>
+								{t("header.platform")}
+							</button>
 						</li>
 						<li>
-							<Link to="/pricing" onClick={closeMenu}>
-								{t("header.pricing")}
-							</Link>
+							<button type="button" onClick={() => goToSection("solutions")}>
+								{t("header.solutions")}
+							</button>
 						</li>
 						<li>
 							<Link to="/resources" onClick={closeMenu}>
-								Resources
+								{t("header.resources")}
 							</Link>
 						</li>
 						<li>
-							<Link to="/contact" onClick={closeMenu}>
-								{t("header.contact")}
+							<Link to="/about" onClick={closeMenu}>
+								{t("header.company")}
 							</Link>
 						</li>
 					</ul>

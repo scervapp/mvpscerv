@@ -1,16 +1,19 @@
 {
   "header": {
-    "home": "Inicio",
+    "platform": "Plataforma",
+    "solutions": "Soluciones",
+    "resources": "Recursos",
     "pricing": "Precios",
     "contact": "Contacto",
-    "requestDemo": "Solicitar Demo"
+    "company": "Empresa",
+    "requestDemo": "Reservar Demo"
   },
   "hero": {
     "eyebrow": "Creado para la hospitalidad de Nueva York",
-    "headline": "Controla el salon. Recuerda al cliente.",
+    "headline": "El futuro de la gastronomia, creado para la hospitalidad moderna.",
     "subheadline": "Scerv conecta reservas, check-ins, servicio de mesa, pedidos, pago, resenas, recompensas y reportes para que los restaurantes se muevan mas rapido sin hacer que la hospitalidad se sienta automatica.",
     "intro": "Scerv ofrece a los equipos una forma mas clara de servir, entender la demanda y crear visitas repetidas sin sumar herramientas desconectadas.",
-    "requestDemoBtn": "Solicitar Demo",
+    "requestDemoBtn": "Reservar Demo",
     "resourcesBtn": "Ver Recursos",
     "panel": {
       "label": "Capa de control del salon",
@@ -129,7 +132,7 @@
   "cta": {
     "headline": "Construye el restaurante al que los clientes vuelven.",
     "subheadline": "Buscamos operadores serios que quieren servicio mas claro, mejor memoria del cliente y mas control sobre todo el recorrido del salon.",
-    "primaryBtn": "Solicitar Demo",
+    "primaryBtn": "Reservar Demo",
     "secondaryBtn": "Contactar Ventas"
   },
   "demo": {
