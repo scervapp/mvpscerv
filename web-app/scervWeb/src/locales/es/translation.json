@@ -11,90 +11,99 @@
   "hero": {
     "eyebrow": "Creado para la hospitalidad de Nueva York",
     "headline": "El futuro de la gastronomia, creado para la hospitalidad moderna.",
-    "subheadline": "Scerv conecta reservas, check-ins, servicio de mesa, pedidos, pago, resenas, recompensas y reportes para que los restaurantes se muevan mas rapido sin hacer que la hospitalidad se sienta automatica.",
-    "intro": "Scerv ofrece a los equipos una forma mas clara de servir, entender la demanda y crear visitas repetidas sin sumar herramientas desconectadas.",
+    "subheadline": "Scerv ayuda a restaurantes a manejar reservas, check-ins, asientos, pedidos desde la mesa, cocina, pagos por telefono, resenas, recompensas y reportes en un solo sistema.",
+    "intro": "Los clientes pueden descubrir platos, unirse a un grupo, ordenar desde su telefono, dividir y pagar la cuenta, dejar resenas por plato y ganar recompensas mientras el restaurante mantiene control del servicio.",
     "requestDemoBtn": "Reservar Demo",
     "resourcesBtn": "Ver Recursos",
+    "capabilities": [
+      "Reservas",
+      "Check-ins",
+      "Pedidos de mesa",
+      "Cuentas divididas",
+      "Pagos por telefono",
+      "Resenas por plato",
+      "Recompensas"
+    ],
     "panel": {
-      "label": "Capa de control del salon",
+      "label": "Lo que Scerv maneja",
       "arrival": {
-        "title": "Llegada",
-        "desc": "Reservas, waitlist, check-ins, grupos y estado de mesas."
+        "title": "Antes de comer",
+        "desc": "Reservas, waitlist, solicitudes de check-in, tamano del grupo, mesas listas y asignacion."
       },
       "service": {
-        "title": "Servicio",
-        "desc": "Pedidos, visibilidad de cocina, pago, resenas y claridad para staff."
+        "title": "Durante el servicio",
+        "desc": "Clientes ordenan desde su telefono mientras el equipo maneja mesas, meseros, modificaciones y cocina."
       },
       "retention": {
-        "title": "Retencion",
-        "desc": "Recompensas, ofertas, historial del cliente y senales de regreso."
+        "title": "Despues del pago",
+        "desc": "Pagos por telefono, recibos, resenas por plato, recompensas, promociones, historial y reportes."
       }
     },
     "proof": {
       "service": {
-        "title": "El servicio sigue humano",
-        "desc": "Da mejores senales a hosts, meseros y cocina para que el equipo pase mas tiempo con los clientes."
+        "title": "Clientes ordenan y pagan por telefono",
+        "desc": "Pueden ver el menu, agregar items a una orden grupal, dividir la cuenta y pagar de forma segura sin esperar el cheque."
       },
       "guest": {
-        "title": "El cliente se recuerda",
-        "desc": "Conecta descubrimiento, resenas, recompensas y visitas repetidas en una relacion que el restaurante puede crecer."
+        "title": "Hosts controlan asientos y check-ins",
+        "desc": "El restaurante puede aprobar reservas, manejar check-ins de walk-ins, asignar mesas, sentar grupos y ver el estado de cada mesa."
       },
       "operator": {
-        "title": "El operador ve el salon",
-        "desc": "Muestra patrones de ventas, servicio, lealtad, descuentos, reembolsos y soporte."
+        "title": "Resenas y recompensas traen clientes de vuelta",
+        "desc": "Ratings por plato, resenas, metas de lealtad, ofertas e historial de ordenes ayudan a crear visitas repetidas."
       }
     }
   },
   "platformStory": {
-    "eyebrow": "La perspectiva Scerv",
-    "title": "Los restaurantes no necesitan otra app desconectada.",
-    "intro": "El salon es un sistema vivo. Una reserva afecta el host stand. El host stand afecta la mesa. La mesa afecta la cocina. La comida afecta la resena, la recompensa y la proxima visita. Scerv se construye alrededor de ese ciclo completo.",
+    "eyebrow": "Lo que hace Scerv",
+    "title": "Un flujo conectado desde la reserva hasta el pago.",
+    "intro": "Scerv conecta el telefono del cliente, host stand, mesas, meseros, cocina, pago, recompensas, resenas y reportes. El restaurante controla el salon mientras el cliente tiene una experiencia mas rapida y clara.",
     "steps": [
       {
         "step": "Llegada",
         "title": "Reservas, waitlist y check-in",
-        "copy": "Permite que los clientes pidan la experiencia correcta mientras el restaurante controla reglas, capacidad, grupos y mesas listas."
+        "copy": "Los clientes pueden pedir reservas o check-ins. Hosts pueden aprobar, rechazar, sentar, asignar mesas y manejar el estado del grupo."
       },
       {
         "step": "Servicio",
-        "title": "Grupos, mesas, meseros y cocina",
-        "copy": "Mantiene alineados el salon y la cocina mientras los clientes ordenan, el equipo enruta items y la presion sube."
+        "title": "Pedidos por telefono, mesas, meseros y cocina",
+        "copy": "Los clientes pueden ordenar desde la mesa mientras el equipo organiza modificadores, ordenes grupales, asignacion de servidor y cocina."
       },
       {
         "step": "Pago",
-        "title": "Pagos, descuentos, reembolsos y recibos",
-        "copy": "Hace el pago mas simple para clientes y da mejores registros de fees, impuestos, propina, promos y payouts."
+        "title": "Cuentas divididas, pagos por telefono, descuentos y recibos",
+        "copy": "Los clientes pagan desde su telefono. Restaurantes ven impuestos, propinas, fees, descuentos, reembolsos, promos y payouts."
       },
       {
         "step": "Regreso",
-        "title": "Resenas, recompensas, ofertas y memoria",
-        "copy": "Convierte cada comida en mejor feedback por plato, senales de lealtad y razones mas precisas para volver."
+        "title": "Resenas por plato, recompensas, ofertas e historial",
+        "copy": "Cada orden puede crear mejor feedback del menu, progreso de lealtad, redencion de recompensas, descubrimiento de platos y datos de regreso."
       }
     ],
-    "operatorLine": "Scerv debe sentirse invisible para el cliente cuando el servicio va bien, e indispensable para el operador cuando el salon se complica.",
-    "badge": "Creado para servicio real"
+    "operatorLine": "Scerv esta creado para los momentos reales del restaurante: clientes llegando, mesas rotando, ordenes cambiando, cuentas cerrando, recompensas aplicando y duenos necesitando numeros claros.",
+    "badge": "Herramientas concretas"
   },
   "features": {
     "restaurants": {
-      "title": "Herramientas de hospitalidad para restaurantes ambiciosos",
+      "title": "Herramientas que clientes y staff realmente usan",
       "ordering": {
-        "title": "Pedidos y pagos conectados",
-        "desc": "Permite que los clientes exploren, pidan, dividan y paguen con una experiencia pulida mientras el equipo mantiene el servicio en movimiento."
+        "title": "Pedidos de mesa y pago por telefono",
+        "desc": "Clientes pueden escanear, ver el menu, agregar items a una orden grupal, enviar items a cocina, dividir la cuenta, dejar propina y pagar desde su telefono."
       },
       "queue": {
-        "title": "Flujo de cocina y servicio",
-        "desc": "Organiza pedidos, mesas, equipo y solicitudes para reducir errores y proteger el ritmo del servicio."
+        "title": "Reservas, asientos y cocina",
+        "desc": "Hosts manejan reservas y check-ins, sientan grupos, asignan servidores, ven estado de mesas y mantienen tickets conectados a la mesa correcta."
       },
       "analytics": {
-        "title": "Inteligencia operativa",
-        "desc": "Mira el restaurante mas alla de transacciones: ventas, descuentos, reembolsos, engagement, opiniones por plato y senales para mejores decisiones."
+        "title": "Ventas, resenas, recompensas y reportes",
+        "desc": "Controla ventas, impuestos, propinas, fees, descuentos, reembolsos, promociones, recompensas, ratings por plato, resenas e historial."
       },
-      "cta": "Solicitar Demo"
+      "cta": "Reservar Demo"
     }
   },
   "solutions": {
-    "title": "Los flujos que los restaurantes enfrentan cada noche",
-    "subtitle": "Scerv esta disenado para los momentos donde el servicio se rompe, el margen se pierde y el cliente decide si vuelve.",
+    "title": "Lo que Scerv ayuda a manejar",
+    "subtitle": "Desde el host stand hasta la mesa y el pago, Scerv da herramientas practicas para los momentos que deciden velocidad, ingresos y regreso.",
     "tabs": {
       "foh": "Salon",
       "boh": "Cocina",
@@ -102,21 +111,21 @@
     },
     "content": {
       "foh": {
-        "headline": "Un host stand mas claro y un salon mas inteligente",
-        "desc": "Controla reservas, solicitudes de check-in, grupos, mesas listas, asignacion de servidor y proximas acciones en un solo lugar."
+        "headline": "Reservas, check-ins, asientos y mesas",
+        "desc": "Aprueba reservas, maneja waitlist, recibe check-ins de walk-ins, asigna mesas y servidores, sienta grupos y marca mesas sucias, limpias o disponibles."
       },
       "boh": {
-        "headline": "Protege la cocina cuando el salon se llena",
-        "desc": "Enruta items, mantiene contexto de mesa y reduce entregas confusas durante rushes, cuentas divididas, cambios y modificaciones."
+        "headline": "Las ordenes llegan a cocina con contexto",
+        "desc": "Mantiene ordenes grupales, modificadores, estado de items, servidor y numero de mesa conectados para que cocina y salon no tengan que adivinar."
       },
       "guests": {
-        "headline": "Haz que el cliente se sienta conocido sin sentirse vigilado",
-        "desc": "Ayuda a encontrar platos, unirse a grupos, pagar sin esperar, dejar feedback util, ganar recompensas y volver porque el restaurante recordo lo importante."
+        "headline": "Clientes descubren, ordenan, pagan, opinan y ganan",
+        "desc": "Pueden encontrar platos, unirse a un grupo, ordenar desde su telefono, dividir y pagar la cuenta, dejar resenas, ganar recompensas y volver con historial."
       }
     }
   },
   "footer": {
-    "tagline": "Una plataforma moderna de hospitalidad para restaurantes que quieren mejor servicio, operaciones claras y mas clientes recurrentes.",
+    "tagline": "Reservas, pedidos de mesa, pagos por telefono, resenas, recompensas y operaciones en una plataforma de hospitalidad.",
     "product": "Producto",
     "features": "Funciones",
     "pricing": "Precios",
@@ -130,18 +139,18 @@
     "rights": "Todos los derechos reservados."
   },
   "cta": {
-    "headline": "Construye el restaurante al que los clientes vuelven.",
-    "subheadline": "Buscamos operadores serios que quieren servicio mas claro, mejor memoria del cliente y mas control sobre todo el recorrido del salon.",
+    "headline": "Deja que los clientes ordenen, paguen, opinen y regresen.",
+    "subheadline": "Scerv ayuda a restaurantes a manejar reservas, check-ins, pedidos de mesa, pagos por telefono, recompensas, resenas y reportes.",
     "primaryBtn": "Reservar Demo",
     "secondaryBtn": "Contactar Ventas"
   },
   "demo": {
     "pitch": {
       "title": "Lleva Scerv a tu restaurante",
-      "subtitle": "Solicita una demostracion creada alrededor de tu modelo de servicio.",
-      "bullet1": "Mira como Scerv apoya el recorrido completo del cliente.",
-      "bullet2": "Revisa flujos para hosts, meseros, cocina, gerentes y propietarios.",
-      "bullet3": "Conversa sobre opciones de lanzamiento para equipos de hospitalidad en crecimiento."
+      "subtitle": "Solicita una demostracion de como Scerv maneja reservas, check-ins, asientos, pedidos por telefono, pagos por telefono, recompensas, resenas y reportes.",
+      "bullet1": "Mira el flujo del cliente desde reserva o check-in hasta pedido, pago, resena y recompensas.",
+      "bullet2": "Revisa herramientas para hosts, meseros, cocina, gerentes, duenos y back office.",
+      "bullet3": "Conversa sobre lanzamiento para Brooklyn, Nueva York y equipos de hospitalidad en crecimiento."
     },
     "form": {
       "name": "Nombre Completo",
@@ -198,18 +207,18 @@
   },
   "pricing": {
     "header": {
-      "title": "Hospitalidad enterprise para restaurantes ambiciosos",
-      "subtitle": "Scerv trabaja con socios selectos mientras crece. El precio depende del modelo de servicio, necesidades de lanzamiento y funciones."
+      "title": "Precio creado alrededor de como opera tu restaurante",
+      "subtitle": "Scerv trabaja con socios selectos en Nueva York y Brooklyn. El precio depende de funciones como reservas, pedidos de mesa, pagos por telefono, recompensas, resenas, reportes y soporte de lanzamiento."
     },
     "card": {
       "badge": "Introduccion Privada",
       "price": "Custom",
       "offer": "Creado alrededor de tu operacion.",
       "features": {
-        "f1": "<b>Experiencia del cliente:</b> Reservas, check-ins, grupos, pedidos, pagos, resenas y recompensas.",
-        "f2": "<b>Operaciones:</b> Hosts, flujo de mesas, cocina, staff y back office.",
-        "f3": "<b>Crecimiento:</b> Descubrimiento de comida, ofertas, retencion y recompensas.",
-        "f4": "<b>Reportes:</b> Ventas, fees, reembolsos, descuentos, promociones y actividad de servicio.",
+        "f1": "<b>Experiencia del cliente:</b> Reservas, check-ins, grupos, pedidos, pagos por telefono, resenas y recompensas.",
+        "f2": "<b>Operaciones:</b> Asientos, estado de mesas, asignacion de servidor, cocina, staff y back office.",
+        "f3": "<b>Crecimiento:</b> Descubrimiento de platos, ofertas de primera visita, retencion y recompensas.",
+        "f4": "<b>Reportes:</b> Ventas, impuestos, propinas, fees, reembolsos, descuentos, promociones y redenciones.",
         "f5": "<b>Lanzamiento:</b> Menu, controles, entrenamiento y plan de salida."
       },
       "cta": "Solicitar Demo Privada",
@@ -219,7 +228,7 @@
   "seo": {
     "home": {
       "title": "Scerv | Plataforma de Hospitalidad para Restaurantes Modernos",
-      "desc": "Scerv es una plataforma moderna de experiencia del cliente y operaciones para restaurantes de Nueva York y Brooklyn."
+      "desc": "Scerv ayuda a restaurantes a manejar reservas, check-ins, pedidos de mesa, pagos por telefono, recompensas, resenas, asientos, cocina y reportes."
     },
     "pricing": {
       "title": "Precios | Scerv",
@@ -235,14 +244,14 @@
     }
   },
   "about": {
-    "heroTitle": "Construyendo la capa de experiencia para la hospitalidad moderna",
-    "heroSubtitle": "Scerv esta disenado para restaurantes que quieren tecnologia enterprise sin perder el calor del buen servicio.",
+    "heroTitle": "Construyendo el sistema operativo del salon",
+    "heroSubtitle": "Scerv ayuda a restaurantes a conectar reservas, asientos, pedidos de mesa, pagos por telefono, resenas, recompensas y reportes sin perder el calor del buen servicio.",
     "missionTitle": "La Mision",
-    "missionP1": "La experiencia de comer fuera debe sentirse simple para clientes y manejable para los equipos que los atienden.",
-    "missionP2": "Scerv conecta los momentos importantes para que operadores se muevan mas rapido, entiendan mejor a sus clientes y creen mas razones para volver.",
+    "missionP1": "Comer fuera debe sentirse simple para clientes y manejable para los equipos. Clientes deben poder reservar, hacer check-in, ordenar, pagar, opinar y ganar recompensas sin agregar friccion al salon.",
+    "missionP2": "Scerv da a operadores una vista conectada de esos momentos para que hosts, meseros, cocina, gerentes y duenos se muevan mas rapido y entiendan que trae clientes de vuelta.",
     "marketTitle": "Por que Nueva York y Brooklyn?",
     "marketP": "Nueva York es uno de los mercados de hospitalidad mas exigentes del mundo. Brooklyn combina restaurantes de barrio, bares, cafes, conceptos de chef y operadores ambiciosos.",
-    "ctaTitle": "Listo para modernizar tu restaurante?",
-    "ctaSubtitle": "Solicita una demo privada creada alrededor de tu modelo de servicio."
+    "ctaTitle": "Listo para conectar tu salon?",
+    "ctaSubtitle": "Solicita una demo privada sobre reservas, pedidos, pagos, recompensas, resenas y reportes."
   }
 }

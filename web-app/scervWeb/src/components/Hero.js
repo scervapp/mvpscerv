@@ -103,12 +103,30 @@ const CtaButtons = styled.div`
 	display: flex;
 	flex-wrap: wrap;
 	gap: ${({ theme }) => theme.spacing.md};
-	margin-bottom: 44px;
+	margin-bottom: 20px;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
 		align-items: stretch;
 		flex-direction: column;
 	}
+`;
+
+const CapabilityRail = styled.div`
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 44px;
+	max-width: 760px;
+`;
+
+const CapabilityPill = styled.span`
+	background: rgba(255, 255, 255, 0.11);
+	border: 1px solid rgba(255, 255, 255, 0.24);
+	border-radius: 999px;
+	color: rgba(255, 255, 255, 0.9);
+	font-size: 0.9rem;
+	font-weight: 800;
+	padding: 8px 11px;
 `;
 
 const Button = styled(Link)`
@@ -235,6 +253,7 @@ const PanelMetric = styled.div`
 
 const Hero = () => {
 	const { t } = useTranslation();
+	const capabilities = t("hero.capabilities", { returnObjects: true });
 
 	return (
 		<HeroSection>
@@ -255,6 +274,11 @@ const Hero = () => {
 							{t("hero.resourcesBtn")}
 						</SecondaryButton>
 					</CtaButtons>
+					<CapabilityRail aria-label="Scerv capabilities">
+						{capabilities.map((capability) => (
+							<CapabilityPill key={capability}>{capability}</CapabilityPill>
+						))}
+					</CapabilityRail>
 				</Content>
 
 				<ProductPanel aria-label="Scerv platform preview">
