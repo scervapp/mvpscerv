@@ -23,6 +23,7 @@ import SupportCases from "./components/SupportCases";
 import Promotions from "./components/Promotions";
 import DataExplorer from "./components/DataExplorer";
 import DemoLeads from "./components/DemoLeads";
+import NewsletterSubscribers from "./components/NewsletterSubscribers";
 
 function App() {
 	const [user] = useAuthState(auth);
@@ -128,6 +129,14 @@ function App() {
 						element={
 							<ProtectedRoute requiredRole="admin">
 								<DemoLeads />
+							</ProtectedRoute>
+						}
+					/>
+					<Route
+						path="/newsletter"
+						element={
+							<ProtectedRoute requiredRole="admin">
+								<NewsletterSubscribers />
 							</ProtectedRoute>
 						}
 					/>

@@ -131,6 +131,12 @@ exports.getScervAdminDashboardStats =
 exports.submitScervDemoRequest = adminFunctions.submitScervDemoRequest;
 exports.listScervDemoLeads = adminFunctions.listScervDemoLeads;
 exports.updateScervDemoLead = adminFunctions.updateScervDemoLead;
+exports.submitScervNewsletterSignup =
+	adminFunctions.submitScervNewsletterSignup;
+exports.listScervNewsletterSubscribers =
+	adminFunctions.listScervNewsletterSubscribers;
+exports.updateScervNewsletterSubscriber =
+	adminFunctions.updateScervNewsletterSubscriber;
 exports.listScervCustomers = adminFunctions.listScervCustomers;
 exports.createScervRestaurantOnboarding =
 	adminFunctions.createScervRestaurantOnboarding;

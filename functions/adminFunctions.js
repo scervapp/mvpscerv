@@ -57,6 +57,14 @@ const DEMO_LEAD_STATUSES = [
 	"closed",
 	"spam",
 ];
+const NEWSLETTER_STATUSES = [
+	"subscribed",
+	"paused",
+	"unsubscribed",
+	"bounced",
+	"spam",
+];
+const NEWSLETTER_AUDIENCES = ["restaurant_operator", "dining_guest", "both"];
 const SCERV_DEMO_NOTIFICATION_EMAIL = "admin@scerv.com";
 
 const COUNTRY_NAMES = {
@@ -97,6 +105,19 @@ const normalizePercent = (value) => {
 const normalizeLeadStatus = (value) => {
 	const normalized = sanitizeString(value || "new", 40).toLowerCase();
 	return DEMO_LEAD_STATUSES.includes(normalized) ? normalized : "new";
+};
+
+const normalizeNewsletterStatus = (value) => {
+	const normalized = sanitizeString(value || "subscribed", 40).toLowerCase();
+	return NEWSLETTER_STATUSES.includes(normalized) ? normalized : "subscribed";
+};
+
+const normalizeNewsletterAudience = (value) => {
+	const normalized = sanitizeString(value || "restaurant_operator", 60)
+		.toLowerCase();
+	return NEWSLETTER_AUDIENCES.includes(normalized)
+		? normalized
+		: "restaurant_operator";
 };
 
 const normalizePromotionType = (value) => {
@@ -690,6 +711,87 @@ const sendDemoLeadNotificationEmail = async ({ leadId, lead }) => {
 	return { sent: true };
 };
 
+const buildNewsletterSignupNotificationEmail = ({ subscriberId, subscriber }) => {
+	const submittedAt = subscriber.createdAt && subscriber.createdAt.toDate
+		? subscriber.createdAt.toDate().toLocaleString("en-US", {
+			timeZone: "America/New_York",
+		})
+		: "Just now";
+
+	return `
+		<div style="font-family:Arial,sans-serif;line-height:1.6;color:#132027">
+			<h2 style="color:#082f3a;margin-bottom:8px">New Scerv newsletter signup</h2>
+			<p>Someone joined the Scerv resource newsletter from the website.</p>
+			<table style="border-collapse:collapse;width:100%;max-width:640px">
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Email</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(subscriber.email)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Name</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(subscriber.name || "--")}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Audience</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(subscriber.audience)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Source page</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(subscriber.pagePath || "--")}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Submitted</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(submittedAt)}</td></tr>
+				<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb"><strong>Subscriber ID</strong></td><td style="padding:8px;border-bottom:1px solid #e5e7eb">${escapeHtml(subscriberId)}</td></tr>
+			</table>
+			<p style="margin-top:22px">
+				<a href="https://admin.scerv.com/newsletter" style="background:#f18220;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none;font-weight:700">Open Newsletter Subscribers</a>
+			</p>
+		</div>
+	`;
+};
+
+const buildNewsletterWelcomeEmail = ({ subscriber }) => `
+	<div style="font-family:Arial,sans-serif;line-height:1.6;color:#132027">
+		<h2 style="color:#082f3a;margin-bottom:8px">Welcome to Scerv</h2>
+		<p>Thanks for joining the Scerv newsletter.</p>
+		<p>We will send practical restaurant growth ideas, hospitality operating notes, and product updates as we build the future of dining.</p>
+		<p style="margin-top:22px">
+			<a href="https://www.scerv.com/resources" style="background:#f18220;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none;font-weight:700">Read Scerv resources</a>
+		</p>
+		<p style="color:#667085;font-size:13px;margin-top:24px">
+			You are receiving this because ${escapeHtml(subscriber.email)} subscribed on scerv.com.
+			To leave the list, reply to this email and we will remove you.
+		</p>
+	</div>
+`;
+
+const sendNewsletterSignupEmails = async ({ subscriberId, subscriber }) => {
+	const resend = getResendClient();
+	if (!resend) {
+		return {
+			adminSent: false,
+			welcomeSent: false,
+			reason: "RESEND_API_KEY is not configured.",
+		};
+	}
+
+	const [adminResult, welcomeResult] = await Promise.allSettled([
+		resend.emails.send({
+			from: "Scerv <noreply@scerv.com>",
+			to: SCERV_DEMO_NOTIFICATION_EMAIL,
+			replyTo: subscriber.email,
+			subject: `New Scerv newsletter signup: ${subscriber.email}`,
+			html: buildNewsletterSignupNotificationEmail({
+				subscriberId,
+				subscriber,
+			}),
+		}),
+		resend.emails.send({
+			from: "Scerv <noreply@scerv.com>",
+			to: subscriber.email,
+			replyTo: SCERV_DEMO_NOTIFICATION_EMAIL,
+			subject: "Welcome to the Scerv newsletter",
+			html: buildNewsletterWelcomeEmail({ subscriber }),
+		}),
+	]);
+
+	return {
+		adminSent: adminResult.status === "fulfilled",
+		welcomeSent: welcomeResult.status === "fulfilled",
+		reason:
+			(adminResult.reason && adminResult.reason.message) ||
+			(welcomeResult.reason && welcomeResult.reason.message) ||
+			null,
+	};
+};
+
 const serializeDemoLead = (doc) => {
 	const data = doc.data() || {};
 	return {
@@ -711,6 +813,33 @@ const serializeDemoLead = (doc) => {
 			: null,
 		contactedAt: data.contactedAt instanceof admin.firestore.Timestamp
 			? data.contactedAt.toDate().toISOString()
+			: null,
+		notes: data.notes || "",
+	};
+};
+
+const serializeNewsletterSubscriber = (doc) => {
+	const data = doc.data() || {};
+	return {
+		id: doc.id,
+		email: data.email || "",
+		name: data.name || "",
+		audience: data.audience || "restaurant_operator",
+		status: data.status || "subscribed",
+		source: data.source || "website_resources",
+		pagePath: data.pagePath || "",
+		signupCount: data.signupCount || 1,
+		adminNotificationEmailSent: Boolean(data.adminNotificationEmailSent),
+		welcomeEmailSent: Boolean(data.welcomeEmailSent),
+		emailError: data.emailError || null,
+		createdAt: data.createdAt instanceof admin.firestore.Timestamp
+			? data.createdAt.toDate().toISOString()
+			: null,
+		updatedAt: data.updatedAt instanceof admin.firestore.Timestamp
+			? data.updatedAt.toDate().toISOString()
+			: null,
+		lastSignupAt: data.lastSignupAt instanceof admin.firestore.Timestamp
+			? data.lastSignupAt.toDate().toISOString()
 			: null,
 		notes: data.notes || "",
 	};
@@ -831,23 +960,35 @@ exports.getScervAdminDashboardStats = functions.https.onCall(
 	async (data, context) => {
 		requireScervAdmin(context);
 
-		const [restaurantsSnapshot, customersSnapshot, ordersSnapshot, leadsSnapshot] =
-			await Promise.all([
-				db.collection("restaurants").count().get(),
-				db.collection("customers").count().get(),
-				db.collection("orders").count().get(),
-				db
-					.collection("demoRequests")
-					.where("status", "==", "new")
-					.count()
-					.get(),
-			]);
+		const [
+			restaurantsSnapshot,
+			customersSnapshot,
+			ordersSnapshot,
+			leadsSnapshot,
+			newsletterSnapshot,
+		] = await Promise.all([
+			db.collection("restaurants").count().get(),
+			db.collection("customers").count().get(),
+			db.collection("orders").count().get(),
+			db
+				.collection("demoRequests")
+				.where("status", "==", "new")
+				.count()
+				.get(),
+			db
+				.collection("newsletterSubscribers")
+				.where("status", "==", "subscribed")
+				.count()
+				.get(),
+		]);
 
 		return {
 			totalRestaurants: restaurantsSnapshot.data().count || 0,
 			totalCustomers: customersSnapshot.data().count || 0,
 			totalOrders: ordersSnapshot.data().count || 0,
 			newDemoLeads: leadsSnapshot.data().count || 0,
+			activeNewsletterSubscribers:
+				newsletterSnapshot.data().count || 0,
 		};
 	},
 );
@@ -933,6 +1074,111 @@ exports.submitScervDemoRequest = functions
 		};
 	});
 
+exports.submitScervNewsletterSignup = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const email = normalizeEmail(data && data.email);
+		const name = sanitizeString(data && data.name, 120);
+		const audience = normalizeNewsletterAudience(data && data.audience);
+		const source = sanitizeString(data && data.source, 120) || "website_resources";
+		const pagePath = sanitizeString(data && data.pagePath, 240);
+		const userAgent = sanitizeString(data && data.userAgent, 500);
+		const now = admin.firestore.FieldValue.serverTimestamp();
+
+		if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A valid email address is required.",
+			);
+		}
+
+		const subscriberId = crypto
+			.createHash("sha256")
+			.update(email)
+			.digest("hex");
+		const subscriberRef = db.collection("newsletterSubscribers").doc(subscriberId);
+		let isNewSubscriber = false;
+
+		await db.runTransaction(async (transaction) => {
+			const existing = await transaction.get(subscriberRef);
+			isNewSubscriber = !existing.exists;
+			const existingData = existing.data() || {};
+			transaction.set(
+				subscriberRef,
+				{
+					email,
+					name: name || existingData.name || "",
+					audience,
+					status: "subscribed",
+					source,
+					pagePath,
+					userAgent,
+					consentText:
+						"Subscribed to receive Scerv resources, updates, and hospitality insights.",
+					signupCount: admin.firestore.FieldValue.increment(1),
+					createdAt: existing.exists ? existingData.createdAt || now : now,
+					lastSignupAt: now,
+					updatedAt: now,
+					adminNotificationEmailSent:
+						existingData.adminNotificationEmailSent || false,
+					welcomeEmailSent: existingData.welcomeEmailSent || false,
+					emailError: null,
+				},
+				{ merge: true },
+			);
+		});
+
+		let emailResult = {
+			adminSent: false,
+			welcomeSent: false,
+			reason: "Email was not attempted.",
+		};
+
+		if (isNewSubscriber) {
+			try {
+				emailResult = await sendNewsletterSignupEmails({
+					subscriberId,
+					subscriber: {
+						email,
+						name,
+						audience,
+						source,
+						pagePath,
+						createdAt: admin.firestore.Timestamp.now(),
+					},
+				});
+			} catch (error) {
+				console.warn("Newsletter signup email failed:", error);
+				emailResult = {
+					adminSent: false,
+					welcomeSent: false,
+					reason: error.message || "Email failed.",
+				};
+			}
+
+			await subscriberRef.set(
+				{
+					adminNotificationEmailSent: emailResult.adminSent,
+					welcomeEmailSent: emailResult.welcomeSent,
+					emailError: emailResult.reason
+						? sanitizeString(emailResult.reason, 500)
+						: null,
+					emailAttemptedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+
+		return {
+			success: true,
+			subscriberId,
+			alreadySubscribed: !isNewSubscriber,
+			adminEmailSent: emailResult.adminSent,
+			welcomeEmailSent: emailResult.welcomeSent,
+			emailWarning: emailResult.reason,
+		};
+	});
+
 exports.listScervDemoLeads = functions.https.onCall(async (data, context) => {
 	requireScervAdmin(context);
 	const status = sanitizeString(data && data.status, 40).toLowerCase();
@@ -998,6 +1244,80 @@ exports.updateScervDemoLead = functions.https.onCall(async (data, context) => {
 	const updatedSnap = await leadRef.get();
 	return { lead: serializeDemoLead(updatedSnap) };
 });
+
+exports.listScervNewsletterSubscribers = functions.https.onCall(
+	async (data, context) => {
+		requireScervAdmin(context);
+		const status = sanitizeString(data && data.status, 40).toLowerCase();
+		let query = db
+			.collection("newsletterSubscribers")
+			.orderBy("lastSignupAt", "desc")
+			.limit(150);
+
+		if (status && status !== "all") {
+			query = db
+				.collection("newsletterSubscribers")
+				.where("status", "==", normalizeNewsletterStatus(status))
+				.limit(150);
+		}
+
+		const snapshot = await query.get();
+		const subscribers = snapshot.docs
+			.map(serializeNewsletterSubscriber)
+			.sort((a, b) =>
+				String(b.lastSignupAt || b.createdAt || "").localeCompare(
+					a.lastSignupAt || a.createdAt || "",
+				),
+			)
+			.slice(0, 100);
+
+		return { subscribers };
+	},
+);
+
+exports.updateScervNewsletterSubscriber = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const subscriberId = sanitizeString(data && data.subscriberId, 160);
+		const status = normalizeNewsletterStatus(data && data.status);
+		const notes = sanitizeString(data && data.notes, 2000);
+
+		if (!subscriberId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Subscriber ID is required.",
+			);
+		}
+
+		const subscriberRef = db
+			.collection("newsletterSubscribers")
+			.doc(subscriberId);
+		const subscriberSnap = await subscriberRef.get();
+		if (!subscriberSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Newsletter subscriber not found.",
+			);
+		}
+
+		await subscriberRef.set(
+			{
+				status,
+				notes,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedBy: actorUid,
+			},
+			{ merge: true },
+		);
+		await writeAdminAuditLog(actorUid, "update_newsletter_subscriber", {
+			subscriberId,
+			status,
+		});
+
+		const updatedSnap = await subscriberRef.get();
+		return { subscriber: serializeNewsletterSubscriber(updatedSnap) };
+	},
+);
 
 exports.createScervRestaurantOnboarding = functions
 	.runWith({ secrets: [RESEND_API_KEY] })

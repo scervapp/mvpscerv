@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { Helmet } from "react-helmet-async";
 import { buildSeoUrl, SITE_URL } from "./SEO";
+import NewsletterSignup from "./NewsletterSignup";
 import techShareImage from "../images/ordering.jpeg";
 import mistakesShareImage from "../images/chefsQ.jpeg";
 
@@ -869,6 +870,7 @@ const ResourceHub = () => (
 					</Card>
 				))}
 			</ResourceGrid>
+			<NewsletterSignup source="resources_hub" />
 		</Container>
 	</Page>
 );
@@ -976,6 +978,7 @@ const ResourceArticle = () => {
 						</div>
 					</SourceList>
 				)}
+				<NewsletterSignup source={`resource_article:${resource.slug}`} />
 				<CtaBox>
 					<h2>Building a restaurant stack?</h2>
 					<p>
