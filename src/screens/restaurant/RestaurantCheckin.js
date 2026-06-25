@@ -169,12 +169,7 @@ const RestaurantActiveTables = () => {
 		const q = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", [
-				"pending",
-				"AWAITING_TABLE",
-				"active",
-				"checkedOut",
-			])
+			.where("status", "in", ["active", "checkedOut"])
 			.orderBy("createdAt", "desc");
 
 		const unsubscribe = onSnapshot(

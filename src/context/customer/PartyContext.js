@@ -541,15 +541,26 @@ export const PartyProvider = ({ children }) => {
 	);
 
 	const cancelPartyCheckIn = useCallback(
-		async (partyIdOverride = null) => {
+		async (partyIdOverride = null, checkInIdOverride = null) => {
 			const partyId = partyIdOverride || getFirstActivePartyId();
 			if (!partyId) return false;
+			const checkInId =
+				checkInIdOverride ||
+				partyDetails?.[partyId]?.activeCheckInId ||
+				partyDetails?.[partyId]?.checkInId ||
+				null;
+
+			if (!checkInId) {
+				setPartyError("Missing check-in request to cancel.");
+				Alert.alert("Error", "Missing check-in request to cancel.");
+				return false;
+			}
 
 			setIsLoadingPartyAction(true);
 			setPartyError(null);
 
 			try {
-				const result = await cancelPartyCheckInFunction({ partyId });
+				const result = await cancelPartyCheckInFunction({ partyId, checkInId });
 
 				if (result?.data?.success) {
 					return true;
@@ -568,7 +579,7 @@ export const PartyProvider = ({ children }) => {
 				setIsLoadingPartyAction(false);
 			}
 		},
-		[getFirstActivePartyId, cancelPartyCheckInFunction],
+		[getFirstActivePartyId, partyDetails, cancelPartyCheckInFunction],
 	);
 
 	const cancelParty = useCallback(

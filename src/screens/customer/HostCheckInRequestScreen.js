@@ -14,12 +14,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
+import { useParty } from "../../context/customer/PartyContext";
 import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
 const HostCheckInRequestScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
+	const { getRestaurantSessions } = useParty();
 	const restaurant = route.params?.restaurant;
+	const { dineInPartyId } = getRestaurantSessions(restaurant?.id);
 
 	const [partySize, setPartySize] = useState("2");
 	const [occasion, setOccasion] = useState("");
@@ -55,6 +58,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 			await createRequest({
 				restaurantId: restaurant.id,
 				numberOfPeople: parsedPartySize,
+				partyId: dineInPartyId || null,
 				customerName:
 					`${currentUserData?.firstName || ""} ${
 						currentUserData?.lastName || ""

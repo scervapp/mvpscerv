@@ -42,7 +42,7 @@ export const RestaurantDataProvider = ({ children }) => {
 	const kitchenPlayer = useRef(null);
 	const servicePlayer = useRef(null); // 🚨 NEW: Audio player ref
 
-	const restaurantId = currentUserData?.uid;
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	/* ──────────────────────────────
      2.  Configure audio + preload
@@ -144,11 +144,15 @@ export const RestaurantDataProvider = ({ children }) => {
 
 				snap.docs.forEach((doc) => {
 					const ticket = doc.data();
+					const isPacingHeld =
+						ticket.pacingStatus === "scheduled" || ticket.pacingStatus === "held";
 
 					// 🚨 THE FIX: Smart Badge Math
 					let isNewTicket = false;
 
-					if (ticket.stationStatuses) {
+					if (isPacingHeld) {
+						isNewTicket = false;
+					} else if (ticket.stationStatuses) {
 						// Enterprise Way: Only count it if a specific station is explicitly "new"
 						isNewTicket =
 							ticket.stationStatuses.kitchen === "new" ||
@@ -167,9 +171,14 @@ export const RestaurantDataProvider = ({ children }) => {
 				if (!isKitchenInitialLoad.current) {
 					snap.docChanges().forEach((change) => {
 						const ticket = change.doc.data();
+						const isPacingHeld =
+							ticket.pacingStatus === "scheduled" ||
+							ticket.pacingStatus === "held";
 
 						let isNewTicket = false;
-						if (ticket.stationStatuses) {
+						if (isPacingHeld) {
+							isNewTicket = false;
+						} else if (ticket.stationStatuses) {
 							isNewTicket =
 								ticket.stationStatuses.kitchen === "new" ||
 								ticket.stationStatuses.bar === "new";
@@ -179,7 +188,7 @@ export const RestaurantDataProvider = ({ children }) => {
 
 						// Play the bell ONLY if a fresh ticket drops into the queue
 						if (
-							change.type === "added" &&
+							(change.type === "added" || change.type === "modified") &&
 							isNewTicket &&
 							isKitchenQueueFocused.current
 						) {

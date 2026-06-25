@@ -34,6 +34,8 @@ exports.addStaffItemsToPartyAndSendToKitchen =
 	basketFunctions.addStaffItemsToPartyAndSendToKitchen;
 exports.sendItemsToChefsQ = basketFunctions.sendItemsToChefsQ;
 exports.sendOrderToKitchen = basketFunctions.sendOrderToKitchen;
+exports.releaseDueKitchenOrderPacing =
+	basketFunctions.releaseDueKitchenOrderPacing;
 exports.linkBasketToCheckIn = basketFunctions.linkBasketToCheckIn;
 exports.handleCheckIn = checkInFunctions.handleCheckIn;
 exports.cancelCheckIn = checkInFunctions.cancelCheckIn;
@@ -209,6 +211,7 @@ exports.acknowledgePartyServiceRequest =
 	restaurantFunctions.acknowledgePartyServiceRequest;
 exports.updateKitchenOrderStationStatus =
 	restaurantFunctions.updateKitchenOrderStationStatus;
+exports.releaseKitchenOrderPacing = restaurantFunctions.releaseKitchenOrderPacing;
 exports.markReadyKitchenItemsServed =
 	restaurantFunctions.markReadyKitchenItemsServed;
 exports.completePickupOrderHandoff =

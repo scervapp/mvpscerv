@@ -3071,6 +3071,114 @@ exports.updateKitchenOrderStationStatus = functions.https.onCall(
 	},
 );
 
+exports.releaseKitchenOrderPacing = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be staff and authenticated.",
+			);
+		}
+
+		const { orderId, staffId, staffName } = data || {};
+		if (!orderId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Order ID is required.",
+			);
+		}
+
+		try {
+			const orderRef = db.collection("kitchen_orders").doc(orderId);
+			const orderDoc = await orderRef.get();
+			if (!orderDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Ticket not found.");
+			}
+
+			const orderData = orderDoc.data() || {};
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId: orderData.restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: PREP_TICKET_JOB_TITLES,
+				action: "fire paced kitchen ticket",
+			});
+
+			await db.runTransaction(async (transaction) => {
+				const currentOrderDoc = await transaction.get(orderRef);
+				const currentOrderData = currentOrderDoc.data() || {};
+				if (currentOrderData.pacingStatus === "fired") return;
+
+				const shouldSyncSharedBasket =
+					currentOrderData.partyId &&
+					currentOrderData.fulfillmentType !== "hotel_pickup";
+				const basketRef = shouldSyncSharedBasket
+					? db.collection("shared_baskets").doc(currentOrderData.partyId)
+					: null;
+				const basketDoc = basketRef ? await transaction.get(basketRef) : null;
+
+				transaction.set(
+					orderRef,
+					{
+						pacingStatus: "fired",
+						status: "new",
+						firedAt: admin.firestore.FieldValue.serverTimestamp(),
+						pacingReleasedAt: admin.firestore.FieldValue.serverTimestamp(),
+						pacingReleasedBy: {
+							userId: context.auth.uid,
+							staffId: staffMember.id || staffId || null,
+							name: staffName || staffMember.name || null,
+							role: staffMember.role || null,
+							jobTitle: staffMember.jobTitle || null,
+						},
+						pacingReleaseReason: "staff_fire_now",
+					},
+					{ merge: true },
+				);
+
+				if (basketRef) {
+					if (basketDoc.exists) {
+						const basketData = basketDoc.data() || {};
+						const basketItems = Array.isArray(basketData.items)
+							? basketData.items
+							: [];
+						const updatedItems = basketItems.map((item) =>
+							item.ticketId === orderId
+								? {
+										...item,
+										pacingStatus: "fired",
+										firedAt: new Date(),
+									}
+								: item,
+						);
+
+						transaction.set(
+							basketRef,
+							{
+								items: updatedItems,
+								lastKitchenUpdate:
+									admin.firestore.FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						);
+					}
+				}
+			});
+
+			return { success: true };
+		} catch (error) {
+			console.error(`Error releasing paced ticket ${orderId}:`, error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"An unexpected error occurred while firing the ticket.",
+			);
+		}
+	},
+);
+
 exports.markReadyKitchenItemsServed = functions.https.onCall(
 	async (data, context) => {
 		if (!context.auth || !context.auth.uid) {

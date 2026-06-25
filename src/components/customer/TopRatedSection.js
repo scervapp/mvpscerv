@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase.native";
+import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
 import {
 	collection,
 	getDocs,
@@ -92,7 +93,7 @@ const TopRatedSection = ({ category, title, onPressItem }) => {
 						onPress={() => onPressItem(item)}
 					>
 						<Text style={styles.itemName} numberOfLines={1}>
-							{item.name}
+							{getDiscoveryDishLabel(item)}
 						</Text>
 						<View style={styles.ratingRow}>
 							<StarRating rating={item.averageRating} />

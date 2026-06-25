@@ -3,6 +3,248 @@ const admin = require("firebase-admin");
 const { assertRestaurantPermission } = require("./restaurantAccess");
 
 const db = admin.firestore();
+
+// Default auto-pacing gap when appetizers and entrees are sent together.
+const DEFAULT_ENTREE_DELAY_MINUTES = 12;
+
+const normalizeCategory = (category) =>
+	String(category || "")
+		.trim()
+		.toLowerCase();
+
+const detectOrderCourse = (item = {}) => {
+	const explicitCourse = normalizeCategory(item.course || item.menuCourse);
+	if (explicitCourse) return explicitCourse;
+
+	const category = normalizeCategory(item.category);
+	if (isBarCategory(category)) return "drinks";
+	if (
+		["dessert", "desserts", "sweet", "sweets"].some((value) =>
+			category.includes(value),
+		)
+	) {
+		return "desserts";
+	}
+	if (
+		[
+			"appetizer",
+			"appetizers",
+			"starter",
+			"starters",
+			"soup",
+			"soups",
+			"salad",
+			"salads",
+			"side",
+			"sides",
+			"small plate",
+			"small plates",
+		].some((value) => category.includes(value))
+	) {
+		return "appetizers";
+	}
+
+	return "entrees";
+};
+
+const getRestaurantPacingSettings = async (restaurantId) => {
+	if (!restaurantId) return {};
+
+	try {
+		const restaurantSnap = await db.collection("restaurants").doc(restaurantId).get();
+		const restaurantData = restaurantSnap.exists ? restaurantSnap.data() || {} : {};
+		return restaurantData.orderPacingSettings || restaurantData.pacingSettings || {};
+	} catch (error) {
+		console.warn(
+			`Unable to load pacing settings for restaurant ${restaurantId}. Using defaults.`,
+			error,
+		);
+		return {};
+	}
+};
+
+const buildPacingDecision = ({ items, settings = {}, actorType = "customer" }) => {
+	const enabled = settings.enabled !== false;
+	if (!enabled) {
+		return {
+			status: "fired",
+			fireAt: null,
+			delayMinutes: 0,
+			reason: "disabled",
+			mode: "off",
+		};
+	}
+
+	const courses = new Set(items.map((item) => item.course || detectOrderCourse(item)));
+	const hasAppetizers = courses.has("appetizers");
+	const hasEntrees = courses.has("entrees");
+	const hasOnlyBar = items.every((item) => item.destination === "bar");
+	const hasOnlyDesserts = items.every(
+		(item) => (item.course || detectOrderCourse(item)) === "desserts",
+	);
+
+	if (hasOnlyBar) {
+		return {
+			status: "fired",
+			fireAt: null,
+			delayMinutes: 0,
+			reason: "bar_immediate",
+			mode: "hybrid_auto",
+		};
+	}
+
+	if (hasOnlyDesserts) {
+		return {
+			status: "held",
+			fireAt: null,
+			delayMinutes: null,
+			reason: "dessert_manual_fire",
+			mode: "hybrid_auto",
+		};
+	}
+
+	if (hasAppetizers && hasEntrees) {
+		const delayMinutes = Math.max(
+			5,
+			Math.min(
+				45,
+				Number(settings.entreeDelayMinutes || DEFAULT_ENTREE_DELAY_MINUTES),
+			),
+		);
+		return {
+			status: "scheduled",
+			fireAt: admin.firestore.Timestamp.fromDate(
+				new Date(Date.now() + delayMinutes * 60 * 1000),
+			),
+			delayMinutes,
+			reason: `${actorType}_apps_before_entrees`,
+			mode: "hybrid_auto",
+		};
+	}
+
+	return {
+		status: "fired",
+		fireAt: null,
+		delayMinutes: 0,
+		reason: "immediate",
+		mode: "hybrid_auto",
+	};
+};
+
+const applyPacingToKitchenOrder = ({ kitchenOrderData, pacingDecision }) => ({
+	...kitchenOrderData,
+	pacingStatus: pacingDecision.status,
+	pacingMode: pacingDecision.mode,
+	pacingReason: pacingDecision.reason,
+	pacingDelayMinutes: pacingDecision.delayMinutes,
+	fireAt: pacingDecision.fireAt,
+	firedAt:
+		pacingDecision.status === "fired"
+			? admin.firestore.FieldValue.serverTimestamp()
+			: null,
+	status: pacingDecision.status === "fired" ? "new" : pacingDecision.status,
+});
+
+const buildBasketItemPacingPatch = ({ orderId, pacingDecision }) => ({
+	status: "sent",
+	ticketId: orderId,
+	sentAt: new Date(),
+	pacingStatus: pacingDecision.status,
+	fireAt: pacingDecision.fireAt ? pacingDecision.fireAt.toDate() : null,
+	firedAt: pacingDecision.status === "fired" ? new Date() : null,
+});
+
+const getStationStatusesForItems = (items) => {
+	let hasKitchen = false;
+	let hasBar = false;
+
+	items.forEach((item) => {
+		if (item.destination === "kitchen") hasKitchen = true;
+		if (item.destination === "bar") hasBar = true;
+		if (Array.isArray(item.kitchenModifiers) && item.kitchenModifiers.length > 0) {
+			hasKitchen = true;
+		}
+		if (Array.isArray(item.barModifiers) && item.barModifiers.length > 0) {
+			hasBar = true;
+		}
+	});
+
+	const stationStatuses = {};
+	if (hasKitchen) stationStatuses.kitchen = "new";
+	if (hasBar) stationStatuses.bar = "new";
+	return stationStatuses;
+};
+
+const buildPacedTicketGroups = ({ items, settings = {}, actorType = "customer" }) => {
+	const enabled = settings.enabled !== false;
+	const immediateItems = [];
+	const scheduledItems = [];
+	const heldItems = [];
+	const hasAppetizers = items.some((item) => item.course === "appetizers");
+	const delayMinutes = Math.max(
+		5,
+		Math.min(45, Number(settings.entreeDelayMinutes || DEFAULT_ENTREE_DELAY_MINUTES)),
+	);
+
+	items.forEach((item) => {
+		if (!enabled) {
+			immediateItems.push(item);
+			return;
+		}
+
+		if (item.course === "desserts") {
+			heldItems.push(item);
+			return;
+		}
+
+		if (item.course === "entrees" && hasAppetizers) {
+			scheduledItems.push(item);
+			return;
+		}
+
+		immediateItems.push(item);
+	});
+
+	const groups = [];
+	if (immediateItems.length > 0) {
+		groups.push({
+			items: immediateItems,
+			pacingDecision: buildPacingDecision({
+				items: immediateItems,
+				settings,
+				actorType,
+			}),
+		});
+	}
+	if (scheduledItems.length > 0) {
+		groups.push({
+			items: scheduledItems,
+			pacingDecision: {
+				status: "scheduled",
+				fireAt: admin.firestore.Timestamp.fromDate(
+					new Date(Date.now() + delayMinutes * 60 * 1000),
+				),
+				delayMinutes,
+				reason: `${actorType}_apps_before_entrees`,
+				mode: "hybrid_auto",
+			},
+		});
+	}
+	if (heldItems.length > 0) {
+		groups.push({
+			items: heldItems,
+			pacingDecision: {
+				status: "held",
+				fireAt: null,
+				delayMinutes: null,
+				reason: "dessert_manual_fire",
+				mode: "hybrid_auto",
+			},
+		});
+	}
+
+	return groups;
+};
 /**
  * Adds item(s) to a user's individual basket.
  * If selectedPIPs are provided, creates an item for each.
@@ -839,14 +1081,9 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				: [];
 		const updatedBasketItems = [...existingBasketItems, ...staffBasketItems];
 
-		const kitchenOrderRef = db.collection("kitchen_orders").doc();
-		const orderId = kitchenOrderRef.id;
 		const menuItemDetailsMap = new Map(
 			staffBasketItems.map((item) => [item.menuItemId, menuItemMap.get(item.menuItemId)]),
 		);
-
-		let hasKitchen = false;
-		let hasBar = false;
 
 		const kitchenItems = staffBasketItems.map((item) => {
 			const details = menuItemDetailsMap.get(item.menuItemId) || {};
@@ -866,11 +1103,6 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				}
 			});
 
-			if (destination === "kitchen") hasKitchen = true;
-			if (destination === "bar") hasBar = true;
-			if (kitchenModifiers.length > 0) hasKitchen = true;
-			if (barModifiers.length > 0) hasBar = true;
-
 			return {
 				id: item.id,
 				dishName: item.dishName,
@@ -885,26 +1117,66 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				enteredByStaffId: item.enteredByStaffId,
 				enteredByStaffName: item.enteredByStaffName,
 				destination,
+				category,
+				course: detectOrderCourse({ ...item, category }),
 				selectedModifiers: item.selectedModifiers,
 				kitchenModifiers,
 				barModifiers,
+				stationStatuses: getStationStatusesForItems([
+					{ destination, kitchenModifiers, barModifiers },
+				]),
 			};
 		});
 
-		const initialStationStatuses = {};
-		if (hasKitchen) initialStationStatuses.kitchen = "new";
-		if (hasBar) initialStationStatuses.bar = "new";
+		const pacingSettings = await getRestaurantPacingSettings(restaurantId);
+		const ticketGroups = buildPacedTicketGroups({
+			items: kitchenItems,
+			settings: pacingSettings,
+			actorType: "staff",
+		});
+		const ticketByItemId = new Map();
+		const createdTickets = ticketGroups.map((group) => {
+			const kitchenOrderRef = db.collection("kitchen_orders").doc();
+			const orderId = kitchenOrderRef.id;
+			const stationStatuses = getStationStatusesForItems(group.items);
+			group.items.forEach((item) => {
+				ticketByItemId.set(item.id, {
+					orderId,
+					pacingDecision: group.pacingDecision,
+					stationStatuses,
+				});
+			});
+			return { kitchenOrderRef, orderId, stationStatuses, ...group };
+		});
 
 		const sentBasketItems = updatedBasketItems.map((item) =>
 			staffBasketItems.some((staffItem) => staffItem.id === item.id)
-				? { ...item, status: "sent", ticketId: orderId, sentAt: new Date() }
+				? (() => {
+						const ticketInfo = ticketByItemId.get(item.id) || {};
+						return {
+							...item,
+							...buildBasketItemPacingPatch({
+								orderId: ticketInfo.orderId,
+								pacingDecision: ticketInfo.pacingDecision || {
+									status: "fired",
+									fireAt: null,
+								},
+							}),
+						};
+					})()
 				: item,
 		);
+
+		const ticketStatusesPatch = {};
+		createdTickets.forEach((ticket) => {
+			ticketStatusesPatch[`ticketStatuses.${ticket.orderId}`] =
+				ticket.stationStatuses;
+		});
 
 		if (basketDoc.exists) {
 			batch.update(basketRef, {
 				items: sentBasketItems,
-				[`ticketStatuses.${orderId}`]: initialStationStatuses,
+				...ticketStatusesPatch,
 				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 			});
 		} else {
@@ -912,23 +1184,30 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 				partyId,
 				restaurantId,
 				items: sentBasketItems,
-				[`ticketStatuses.${orderId}`]: initialStationStatuses,
+				...ticketStatusesPatch,
 				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 			});
 		}
 
-		batch.set(kitchenOrderRef, {
-			restaurantId,
-			orderId,
-			partyId,
-			table,
-			server: server || { id: staffId, name: staffName },
-			orderEntryMode: "staff",
-			items: kitchenItems,
-			stationStatuses: initialStationStatuses,
-			overallStatus: "active",
-			status: "new",
-			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		createdTickets.forEach((ticket) => {
+			batch.set(
+				ticket.kitchenOrderRef,
+				applyPacingToKitchenOrder({
+					pacingDecision: ticket.pacingDecision,
+					kitchenOrderData: {
+						restaurantId,
+						orderId: ticket.orderId,
+						partyId,
+						table,
+						server: server || { id: staffId, name: staffName },
+						orderEntryMode: "staff",
+						items: ticket.items,
+						stationStatuses: ticket.stationStatuses,
+						overallStatus: "active",
+						createdAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+				}),
+			);
 		});
 
 		batch.set(
@@ -946,7 +1225,8 @@ exports.addStaffItemsToPartyAndSendToKitchen = functions.https.onCall(
 
 		return {
 			success: true,
-			orderId,
+			orderId: (createdTickets[0] && createdTickets[0].orderId) || null,
+			orderIds: createdTickets.map((ticket) => ticket.orderId),
 			itemsSent: kitchenItems.length,
 		};
 	},
@@ -1019,12 +1299,8 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		}
 
 		// 🚨 ENTERPRISE UPDATE: Generate the Ticket ID early!
-		const kitchenOrderRef = db.collection("kitchen_orders").doc();
-		const orderId = kitchenOrderRef.id;
 
 		// 🚨 ENTERPRISE UPDATE: Build the smart station routing map
-		let hasKitchen = false;
-		let hasBar = false;
 
 		const kitchenItems = itemsFromSource.map((item) => {
 			const details = menuItemDetailsMap.get(item.menuItemId) || {};
@@ -1067,12 +1343,6 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 			const destination = isBarCategory(category) ? "bar" : "kitchen";
 
-			if (destination === "kitchen") hasKitchen = true;
-			if (destination === "bar") hasBar = true;
-
-			if (kitchenModifiers.length > 0) hasKitchen = true;
-			if (barModifiers.length > 0) hasBar = true;
-
 			return {
 				id: item.id,
 				dishName: dishName,
@@ -1091,27 +1361,68 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 				enteredByStaffId: item.enteredByStaffId || null,
 				enteredByStaffName: item.enteredByStaffName || null,
 				destination: destination,
+				category,
+				course: detectOrderCourse({ ...item, category }),
 				selectedModifiers: selectedModifiers,
 				kitchenModifiers: kitchenModifiers,
 				barModifiers: barModifiers,
+				stationStatuses: getStationStatusesForItems([
+					{ destination, kitchenModifiers, barModifiers },
+				]),
 			};
 		});
 
-		const initialStationStatuses = {};
-		if (hasKitchen) initialStationStatuses.kitchen = "new";
-		if (hasBar) initialStationStatuses.bar = "new";
+		const pacingSettings = await getRestaurantPacingSettings(restaurantIdForOrder);
+		const ticketGroups = buildPacedTicketGroups({
+			items: kitchenItems,
+			settings: pacingSettings,
+			actorType: data.orderEntryMode || "customer",
+		});
+		const ticketByItemId = new Map();
+		const createdTickets = ticketGroups.map((group) => {
+			const kitchenOrderRef = db.collection("kitchen_orders").doc();
+			const orderId = kitchenOrderRef.id;
+			const stationStatuses = getStationStatusesForItems(group.items);
+			group.items.forEach((item) => {
+				ticketByItemId.set(item.id, {
+					orderId,
+					pacingDecision: group.pacingDecision,
+					stationStatuses,
+				});
+			});
+			return { kitchenOrderRef, orderId, stationStatuses, ...group };
+		});
 
 		// 4. Update the basket AND inject the real-time customer tracker
 		const updatedSourceItems = allItems.map((item) =>
 			idsToProcess.includes(item.orderedByUserId) && item.status === "new"
 				? // 🚨 ADD ticketId HERE so the app can link the item to the kitchen's status!
-					{ ...item, status: "sent", ticketId: orderId, sentAt: new Date() }
+					{
+						...item,
+						...buildBasketItemPacingPatch({
+							orderId:
+								(ticketByItemId.get(item.id) &&
+									ticketByItemId.get(item.id).orderId) ||
+								null,
+							pacingDecision: (ticketByItemId.get(item.id) &&
+								ticketByItemId.get(item.id).pacingDecision) || {
+								status: "fired",
+								fireAt: null,
+							},
+						}),
+					}
 				: item,
 		);
 
+		const ticketStatusesPatch = {};
+		createdTickets.forEach((ticket) => {
+			ticketStatusesPatch[`ticketStatuses.${ticket.orderId}`] =
+				ticket.stationStatuses;
+		});
+
 		batch.update(basketRef, {
 			items: updatedSourceItems,
-			[`ticketStatuses.${orderId}`]: initialStationStatuses, // Customer UI listens to this!
+			...ticketStatusesPatch,
 			lastUpdated: new Date(),
 		});
 
@@ -1127,21 +1438,43 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		);
 
 		// 5. Create the official kitchen order with separate station statuses
-		const kitchenOrderData = {
+		/*
+		const legacyKitchenOrderData = {
 			restaurantId: restaurantIdForOrder,
-			orderId: orderId,
+			orderId: (createdTickets[0] && createdTickets[0].orderId) || null,
+			orderIds: createdTickets.map((ticket) => ticket.orderId),
 			partyId: sourceId,
 			table: table,
 			server: server || { id: "unassigned", name: "Unassigned" },
 			orderEntryMode: data.orderEntryMode || "customer",
 			items: kitchenItems,
-			stationStatuses: initialStationStatuses, // Independent Bar/Kitchen tracking
+			stationStatuses: {},
 			overallStatus: "active", // The main switch
 			status: "new", // 🚨 THE FIX: Add this back for your audio listener!
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		};
+		*/
 
-		batch.set(kitchenOrderRef, kitchenOrderData);
+		createdTickets.forEach((ticket) => {
+			batch.set(
+				ticket.kitchenOrderRef,
+				applyPacingToKitchenOrder({
+					pacingDecision: ticket.pacingDecision,
+					kitchenOrderData: {
+						restaurantId: restaurantIdForOrder,
+						orderId: ticket.orderId,
+						partyId: sourceId,
+						table,
+						server: server || { id: "unassigned", name: "Unassigned" },
+						orderEntryMode: data.orderEntryMode || "customer",
+						items: ticket.items,
+						stationStatuses: ticket.stationStatuses,
+						overallStatus: "active",
+						createdAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+				}),
+			);
+		});
 		await batch.commit();
 		console.log(
 			"[SEND TO KITCHEN MODIFIER DEBUG]",
@@ -1150,7 +1483,8 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 
 		return {
 			success: true,
-			orderId: orderId,
+			orderId: (createdTickets[0] && createdTickets[0].orderId) || null,
+			orderIds: createdTickets.map((ticket) => ticket.orderId),
 			itemsSent: kitchenItems.length,
 		};
 	} catch (error) {
@@ -1164,6 +1498,76 @@ exports.sendOrderToKitchen = functions.https.onCall(async (data, context) => {
 		);
 	}
 });
+
+exports.releaseDueKitchenOrderPacing = functions.pubsub
+	.schedule("every 1 minutes")
+	.timeZone("America/New_York")
+	.onRun(async () => {
+		const now = admin.firestore.Timestamp.now();
+		const dueTicketsSnap = await db
+			.collection("kitchen_orders")
+			.where("overallStatus", "==", "active")
+			.where("pacingStatus", "==", "scheduled")
+			.limit(200)
+			.get();
+
+		if (dueTicketsSnap.empty) return null;
+
+		const batch = db.batch();
+		const ticketIdsByPartyId = new Map();
+
+		dueTicketsSnap.docs.forEach((ticketDoc) => {
+			const ticket = ticketDoc.data() || {};
+			if (!ticket.fireAt || ticket.fireAt.toMillis() > now.toMillis()) return;
+
+			batch.set(
+				ticketDoc.ref,
+				{
+					pacingStatus: "fired",
+					status: "new",
+					firedAt: admin.firestore.FieldValue.serverTimestamp(),
+					pacingReleasedAt: admin.firestore.FieldValue.serverTimestamp(),
+					pacingReleaseReason: "scheduled_fire_time",
+				},
+				{ merge: true },
+			);
+
+			if (ticket.partyId && ticket.fulfillmentType !== "hotel_pickup") {
+				const currentTicketIds = ticketIdsByPartyId.get(ticket.partyId) || [];
+				currentTicketIds.push(ticketDoc.id);
+				ticketIdsByPartyId.set(ticket.partyId, currentTicketIds);
+			}
+		});
+
+		for (const [partyId, ticketIds] of ticketIdsByPartyId.entries()) {
+			const ticketIdSet = new Set(ticketIds);
+			const basketRef = db.collection("shared_baskets").doc(partyId);
+			const basketSnap = await basketRef.get();
+			if (!basketSnap.exists) continue;
+			const basket = basketSnap.data() || {};
+			const basketItems = Array.isArray(basket.items) ? basket.items : [];
+			const updatedItems = basketItems.map((item) =>
+				ticketIdSet.has(item.ticketId)
+					? {
+							...item,
+							pacingStatus: "fired",
+							firedAt: new Date(),
+						}
+					: item,
+			);
+			batch.set(
+				basketRef,
+				{
+					items: updatedItems,
+					lastKitchenUpdate: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+
+		await batch.commit();
+		return null;
+	});
 
 /**
  * Links all of a user's current basket items for a specific restaurant

@@ -205,11 +205,15 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 	const reservationRef = reservationId
 		? db.collection("reservations").doc(reservationId)
 		: null;
-	const partyRef = partyId ? db.collection("parties").doc(partyId) : null;
+	const requestedPartyRef = partyId
+		? db.collection("parties").doc(partyId)
+		: null;
 	const restaurantRef = db.collection("restaurants").doc(restaurantId);
 
 	await db.runTransaction(async (transaction) => {
 		let resolvedPartySize = Number(numberOfPeople);
+		let resolvedPartyRef = requestedPartyRef;
+		let resolvedPartyId = partyId || null;
 		const restaurantSnap = await transaction.get(restaurantRef);
 		const customerSnap = await transaction.get(customerRef);
 		if (!restaurantSnap.exists) {
@@ -255,8 +259,40 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 			}
 		}
 
-		if (partyRef) {
-			const partySnap = await transaction.get(partyRef);
+		if (!resolvedPartyRef && customerSnap.exists) {
+			const customerData = customerSnap.data() || {};
+			const customerPartyIds = Array.isArray(customerData.partyIds)
+				? customerData.partyIds
+				: [];
+
+			// Guests often build a basket before requesting the host. Reuse that
+			// pending dine-in party so seating keeps the existing shared basket.
+			for (const candidatePartyId of customerPartyIds.slice(-12).reverse()) {
+				if (!candidatePartyId || typeof candidatePartyId !== "string") {
+					continue;
+				}
+
+				const candidateRef = db.collection("parties").doc(candidatePartyId);
+				const candidateSnap = await transaction.get(candidateRef);
+				if (!candidateSnap.exists) continue;
+
+				const candidateData = candidateSnap.data() || {};
+				const isMatchingDineInParty =
+					candidateData.restaurantId === restaurantId &&
+					candidateData.hostUserId === customerId &&
+					(candidateData.orderMode || "dineIn") !== "pickup" &&
+					["pending", "AWAITING_TABLE"].includes(candidateData.status);
+
+				if (isMatchingDineInParty) {
+					resolvedPartyRef = candidateRef;
+					resolvedPartyId = candidatePartyId;
+					break;
+				}
+			}
+		}
+
+		if (resolvedPartyRef) {
+			const partySnap = await transaction.get(resolvedPartyRef);
 			if (!partySnap.exists) {
 				throw new functions.https.HttpsError("not-found", "Party not found.");
 			}
@@ -289,8 +325,8 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 			status: "REQUESTED",
 			type: reservationId ? "reservation_arrival" : "host_assigned_walk_in",
 			reservationId,
-			partyId,
-			associatedPartyId: partyId,
+			partyId: resolvedPartyId,
+			associatedPartyId: resolvedPartyId,
 			occasion,
 			seatingPreference,
 			allergyNotes,
@@ -307,7 +343,7 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 					status: "REQUESTED",
 					type: reservationId ? "reservation_arrival" : "host_assigned_walk_in",
 					reservationId,
-					partyId,
+					partyId: resolvedPartyId,
 				},
 			},
 			{ merge: true },
@@ -319,7 +355,7 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 				{
 					status: "arrival_requested",
 					arrivalCheckInId: checkInRef.id,
-					partyId,
+					partyId: resolvedPartyId,
 					arrivedAt: admin.firestore.FieldValue.serverTimestamp(),
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				},
@@ -327,9 +363,9 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 			);
 		}
 
-		if (partyRef) {
+		if (resolvedPartyRef) {
 			transaction.set(
-				partyRef,
+				resolvedPartyRef,
 				{
 					status: "AWAITING_TABLE",
 					checkInId: checkInRef.id,

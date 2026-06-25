@@ -1715,8 +1715,14 @@ const PartyCheckoutScreen = () => {
 
 							<Button
 								mode="contained"
-								onPress={() => {}}
-								disabled={true}
+								onPress={() => {
+									// Keep this tappable so testers can see why card payment is unavailable.
+									Alert.alert(
+										t("payment_unavailable", "Payment Unavailable"),
+										getPaymentConfigDebugMessage(),
+									);
+								}}
+								disabled={isPreparing}
 								style={[
 									styles.payButton,
 									{ flex: 1, backgroundColor: colors.borderLight },

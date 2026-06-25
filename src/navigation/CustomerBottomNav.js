@@ -256,6 +256,11 @@ const PartyStackScreen = () => {
 				})}
 			/>
 			<Stack.Screen
+				name="HostCheckInRequest"
+				component={HostCheckInRequestScreen}
+				options={{ headerTitle: "Request Check-In" }}
+			/>
+			<Stack.Screen
 				name="RestaurantDetailForPartyCreation" // If you navigate here from SelectRestaurantForParty
 				component={RestaurantDetailScreen} // Reusing RestaurantDetail
 				options={{ headerTitle: t("confirm_party_restaurant_title") }}

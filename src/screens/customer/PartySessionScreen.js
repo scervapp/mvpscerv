@@ -32,6 +32,8 @@ import PipInvitationModal from "../../components/customer/Party/PipInvitationMod
 import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
 import formatTimeLeft from "../../utils/formatTimeLeft";
+import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
+import { handleCancelCheckIn } from "../../utils/customerUtils";
 
 const DRINK_CATEGORIES = [
 	"Beer",
@@ -83,6 +85,7 @@ const PartySessionScreen = () => {
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 	const [isSendingItems, setIsSendingItems] = useState(false);
 	const [lastServiceRequest, setLastServiceRequest] = useState(0);
+	const [restaurantData, setRestaurantData] = useState(null);
 
 	// UI Upgrades State
 	const [showInviteCode, setShowInviteCode] = useState(false);
@@ -94,6 +97,53 @@ const PartySessionScreen = () => {
 		: false;
 	const displayInviteCode = currentParty?.inviteCode || localInviteCode;
 	const displayInviteExpiry = currentParty?.inviteCodeExpiry || null;
+	const restaurantConfig = useMemo(
+		() => getRestaurantExperienceConfig(restaurantData || currentParty || {}),
+		[restaurantData, currentParty],
+	);
+	const hostCheckInEnabled =
+		restaurantConfig.features.hostCheckInRequests === true;
+	const pendingHostCheckInRequest = useMemo(() => {
+		const activeCheckIn = currentUserData?.activeCheckIn || null;
+		const activeStatus = String(activeCheckIn?.status || "").toUpperCase();
+		const partyStatus = String(currentParty?.status || "").toUpperCase();
+
+		return (
+			(currentParty?.activeCheckInId && partyStatus === "AWAITING_TABLE") ||
+			(activeCheckIn?.restaurantId === currentParty?.restaurantId &&
+				["REQUESTED", "ACCEPTED"].includes(activeStatus))
+		);
+	}, [
+		currentParty?.activeCheckInId,
+		currentParty?.restaurantId,
+		currentParty?.status,
+		currentUserData?.activeCheckIn,
+	]);
+
+	useEffect(() => {
+		const restaurantId = currentParty?.restaurantId;
+		if (!restaurantId) {
+			setRestaurantData(null);
+			return undefined;
+		}
+
+		const unsubscribe = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.onSnapshot(
+				(docSnap) => {
+					setRestaurantData(
+						docSnap.exists ? { id: docSnap.id, ...docSnap.data() } : null,
+					);
+				},
+				(error) => {
+					console.error("Error loading party restaurant settings:", error);
+					setRestaurantData(null);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [currentParty?.restaurantId]);
 
 	// --- Virtual Service Bell Action ---
 	const handleCallServer = async () => {
@@ -240,6 +290,61 @@ const PartySessionScreen = () => {
 			],
 		);
 	};
+
+	const handleCancelHostCheckInRequest = useCallback(() => {
+		if (
+			!pendingHostCheckInRequest ||
+			!currentParty?.restaurantId ||
+			!currentUserData?.uid
+		) {
+			return;
+		}
+
+		Alert.alert(
+			t("cancel_check_in_request", "Cancel Check-In Request"),
+			t(
+				"cancel_check_in_request_confirm",
+				"Cancel the request you sent to the host?",
+			),
+			[
+				{ text: t("keep_request", "Keep Request"), style: "cancel" },
+				{
+					text: t("cancel_request", "Cancel Request"),
+					style: "destructive",
+					onPress: async () => {
+						setIsProcessingPartyCheckIn(true);
+						try {
+							if (
+								currentParty?.status === "AWAITING_TABLE" &&
+								currentParty?.activeCheckInId
+							) {
+								await cancelPartyCheckIn(
+									currentPartyId,
+									currentParty.activeCheckInId,
+								);
+							} else {
+								await handleCancelCheckIn(
+									currentParty.restaurantId,
+									currentUserData.uid,
+								);
+							}
+						} finally {
+							setIsProcessingPartyCheckIn(false);
+						}
+					},
+				},
+			],
+		);
+	}, [
+		currentParty?.restaurantId,
+		currentParty?.status,
+		currentParty?.activeCheckInId,
+		currentPartyId,
+		currentUserData?.uid,
+		cancelPartyCheckIn,
+		pendingHostCheckInRequest,
+		t,
+	]);
 
 	const handleShareInvite = async (codeOverride = null) => {
 		if (!currentPartyId) return;
@@ -558,7 +663,9 @@ const PartySessionScreen = () => {
 		return name.substring(0, 2).toUpperCase();
 	};
 
-	const partyIsPending = currentParty.status === "pending";
+	const partyIsPending = ["pending", "AWAITING_TABLE"].includes(
+		currentParty.status,
+	);
 	const partyIsActive = currentParty.status === "active";
 	const isMultiplayer = groupedBasket.length > 1;
 
@@ -786,55 +893,98 @@ const PartySessionScreen = () => {
 				<View style={styles.stickyBottomBar}>
 					{/* 1. THE PRE-BUILD STATE: User has a cart, but no table! */}
 					{partyIsPending && (
-						<View style={styles.stickySplitRow}>
-							{/* 🚨 NEW: Leave Party Option if Cart is Empty */}
-							{myItems.length === 0 ? (
-								<TouchableOpacity
-									style={styles.stickySecondaryBtn}
-									onPress={handleLeavePartyPress}
-								>
-									<Text
-										style={[
-											styles.stickySecondaryBtnText,
-											{ color: colors.statusDanger },
-										]}
-									>
-										{t("leave_party", "Leave Party")}
-									</Text>
-								</TouchableOpacity>
-							) : (
-								<TouchableOpacity
-									style={styles.stickySecondaryBtn}
-									onPress={handleAddMyItems}
-								>
-									<Text style={styles.stickySecondaryBtnText}>
-										+ {t("add_more", "Add More")}
-									</Text>
-								</TouchableOpacity>
-							)}
-
+						<View style={styles.pendingActionStack}>
+							{/* Keep pre-ordering available while the host request is pending. */}
 							<TouchableOpacity
-								style={[
-									styles.stickyPrimaryBtn,
-									{ flex: 2, backgroundColor: colors.primary },
-								]}
-								onPress={() =>
-									navigation.navigate("QRScannerScreen", {
-										restaurantId: currentParty?.restaurantId,
-										partyId: currentPartyId,
-									})
-								}
+								style={styles.pendingWideSecondaryBtn}
+								onPress={handleAddMyItems}
 							>
-								<MaterialCommunityIcons
-									name="qrcode-scan"
-									size={20}
-									color={colors.surfaceWhite}
-									style={{ marginRight: 8 }}
-								/>
-								<Text style={styles.stickyPrimaryBtnText}>
-									{t("scan_table", "Scan Table")}
+								<Text style={styles.pendingWideSecondaryText}>
+									+ {t("add_more", "Add More")}
 								</Text>
 							</TouchableOpacity>
+
+							<View style={styles.pendingPrimaryRow}>
+								<TouchableOpacity
+									disabled={
+										pendingHostCheckInRequest || isProcessingPartyCheckIn
+									}
+									style={[
+										styles.pendingPrimaryBtn,
+										{
+											backgroundColor: pendingHostCheckInRequest
+												? colors.textLight
+												: colors.primary,
+										},
+										(pendingHostCheckInRequest ||
+											isProcessingPartyCheckIn) &&
+											styles.pendingPrimaryBtnDisabled,
+									]}
+									onPress={() =>
+										navigation.navigate("QRScannerScreen", {
+											restaurantId: currentParty?.restaurantId,
+											partyId: currentPartyId,
+										})
+									}
+								>
+									<MaterialCommunityIcons
+										name="qrcode-scan"
+										size={18}
+										color={colors.surfaceWhite}
+										style={{ marginRight: 7 }}
+									/>
+									<Text style={styles.pendingPrimaryText}>
+										{t("scan_table", "Scan Table")}
+									</Text>
+								</TouchableOpacity>
+
+								{(hostCheckInEnabled || pendingHostCheckInRequest) && (
+									<TouchableOpacity
+										disabled={isProcessingPartyCheckIn}
+										style={[
+											styles.pendingPrimaryBtn,
+											{
+												backgroundColor: pendingHostCheckInRequest
+													? colors.statusDanger
+													: colors.brandOrange,
+											},
+											isProcessingPartyCheckIn &&
+												styles.pendingPrimaryBtnDisabled,
+										]}
+										onPress={
+											pendingHostCheckInRequest
+												? handleCancelHostCheckInRequest
+												: () =>
+														navigation.navigate("HostCheckInRequest", {
+															restaurant: restaurantData || {
+																id: currentParty?.restaurantId,
+																restaurantName:
+																	currentParty?.restaurantName,
+															},
+														})
+										}
+									>
+										<Ionicons
+											name={
+												pendingHostCheckInRequest
+													? "close-circle-outline"
+													: "person-add-outline"
+											}
+											size={18}
+											color={colors.surfaceWhite}
+											style={{ marginRight: 7 }}
+										/>
+										<Text style={styles.pendingPrimaryText}>
+											{pendingHostCheckInRequest
+												? t(
+														"cancel_check_in_request",
+														"Cancel Check-In Request",
+													)
+												: t("request_check_in", "Request Check-In")}
+										</Text>
+									</TouchableOpacity>
+								)}
+							</View>
 						</View>
 					)}
 
@@ -1259,6 +1409,47 @@ const styles = StyleSheet.create({
 	stickySplitRow: {
 		flexDirection: "row",
 		gap: 15,
+	},
+	pendingActionStack: {
+		gap: 10,
+	},
+	pendingWideSecondaryBtn: {
+		width: "100%",
+		justifyContent: "center",
+		alignItems: "center",
+		paddingVertical: 10,
+		borderRadius: 10,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	pendingWideSecondaryText: {
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "700",
+	},
+	pendingPrimaryRow: {
+		flexDirection: "row",
+		gap: 10,
+	},
+	pendingPrimaryBtn: {
+		flex: 1,
+		minHeight: 44,
+		flexDirection: "row",
+		justifyContent: "center",
+		alignItems: "center",
+		paddingVertical: 10,
+		paddingHorizontal: 10,
+		borderRadius: 10,
+	},
+	pendingPrimaryBtnDisabled: {
+		opacity: 0.65,
+	},
+	pendingPrimaryText: {
+		color: colors.surfaceWhite,
+		fontSize: 14,
+		fontWeight: "800",
+		textAlign: "center",
 	},
 	stickyPrimaryBtn: {
 		flexDirection: "row",

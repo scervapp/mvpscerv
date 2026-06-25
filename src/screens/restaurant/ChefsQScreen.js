@@ -125,6 +125,7 @@ const KitchenTicket = React.memo(
 		order,
 		onUpdateStatus,
 		onUpdateItemStatus,
+		onReleasePacing,
 		viewMode,
 		ticketWidth,
 		currentTime,
@@ -210,11 +211,21 @@ const KitchenTicket = React.memo(
 					getStationItemStatus(item, viewMode, itemStatusFallback),
 				),
 		).length;
-		const ticketActionKey = `${order.id}:${viewMode}:all`;
-		const isTicketUpdating = updatingKeys[ticketActionKey];
 		const isPickup = order.fulfillmentType === "hotel_pickup";
+		const pacingStatus = order.pacingStatus || "fired";
+		const isPacingHeld =
+			pacingStatus === "scheduled" || pacingStatus === "held";
+		const ticketActionKey = isPacingHeld
+			? `${order.id}:pacing:release`
+			: `${order.id}:${viewMode}:all`;
+		const isTicketUpdating = updatingKeys[ticketActionKey];
+		const fireAtDate = order.fireAt?.toDate ? order.fireAt.toDate() : null;
+		const fireInMinutes = fireAtDate
+			? moment(fireAtDate).diff(moment(currentTime), "minutes")
+			: null;
 
 		const getUrgencyColor = () => {
+			if (isPacingHeld) return "#7C3AED";
 			if (currentStatus === "ready") return colors.statusSuccess;
 			if (waitTime >= 20) return colors.statusDanger;
 			if (waitTime >= 10) return colors.statusWarning;
@@ -242,21 +253,34 @@ const KitchenTicket = React.memo(
 							<View
 								style={[
 									styles.ticketStatusChip,
-									{ backgroundColor: statusMeta.backgroundColor },
+									{
+										backgroundColor: isPacingHeld
+											? "#F5F3FF"
+											: statusMeta.backgroundColor,
+									},
 								]}
 							>
 								<MaterialCommunityIcons
-									name={statusMeta.icon}
+									name={isPacingHeld ? "timer-sand" : statusMeta.icon}
 									size={12}
-									color={statusMeta.color}
+									color={isPacingHeld ? "#7C3AED" : statusMeta.color}
 								/>
 								<Text
 									style={[
 										styles.ticketStatusText,
-										{ color: statusMeta.color },
+										{ color: isPacingHeld ? "#7C3AED" : statusMeta.color },
 									]}
 								>
-									{t(statusMeta.label, statusMeta.label)}
+									{isPacingHeld
+										? pacingStatus === "scheduled"
+											? fireInMinutes !== null && fireInMinutes > 0
+												? t("fires_in_minutes", {
+														defaultValue: `FIRES IN ${fireInMinutes}M`,
+														count: fireInMinutes,
+													})
+												: t("DUE TO FIRE", "DUE TO FIRE")
+											: t("HELD", "HELD")
+										: t(statusMeta.label, statusMeta.label)}
 								</Text>
 							</View>
 						</View>
@@ -270,7 +294,13 @@ const KitchenTicket = React.memo(
 						)}
 					</View>
 					<View style={[styles.timerBadge, { backgroundColor: urgencyColor }]}>
-						<Text style={styles.timerText}>{waitTime}m</Text>
+						<Text style={styles.timerText}>
+							{isPacingHeld
+								? fireInMinutes !== null && fireInMinutes > 0
+									? `+${fireInMinutes}m`
+									: "HOLD"
+								: `${waitTime}m`}
+						</Text>
 					</View>
 				</View>
 
@@ -366,13 +396,13 @@ const KitchenTicket = React.memo(
 								</View>
 
 								<TouchableOpacity
-									disabled={isItemReady || isItemUpdating}
+									disabled={isPacingHeld || isItemReady || isItemUpdating}
 									style={[
 										styles.itemStatusButton,
 										itemStatus === "new" && styles.itemStartButton,
 										itemStatus === "preparing" && styles.itemDoneButton,
 										isItemReady && styles.itemReadyButton,
-										isItemUpdating && styles.itemUpdatingButton,
+										(isPacingHeld || isItemUpdating) && styles.itemUpdatingButton,
 									]}
 									onPress={() =>
 										onUpdateItemStatus(
@@ -394,9 +424,11 @@ const KitchenTicket = React.memo(
 											]}
 											numberOfLines={1}
 										>
-											{isItemReady
+												{isItemReady
 												? t("READY", "READY")
-												: itemStatus === "new"
+												: isPacingHeld
+													? t("HELD", "HELD")
+													: itemStatus === "new"
 													? t("START", "START")
 													: t("READY", "READY")}
 										</Text>
@@ -411,23 +443,31 @@ const KitchenTicket = React.memo(
 					disabled={isTicketUpdating}
 					style={[
 						styles.actionButton,
-						currentStatus === "new"
+						isPacingHeld
+							? styles.fireNowButton
+							: currentStatus === "new"
 							? styles.preparingButton
 							: styles.readyButton,
 						isTicketUpdating && styles.actionButtonDisabled,
 					]}
 					onPress={() =>
-						onUpdateStatus(
-							order,
-							currentStatus === "new" ? "preparing" : "ready",
-							viewMode,
-						)
+						isPacingHeld
+							? onReleasePacing(order)
+							: onUpdateStatus(
+									order,
+									currentStatus === "new" ? "preparing" : "ready",
+									viewMode,
+								)
 					}
 				>
 					{isTicketUpdating ? (
 						<ActivityIndicator
 							size="small"
-							color={currentStatus === "new" ? colors.statusWarning : "#FFF"}
+							color={
+								isPacingHeld || currentStatus === "new"
+									? colors.statusWarning
+									: "#FFF"
+							}
 						/>
 					) : (
 						<Text
@@ -435,15 +475,101 @@ const KitchenTicket = React.memo(
 								styles.actionButtonText,
 								{
 									color:
-										currentStatus === "new" ? colors.statusWarning : "#FFF",
+										isPacingHeld || currentStatus === "new"
+											? colors.statusWarning
+											: "#FFF",
 								},
 							]}
 						>
-							{currentStatus === "new"
+							{isPacingHeld
+								? t("FIRE NOW", "FIRE NOW")
+								: currentStatus === "new"
 								? t("START TICKET", "START TICKET")
 								: t("READY OPEN ITEMS", "READY OPEN ITEMS")}
 							{"  "}
 							<Text style={styles.actionButtonCount}>({openCount})</Text>
+						</Text>
+					)}
+				</TouchableOpacity>
+			</View>
+		);
+	},
+);
+
+const UpcomingTicket = React.memo(
+	({ order, viewMode, currentTime, onReleasePacing, updatingKeys }) => {
+		const { t, i18n } = useTranslation();
+		const currentLang = i18n.language?.substring(0, 2) || "en";
+		const pacingStatus = order.pacingStatus || "held";
+		const fireAtDate = order.fireAt?.toDate ? order.fireAt.toDate() : null;
+		const fireInMinutes = fireAtDate
+			? moment(fireAtDate).diff(moment(currentTime), "minutes")
+			: null;
+		const isUpdating = updatingKeys[`${order.id}:pacing:release`];
+		const itemsToDisplay =
+			order.items?.filter((item) => itemBelongsToStation(item, viewMode)) || [];
+
+		const getLocalizedText = (value) => {
+			if (!value) return "";
+			if (typeof value === "string") return value;
+			return value[currentLang] || value.en || value.es || value.original || "";
+		};
+
+		return (
+			<View style={styles.upcomingTicket}>
+				<View style={styles.upcomingTicketHeader}>
+					<View style={{ flex: 1, minWidth: 0 }}>
+						<Text style={styles.upcomingTable} numberOfLines={1}>
+							{order.table?.name || "Table"}
+						</Text>
+						<Text style={styles.upcomingMeta} numberOfLines={1}>
+							{pacingStatus === "scheduled" && fireInMinutes !== null
+								? fireInMinutes > 0
+									? t("fires_in_minutes", {
+											defaultValue: `Fires in ${fireInMinutes}m`,
+											count: fireInMinutes,
+										})
+									: t("due_to_fire", "Due to fire")
+								: t("manual_hold", "Manual hold")}
+						</Text>
+					</View>
+					<View style={styles.upcomingPill}>
+						<Text style={styles.upcomingPillText}>
+							{pacingStatus === "scheduled"
+								? t("upcoming", "Upcoming")
+								: t("held", "Held")}
+						</Text>
+					</View>
+				</View>
+
+				{itemsToDisplay.slice(0, 3).map((item, index) => (
+					<Text
+						key={`${item.id || item.dishName}-${index}`}
+						style={styles.upcomingItem}
+						numberOfLines={1}
+					>
+						{item.quantity || 1}x {getLocalizedText(item.dishName) || item.dishName}
+					</Text>
+				))}
+				{itemsToDisplay.length > 3 ? (
+					<Text style={styles.upcomingMoreText}>
+						+{itemsToDisplay.length - 3} {t("more", "more")}
+					</Text>
+				) : null}
+
+				<TouchableOpacity
+					disabled={isUpdating}
+					style={[
+						styles.upcomingFireButton,
+						isUpdating && styles.actionButtonDisabled,
+					]}
+					onPress={() => onReleasePacing(order)}
+				>
+					{isUpdating ? (
+						<ActivityIndicator size="small" color="#92400E" />
+					) : (
+						<Text style={styles.upcomingFireButtonText}>
+							{t("fire_now", "Fire Now")}
 						</Text>
 					)}
 				</TouchableOpacity>
@@ -460,6 +586,7 @@ const ChefsQScreen = ({ navigation }) => {
 	const { activeSession } = useEmployeeSession();
 	const [orders, setOrders] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [loadError, setLoadError] = useState(null);
 	const [viewMode, setViewMode] = useState("kitchen");
 	const [updatingKeys, setUpdatingKeys] = useState({});
 	const [currentTime, setCurrentTime] = useState(Date.now());
@@ -468,6 +595,10 @@ const ChefsQScreen = ({ navigation }) => {
 		functions,
 		"updateKitchenOrderStationStatus",
 	);
+	const releaseKitchenOrderPacingFunction = httpsCallable(
+		functions,
+		"releaseKitchenOrderPacing",
+	);
 
 	// 🚨 NEW: Fullscreen State
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -475,6 +606,10 @@ const ChefsQScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const insets = useSafeAreaInsets();
 	const isFocused = useIsFocused();
+	const restaurantId = useMemo(
+		() => currentUserData?.restaurantId || currentUserData?.uid || null,
+		[currentUserData?.restaurantId, currentUserData?.uid],
+	);
 
 	// 1. Force Landscape Layout
 	useFocusEffect(
@@ -555,35 +690,62 @@ const ChefsQScreen = ({ navigation }) => {
 		return () => clearInterval(timerInterval);
 	}, []);
 
-	// 4. Mathematical Grid
-	const numColumns = Math.max(1, Math.floor(width / 320));
-	const ticketWidth = width / numColumns - 16;
-
-	// 5. Firestore Sync
+	// 4. Firestore Sync
 	useEffect(() => {
-		const restaurantId = currentUserData?.uid;
-		if (!restaurantId) return;
+		if (!restaurantId) {
+			setOrders([]);
+			setLoadError(null);
+			setIsLoading(false);
+			return undefined;
+		}
+
+		let isMounted = true;
+		setIsLoading(true);
+		setLoadError(null);
 
 		const unsubscribe = db
 			.collection("kitchen_orders")
 			.where("restaurantId", "==", restaurantId)
 			.where("overallStatus", "==", "active")
 			.orderBy("createdAt", "asc")
-			.onSnapshot((snap) => {
-				if (!snap) return;
-				console.log("[KDS ORDERS] Snapshot received", {
-					count: snap.docs.length,
-				});
-				setOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-				setIsLoading(false);
-			});
-		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+			.onSnapshot(
+				(snap) => {
+					if (!isMounted || !snap) return;
+					console.log("[KDS ORDERS] Snapshot received", {
+						restaurantId,
+						count: snap.docs.length,
+					});
+					setOrders(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+					setLoadError(null);
+					setIsLoading(false);
+				},
+				(error) => {
+					console.error("ChefsQ: Error loading kitchen orders:", error);
+					if (!isMounted) return;
+					setOrders([]);
+					setLoadError(
+						error?.message ||
+							t(
+								"failed_to_load_kitchen_queue",
+								"Failed to load kitchen queue.",
+							),
+					);
+					setIsLoading(false);
+				},
+			);
+		return () => {
+			isMounted = false;
+			unsubscribe();
+		};
+	}, [restaurantId, t]);
 
-	// 6. Client Filtering
-	const filteredOrders = useMemo(() => {
-		if (!orders || !Array.isArray(orders)) return [];
-		return orders.filter((o) => {
+	// 5. Split the queue: active tickets stay in the main KDS, paced tickets sit in Upcoming.
+	const stationOrderBuckets = useMemo(() => {
+		const active = [];
+		const upcoming = [];
+		if (!orders || !Array.isArray(orders)) return { active, upcoming };
+
+		orders.forEach((o) => {
 			const stationItems =
 				o.items?.filter((item) => itemBelongsToStation(item, viewMode)) || [];
 			const status = o.stationStatuses?.[viewMode] || "new";
@@ -596,13 +758,39 @@ const ChefsQScreen = ({ navigation }) => {
 				(item) =>
 					getStationItemStatus(item, viewMode, itemStatusFallback) !== "ready",
 			);
-			return (
-				stationItems.length > 0 &&
-				hasOpenItems &&
-				["new", "preparing"].includes(status)
-			);
+			if (stationItems.length === 0 || !hasOpenItems) return;
+
+			const pacingStatus = o.pacingStatus || "fired";
+			if (pacingStatus === "scheduled" || pacingStatus === "held") {
+				upcoming.push(o);
+				return;
+			}
+
+			if (["new", "preparing"].includes(status)) {
+				active.push(o);
+			}
 		});
+
+		upcoming.sort((a, b) => {
+			const aFireAt = a.fireAt?.toMillis ? a.fireAt.toMillis() : Number.MAX_SAFE_INTEGER;
+			const bFireAt = b.fireAt?.toMillis ? b.fireAt.toMillis() : Number.MAX_SAFE_INTEGER;
+			if (aFireAt !== bFireAt) return aFireAt - bFireAt;
+			const aCreatedAt = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+			const bCreatedAt = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+			return aCreatedAt - bCreatedAt;
+		});
+
+		return { active, upcoming };
 	}, [orders, viewMode]);
+	const filteredOrders = stationOrderBuckets.active;
+	const upcomingOrders = stationOrderBuckets.upcoming;
+	const hasUpcomingRail = upcomingOrders.length > 0;
+	const upcomingRailWidth = hasUpcomingRail ? Math.min(280, Math.max(230, width * 0.24)) : 0;
+
+	// 6. Mathematical Grid
+	const activeGridWidth = Math.max(320, width - upcomingRailWidth);
+	const numColumns = Math.max(1, Math.floor(activeGridWidth / 320));
+	const ticketWidth = activeGridWidth / numColumns - 16;
 
 	const runWithUpdatingKey = useCallback(async (key, updateFn) => {
 		setUpdatingKeys((current) => ({ ...current, [key]: true }));
@@ -616,6 +804,52 @@ const ChefsQScreen = ({ navigation }) => {
 			});
 		}
 	}, []);
+
+	const applyLocalStationStatus = useCallback(
+		(orderId, station, status, itemId = null) => {
+			setOrders((currentOrders) =>
+				currentOrders.map((order) => {
+					if (order.id !== orderId) return order;
+
+					const currentItems = Array.isArray(order.items) ? order.items : [];
+					const updatedItems = currentItems.map((item) => {
+						const shouldUpdateItem = itemId
+							? item.id === itemId
+							: itemBelongsToStation(item, station);
+
+						if (!shouldUpdateItem) return item;
+
+						return {
+							...item,
+							stationStatuses: {
+								...(item.stationStatuses || {}),
+								[station]: status,
+							},
+						};
+					});
+
+					const stationItems = updatedItems.filter((item) =>
+						itemBelongsToStation(item, station),
+					);
+					const aggregateStatus = deriveStationStatusFromItems(
+						stationItems,
+						station,
+						order.stationStatuses?.[station] || "new",
+					);
+
+					return {
+						...order,
+						items: updatedItems,
+						stationStatuses: {
+							...(order.stationStatuses || {}),
+							[station]: aggregateStatus,
+						},
+					};
+				}),
+			);
+		},
+		[],
+	);
 
 	const staffName =
 		activeSession?.name ||
@@ -636,6 +870,7 @@ const ChefsQScreen = ({ navigation }) => {
 						staffName,
 					}),
 				);
+				applyLocalStationStatus(order.id, station, newStatus);
 			} catch (e) {
 				console.error("Update ticket failed:", e);
 				Alert.alert("Error", "Update failed");
@@ -643,6 +878,7 @@ const ChefsQScreen = ({ navigation }) => {
 		},
 		[
 			activeSession?.id,
+			applyLocalStationStatus,
 			runWithUpdatingKey,
 			staffName,
 			updateKitchenOrderStationStatusFunction,
@@ -663,6 +899,7 @@ const ChefsQScreen = ({ navigation }) => {
 						staffName,
 					}),
 				);
+				applyLocalStationStatus(order.id, station, newStatus, item.id);
 			} catch (e) {
 				console.error("Update item failed:", e);
 				Alert.alert("Error", "Update failed");
@@ -670,9 +907,34 @@ const ChefsQScreen = ({ navigation }) => {
 		},
 		[
 			activeSession?.id,
+			applyLocalStationStatus,
 			runWithUpdatingKey,
 			staffName,
 			updateKitchenOrderStationStatusFunction,
+		],
+	);
+
+	const handleReleasePacing = useCallback(
+		async (order) => {
+			const updateKey = `${order.id}:pacing:release`;
+			try {
+				await runWithUpdatingKey(updateKey, () =>
+					releaseKitchenOrderPacingFunction({
+						orderId: order.id,
+						staffId: activeSession?.id || null,
+						staffName,
+					}),
+				);
+			} catch (e) {
+				console.error("Release paced ticket failed:", e);
+				Alert.alert("Error", "Could not fire this held ticket.");
+			}
+		},
+		[
+			activeSession?.id,
+			releaseKitchenOrderPacingFunction,
+			runWithUpdatingKey,
+			staffName,
 		],
 	);
 
@@ -680,6 +942,9 @@ const ChefsQScreen = ({ navigation }) => {
 		return (
 			<View style={styles.centered}>
 				<ActivityIndicator size="large" color={colors.primary} />
+				<Text style={styles.loadingText}>
+					{t("loading_kitchen_queue", "Loading kitchen queue...")}
+				</Text>
 			</View>
 		);
 
@@ -780,34 +1045,76 @@ const ChefsQScreen = ({ navigation }) => {
 				</View>
 			)}
 
-			<FlatList
-				data={filteredOrders}
-				numColumns={numColumns}
-				key={`${numColumns}-${viewMode}`}
-				removeClippedSubviews
-				initialNumToRender={12}
-				maxToRenderPerBatch={12}
-				windowSize={7}
-				renderItem={({ item }) => (
-					<KitchenTicket
-						order={item}
-						onUpdateStatus={handleUpdateOrderStatus}
-						onUpdateItemStatus={handleUpdateItemStatus}
-						viewMode={viewMode}
-						ticketWidth={ticketWidth}
-						currentTime={currentTime}
-						updatingKeys={updatingKeys}
-					/>
-				)}
-				keyExtractor={(item) => item.id}
-				contentContainerStyle={styles.grid}
-				ListEmptyComponent={
-					<View style={styles.emptyContainer}>
-						<Ionicons name="checkmark-done-circle" size={80} color="#334155" />
-						<Text style={styles.emptyText}>{t("Queue is Clear")}</Text>
+			<View style={styles.queueLayout}>
+				<FlatList
+					data={filteredOrders}
+					numColumns={numColumns}
+					key={`${numColumns}-${viewMode}-${hasUpcomingRail ? "rail" : "full"}`}
+					extraData={`${currentTime}-${Object.keys(updatingKeys).join(",")}`}
+					initialNumToRender={12}
+					maxToRenderPerBatch={12}
+					windowSize={7}
+					renderItem={({ item }) => (
+						<KitchenTicket
+							order={item}
+							onUpdateStatus={handleUpdateOrderStatus}
+							onUpdateItemStatus={handleUpdateItemStatus}
+							onReleasePacing={handleReleasePacing}
+							viewMode={viewMode}
+							ticketWidth={ticketWidth}
+							currentTime={currentTime}
+							updatingKeys={updatingKeys}
+						/>
+					)}
+					keyExtractor={(item) => item.id}
+					contentContainerStyle={styles.grid}
+					style={styles.activeQueueList}
+					ListEmptyComponent={
+						<View style={styles.emptyContainer}>
+							<Ionicons
+								name={
+									loadError
+										? "alert-circle-outline"
+										: "checkmark-done-circle"
+								}
+								size={80}
+								color="#334155"
+							/>
+							<Text style={styles.emptyText}>
+								{loadError || t("Queue is Clear")}
+							</Text>
+						</View>
+					}
+				/>
+
+				{hasUpcomingRail && (
+					<View style={[styles.upcomingRail, { width: upcomingRailWidth }]}>
+						<View style={styles.upcomingRailHeader}>
+							<Text style={styles.upcomingRailEyebrow}>
+								{t("upcoming", "Upcoming")}
+							</Text>
+							<Text style={styles.upcomingRailCount}>
+								{upcomingOrders.length}
+							</Text>
+						</View>
+						<FlatList
+							data={upcomingOrders}
+							keyExtractor={(item) => item.id}
+							extraData={`${currentTime}-${Object.keys(updatingKeys).join(",")}`}
+							contentContainerStyle={styles.upcomingRailList}
+							renderItem={({ item }) => (
+								<UpcomingTicket
+									order={item}
+									viewMode={viewMode}
+									currentTime={currentTime}
+									onReleasePacing={handleReleasePacing}
+									updatingKeys={updatingKeys}
+								/>
+							)}
+						/>
 					</View>
-				}
-			/>
+				)}
+			</View>
 		</SafeAreaView>
 	);
 };
@@ -819,6 +1126,12 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		alignItems: "center",
 		backgroundColor: "#0F172A",
+	},
+	loadingText: {
+		color: "#CBD5E1",
+		fontSize: 15,
+		fontWeight: "800",
+		marginTop: 12,
 	},
 	summaryBar: {
 		flexDirection: "row",
@@ -883,7 +1196,113 @@ const styles = StyleSheet.create({
 	},
 	activeTabText: { color: "#FFF" },
 
+	queueLayout: {
+		flex: 1,
+		flexDirection: "row",
+	},
+	activeQueueList: {
+		flex: 1,
+	},
 	grid: { padding: 8 },
+	upcomingRail: {
+		backgroundColor: "#111827",
+		borderLeftWidth: 3,
+		borderLeftColor: "#F59E0B",
+		paddingHorizontal: 10,
+		paddingTop: 10,
+	},
+	upcomingRailHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 10,
+		paddingBottom: 8,
+		borderBottomWidth: 1,
+		borderBottomColor: "rgba(255,255,255,0.10)",
+	},
+	upcomingRailEyebrow: {
+		color: "#FCD34D",
+		fontSize: 13,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
+	upcomingRailCount: {
+		color: "#111827",
+		backgroundColor: "#FCD34D",
+		borderRadius: 999,
+		overflow: "hidden",
+		paddingHorizontal: 8,
+		paddingVertical: 2,
+		fontSize: 12,
+		fontWeight: "900",
+	},
+	upcomingRailList: {
+		paddingBottom: 20,
+	},
+	upcomingTicket: {
+		backgroundColor: "#FEF3C7",
+		borderRadius: 8,
+		padding: 10,
+		marginBottom: 10,
+		borderWidth: 1,
+		borderColor: "#F59E0B",
+	},
+	upcomingTicketHeader: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		marginBottom: 8,
+	},
+	upcomingTable: {
+		color: "#78350F",
+		fontSize: 15,
+		fontWeight: "900",
+	},
+	upcomingMeta: {
+		color: "#92400E",
+		fontSize: 11,
+		fontWeight: "800",
+		marginTop: 2,
+	},
+	upcomingPill: {
+		backgroundColor: "#FFF7ED",
+		borderRadius: 999,
+		paddingHorizontal: 7,
+		paddingVertical: 3,
+		marginLeft: 6,
+	},
+	upcomingPillText: {
+		color: "#92400E",
+		fontSize: 9,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
+	upcomingItem: {
+		color: "#1F2937",
+		fontSize: 12,
+		fontWeight: "800",
+		marginTop: 3,
+	},
+	upcomingMoreText: {
+		color: "#92400E",
+		fontSize: 11,
+		fontWeight: "800",
+		marginTop: 4,
+	},
+	upcomingFireButton: {
+		backgroundColor: "#FFF7ED",
+		borderWidth: 1,
+		borderColor: "#F59E0B",
+		borderRadius: 6,
+		paddingVertical: 9,
+		alignItems: "center",
+		marginTop: 10,
+	},
+	upcomingFireButtonText: {
+		color: "#92400E",
+		fontSize: 12,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
 	ticketContainer: {
 		backgroundColor: "#FFF",
 		borderRadius: 8,
@@ -1044,6 +1463,7 @@ const styles = StyleSheet.create({
 		borderBottomRightRadius: 8,
 	},
 	preparingButton: { backgroundColor: colors.statusWarning + "15" },
+	fireNowButton: { backgroundColor: "#FEF3C7" },
 	readyButton: { backgroundColor: colors.statusSuccess },
 	actionButtonDisabled: { opacity: 0.75 },
 	actionButtonText: { fontWeight: "900", fontSize: 16, letterSpacing: 0 },

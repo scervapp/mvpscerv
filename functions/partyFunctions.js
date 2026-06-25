@@ -1073,6 +1073,11 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 					"Check-in ID mismatch.",
 				);
 
+			const checkInData = checkInDoc.data();
+			const customerRef = checkInData && checkInData.customerId
+				? db.collection("customers").doc(checkInData.customerId)
+				: null;
+
 			// --- Perform Updates ---
 			// 1. Revert the party's status back to 'pending' and remove the linked check-in ID.
 			transaction.update(partyRef, {
@@ -1081,7 +1086,16 @@ exports.cancelPartyCheckIn = functions.https.onCall(async (data, context) => {
 				lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 			});
 
-			// 2. DELETE the check-in document entirely
+			// 2. Clear the customer's active request so refreshes do not show stale state.
+			if (customerRef) {
+				transaction.set(
+					customerRef,
+					{ activeCheckIn: admin.firestore.FieldValue.delete() },
+					{ merge: true },
+				);
+			}
+
+			// 3. DELETE the check-in document entirely
 			transaction.delete(checkInRef);
 
 			console.log(

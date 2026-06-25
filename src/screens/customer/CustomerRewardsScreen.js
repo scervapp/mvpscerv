@@ -25,7 +25,7 @@ const WALLET_BADGES = [
 	{
 		id: "first_points",
 		label: "First Earn",
-		icon: "creation-outline",
+		icon: "sparkles-outline",
 		isUnlocked: ({ lifetimePoints }) => lifetimePoints > 0,
 	},
 	{
@@ -37,13 +37,13 @@ const WALLET_BADGES = [
 	{
 		id: "perk_hunter",
 		label: "Perk Hunter",
-		icon: "ticket-percent-outline",
+		icon: "ticket-outline",
 		isUnlocked: ({ unlockedCount }) => unlockedCount >= 3,
 	},
 	{
 		id: "regular",
 		label: "Regular",
-		icon: "account-star-outline",
+		icon: "star-outline",
 		isUnlocked: ({ lifetimePoints }) => lifetimePoints >= 1000,
 	},
 ];
@@ -477,7 +477,7 @@ const CustomerRewardsScreen = () => {
 					<StatPill icon="star-four-points-outline" label="Lifetime" value={lifetimePoints.toLocaleString()} />
 					<StatPill icon="storefront-outline" label="Clubs" value={clubs.length.toString()} />
 					<StatPill
-						icon="ticket-percent-outline"
+						icon="ticket-confirmation-outline"
 						label="Perks"
 						value={(unlockedCount + availablePromotions.length).toString()}
 					/>

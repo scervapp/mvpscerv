@@ -99,7 +99,9 @@ const itemMatchesSearch = (item, query) => {
 		getLocalizedValue(item, "name"),
 		getLocalizedValue(item, "description"),
 		item.category,
+		item.standardCategory,
 		...(item.searchKeywords || []),
+		...(item.dishTypeTags || []),
 		...(item.ingredientTags || []),
 		...(item.cuisineTags || []),
 		...(item.dietaryTags || []),
@@ -114,6 +116,105 @@ const itemMatchesSearch = (item, query) => {
 		.split(/\s+/)
 		.filter(Boolean)
 		.every((token) => searchableText.includes(token));
+};
+
+const normalizeMenuCategory = (value) =>
+	normalizeSearchText(value)
+		.replace(/&/g, "and")
+		.replace(/\s+/g, " ");
+
+const getCategoryRank = (category, item = {}) => {
+	if (item?.isDailySpecial) return 0;
+	const normalized = normalizeMenuCategory(category);
+
+	if (["daily special", "daily specials", "specials"].includes(normalized)) {
+		return 0;
+	}
+	if (["breakfast", "brunch"].includes(normalized)) return 5;
+	if (
+		[
+			"appetizers",
+			"appetizer",
+			"starters",
+			"starter",
+			"snacks",
+			"small plates",
+			"raw bar",
+		].includes(normalized)
+	) {
+		return 10;
+	}
+	if (["soups", "soup", "salads", "salad"].includes(normalized)) return 20;
+	if (
+		[
+			"entrees",
+			"entree",
+			"mains",
+			"main",
+			"main course",
+			"main courses",
+			"ramen",
+			"bowls",
+			"bowl",
+			"pasta",
+			"seafood",
+			"grill",
+			"steaks",
+			"steak",
+			"burgers",
+			"burger",
+			"sushi",
+			"sashimi",
+			"nigiri",
+			"sandwiches",
+			"sandwich",
+			"pizza",
+			"tacos",
+		].includes(normalized)
+	) {
+		return 30;
+	}
+	if (["sides", "side", "extras", "sauces"].includes(normalized)) return 40;
+	if (
+		[
+			"drinks",
+			"drink",
+			"beverages",
+			"beverage",
+			"cocktails",
+			"cocktail",
+			"beer",
+			"wine",
+			"spirits",
+			"spirit",
+			"non-alcoholic drinks",
+			"sodas",
+			"juices",
+			"coffee",
+			"tea",
+		].includes(normalized)
+	) {
+		return 50;
+	}
+	if (["desserts", "dessert"].includes(normalized)) return 60;
+	if (["kids menu", "kids"].includes(normalized)) return 70;
+	return 900;
+};
+
+const getMenuSortOrder = (item) => {
+	const explicitSort = Number(item?.menuSortOrder ?? item?.sortOrder);
+	if (Number.isFinite(explicitSort)) return explicitSort;
+	return getCategoryRank(item?.category, item) * 100;
+};
+
+const sortMenuItemsForSection = (a, b) => {
+	const sortDiff = getMenuSortOrder(a) - getMenuSortOrder(b);
+	if (sortDiff !== 0) return sortDiff;
+	const scoreDiff = getDiscoveryScore(b) - getDiscoveryScore(a);
+	if (scoreDiff !== 0) return scoreDiff;
+	return String(getLocalizedValue(a, "name")).localeCompare(
+		String(getLocalizedValue(b, "name")),
+	);
 };
 
 const MenuItemRow = ({
@@ -379,7 +480,7 @@ const MenuItemsList = ({
 
 		const grouped = filteredItems.reduce((acc, item) => {
 			const category = item.isDailySpecial
-				? t("daily_special_category")
+				? t("daily_special_category", "Daily Special")
 				: item.category || t("other_category");
 
 			if (!acc[category]) {
@@ -389,31 +490,16 @@ const MenuItemsList = ({
 			return acc;
 		}, {});
 
-		const categoryOrder = [
-			t("daily_special_category"),
-			t("appetizers_category"),
-			t("entrees_category"),
-			t("desserts_category"),
-			t("sides_category"),
-			t("drinks_category"),
-			t("beer_category"),
-			t("wine_category"),
-			t("cocktails_category"),
-			t("non_alcoholic_drinks_category"),
-			t("other_category"),
-		];
-
 		return Object.keys(grouped)
 			.sort((a, b) => {
-				const indexA = categoryOrder.indexOf(a);
-				const indexB = categoryOrder.indexOf(b);
-				if (indexA === -1 && indexB > -1) return 1;
-				if (indexA > -1 && indexB === -1) return -1;
-				return indexA - indexB;
+				const rankA = getCategoryRank(a);
+				const rankB = getCategoryRank(b);
+				if (rankA !== rankB) return rankA - rankB;
+				return String(a).localeCompare(String(b));
 			})
 			.map((category) => ({
 				title: category,
-				data: grouped[category],
+				data: [...grouped[category]].sort(sortMenuItemsForSection),
 			}))
 			.filter((section) => section.data.length > 0);
 	}, [menuItems, searchQuery, sortMode, t, i18n.language]);

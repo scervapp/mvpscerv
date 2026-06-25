@@ -23,6 +23,7 @@ import colors from "../../utils/styles/appStyles";
 import { NotificationBanner } from "../../utils/NotificationBanner";
 import CompleteProfileScreen from "../auth/CompleteProfile";
 import CustomSearchBar from "./CustomSearchBar";
+import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -135,15 +136,33 @@ const getRatingCount = (menuItem = {}) => {
 const getMenuItemSearchText = (menuItem = {}) => {
 	const tags = Array.isArray(menuItem.tags) ? menuItem.tags : [];
 	const tokens = Array.isArray(menuItem.searchTokens) ? menuItem.searchTokens : [];
+	const searchKeywords = Array.isArray(menuItem.searchKeywords)
+		? menuItem.searchKeywords
+		: [];
+	const dishTypeTags = Array.isArray(menuItem.dishTypeTags)
+		? menuItem.dishTypeTags
+		: [];
+	const ingredientTags = Array.isArray(menuItem.ingredientTags)
+		? menuItem.ingredientTags
+		: [];
+	const flavorTags = Array.isArray(menuItem.flavorTags)
+		? menuItem.flavorTags
+		: [];
 
 	return [
 		menuItem.name,
 		menuItem.dishName,
+		getDiscoveryDishLabel(menuItem),
 		menuItem.category,
+		menuItem.standardCategory,
 		menuItem.description,
 		menuItem.restaurantName,
 		...tags,
 		...tokens,
+		...searchKeywords,
+		...dishTypeTags,
+		...ingredientTags,
+		...flavorTags,
 	]
 		.filter(Boolean)
 		.join(" ")
@@ -160,7 +179,17 @@ const chunkArray = (items, size) => {
 
 const matchesTerms = (searchableText, terms = []) =>
 	terms.length === 0 ||
-	terms.some((term) => searchableText.includes(normalize(term)));
+	terms.some((term) => {
+		const normalizedTerm = normalize(term);
+		if (!normalizedTerm) return true;
+		if (searchableText.includes(normalizedTerm)) return true;
+
+		const tokens = normalizedTerm.split(/\s+/).filter(Boolean);
+		return (
+			tokens.length > 1 &&
+			tokens.every((token) => searchableText.includes(token))
+		);
+	});
 
 const SectionHeader = ({ title, subtitle }) => (
 	<View style={styles.sectionHeader}>
@@ -241,7 +270,7 @@ const TopFoodCard = ({ item, restaurant, onPress }) => {
 			)}
 			<View style={styles.foodInfo}>
 				<Text style={styles.foodName} numberOfLines={2}>
-					{item.name || item.dishName || "Menu item"}
+					{getDiscoveryDishLabel(item)}
 				</Text>
 				<Text style={styles.foodRestaurant} numberOfLines={1}>
 					{restaurant?.restaurantName || item.restaurantName || "Restaurant"}
@@ -421,6 +450,11 @@ const CustomerDashboard = ({ navigation }) => {
 		}
 	};
 
+	const handleTopFoodPress = (item) => {
+		setActiveIntent("all");
+		setSearchText(getDiscoveryDishLabel(item));
+	};
+
 	const areaOptions = useMemo(() => {
 		const areas = allRestaurants
 			.map(getRestaurantArea)
@@ -507,13 +541,34 @@ const CustomerDashboard = ({ navigation }) => {
 			});
 	}, [debouncedSearchText, selectedIntent.terms, visibleMenuItems]);
 
-	const topFoodResults = useMemo(
-		() =>
-			matchingMenuItems
-				.filter((item) => getFoodRating(item))
-				.slice(0, isActivelySearching || activeIntent !== "all" ? 10 : 8),
-		[activeIntent, isActivelySearching, matchingMenuItems],
-	);
+	const topFoodResults = useMemo(() => {
+		const bestItemByDisplayLabel = new Map();
+
+		matchingMenuItems
+			.filter((item) => getFoodRating(item))
+			.forEach((item) => {
+				const displayLabel = getDiscoveryDishLabel(item);
+				const key = normalize(displayLabel);
+				const current = bestItemByDisplayLabel.get(key);
+
+				if (!current) {
+					bestItemByDisplayLabel.set(key, item);
+					return;
+				}
+
+				const ratingDiff =
+					(getFoodRating(item) || 0) - (getFoodRating(current) || 0);
+				const countDiff = getRatingCount(item) - getRatingCount(current);
+				if (ratingDiff > 0 || (ratingDiff === 0 && countDiff > 0)) {
+					bestItemByDisplayLabel.set(key, item);
+				}
+			});
+
+		return [...bestItemByDisplayLabel.values()].slice(
+			0,
+			isActivelySearching || activeIntent !== "all" ? 10 : 8,
+		);
+	}, [activeIntent, isActivelySearching, matchingMenuItems]);
 
 	const bestFoodByRestaurantId = useMemo(() => {
 		const map = new Map();
@@ -746,9 +801,7 @@ const CustomerDashboard = ({ navigation }) => {
 									<TopFoodCard
 										item={item}
 										restaurant={restaurant}
-										onPress={() => {
-											if (restaurant) handleRestaurantPress(restaurant);
-										}}
+										onPress={() => handleTopFoodPress(item)}
 									/>
 								);
 							}}

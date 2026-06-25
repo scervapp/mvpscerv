@@ -133,6 +133,7 @@ const SelectedItemModal = ({
 	const [orderTargets, setOrderTargets] = useState([]);
 	const [reviewHighlights, setReviewHighlights] = useState([]);
 	const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+	const [isAllReviewsVisible, setIsAllReviewsVisible] = useState(false);
 
 	const [isPipInstructionModalVisible, setIsPipInstructionModalVisible] =
 		useState(false);
@@ -216,6 +217,7 @@ const SelectedItemModal = ({
 		if (!visible || !selectedItem?.id) {
 			setReviewHighlights([]);
 			setIsLoadingReviews(false);
+			setIsAllReviewsVisible(false);
 			return undefined;
 		}
 
@@ -225,7 +227,6 @@ const SelectedItemModal = ({
 			.doc(selectedItem.id)
 			.collection("ratings")
 			.orderBy("ratingValue", "desc")
-			.limit(5)
 			.onSnapshot(
 				(snapshot) => {
 					const reviews = snapshot.docs
@@ -682,35 +683,56 @@ const SelectedItemModal = ({
 							{t("loading_reviews", "Loading reviews...")}
 						</Text>
 					) : (
-						reviewHighlights.slice(0, 3).map((review) => {
-							const reviewText = review.reviewText || review.comment || "";
-							if (!reviewText) return null;
-							const reviewAuthor =
-								review.customerId === currentUserData?.uid
-									? t("you_label", "You")
-									: review.customerDisplayName ||
-										review.customerName ||
-										t("scerv_guest", "Scerv guest");
-							return (
-								<View key={review.id} style={styles.reviewCard}>
-									<View style={styles.reviewCardHeader}>
-										<StarRatingDisplay
-											rating={Number(review.ratingValue || 0)}
-											size={12}
-										/>
-										<Text style={styles.reviewAuthorText}>
-											{reviewAuthor}
-										</Text>
-									</View>
-									<Text style={styles.reviewQuoteText} numberOfLines={3}>
-										"{reviewText}"
-									</Text>
-								</View>
-							);
-						})
+						reviewHighlights
+							.slice(0, 3)
+							.map((review) => renderReviewCard(review, { numberOfLines: 3 }))
+					)}
+
+					{reviewHighlights.length > 3 && (
+						<TouchableOpacity
+							style={styles.viewAllReviewsButton}
+							activeOpacity={0.75}
+							onPress={() => setIsAllReviewsVisible(true)}
+						>
+							<Text style={styles.viewAllReviewsText}>
+								{t("view_all_reviews", "View all reviews")} (
+								{reviewHighlights.length})
+							</Text>
+							<Ionicons
+								name="chevron-forward"
+								size={16}
+								color={colors.primary}
+							/>
+						</TouchableOpacity>
 					)}
 				</View>
 			</>
+		);
+	};
+
+	const getReviewAuthor = (review = {}) =>
+		review.customerId === currentUserData?.uid
+			? t("you_label", "You")
+			: review.customerDisplayName ||
+				review.customerName ||
+				t("scerv_guest", "Scerv guest");
+
+	const renderReviewCard = (review, options = {}) => {
+		const reviewText = review.reviewText || review.comment || "";
+		if (!reviewText && !options.showRatingOnly) return null;
+
+		return (
+			<View key={review.id} style={styles.reviewCard}>
+				<View style={styles.reviewCardHeader}>
+					<StarRatingDisplay rating={Number(review.ratingValue || 0)} size={12} />
+					<Text style={styles.reviewAuthorText}>{getReviewAuthor(review)}</Text>
+				</View>
+				<Text style={styles.reviewQuoteText} numberOfLines={options.numberOfLines}>
+					{reviewText
+						? `"${reviewText}"`
+						: t("rating_only_review", "Rating only")}
+				</Text>
+			</View>
 		);
 	};
 
@@ -1011,17 +1033,7 @@ const SelectedItemModal = ({
 							disabled={isLoading}
 							loading={isLoading}
 						>
-							{t("add_to_basket_button", {
-								quantity: quantity,
-								basketType:
-									orderingMode === "party"
-										? t("party_basket", "party basket")
-										: t("my_basket", "my basket"),
-								defaultValue:
-									orderingMode === "party"
-										? `Add ${quantity} to party basket`
-										: `Add ${quantity} to my basket`,
-							})}
+							{t("add_button", "Add")}
 						</Button>
 					</View>
 				</View>
@@ -1036,6 +1048,64 @@ const SelectedItemModal = ({
 					onSaveInstructions={handleSaveTargetInstructions}
 				/>
 			)}
+
+			<Modal
+				visible={isAllReviewsVisible}
+				animationType="slide"
+				transparent={true}
+				onRequestClose={() => setIsAllReviewsVisible(false)}
+			>
+				<View style={styles.modalOverlay}>
+					<View style={styles.allReviewsModalContent}>
+						<View style={styles.allReviewsHeader}>
+							<View style={styles.allReviewsTitleBlock}>
+								<Text style={styles.allReviewsTitle}>
+									{t("all_reviews_title", "All reviews")}
+								</Text>
+								<Text style={styles.allReviewsSubtitle} numberOfLines={1}>
+									{getLocalizedText(selectedItem && selectedItem.name)}
+								</Text>
+							</View>
+							<IconButton
+								icon="close-circle"
+								size={28}
+								onPress={() => setIsAllReviewsVisible(false)}
+								color={colors.textMedium}
+							/>
+						</View>
+
+						{ratingSummary.averageRating > 0 && (
+							<View style={styles.allReviewsSummary}>
+								<StarRatingDisplay rating={ratingSummary.averageRating} size={14} />
+								<Text style={styles.ratingSummaryText}>
+									{ratingSummary.averageRating.toFixed(1)}
+								</Text>
+								<Text style={styles.reviewMetaText}>
+									{ratingSummary.ratingCount}{" "}
+									{ratingSummary.ratingCount === 1
+										? t("rating", "rating")
+										: t("ratings", "ratings")}
+								</Text>
+							</View>
+						)}
+
+						<ScrollView
+							showsVerticalScrollIndicator={false}
+							contentContainerStyle={styles.allReviewsScrollContent}
+						>
+							{reviewHighlights.length > 0 ? (
+								reviewHighlights.map((review) =>
+									renderReviewCard(review, { showRatingOnly: true }),
+								)
+							) : (
+								<Text style={styles.reviewMetaText}>
+									{t("no_reviews_yet", "No reviews yet.")}
+								</Text>
+							)}
+						</ScrollView>
+					</View>
+				</View>
+			</Modal>
 		</Modal>
 	);
 };
@@ -1191,6 +1261,59 @@ const styles = StyleSheet.create({
 		lineHeight: 18,
 		color: colors.textDark,
 		fontWeight: "600",
+	},
+	viewAllReviewsButton: {
+		marginTop: 10,
+		paddingVertical: 10,
+		paddingHorizontal: 12,
+		borderRadius: 10,
+		backgroundColor: colors.lightBlue || "#EEF6FF",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	viewAllReviewsText: {
+		fontSize: 13,
+		fontWeight: "700",
+		color: colors.primary,
+	},
+	allReviewsModalContent: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		width: "90%",
+		maxHeight: "82%",
+		paddingHorizontal: 18,
+		paddingTop: 10,
+		paddingBottom: 16,
+	},
+	allReviewsHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 8,
+	},
+	allReviewsTitleBlock: {
+		flex: 1,
+		paddingRight: 12,
+	},
+	allReviewsTitle: {
+		fontSize: 19,
+		fontWeight: "800",
+		color: colors.textDark,
+	},
+	allReviewsSubtitle: {
+		marginTop: 2,
+		fontSize: 13,
+		color: colors.textMedium,
+	},
+	allReviewsSummary: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		marginBottom: 10,
+	},
+	allReviewsScrollContent: {
+		paddingBottom: 6,
 	},
 	groupDescription: {
 		fontSize: 13,

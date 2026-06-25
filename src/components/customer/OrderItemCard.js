@@ -95,26 +95,41 @@ const OrderItemCard = (props) => {
 		const status = liveTrackerStatus || (isSentToKitchen ? "sent" : "new");
 
 		switch (status) {
-			case "preparing":
+			case "served":
+			case "delivered":
+			case "completed":
 				return {
-					text: t("preparing", "Preparing"),
-					color: colors.statusWarning,
-					bg: colors.statusWarning + "20",
-					icon: "fire",
-				};
-			case "ready":
-				return {
-					text: t("ready", "Ready"),
+					text: t("delivered_to_table", "Delivered"),
 					color: colors.statusSuccess,
 					bg: colors.statusSuccess + "20",
 					icon: "check-circle",
+					step: 3,
 				};
+			case "ready":
+			case "on_the_way":
+				return {
+					text: t("order_on_the_way", "On the way"),
+					color: colors.statusSuccess,
+					bg: colors.statusSuccess + "20",
+					icon: "silverware-fork-knife",
+					step: 3,
+				};
+			case "preparing":
+				return {
+					text: t("order_being_prepared", "Being prepared"),
+					color: colors.statusWarning,
+					bg: colors.statusWarning + "20",
+					icon: "fire",
+					step: 2,
+				};
+			case "fired":
 			case "sent":
 				return {
-					text: t("sent", "Sent"),
-					color: colors.textMedium,
-					bg: colors.backgroundMedium,
+					text: t("order_received", "Order received"),
+					color: colors.primary,
+					bg: colors.primary + "15",
 					icon: "clock-outline",
+					step: 1,
 				};
 			default:
 				return null;
@@ -122,6 +137,11 @@ const OrderItemCard = (props) => {
 	};
 
 	const badgeConfig = getStatusBadge();
+	const compactTrackerSteps = [
+		t("order_received_short", "Received"),
+		t("order_preparing_short", "Preparing"),
+		t("order_on_the_way_short", "On the way"),
+	];
 
 	return (
 		<View
@@ -148,7 +168,7 @@ const OrderItemCard = (props) => {
 					>
 						{isSentToKitchen ? (
 							<MaterialCommunityIcons
-								name="check-circle"
+								name={badgeConfig?.icon || "check-circle"}
 								size={isCompactVariant ? 18 : 24}
 								color={badgeConfig?.color || colors.statusSuccess}
 							/>
@@ -235,21 +255,65 @@ const OrderItemCard = (props) => {
 						</View>
 					)}
 
-					{badgeConfig && !isCompactVariant && (
+					{badgeConfig && !isPickupVariant && (
 						<View
-							style={[styles.statusBadge, { backgroundColor: badgeConfig.bg }]}
+							style={[
+								styles.statusBadge,
+								isCompactVariant && styles.compactStatusBadge,
+								{ backgroundColor: badgeConfig.bg },
+							]}
 						>
 							<MaterialCommunityIcons
 								name={badgeConfig.icon}
-								size={14}
+								size={isCompactVariant ? 12 : 14}
 								color={badgeConfig.color}
 								style={{ marginRight: 4 }}
 							/>
 							<Text
-								style={[styles.statusBadgeText, { color: badgeConfig.color }]}
+								style={[
+									styles.statusBadgeText,
+									isCompactVariant && styles.compactStatusBadgeText,
+									{ color: badgeConfig.color },
+								]}
 							>
 								{badgeConfig.text}
 							</Text>
+						</View>
+					)}
+
+					{badgeConfig && isCompactVariant && (
+						<View style={styles.compactProgressRail}>
+							{compactTrackerSteps.map((stepLabel, index) => {
+								const stepNumber = index + 1;
+								const isComplete = badgeConfig.step >= stepNumber;
+
+								return (
+									<View key={stepLabel} style={styles.compactProgressStep}>
+										<View
+											style={[
+												styles.compactProgressDot,
+												{
+													backgroundColor: isComplete
+														? badgeConfig.color
+														: colors.borderLight,
+												},
+											]}
+										/>
+										<Text
+											style={[
+												styles.compactProgressLabel,
+												isComplete && {
+													color: badgeConfig.color,
+													fontWeight: "700",
+												},
+											]}
+											numberOfLines={1}
+										>
+											{stepLabel}
+										</Text>
+									</View>
+								);
+							})}
 						</View>
 					)}
 				</View>
@@ -444,6 +508,36 @@ const styles = StyleSheet.create({
 	statusBadgeText: {
 		fontSize: 12,
 		fontWeight: "bold",
+	},
+	compactStatusBadge: {
+		marginTop: 4,
+		paddingHorizontal: 6,
+		paddingVertical: 3,
+		borderRadius: 8,
+	},
+	compactStatusBadgeText: {
+		fontSize: 10,
+	},
+	compactProgressRail: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 5,
+		gap: 6,
+	},
+	compactProgressStep: {
+		flexDirection: "row",
+		alignItems: "center",
+		maxWidth: 72,
+	},
+	compactProgressDot: {
+		width: 6,
+		height: 6,
+		borderRadius: 3,
+		marginRight: 3,
+	},
+	compactProgressLabel: {
+		fontSize: 9,
+		color: colors.textLight,
 	},
 	controlsAndPriceContainer: {
 		alignItems: "flex-end",

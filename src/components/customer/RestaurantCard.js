@@ -3,6 +3,7 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
+import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
 
 const getFoodRating = (menuItem = {}) => {
 	const safeMenuItem = menuItem || {};
@@ -26,8 +27,9 @@ const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
 	const imageUri = restaurant.imageUri;
 	const bestFoodRating = getFoodRating(bestMatchingFood);
 	const bestFoodRatingCount = getRatingCount(bestMatchingFood);
-	const bestFoodName =
-		bestMatchingFood?.name || bestMatchingFood?.dishName || null;
+	const bestFoodName = bestMatchingFood
+		? getDiscoveryDishLabel(bestMatchingFood)
+		: null;
 	const area = [
 		restaurant.area || restaurant.neighborhood || restaurant.city,
 		restaurant.state,
