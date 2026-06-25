@@ -1,38 +1,194 @@
-.App {
-  text-align: center;
+* {
+	box-sizing: border-box;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+body {
+	margin: 0;
+	background: #f8fafc;
+	color: #0f172a;
+	font-family:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+		sans-serif;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+button,
+input,
+select,
+textarea {
+	font: inherit;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+.admin-shell {
+	min-height: 100vh;
+	position: relative;
+	padding-top: 0;
+	background: #f8fafc;
+	border: 8px solid #f59e0b;
+	border-top: 0;
 }
 
-.App-link {
-  color: #61dafb;
+.environment-rail {
+	display: none;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.admin-shell-production .environment-rail {
+	display: none;
+}
+
+.admin-shell-production {
+	border-color: #ef4444;
+}
+
+.environment-banner {
+	position: relative;
+	height: 34px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	background: #f59e0b;
+	color: #111827;
+	font-size: 12px;
+	font-weight: 900;
+	letter-spacing: 0;
+	text-transform: uppercase;
+}
+
+.admin-shell-production .environment-banner {
+	background: #dc2626;
+	color: #fff;
+}
+
+.environment-pill {
+	background: rgba(255, 255, 255, 0.86);
+	border-radius: 999px;
+	color: #111827;
+	padding: 3px 9px;
+}
+
+.environment-banner strong {
+	font-weight: 950;
+}
+
+.admin-content {
+	min-height: calc(100vh - 190px);
+	padding: 24px 18px 56px;
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	background: #f8fafc;
+	color: #0f172a;
+}
+
+.route-state-card {
+	width: min(680px, calc(100vw - 42px));
+	margin: 42px auto;
+	padding: 24px;
+	border-radius: 18px;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	color: #0f172a;
+	box-shadow: 0 22px 60px rgba(2, 6, 23, 0.26);
+	font-size: 16px;
+	font-weight: 900;
+	text-align: center;
+}
+
+.route-state-card p {
+	margin: 0 0 12px;
+}
+
+.route-error-card {
+	text-align: left;
+}
+
+.route-error-card code {
+	display: block;
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: #991b1b;
+	font-weight: 800;
+}
+
+a {
+	color: inherit;
+}
+
+.dashboard-container,
+.restaurants-container,
+.customers-container,
+.command-center,
+.command-center-container,
+.admin-users-container,
+.audit-logs-container,
+.audit-log-container,
+.support-cases-container,
+.promotions-container,
+.demo-leads-container,
+.newsletter-subscribers-container,
+.data-explorer-container,
+.create-restaurant-container,
+.restaurant-details-container,
+.restaurant-menu-container,
+.customer-detail-container,
+.order-support-container {
+	max-width: 1280px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.customers-container,
+.command-center-container,
+.admin-users-container,
+.audit-log-container,
+.support-cases-container,
+.promotions-container,
+.demo-leads-container,
+.newsletter-subscribers-container,
+.data-explorer-container,
+.create-restaurant-container,
+.restaurant-details-container,
+.restaurant-menu-container,
+.customer-detail-container,
+.order-support-container {
+	color: #0f172a;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	border-radius: 18px;
+	box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.restaurants-header h2,
+.dashboard-container h1 {
+	color: #0f172a;
+}
+
+.restaurants-header span,
+.dashboard-container > p,
+.restaurants-kicker {
+	color: #475569;
+}
+
+@media (max-width: 760px) {
+	.environment-rail {
+		display: none;
+	}
+
+	.environment-banner {
+		height: auto;
+		min-height: 34px;
+		padding: 6px 14px;
+		flex-wrap: wrap;
+		text-align: center;
+	}
+
+	.admin-shell {
+		padding-top: 0;
+		border-width: 5px;
+		border-top: 0;
+	}
+
+	.admin-content {
+		padding: 18px 12px 38px;
+	}
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
-import { functions } from "../config/firebase";
+import { functions, selectedAdminEnvironment } from "../config/firebase";
 import "./styles/Customers.css";
 
 const Customers = () => {
@@ -36,7 +36,9 @@ const Customers = () => {
 						: customerData // Replace on initial load
 			);
 		} catch (err) {
-			setError("Error fetching customers.");
+			setError(
+				`Error fetching customers from ${selectedAdminEnvironment.projectId}: ${err.code || "unknown"} ${err.message || ""}`
+			);
 			console.error("Error fetching data:", err);
 		} finally {
 			setLoading(false);

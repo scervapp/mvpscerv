@@ -1,68 +1,181 @@
-/* web-app/admin/src/components/styles/Restaurants.css */
 .restaurants-container {
-    font-family: sans-serif;
-    padding: 20px;
+	padding: 28px;
+	color: #0f172a;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	border-radius: 18px;
+	box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
 }
 
 .restaurants-header {
-    align-items: center;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
+	align-items: flex-end;
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 18px;
+}
+
+.restaurants-kicker {
+	margin: 0 0 6px;
+	color: #475569;
+	font-size: 12px;
+	font-weight: 950;
+	letter-spacing: 0;
+	text-transform: uppercase;
 }
 
 .restaurants-header h2 {
-    margin: 0;
+	margin: 0;
+	color: #0f172a;
+	font-size: 34px;
+	font-weight: 950;
+	letter-spacing: 0;
+}
+
+.restaurants-header span {
+	display: inline-flex;
+	margin-top: 6px;
+	color: #64748b;
+	font-size: 13px;
+	font-weight: 800;
+}
+
+.restaurants-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+.restaurants-panel {
+	background: rgba(255, 255, 255, 0.98);
+	border: 1px solid rgba(226, 232, 240, 0.95);
+	border-radius: 18px;
+	box-shadow: 0 22px 60px rgba(2, 6, 23, 0.28);
+	overflow: hidden;
+	padding: 16px;
 }
 
 .restaurants-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
 }
 
 .restaurants-table th,
 .restaurants-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
+	border-bottom: 1px solid #e2e8f0;
+	padding: 13px 12px;
+	text-align: left;
 }
 
 .restaurants-table th {
-    background-color: #f2f2f2;
+	background-color: #f8fafc;
+	color: #475569;
+	font-size: 11px;
+	font-weight: 950;
+	letter-spacing: 0;
+	text-transform: uppercase;
 }
 
-.restaurants-table tr:nth-child(even) {
-    background-color: #f9f9f9;
+.restaurants-table td {
+	color: #0f172a;
+	font-size: 14px;
+	font-weight: 750;
+}
+
+.restaurants-table tr:last-child td {
+	border-bottom: 0;
+}
+
+.restaurants-table tr:hover td {
+	background: #f0fdfa;
+}
+
+.view-details-button,
+.secondary-button,
+.restaurants-panel.error button {
+	border: none;
+	border-radius: 10px;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 950;
+	min-height: 38px;
+	padding: 9px 13px;
 }
 
 .view-details-button {
-    background-color: #007bff; /* Blue */
-    color: white;
-    padding: 5px 10px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
+	background: linear-gradient(135deg, #0f766e, #0891b2);
+	color: white;
+	box-shadow: 0 12px 24px rgba(8, 145, 178, 0.22);
 }
-.view-details-button:hover {
-    background-color: #0056b3;
+
+.secondary-button {
+	background: #fff;
+	border: 1px solid #cbd5e1;
+	color: #334155;
+}
+
+.secondary-button:disabled,
+.view-details-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.65;
 }
 
 .load-more-button {
-    background-color: #28a745; /* Green */
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-top: 10px;
-    display: block; /* Make it a block-level element */
-    margin-left: auto; /* Center horizontally */
-    margin-right: auto;
+	background-color: #0f766e;
+	color: white;
+	padding: 10px 15px;
+	border: none;
+	border-radius: 10px;
+	cursor: pointer;
+	margin: 14px auto 0;
+	display: block;
+	font-weight: 950;
 }
-.load-more-button:hover{
-     background-color: #1e7e34;
+
+.restaurants-empty {
+	padding: 34px;
+	text-align: center;
 }
-.error {
-    color: red;
+
+.restaurants-empty h3 {
+	margin: 0 0 8px;
+	color: #0f172a;
+}
+
+.restaurants-empty p {
+	margin: 0;
+	color: #64748b;
+	font-weight: 800;
+}
+
+.restaurants-panel.error {
+	color: #991b1b;
+	background: #fff7f7;
+	border-color: #fecaca;
+}
+
+.restaurants-panel.error p {
+	margin-top: 0;
+	font-weight: 850;
+}
+
+@media (max-width: 760px) {
+	.restaurants-container {
+		padding: 18px;
+	}
+
+	.restaurants-header {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.restaurants-table {
+		min-width: 680px;
+	}
+
+	.restaurants-panel {
+		overflow-x: auto;
+	}
 }

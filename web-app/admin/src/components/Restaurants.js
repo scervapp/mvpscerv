@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { db } from "../config/firebase";
+import { db, selectedAdminEnvironment } from "../config/firebase";
 import {
 	collection,
 	getDocs,
@@ -17,6 +17,7 @@ const Restaurants = () => {
 	const [error, setError] = useState(null);
 	const [lastVisible, setLastVisible] = useState(null); // For pagination
 	const [hasMore, setHasMore] = useState(true); // For pagination
+	const [lastLoadedAt, setLastLoadedAt] = useState(null);
 	const navigate = useNavigate(); // For programmatic navigation
 
 	// --- Pagination (Basic Example) ---
@@ -60,8 +61,11 @@ const Restaurants = () => {
 						? [...prevRestaurants, ...restaurantData] // Append
 						: restaurantData // Replace on initial load
 			);
+			setLastLoadedAt(new Date());
 		} catch (err) {
-			setError("Error fetching restaurants.");
+			setError(
+				`Error fetching restaurants from ${selectedAdminEnvironment.projectId}: ${err.message || err.code || "Unknown error"}`,
+			);
 			console.error("Error fetching data:", err);
 		} finally {
 			setLoading(false);
@@ -78,33 +82,78 @@ const Restaurants = () => {
 		}
 	};
 
+	const refreshRestaurants = () => {
+		setRestaurants([]);
+		setLastVisible(null);
+		setHasMore(true);
+		fetchRestaurants();
+	};
+
 	const handleViewDetails = (id) => {
 		navigate(`/restaurants/${id}`); // Programmatically navigate
 	};
 
 	if (loading && restaurants.length === 0) {
-		return <div className="restaurants-container">Loading...</div>;
+		return (
+			<div className="restaurants-container">
+				<div className="restaurants-panel">Loading restaurants...</div>
+			</div>
+		);
 	}
 
 	if (error) {
-		return <div className="restaurants-container error">{error}</div>;
+		return (
+			<div className="restaurants-container">
+				<div className="restaurants-panel error">
+					<p>{error}</p>
+					<button type="button" onClick={refreshRestaurants}>
+						Try again
+					</button>
+				</div>
+			</div>
+		);
 	}
 
 	return (
 		<div className="restaurants-container">
 			<div className="restaurants-header">
-				<h2>Restaurants</h2>
-				<button
-					type="button"
-					className="view-details-button"
-					onClick={() => navigate("/restaurants/new")}
-				>
-					Add Restaurant
-				</button>
+				<div>
+					<p className="restaurants-kicker">
+						{selectedAdminEnvironment.label} / {selectedAdminEnvironment.projectId}
+					</p>
+					<h2>Restaurants</h2>
+					<span>
+						{restaurants.length} loaded
+						{lastLoadedAt ? ` · refreshed ${lastLoadedAt.toLocaleTimeString()}` : ""}
+					</span>
+				</div>
+				<div className="restaurants-actions">
+					<button
+						type="button"
+						className="secondary-button"
+						onClick={refreshRestaurants}
+						disabled={loading}
+					>
+						Refresh
+					</button>
+					<button
+						type="button"
+						className="view-details-button"
+						onClick={() => navigate("/restaurants/new")}
+					>
+						Add Restaurant
+					</button>
+				</div>
 			</div>
-			{restaurants.length === 0 && !loading ? (
-				<p>No Restaurants Found</p>
-			) : (
+			<div className="restaurants-panel">
+				{restaurants.length === 0 && !loading ? (
+					<div className="restaurants-empty">
+						<h3>No restaurants found in {selectedAdminEnvironment.projectId}</h3>
+						<p>
+							The query completed, but no restaurant documents were returned.
+						</p>
+					</div>
+				) : (
 				<table className="restaurants-table">
 					<thead>
 						<tr>
@@ -134,7 +183,8 @@ const Restaurants = () => {
 						))}
 					</tbody>
 				</table>
-			)}
+				)}
+			</div>
 
 			{hasMore && !loading && (
 				<button onClick={loadMore} className="load-more-button">

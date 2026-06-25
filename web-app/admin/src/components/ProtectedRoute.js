@@ -43,7 +43,7 @@ const ProtectedRoute = ({ children, requiredRole }) => {
 	}, [userUid]);
 
 	if (loading || (user && !roleChecked)) {
-		return <div>Loading...</div>;
+		return <div className="route-state-card">Loading admin workspace...</div>;
 	}
 
 	if (!user) {

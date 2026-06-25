@@ -3,7 +3,7 @@ import { getAuth, signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import "./styles/Dashboard.css";
 import { httpsCallable } from "firebase/functions";
-import { functions } from "../config/firebase";
+import { functions, selectedAdminEnvironment } from "../config/firebase";
 
 const Dashboard = () => {
 	const [loading, setLoading] = useState(false);
@@ -42,7 +42,9 @@ const Dashboard = () => {
 					);
 				} catch (error) {
 					console.error("Error fetching data:", error);
-					setError("Failed to load dashboard data.");
+					setError(
+						`Failed to load dashboard data from ${selectedAdminEnvironment.projectId}: ${error.code || "unknown"} ${error.message || ""}`
+					);
 				}
 			}
 			setLoading(false);

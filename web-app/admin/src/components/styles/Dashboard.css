@@ -1,72 +1,101 @@
-/* web-app/admin/src/components/Dashboard.css */
 .dashboard-container {
-    font-family: sans-serif;
-    padding: 20px;
-    max-width: 800px; /* Or whatever width you prefer */
-    margin: 0 auto;
+	padding: 28px;
+	color: #0f172a;
 }
 
 .dashboard-container h1 {
-    margin-bottom: 10px;
+	margin: 0 0 8px;
+	color: #fff;
+	font-size: 36px;
+	font-weight: 950;
+	letter-spacing: 0;
+}
+
+.dashboard-container > p {
+	margin: 0 0 22px;
+	color: #cbd5e1;
+	font-size: 15px;
+	font-weight: 800;
 }
 
 .dashboard-section {
-    margin-bottom: 20px;
-    border: 1px solid #ddd;
-    padding: 15px;
-    border-radius: 4px;
+	margin-bottom: 18px;
+	border: 1px solid rgba(226, 232, 240, 0.95);
+	padding: 18px;
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.98);
+	box-shadow: 0 22px 60px rgba(2, 6, 23, 0.22);
 }
 
 .dashboard-section h2 {
-    margin-top: 0;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 5px;
+	margin: 0 0 14px;
+	color: #0f172a;
+	font-size: 18px;
+	font-weight: 950;
+	letter-spacing: 0;
 }
 
 .dashboard-button {
-    background-color: #007bff; /* Blue */
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-right: 10px;
-    text-decoration: none; /* Remove underline from links */
-    display: inline-block; /* For consistent spacing */
-}
-.dashboard-button:hover{
-    background-color: #0056b3;
+	background: linear-gradient(135deg, #0f766e, #0891b2);
+	color: white;
+	padding: 10px 15px;
+	border: none;
+	border-radius: 10px;
+	cursor: pointer;
+	margin: 0 10px 10px 0;
+	text-decoration: none;
+	display: inline-block;
+	font-weight: 950;
+	box-shadow: 0 12px 24px rgba(8, 145, 178, 0.22);
 }
 
 .dashboard-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: space-between; /* Distribute stats evenly */
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 12px;
 }
 
 .dashboard-stat {
-    flex: 1 1 160px; /* Each stat takes equal width */
-    padding: 10px;
-    border: 1px solid #eee;
-    border-radius: 4px;
-    text-align: center;
+	padding: 16px;
+	border: 1px solid #e2e8f0;
+	border-radius: 14px;
+	background: #f8fafc;
+	text-align: left;
 }
 
 .dashboard-stat h3 {
-    margin-top: 0;
-    margin-bottom: 5px; /* Reduce bottom margin */
+	margin: 0 0 8px;
+	color: #475569;
+	font-size: 12px;
+	font-weight: 950;
+	letter-spacing: 0;
+	text-transform: uppercase;
 }
 
-/* Style for the large count */
 .stat-count {
-    font-size: 36px; /* Make the count very large */
-    font-weight: bold;
-    color: #007bff; /* Use a prominent color */
-    margin: 0; /* Remove any default margins */
+	font-size: 34px;
+	font-weight: 950;
+	color: #0f766e;
+	margin: 0;
 }
 
-.error {
-    color: red;
+.dashboard-container.error {
+	width: min(680px, calc(100vw - 42px));
+	margin: 42px auto;
+	border-radius: 18px;
+	background: #fff7f7;
+	border: 1px solid #fecaca;
+	color: #991b1b;
+	font-weight: 900;
+	box-shadow: 0 22px 60px rgba(2, 6, 23, 0.26);
+}
+
+@media (max-width: 760px) {
+	.dashboard-container {
+		padding: 18px;
+	}
+
+	.dashboard-container h1 {
+		font-size: 30px;
+	}
 }

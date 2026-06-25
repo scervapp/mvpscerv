@@ -1,6 +1,12 @@
 import React, { useState } from "react";
 import { sendPasswordResetEmail, signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../config/firebase";
+import {
+	ADMIN_ENVIRONMENTS,
+	auth,
+	selectedAdminEnvironment,
+	selectedAdminEnvironmentKey,
+	switchAdminEnvironment,
+} from "../config/firebase";
 import { useNavigate } from "react-router-dom";
 import "./styles/SignIn.css";
 
@@ -65,9 +71,49 @@ const SignIn = () => {
 		}
 	};
 
+	const handleEnvironmentChange = (event) => {
+		const nextEnvironmentKey = event.target.value;
+		if (nextEnvironmentKey === selectedAdminEnvironmentKey) return;
+
+		const nextEnvironment = ADMIN_ENVIRONMENTS[nextEnvironmentKey];
+		if (
+			nextEnvironmentKey === "production" &&
+			!window.confirm(
+				"Switch to PRODUCTION? You will sign into the live admin workspace.",
+			)
+		) {
+			return;
+		}
+
+		if (nextEnvironment) {
+			switchAdminEnvironment(nextEnvironmentKey);
+		}
+	};
+
 	return (
 		<div className="signin-container">
-			<h2>Scerv Admin</h2>
+			<div className="signin-card-header">
+				<span className={`signin-env-badge ${selectedAdminEnvironment.tone}`}>
+					{selectedAdminEnvironment.shortLabel}
+				</span>
+				<p>Scerv Admin</p>
+				<h2>Operator Console</h2>
+				<span>{selectedAdminEnvironment.projectId}</span>
+			</div>
+			<label className="signin-environment-picker" htmlFor="signin-environment">
+				Workspace
+				<select
+					id="signin-environment"
+					value={selectedAdminEnvironmentKey}
+					onChange={handleEnvironmentChange}
+				>
+					{Object.values(ADMIN_ENVIRONMENTS).map((environment) => (
+						<option key={environment.key} value={environment.key}>
+							{environment.label}
+						</option>
+					))}
+				</select>
+			</label>
 			{error && <p className="error-message">{error}</p>}
 			{message && <p className="success-message">{message}</p>}
 			<form onSubmit={handleSignIn}>

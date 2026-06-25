@@ -960,35 +960,28 @@ exports.getScervAdminDashboardStats = functions.https.onCall(
 	async (data, context) => {
 		requireScervAdmin(context);
 
-		const [
-			restaurantsSnapshot,
-			customersSnapshot,
-			ordersSnapshot,
-			leadsSnapshot,
-			newsletterSnapshot,
-		] = await Promise.all([
-			db.collection("restaurants").count().get(),
-			db.collection("customers").count().get(),
-			db.collection("orders").count().get(),
-			db
-				.collection("demoRequests")
-				.where("status", "==", "new")
-				.count()
-				.get(),
-			db
-				.collection("newsletterSubscribers")
-				.where("status", "==", "subscribed")
-				.count()
-				.get(),
-		]);
+		const safeCount = async (label, queryRef) => {
+			try {
+				const snapshot = await queryRef.count().get();
+				return snapshot.data().count || 0;
+			} catch (error) {
+				console.error(`Failed to count ${label} for admin dashboard`, error);
+				return 0;
+			}
+		};
 
 		return {
-			totalRestaurants: restaurantsSnapshot.data().count || 0,
-			totalCustomers: customersSnapshot.data().count || 0,
-			totalOrders: ordersSnapshot.data().count || 0,
-			newDemoLeads: leadsSnapshot.data().count || 0,
-			activeNewsletterSubscribers:
-				newsletterSnapshot.data().count || 0,
+			totalRestaurants: await safeCount("restaurants", db.collection("restaurants")),
+			totalCustomers: await safeCount("customers", db.collection("customers")),
+			totalOrders: await safeCount("orders", db.collection("orders")),
+			newDemoLeads: await safeCount(
+				"new demo requests",
+				db.collection("demoRequests").where("status", "==", "new"),
+			),
+			activeNewsletterSubscribers: await safeCount(
+				"active newsletter subscribers",
+				db.collection("newsletterSubscribers").where("status", "==", "subscribed"),
+			),
 		};
 	},
 );

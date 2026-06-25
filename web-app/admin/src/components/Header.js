@@ -3,7 +3,13 @@ import { Link, NavLink } from "react-router-dom";
 import { getIdTokenResult } from "firebase/auth";
 import "./Header.css";
 import logo from "../assets/scerv_logo.png";
-import { auth } from "../config/firebase";
+import {
+	ADMIN_ENVIRONMENTS,
+	auth,
+	selectedAdminEnvironment,
+	selectedAdminEnvironmentKey,
+	switchAdminEnvironment,
+} from "../config/firebase";
 import { canManageAdminUsers, normalizeAdminRole } from "../utils/adminRoles";
 
 const Header = () => {
@@ -28,12 +34,46 @@ const Header = () => {
 		loadRole();
 	}, []);
 
+	const handleEnvironmentChange = (event) => {
+		const nextEnvironmentKey = event.target.value;
+		if (nextEnvironmentKey === selectedAdminEnvironmentKey) return;
+
+		const nextEnvironment = ADMIN_ENVIRONMENTS[nextEnvironmentKey];
+		if (
+			nextEnvironmentKey === "production" &&
+			!window.confirm(
+				"Switch to PRODUCTION? This portal will manage live Scerv records.",
+			)
+		) {
+			return;
+		}
+
+		if (
+			nextEnvironment &&
+			window.confirm(
+				`Switch admin portal to ${nextEnvironment.label} (${nextEnvironment.projectId})? You will be sent back to sign in for that environment.`,
+			)
+		) {
+			switchAdminEnvironment(nextEnvironmentKey);
+		}
+	};
+
 	return (
 		<header className="header">
+			<div className="header-status-line">
+				<span className="status-dot" />
+				<span>{selectedAdminEnvironment.description}</span>
+			</div>
 			<div className="header-container">
-				<Link to="/" className="logo">
-					<img src={logo} alt="Scerv Logo" className="logo-image" />
-				</Link>
+				<div className="brand-lockup">
+					<Link to="/" className="logo">
+						<img src={logo} alt="Scerv Logo" className="logo-image" />
+					</Link>
+					<div>
+						<p className="brand-eyebrow">Scerv Admin</p>
+						<h1>Operator Console</h1>
+					</div>
+				</div>
 				<nav>
 					<ul className="nav-list">
 						<li>
@@ -136,6 +176,23 @@ const Header = () => {
 						)}
 					</ul>
 				</nav>
+				<div className="environment-switcher">
+					<label htmlFor="admin-environment">Workspace</label>
+					<select
+						id="admin-environment"
+						value={selectedAdminEnvironmentKey}
+						onChange={handleEnvironmentChange}
+					>
+						{Object.values(ADMIN_ENVIRONMENTS).map((environment) => (
+							<option key={environment.key} value={environment.key}>
+								{environment.label}
+							</option>
+						))}
+					</select>
+					<span className={`environment-chip ${selectedAdminEnvironment.tone}`}>
+						{selectedAdminEnvironment.shortLabel}
+					</span>
+				</div>
 			</div>
 		</header>
 	);
