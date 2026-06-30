@@ -145,11 +145,11 @@ service cloud.firestore {
       }
 
       match /restaurantClubs/{clubId} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId) || isRestaurantUser(clubId);
         allow write: if false;
 
         match /redemptions/{redemptionId} {
-          allow read: if isOwner(userId);
+          allow read: if isOwner(userId) || isRestaurantUser(clubId);
           allow write: if false;
         }
       }

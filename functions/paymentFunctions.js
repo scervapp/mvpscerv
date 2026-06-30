@@ -104,6 +104,17 @@ const sanitizeString = (value, maxLength = 240) =>
 		.replace(/\s+/g, " ")
 		.slice(0, maxLength);
 
+const normalizeStringArray = (value, maxLength = 120) =>
+	Array.isArray(value)
+		? [
+				...new Set(
+					value
+						.map((item) => sanitizeString(item, maxLength))
+						.filter(Boolean),
+				),
+			]
+		: [];
+
 const normalizeRewardType = (value) => {
 	const normalized = sanitizeString(value, 80);
 	return AUTO_REWARD_TYPES.includes(normalized) ? normalized : "perk";
@@ -180,6 +191,29 @@ const getEnabledLoyaltyProgram = (restaurantData = {}) => {
 					maxDiscountCents: normalizeNonNegativeCents(
 						tier.maxDiscountCents || tier.maxValueCents,
 					),
+					redemptionMode:
+						tier.redemptionMode === "automatic" ? "automatic" : "staff",
+					eligibleCategories: normalizeStringArray(
+						tier.eligibleCategories,
+						120,
+					),
+					eligibleMenuItemIds: normalizeStringArray(
+						tier.eligibleMenuItemIds,
+						160,
+					),
+					eligibleMenuItems: Array.isArray(tier.eligibleMenuItems)
+						? tier.eligibleMenuItems
+								.map((item) => ({
+									id: sanitizeString(item && item.id, 160),
+									name: sanitizeString(item && item.name, 160),
+									category: sanitizeString(item && item.category, 120),
+									priceCents: normalizeNonNegativeCents(
+										item && item.priceCents,
+									),
+								}))
+								.filter((item) => item.id && item.name)
+								.slice(0, 40)
+						: [],
 				}))
 				.filter((tier) => tier.id && tier.thresholdValue > 0)
 				.sort((a, b) => a.thresholdValue - b.thresholdValue)
@@ -194,7 +228,11 @@ const getEnabledLoyaltyProgram = (restaurantData = {}) => {
 	};
 };
 
-const calculateAutomaticRewardDiscountCents = (reward = {}, subtotalCents = 0) => {
+const calculateAutomaticRewardDiscountCents = (
+	reward = {},
+	subtotalCents = 0,
+	items = [],
+) => {
 	const rewardType = normalizeRewardType(reward.rewardType);
 	const rewardNumber = parseRewardNumber(reward);
 	const maxDiscountCents = normalizeNonNegativeCents(
@@ -208,7 +246,10 @@ const calculateAutomaticRewardDiscountCents = (reward = {}, subtotalCents = 0) =
 			Math.max(0, subtotalCents) * Math.min(Math.max(percent, 0), 1),
 		);
 	} else if (rewardType === "discount_amount" || rewardType === "free_item") {
-		requestedDiscountCents = maxDiscountCents || Math.round(rewardNumber * 100);
+		requestedDiscountCents =
+			rewardType === "free_item"
+				? getEligibleFreeItemDiscountCents(reward, items)
+				: maxDiscountCents || Math.round(rewardNumber * 100);
 	}
 
 	const cappedDiscount =
@@ -219,11 +260,46 @@ const calculateAutomaticRewardDiscountCents = (reward = {}, subtotalCents = 0) =
 	return Math.min(Math.max(0, subtotalCents), Math.max(0, cappedDiscount));
 };
 
+const normalizeComparable = (value) =>
+	sanitizeString(value, 160).toLowerCase();
+
+const getEligibleFreeItemDiscountCents = (reward = {}, items = []) => {
+	const eligibleMenuItemIds = new Set(
+		normalizeStringArray(reward.eligibleMenuItemIds, 160).map(normalizeComparable),
+	);
+	const eligibleCategories = new Set(
+		normalizeStringArray(reward.eligibleCategories, 120).map(normalizeComparable),
+	);
+	const hasItemRules = eligibleMenuItemIds.size > 0;
+	const hasCategoryRules = eligibleCategories.size > 0;
+	const maxDiscountCents = normalizeNonNegativeCents(
+		reward.maxDiscountCents || reward.maxValueCents,
+	);
+
+	const eligibleUnitPrices = items
+		.filter((item) => {
+			const menuItemId = normalizeComparable(item.menuItemId || item.id);
+			const category = normalizeComparable(item.category);
+			if (hasItemRules && eligibleMenuItemIds.has(menuItemId)) return true;
+			if (hasCategoryRules && eligibleCategories.has(category)) return true;
+			return !hasItemRules && !hasCategoryRules;
+		})
+		.map((item) => normalizeNonNegativeCents(item.price))
+		.filter((price) => price > 0);
+
+	if (eligibleUnitPrices.length === 0) return 0;
+	const highestEligibleItem = Math.max(...eligibleUnitPrices);
+	return maxDiscountCents > 0
+		? Math.min(highestEligibleItem, maxDiscountCents)
+		: highestEligibleItem;
+};
+
 const buildAutomaticRestaurantRewardDiscount = async ({
 	restaurantId,
 	restaurantData,
 	customerId,
 	subtotalCents,
+	items = [],
 }) => {
 	if (!restaurantId || !customerId || subtotalCents <= 0) return null;
 
@@ -258,6 +334,7 @@ const buildAutomaticRestaurantRewardDiscount = async ({
 
 	const candidates = program.tiers
 		.filter((tier) => AUTO_REWARD_TYPES.includes(tier.rewardType))
+		.filter((tier) => tier.redemptionMode === "automatic")
 		.filter((tier) => {
 			const key = getRewardKey(tier);
 			const status = rewardStatusByKey.get(key);
@@ -271,6 +348,7 @@ const buildAutomaticRestaurantRewardDiscount = async ({
 			appliedDiscountCents: calculateAutomaticRewardDiscountCents(
 				tier,
 				subtotalCents,
+				items,
 			),
 		}))
 		.filter((tier) => tier.appliedDiscountCents > 0)
@@ -290,6 +368,10 @@ const buildAutomaticRestaurantRewardDiscount = async ({
 		rewardValue: reward.rewardValue || null,
 		rewardLabel: reward.rewardLabel || reward.name || "Restaurant reward",
 		title: reward.rewardLabel || reward.name || "Restaurant reward",
+		redemptionMode: reward.redemptionMode || "automatic",
+		eligibleCategories: reward.eligibleCategories || [],
+		eligibleMenuItemIds: reward.eligibleMenuItemIds || [],
+		eligibleMenuItems: reward.eligibleMenuItems || [],
 		programName: program.name,
 		restaurantId,
 		customerId,
@@ -1395,6 +1477,7 @@ exports.preparePayment = functions
 					restaurantData,
 					customerId: userId,
 					subtotalCents: calculatedSubtotal,
+					items: fullItemDetails,
 				});
 			}
 

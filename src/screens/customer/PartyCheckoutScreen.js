@@ -82,6 +82,13 @@ const getPromotionDiscountCents = (activePromotionDiscount, subtotalCents) => {
 	return Math.min(Math.max(0, Number(subtotalCents || 0)), cappedDiscount);
 };
 
+const getDiscountDisplayName = (discount = {}) =>
+	discount.title ||
+	discount.rewardLabel ||
+	discount.tierName ||
+	discount.programName ||
+	"Scerv reward";
+
 const isDateInFuture = (value) => {
 	if (!value) return false;
 	const date =
@@ -208,6 +215,7 @@ const PartyCheckoutScreen = () => {
 
 	const [isPreparing, setIsPreparing] = useState(false);
 	const [paymentError, setPaymentError] = useState(null);
+	const [serverAppliedDiscount, setServerAppliedDiscount] = useState(null);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
 	const [payingForMemberIds, setPayingForMemberIds] = useState([]);
 
@@ -338,6 +346,32 @@ const PartyCheckoutScreen = () => {
 		return currentUserData?.uid ? [currentUserData.uid] : [];
 	}, [currentUserData?.uid, selectedCheckoutMembers]);
 
+	const selectedCheckoutKey = selectedCheckoutMemberIds.join("|");
+	const checkoutItemKey = useMemo(
+		() =>
+			sharedBasketItems
+				.map(
+					(item) =>
+						`${item.id || ""}:${item.quantity || 1}:${item.price || 0}:${item.discountedPrice ?? ""}:${item.status || ""}`,
+				)
+				.join("|"),
+		[sharedBasketItems],
+	);
+
+	useEffect(() => {
+		setServerAppliedDiscount(null);
+	}, [
+		partyId,
+		selectedCheckoutKey,
+		checkoutItemKey,
+		activePromotionDiscount?.promotionId,
+		activePromotionDiscount?.rewardId,
+		activePromotionDiscount?.status,
+	]);
+
+	const effectivePromotionDiscount =
+		activePromotionDiscount || serverAppliedDiscount;
+
 	const isOnlyCurrentUserSelected =
 		selectedCheckoutMembers.length === 1 &&
 		selectedCheckoutMembers[0]?.isCurrentUser;
@@ -433,7 +467,7 @@ const PartyCheckoutScreen = () => {
 		});
 
 		const promotionDiscountInCents = getPromotionDiscountCents(
-			activePromotionDiscount,
+			effectivePromotionDiscount,
 			discountedSubtotalInCents,
 		);
 		if (promotionDiscountInCents > 0) {
@@ -550,7 +584,7 @@ const PartyCheckoutScreen = () => {
 			myPromotionDiscount: promotionDiscountInCents,
 		};
 	}, [
-		activePromotionDiscount,
+		effectivePromotionDiscount,
 		sharedBasketItems,
 		currentUserData && currentUserData.uid,
 		gratuityPercentage,
@@ -1093,6 +1127,41 @@ const PartyCheckoutScreen = () => {
 			}
 
 			const serverPaymentTotal = Number(prepData.total || 0);
+			const serverDiscount = prepData.activePromotionDiscount || null;
+			const serverPromotionDiscountCents = Math.max(
+				0,
+				Math.round(Number(prepData.promotionDiscount || 0)),
+			);
+			const shouldAnnounceServerReward =
+				serverDiscount &&
+				serverPromotionDiscountCents > 0 &&
+				!effectivePromotionDiscount;
+
+			if (serverDiscount && serverPromotionDiscountCents > 0) {
+				setServerAppliedDiscount({
+					...serverDiscount,
+					status: "active",
+					appliedDiscountCents: serverPromotionDiscountCents,
+				});
+			}
+
+			if (shouldAnnounceServerReward) {
+				await new Promise((resolve) => {
+					Alert.alert(
+						t("reward_applied", "Reward Applied"),
+						t(
+							"reward_applied_message",
+							"{{rewardName}} saved you {{amount}} on this checkout.",
+							{
+								rewardName: getDiscountDisplayName(serverDiscount),
+								amount: formatCurrency(serverPromotionDiscountCents),
+							},
+						),
+						[{ text: t("continue", "Continue"), onPress: resolve }],
+					);
+				});
+			}
+
 			if (!serverPaymentTotal) {
 				throw new Error(
 					t(
@@ -1543,6 +1612,29 @@ const PartyCheckoutScreen = () => {
 							{t("your_bill_summary", "Your Bill Summary")}
 						</Text>
 
+						{effectivePromotionDiscount && myPromotionDiscount > 0 ? (
+							<View style={styles.rewardAppliedBanner}>
+								<View style={styles.rewardAppliedIcon}>
+									<Ionicons
+										name="ticket-outline"
+										size={18}
+										color={colors.statusSuccess}
+									/>
+								</View>
+								<View style={styles.rewardAppliedTextWrap}>
+									<Text style={styles.rewardAppliedTitle}>
+										{getDiscountDisplayName(effectivePromotionDiscount)}
+									</Text>
+									<Text style={styles.rewardAppliedMeta}>
+										{t("reward_discount_applied", "Reward discount applied")}
+									</Text>
+								</View>
+								<Text style={styles.rewardAppliedAmount}>
+									-{formatCurrency(myPromotionDiscount)}
+								</Text>
+							</View>
+						) : null}
+
 						{myTotalDiscount > 0 ? (
 							<>
 								<View style={styles.summaryRow}>
@@ -1956,6 +2048,46 @@ const styles = StyleSheet.create({
 	feeDetailAmount: { fontSize: 14, fontWeight: "500", color: colors.textDark },
 	label: { fontSize: 16, color: colors.textMedium },
 	amount: { fontSize: 16, fontWeight: "500", color: colors.textDark },
+	rewardAppliedBanner: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderWidth: 1,
+		borderColor: "#bbf7d0",
+		backgroundColor: "#f0fdf4",
+		borderRadius: 8,
+		padding: 10,
+		marginBottom: 10,
+	},
+	rewardAppliedIcon: {
+		width: 34,
+		height: 34,
+		borderRadius: 8,
+		backgroundColor: "#dcfce7",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	rewardAppliedTextWrap: {
+		flex: 1,
+		minWidth: 0,
+	},
+	rewardAppliedTitle: {
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "900",
+	},
+	rewardAppliedMeta: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		marginTop: 2,
+	},
+	rewardAppliedAmount: {
+		color: colors.statusSuccess,
+		fontSize: 14,
+		fontWeight: "900",
+		marginLeft: 8,
+	},
 	totalLabel: { fontSize: 18, fontWeight: "bold", color: colors.textDark },
 	totalAmount: { fontSize: 18, fontWeight: "bold", color: colors.primary },
 	divider: { marginVertical: 8 },

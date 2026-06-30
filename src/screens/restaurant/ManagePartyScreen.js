@@ -181,6 +181,70 @@ const calculatePromotionDiscountCents = (promotion = {}, eligibleSubtotalCents =
 	return maxDiscountCents;
 };
 
+const normalizeRewardCompare = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase();
+
+const calculateRewardDiscountCents = (
+	reward = {},
+	eligibleSubtotalCents = 0,
+	items = [],
+) => {
+	const subtotalCents = Math.max(0, Number(eligibleSubtotalCents || 0));
+	const rewardType = reward.rewardType || "";
+	const maxDiscountCents = Math.max(
+		0,
+		Number(reward.maxDiscountCents || reward.maxValueCents || 0),
+	);
+
+	if (rewardType === "discount_percent") {
+		const percent = Math.max(0, Number(reward.rewardValue || reward.value || 0));
+		const calculated = Math.round(subtotalCents * (percent / 100));
+		return maxDiscountCents > 0 ? Math.min(calculated, maxDiscountCents) : calculated;
+	}
+
+	if (rewardType === "discount_amount") {
+		const amountCents = Math.round(Number(reward.rewardValue || reward.value || 0) * 100);
+		return Math.min(subtotalCents, Math.max(0, amountCents));
+	}
+
+	if (rewardType === "free_item") {
+		const eligibleIds = new Set(
+			(Array.isArray(reward.eligibleMenuItemIds)
+				? reward.eligibleMenuItemIds
+				: []
+			).map(normalizeRewardCompare),
+		);
+		const eligibleCategories = new Set(
+			(Array.isArray(reward.eligibleCategories)
+				? reward.eligibleCategories
+				: []
+			).map(normalizeRewardCompare),
+		);
+		const hasItemRules = eligibleIds.size > 0;
+		const hasCategoryRules = eligibleCategories.size > 0;
+		const eligiblePrices = items
+			.filter((item) => {
+				const menuItemId = normalizeRewardCompare(item.menuItemId || item.id);
+				const category = normalizeRewardCompare(item.category);
+				if (hasItemRules && eligibleIds.has(menuItemId)) return true;
+				if (hasCategoryRules && eligibleCategories.has(category)) return true;
+				return !hasItemRules && !hasCategoryRules;
+			})
+			.map(getItemEffectivePriceCents)
+			.filter((price) => price > 0);
+
+		if (eligiblePrices.length === 0) return 0;
+		const highestEligiblePrice = Math.max(...eligiblePrices);
+		return maxDiscountCents > 0
+			? Math.min(highestEligiblePrice, maxDiscountCents)
+			: highestEligiblePrice;
+	}
+
+	return 0;
+};
+
 const calculateCustomerServiceFeeCents = ({
 	items = [],
 	taxRate = 0,
@@ -902,6 +966,12 @@ const ManagePartyScreen = () => {
 		const customerId =
 			partyData?.hostUserId || partyData?.customerId || partyData?.currentCustomerId;
 		const rewardId = reward?.id || reward?.tierId || reward?.rewardLabel;
+		const eligibleSubtotalCents = tableTotalsCents.subtotalCents;
+		const appliedDiscountCents = calculateRewardDiscountCents(
+			reward,
+			eligibleSubtotalCents,
+			unpaidOrderedItems,
+		);
 		if (!restaurantId || !customerId || !rewardId) {
 			Alert.alert(
 				t("reward_unavailable", "Reward unavailable"),
@@ -929,10 +999,20 @@ const ManagePartyScreen = () => {
 								customerId,
 								rewardId,
 								partyId,
+								eligibleSubtotalCents,
+								appliedDiscountCents,
 							});
 							Alert.alert(
 								t("reward_redeemed", "Reward redeemed"),
-								t("guest_perk_marked_redeemed", "The guest perk was marked redeemed."),
+								appliedDiscountCents > 0
+									? t(
+											"guest_reward_applied",
+											"The guest reward was applied to this bill.",
+										)
+									: t(
+											"guest_perk_marked_redeemed",
+											"The guest perk was marked redeemed.",
+										),
 							);
 						} catch (error) {
 							console.error("Reward redemption failed:", error);
@@ -1265,7 +1345,7 @@ const ManagePartyScreen = () => {
 														? `Promo · funded by ${promotion.fundedBy}`
 														: t("promotion", "Promotion")}
 													{estimatedValueCents > 0
-														? ` · est. ${formatCurrencyFromDollars(
+														? ` - est. ${formatCurrencyFromDollars(
 																estimatedValueCents / 100,
 															)}`
 														: ""}
@@ -1294,6 +1374,11 @@ const ManagePartyScreen = () => {
 									const rewardId =
 										reward?.id || reward?.tierId || reward?.rewardLabel;
 									const isRedeeming = redeemingRewardId === rewardId;
+									const estimatedValueCents = calculateRewardDiscountCents(
+										reward,
+										tableTotalsCents.subtotalCents,
+										unpaidOrderedItems,
+									);
 									return (
 										<View key={rewardId} style={styles.rewardRow}>
 											<View style={styles.rewardIcon}>
@@ -1312,6 +1397,11 @@ const ManagePartyScreen = () => {
 												<Text style={styles.rewardMeta}>
 													{reward.tierName ||
 														t("available_perk", "Available perk")}
+													{estimatedValueCents > 0
+														? ` · est. ${formatCurrencyFromDollars(
+																estimatedValueCents / 100,
+															)}`
+														: ""}
 												</Text>
 											</View>
 											<TouchableOpacity

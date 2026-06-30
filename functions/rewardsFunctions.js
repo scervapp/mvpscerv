@@ -44,6 +44,30 @@ const normalizeCents = (value) => {
 	return Math.round(numberValue);
 };
 
+const normalizeStringArray = (value, maxLength = 80) =>
+	Array.isArray(value)
+		? [
+				...new Set(
+					value
+						.map((item) => sanitizeString(item, maxLength))
+						.filter(Boolean),
+				),
+			]
+		: [];
+
+const normalizeEligibleMenuItems = (value) =>
+	Array.isArray(value)
+		? value
+				.map((item) => ({
+					id: sanitizeString(item && item.id, 160),
+					name: sanitizeString(item && item.name, 160),
+					category: sanitizeString(item && item.category, 120),
+					priceCents: normalizeCents(item && item.priceCents),
+				}))
+				.filter((item) => item.id && item.name)
+				.slice(0, 40)
+		: [];
+
 const normalizePromotionType = (value) => {
 	const type = sanitizeString(value, 60);
 	return ALLOWED_PROMOTION_TYPES.includes(type) ? type : "perk";
@@ -127,6 +151,11 @@ const normalizeTier = (tier, index) => ({
 	rewardValue: tier.rewardValue || null,
 	rewardLabel: sanitizeString(tier.rewardLabel || tier.name || "", 160) || null,
 	maxDiscountCents: normalizeCents(tier.maxDiscountCents || tier.maxValueCents),
+	redemptionMode:
+		tier.redemptionMode === "automatic" ? "automatic" : "staff",
+	eligibleCategories: normalizeStringArray(tier.eligibleCategories, 120),
+	eligibleMenuItemIds: normalizeStringArray(tier.eligibleMenuItemIds, 160),
+	eligibleMenuItems: normalizeEligibleMenuItems(tier.eligibleMenuItems),
 });
 
 const getRewardKey = (reward) =>
@@ -153,6 +182,23 @@ const getAutomaticRestaurantRewardDiscount = (orderData = {}) => {
 		rewardId,
 	};
 };
+
+const isDiscountRewardType = (rewardType) =>
+	["discount_percent", "discount_amount", "free_item"].includes(
+		sanitizeString(rewardType, 80),
+	);
+
+const basketHasItemDiscount = (basket = {}) =>
+	Array.isArray(basket.items)
+		? basket.items.some((item) => {
+				const discount = Number(item.discount || 0);
+				const hasDiscountedPrice =
+					item.discountedPrice !== undefined &&
+					item.discountedPrice !== null &&
+					Number(item.discountedPrice) < Number(item.price || 0);
+				return discount > 0 || hasDiscountedPrice;
+			})
+		: false;
 
 const getEnabledLoyaltyProgram = (restaurantData) => {
 	if (!isFeatureAllowed(restaurantData, "rewards")) return null;
@@ -206,6 +252,10 @@ const evaluateRestaurantClub = (program, nextProgress) => {
 			rewardValue: tier.rewardValue,
 			rewardLabel: tier.rewardLabel,
 			maxDiscountCents: tier.maxDiscountCents || 0,
+			redemptionMode: tier.redemptionMode || "staff",
+			eligibleCategories: tier.eligibleCategories || [],
+			eligibleMenuItemIds: tier.eligibleMenuItemIds || [],
+			eligibleMenuItems: tier.eligibleMenuItems || [],
 			status: "available",
 		}));
 	const currentTier = unlockedTiers[unlockedTiers.length - 1] || null;
@@ -225,6 +275,8 @@ const evaluateRestaurantClub = (program, nextProgress) => {
 						getProgressValue(nextProgress, nextTier.thresholdType),
 				),
 				rewardLabel: nextTier.rewardLabel || nextTier.name,
+				rewardType: nextTier.rewardType,
+				redemptionMode: nextTier.redemptionMode || "staff",
 			}
 		: null;
 
@@ -333,17 +385,24 @@ exports.redeemRestaurantReward = functions.https.onCall(async (data, context) =>
 		.collection("restaurantClubs")
 		.doc(restaurantId);
 	const redemptionRef = clubRef.collection("redemptions").doc();
+	const reconciliationRef = db.collection("restaurantRewardRedemptions").doc();
+	const basketRef = partyId ? db.collection("shared_baskets").doc(partyId) : null;
 
 	return db.runTransaction(async (transaction) => {
 		const clubSnap = await transaction.get(clubRef);
+		const basketSnap = basketRef ? await transaction.get(basketRef) : null;
 		if (!clubSnap.exists) {
 			throw new functions.https.HttpsError(
 				"not-found",
 				"This guest has not earned rewards at this restaurant yet.",
 			);
 		}
+		if (basketRef && !basketSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Party basket not found.");
+		}
 
 		const clubData = clubSnap.data() || {};
+		const basket = basketSnap && basketSnap.exists ? basketSnap.data() || {} : {};
 		const rewards = Array.isArray(clubData.unlockedRewards)
 			? clubData.unlockedRewards
 			: [];
@@ -364,22 +423,52 @@ exports.redeemRestaurantReward = functions.https.onCall(async (data, context) =>
 				"Reward has already been redeemed.",
 			);
 		}
+		const appliedDiscountCents = normalizeCents(
+			data && data.appliedDiscountCents,
+		);
+		const shouldApplyDiscount =
+			appliedDiscountCents > 0 && isDiscountRewardType(reward.rewardType);
+		const activeDiscount = basket.activePromotionDiscount || null;
+		if (
+			shouldApplyDiscount &&
+			activeDiscount &&
+			activeDiscount.status === "active"
+		) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Only one discount can be active on a party at a time.",
+			);
+		}
+		if (shouldApplyDiscount && basketHasItemDiscount(basket)) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This party already has a discount. Remove it before redeeming a reward.",
+			);
+		}
 
 		const now = admin.firestore.FieldValue.serverTimestamp();
 		const redemption = {
-			id: redemptionRef.id,
+			id: shouldApplyDiscount ? reconciliationRef.id : redemptionRef.id,
+			customerRedemptionId: redemptionRef.id,
 			rewardId,
 			tierId: reward.tierId || reward.id || null,
 			tierName: reward.tierName || null,
 			rewardType: reward.rewardType || null,
 			rewardValue: reward.rewardValue || null,
 			rewardLabel: reward.rewardLabel || reward.tierName || "Restaurant perk",
+			redemptionMode: reward.redemptionMode || "staff",
+			eligibleCategories: reward.eligibleCategories || [],
+			eligibleMenuItemIds: reward.eligibleMenuItemIds || [],
+			eligibleMenuItems: reward.eligibleMenuItems || [],
 			status: "redeemed",
 			restaurantId,
 			customerId,
 			partyId,
 			redeemedBy: uid,
 			redeemedAt: now,
+			appliedDiscountCents,
+			eligibleSubtotalCents: normalizeCents(data && data.eligibleSubtotalCents),
+			discountAmountCents: appliedDiscountCents,
 		};
 		const nextRewards = rewards.map((item, index) => {
 			if (index !== rewardIndex) return item;
@@ -394,6 +483,25 @@ exports.redeemRestaurantReward = functions.https.onCall(async (data, context) =>
 		});
 
 		transaction.set(redemptionRef, redemption);
+		if (shouldApplyDiscount) {
+			transaction.set(reconciliationRef, redemption);
+		}
+		if (shouldApplyDiscount && basketRef) {
+			transaction.set(
+				basketRef,
+				{
+					activePromotionDiscount: {
+						...redemption,
+						source: "staff_restaurant_reward",
+						discountSource: "restaurant_reward",
+						status: "active",
+						redemptionId: reconciliationRef.id,
+					},
+					updatedAt: now,
+				},
+				{ merge: true },
+			);
+		}
 		transaction.set(
 			clubRef,
 			{
@@ -731,6 +839,22 @@ exports.awardRewardsForPaidOrder = functions.firestore
 						orderId,
 						programName:
 							automaticRewardDiscount.programName || program.name,
+						redemptionMode:
+							automaticRewardDiscount.redemptionMode ||
+							reward.redemptionMode ||
+							"automatic",
+						eligibleCategories:
+							automaticRewardDiscount.eligibleCategories ||
+							reward.eligibleCategories ||
+							[],
+						eligibleMenuItemIds:
+							automaticRewardDiscount.eligibleMenuItemIds ||
+							reward.eligibleMenuItemIds ||
+							[],
+						eligibleMenuItems:
+							automaticRewardDiscount.eligibleMenuItems ||
+							reward.eligibleMenuItems ||
+							[],
 						source: "automatic_checkout",
 						redeemedBy: "automatic_checkout",
 						redeemedAt: now,
@@ -757,6 +881,10 @@ exports.awardRewardsForPaidOrder = functions.firestore
 						appliedDiscountCents:
 							automaticRedemption.discountAmountCents,
 						autoApplied: true,
+						redemptionMode: automaticRedemption.redemptionMode,
+						eligibleCategories: automaticRedemption.eligibleCategories,
+						eligibleMenuItemIds: automaticRedemption.eligibleMenuItemIds,
+						eligibleMenuItems: automaticRedemption.eligibleMenuItems,
 					};
 				}
 

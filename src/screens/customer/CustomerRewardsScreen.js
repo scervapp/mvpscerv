@@ -257,6 +257,31 @@ const getPromotionLabel = (promotion = {}) => {
 	return promotion.rewardLabel || "Scerv promotion";
 };
 
+const getPromotionUseCopy = (promotion = {}) => {
+	if (
+		promotion.walletValueType === "food_credit" ||
+		promotion.promotionType === "food_credit"
+	) {
+		return "Food credit available for eligible checkout.";
+	}
+	if (promotion.autoApply || promotion.redemptionMode === "automatic") {
+		return "Auto-applies at eligible checkout.";
+	}
+	if (promotion.restaurantId && promotion.restaurantId !== "global") {
+		return "Ask staff to apply this at checkout.";
+	}
+	return "Available for eligible Scerv dining.";
+};
+
+const getPromotionExpiryCopy = (promotion = {}) => {
+	const expiresAt = promotion.expiresAt || promotion.expirationDate;
+	if (!expiresAt || typeof expiresAt.toDate !== "function") return "";
+	return `Expires ${expiresAt.toDate().toLocaleDateString(undefined, {
+		month: "short",
+		day: "numeric",
+	})}`;
+};
+
 const isPromotionAvailable = (promotion = {}) =>
 	!promotion.status || promotion.status === "available";
 
@@ -354,6 +379,7 @@ const CustomerRewardsScreen = () => {
 			.collection("customers")
 			.doc(customerId)
 			.collection("scervRewardsLedger")
+			.orderBy("createdAt", "desc")
 			.limit(12)
 			.onSnapshot(
 				(snapshot) => {
@@ -610,6 +636,16 @@ const CustomerRewardsScreen = () => {
 											Funded by {promotion.fundedBy}
 										</Text>
 									) : null}
+									<View style={styles.promotionUseRow}>
+										<Text style={styles.promotionUseText}>
+											{getPromotionUseCopy(promotion)}
+										</Text>
+										{getPromotionExpiryCopy(promotion) ? (
+											<Text style={styles.promotionExpiryText}>
+												{getPromotionExpiryCopy(promotion)}
+											</Text>
+										) : null}
+									</View>
 								</View>
 							</View>
 						))}
@@ -1047,6 +1083,33 @@ const styles = StyleSheet.create({
 		fontSize: 11,
 		color: colors.textMedium,
 		marginTop: 3,
+	},
+	promotionUseRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		alignItems: "center",
+		marginTop: 8,
+		gap: 6,
+	},
+	promotionUseText: {
+		color: colors.primary,
+		backgroundColor: colors.primary + "12",
+		borderRadius: 8,
+		overflow: "hidden",
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+		fontSize: 11,
+		fontWeight: "900",
+	},
+	promotionExpiryText: {
+		color: colors.textMedium,
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 8,
+		overflow: "hidden",
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+		fontSize: 11,
+		fontWeight: "800",
 	},
 	sectionTitle: {
 		fontSize: 14,
