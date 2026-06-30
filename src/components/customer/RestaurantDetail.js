@@ -61,6 +61,7 @@ const RestaurantDetailScreen = () => {
 	const [menuItems, setMenuItems] = useState([]);
 	const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 	const [isAddingDineInItem, setIsAddingDineInItem] = useState(false);
+	const [activeReservation, setActiveReservation] = useState(null);
 
 	const hasAttemptedAutoActivateRef = useRef(false);
 
@@ -74,6 +75,59 @@ const RestaurantDetailScreen = () => {
 	);
 	const reservationsEnabled = experienceConfig.features.reservations;
 	const hostCheckInEnabled = experienceConfig.features.hostCheckInRequests;
+	const qrSelfCheckInEnabled = experienceConfig.features.qrSelfCheckIn === true;
+	const reservationStatusCopy = useMemo(() => {
+		if (!activeReservation) {
+			return {
+				title: t("request_reservation", "Request Reservation"),
+				subtitle: t(
+					"reservation_manual_approval",
+					"Choose a restaurant-defined time and wait for confirmation.",
+				),
+				icon: "calendar-clock",
+				tone: "default",
+			};
+		}
+
+		const dateTime = `${activeReservation.requestedDate || ""}${
+			activeReservation.requestedTime
+				? ` at ${activeReservation.requestedTime}`
+				: ""
+		}`.trim();
+
+		if (activeReservation.status === "requested") {
+			return {
+				title: t("reservation_requested", "Reservation Requested"),
+				subtitle: dateTime || t("waiting_for_confirmation", "Waiting for confirmation."),
+				icon: "calendar-alert",
+				tone: "warning",
+			};
+		}
+		if (activeReservation.status === "arrival_requested") {
+			return {
+				title: t("arrival_sent", "Arrival Sent"),
+				subtitle: t("host_will_seat_you", "The host will assign your table."),
+				icon: "walk",
+				tone: "success",
+			};
+		}
+		if (activeReservation.status === "seated") {
+			return {
+				title: t("reservation_seated", "You're Seated"),
+				subtitle:
+					activeReservation.table?.name ||
+					t("open_your_table", "Open your table and order."),
+				icon: "silverware-fork-knife",
+				tone: "success",
+			};
+		}
+		return {
+			title: t("reservation_confirmed", "Reservation Confirmed"),
+			subtitle: dateTime || t("ready_for_arrival", "Ready for arrival."),
+			icon: "calendar-check",
+			tone: "success",
+		};
+	}, [activeReservation, t]);
 
 	const customerCancelSeatedCheckIn = httpsCallable(
 		functions,
@@ -247,6 +301,41 @@ const RestaurantDetailScreen = () => {
 			isMounted = false;
 		};
 	}, [restaurant?.id, t]);
+
+	useEffect(() => {
+		if (!restaurant?.id || !currentUserData?.uid || currentUserData?.role !== "customer") {
+			setActiveReservation(null);
+			return undefined;
+		}
+
+		const unsubscribe = db
+			.collection("reservations")
+			.where("customerId", "==", currentUserData.uid)
+			.where("restaurantId", "==", restaurant.id)
+			.onSnapshot(
+				(snapshot) => {
+					const active = snapshot.docs
+						.map((doc) => ({ id: doc.id, ...doc.data() }))
+						.filter((reservation) =>
+							["requested", "confirmed", "arrival_requested", "seated"].includes(
+								reservation.status,
+							),
+						)
+						.sort((a, b) =>
+							`${a.requestedDate || ""} ${a.requestedTime || ""}`.localeCompare(
+								`${b.requestedDate || ""} ${b.requestedTime || ""}`,
+							),
+						);
+					setActiveReservation(active[0] || null);
+				},
+				(error) => {
+					console.error("Error loading active restaurant reservation:", error);
+					setActiveReservation(null);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [currentUserData?.role, currentUserData?.uid, restaurant?.id]);
 
 	useEffect(() => {
 		hasAttemptedAutoActivateRef.current = false;
@@ -478,6 +567,20 @@ const RestaurantDetailScreen = () => {
 	const handleOpenReservationRequest = () => {
 		if (currentUserData?.role === "guest") {
 			handleRequireAuth();
+			return;
+		}
+
+		if (activeReservation) {
+			if (activeReservation.status === "seated" && activeReservation.partyId) {
+				navigation.navigate("PartyTab", {
+					screen: "PartySession",
+					params: { partyId: activeReservation.partyId },
+				});
+				return;
+			}
+			navigation.navigate("AccountScreen", {
+				screen: "CustomerReservationsScreen",
+			});
 			return;
 		}
 
@@ -862,20 +965,22 @@ const RestaurantDetailScreen = () => {
 							</View>
 						</View>
 
-						<TouchableOpacity
-							style={styles.compactScanButton}
-							onPress={handleStartDineIn}
-							activeOpacity={0.85}
-						>
-							<MaterialCommunityIcons
-								name="qrcode-scan"
-								size={20}
-								color="#fff"
-							/>
-							<Text style={styles.compactScanText} numberOfLines={1}>
-								{t("scan_table", "Scan Table")}
-							</Text>
-						</TouchableOpacity>
+						{qrSelfCheckInEnabled ? (
+							<TouchableOpacity
+								style={styles.compactScanButton}
+								onPress={handleStartDineIn}
+								activeOpacity={0.85}
+							>
+								<MaterialCommunityIcons
+									name="qrcode-scan"
+									size={20}
+									color="#fff"
+								/>
+								<Text style={styles.compactScanText} numberOfLines={1}>
+									{t("scan_table", "Scan Table")}
+								</Text>
+							</TouchableOpacity>
+						) : null}
 					</View>
 
 					<View style={styles.compactActionRow}>
@@ -956,22 +1061,24 @@ const RestaurantDetailScreen = () => {
 					)}
 				</TouchableOpacity>
 
+				{qrSelfCheckInEnabled || pickupEnabled ? (
 				<View style={styles.compactActionRow}>
-					<TouchableOpacity
-						style={styles.compactSecondaryButton}
-						onPress={handleStartDineIn}
-						activeOpacity={0.85}
-					>
-						<MaterialCommunityIcons
-							name="qrcode-scan"
-							size={18}
-							color={colors.primary}
-						/>
-						<Text style={styles.compactSecondaryText} numberOfLines={1}>
-							{t("scan_table", "Scan Table")}
-						</Text>
-					</TouchableOpacity>
-
+					{qrSelfCheckInEnabled ? (
+						<TouchableOpacity
+							style={styles.compactSecondaryButton}
+							onPress={handleStartDineIn}
+							activeOpacity={0.85}
+						>
+							<MaterialCommunityIcons
+								name="qrcode-scan"
+								size={18}
+								color={colors.primary}
+							/>
+							<Text style={styles.compactSecondaryText} numberOfLines={1}>
+								{t("scan_table", "Scan Table")}
+							</Text>
+						</TouchableOpacity>
+					) : null}
 					{pickupEnabled && (
 						<TouchableOpacity
 							style={styles.compactSecondaryButton}
@@ -1005,6 +1112,7 @@ const RestaurantDetailScreen = () => {
 						</TouchableOpacity>
 					)}
 				</View>
+				) : null}
 			</View>
 		);
 	};
@@ -1048,24 +1156,33 @@ const RestaurantDetailScreen = () => {
 								</View>
 								{reservationsEnabled ? (
 									<TouchableOpacity
-										style={styles.reservationButton}
+										style={[
+											styles.reservationButton,
+											reservationStatusCopy.tone === "warning" &&
+												styles.reservationButtonWarning,
+											reservationStatusCopy.tone === "success" &&
+												styles.reservationButtonSuccess,
+										]}
 										onPress={handleOpenReservationRequest}
 										activeOpacity={0.85}
 									>
 										<MaterialCommunityIcons
-											name="calendar-clock"
+											name={reservationStatusCopy.icon}
 											size={20}
-											color={colors.primary}
+											color={
+												reservationStatusCopy.tone === "warning"
+													? colors.statusWarning
+													: reservationStatusCopy.tone === "success"
+														? colors.statusSuccess
+														: colors.primary
+											}
 										/>
 										<View style={styles.reservationTextWrap}>
 											<Text style={styles.reservationButtonTitle}>
-												{t("request_reservation", "Request Reservation")}
+												{reservationStatusCopy.title}
 											</Text>
 											<Text style={styles.reservationButtonSubtitle}>
-												{t(
-													"reservation_manual_approval",
-													"Choose a restaurant-defined time and wait for confirmation.",
-												)}
+												{reservationStatusCopy.subtitle}
 											</Text>
 										</View>
 										<MaterialCommunityIcons
@@ -1216,6 +1333,14 @@ const styles = StyleSheet.create({
 		borderTopColor: colors.borderLight,
 		flexDirection: "row",
 		alignItems: "center",
+	},
+	reservationButtonWarning: {
+		backgroundColor: colors.statusWarning + "12",
+		borderTopColor: colors.statusWarning + "55",
+	},
+	reservationButtonSuccess: {
+		backgroundColor: colors.statusSuccess + "12",
+		borderTopColor: colors.statusSuccess + "55",
 	},
 	firstVisitOption: {
 		borderTopWidth: 1,

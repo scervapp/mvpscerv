@@ -101,8 +101,18 @@ const PartySessionScreen = () => {
 		() => getRestaurantExperienceConfig(restaurantData || currentParty || {}),
 		[restaurantData, currentParty],
 	);
+	const hasRestaurantFeatureConfig = Boolean(
+		restaurantData ||
+			currentParty?.features ||
+			typeof currentParty?.qrSelfCheckIn === "boolean" ||
+			typeof currentParty?.["features.qrSelfCheckIn"] === "boolean",
+	);
 	const hostCheckInEnabled =
+		hasRestaurantFeatureConfig &&
 		restaurantConfig.features.hostCheckInRequests === true;
+	const qrSelfCheckInEnabled =
+		hasRestaurantFeatureConfig &&
+		restaurantConfig.features.qrSelfCheckIn === true;
 	const pendingHostCheckInRequest = useMemo(() => {
 		const activeCheckIn = currentUserData?.activeCheckIn || null;
 		const activeStatus = String(activeCheckIn?.status || "").toUpperCase();
@@ -788,6 +798,25 @@ const PartySessionScreen = () => {
 				</View>
 			)}
 
+			{currentParty?.reservationId ? (
+				<View style={styles.reservationBanner}>
+					<View style={styles.reservationIcon}>
+						<Ionicons name="calendar-outline" size={18} color={colors.primary} />
+					</View>
+					<View style={styles.reservationTextWrap}>
+						<Text style={styles.reservationTitle}>Reservation party</Text>
+						<Text style={styles.reservationMeta} numberOfLines={2}>
+							{currentParty.reservationDate || "Reservation date"}
+							{currentParty.reservationTime
+								? ` at ${currentParty.reservationTime}`
+								: ""}
+							{" - "}
+							Party of {currentParty.reservationPartySize || 1}
+						</Text>
+					</View>
+				</View>
+			) : null}
+
 			{/* BASKET LIST */}
 			<FlatList
 				data={groupedBasket}
@@ -904,39 +933,44 @@ const PartySessionScreen = () => {
 								</Text>
 							</TouchableOpacity>
 
+							{(qrSelfCheckInEnabled ||
+								hostCheckInEnabled ||
+								pendingHostCheckInRequest) && (
 							<View style={styles.pendingPrimaryRow}>
-								<TouchableOpacity
-									disabled={
-										pendingHostCheckInRequest || isProcessingPartyCheckIn
-									}
-									style={[
-										styles.pendingPrimaryBtn,
-										{
-											backgroundColor: pendingHostCheckInRequest
-												? colors.textLight
-												: colors.primary,
-										},
-										(pendingHostCheckInRequest ||
-											isProcessingPartyCheckIn) &&
-											styles.pendingPrimaryBtnDisabled,
-									]}
-									onPress={() =>
-										navigation.navigate("QRScannerScreen", {
-											restaurantId: currentParty?.restaurantId,
-											partyId: currentPartyId,
-										})
-									}
-								>
-									<MaterialCommunityIcons
-										name="qrcode-scan"
-										size={18}
-										color={colors.surfaceWhite}
-										style={{ marginRight: 7 }}
-									/>
-									<Text style={styles.pendingPrimaryText}>
-										{t("scan_table", "Scan Table")}
-									</Text>
-								</TouchableOpacity>
+								{qrSelfCheckInEnabled ? (
+									<TouchableOpacity
+										disabled={
+											pendingHostCheckInRequest || isProcessingPartyCheckIn
+										}
+										style={[
+											styles.pendingPrimaryBtn,
+											{
+												backgroundColor: pendingHostCheckInRequest
+													? colors.textLight
+													: colors.primary,
+											},
+											(pendingHostCheckInRequest ||
+												isProcessingPartyCheckIn) &&
+												styles.pendingPrimaryBtnDisabled,
+										]}
+										onPress={() =>
+											navigation.navigate("QRScannerScreen", {
+												restaurantId: currentParty?.restaurantId,
+												partyId: currentPartyId,
+											})
+										}
+									>
+										<MaterialCommunityIcons
+											name="qrcode-scan"
+											size={18}
+											color={colors.surfaceWhite}
+											style={{ marginRight: 7 }}
+										/>
+										<Text style={styles.pendingPrimaryText}>
+											{t("scan_table", "Scan Table")}
+										</Text>
+									</TouchableOpacity>
+								) : null}
 
 								{(hostCheckInEnabled || pendingHostCheckInRequest) && (
 									<TouchableOpacity
@@ -985,6 +1019,7 @@ const PartySessionScreen = () => {
 									</TouchableOpacity>
 								)}
 							</View>
+							)}
 						</View>
 					)}
 
@@ -1296,6 +1331,41 @@ const styles = StyleSheet.create({
 		fontSize: 13,
 		color: colors.textLight,
 		fontStyle: "italic",
+	},
+	reservationBanner: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginHorizontal: 15,
+		marginTop: 12,
+		padding: 12,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.primary + "30",
+		backgroundColor: colors.surfaceWhite,
+	},
+	reservationIcon: {
+		width: 36,
+		height: 36,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "12",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	reservationTextWrap: {
+		flex: 1,
+		minWidth: 0,
+	},
+	reservationTitle: {
+		color: colors.textDark,
+		fontSize: 13,
+		fontWeight: "900",
+	},
+	reservationMeta: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		marginTop: 2,
 	},
 
 	// --- GROUPED BASKET VISUAL STYLES ---

@@ -413,6 +413,74 @@ const buildReservationData = ({
 	updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 });
 
+const getCustomerDisplayName = (customerData = {}, fallback = "Host") =>
+	sanitizeString(
+		`${customerData.firstName || ""} ${customerData.lastName || ""}`,
+		120,
+	) ||
+	sanitizeString(customerData.fullName || customerData.name, 120) ||
+	fallback;
+
+const buildReservationPartyPatch = ({ reservationId, reservation = {} }) => ({
+	reservationId,
+	reservationDate: reservation.requestedDate || null,
+	reservationTime: reservation.requestedTime || null,
+	reservationPartySize: Number(reservation.partySize || 1),
+	reservationStatus: reservation.status || null,
+	reservationOccasion: reservation.occasion || "",
+	reservationSeatingPreference: reservation.seatingPreference || "",
+	reservationGuestNotes: reservation.guestNotes || "",
+	isReservationParty: true,
+});
+
+const refreshWaitlistQueue = async ({ restaurantId, date }) => {
+	if (!restaurantId || !date) return;
+
+	const waitlistSnap = await db
+		.collection("reservationWaitlist")
+		.where("restaurantId", "==", restaurantId)
+		.get();
+
+	const activeEntries = waitlistSnap.docs
+		.map((doc) => ({ id: doc.id, ...doc.data() }))
+		.filter(
+			(entry) =>
+				entry.requestedDate === date &&
+				["waiting", "offer_pending"].includes(entry.status),
+		)
+		.sort((a, b) => {
+			const aTrust = a.customerTrustSnapshot || {};
+			const bTrust = b.customerTrustSnapshot || {};
+			const aNoShows = Number(aTrust.noShows || 0);
+			const bNoShows = Number(bTrust.noShows || 0);
+			if (aNoShows !== bNoShows) return aNoShows - bNoShows;
+			const aJoined =
+				a.createdAt && typeof a.createdAt.toMillis === "function"
+					? a.createdAt.toMillis()
+					: 0;
+			const bJoined =
+				b.createdAt && typeof b.createdAt.toMillis === "function"
+					? b.createdAt.toMillis()
+					: 0;
+			if (aJoined !== bJoined) return aJoined - bJoined;
+			return a.id.localeCompare(b.id);
+		});
+
+	const batch = db.batch();
+	activeEntries.forEach((entry, index) => {
+		batch.set(
+			db.collection("reservationWaitlist").doc(entry.id),
+			{
+				queuePosition: index + 1,
+				queueTotal: activeEntries.length,
+				queueUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+	});
+	await batch.commit();
+};
+
 const offerWaitlistSlot = async ({ restaurantId, date, time, partySize }) => {
 	const now = admin.firestore.Timestamp.now();
 	const expiresAt = admin.firestore.Timestamp.fromMillis(
@@ -451,7 +519,10 @@ const offerWaitlistSlot = async ({ restaurantId, date, time, partySize }) => {
 		});
 
 	const candidate = candidates[0];
-	if (!candidate) return null;
+	if (!candidate) {
+		await refreshWaitlistQueue({ restaurantId, date });
+		return null;
+	}
 
 	await db.collection("reservationWaitlist").doc(candidate.id).set(
 		{
@@ -463,6 +534,8 @@ const offerWaitlistSlot = async ({ restaurantId, date, time, partySize }) => {
 		},
 		{ merge: true },
 	);
+
+	await refreshWaitlistQueue({ restaurantId, date });
 
 	await db.collection("customers").doc(candidate.customerId).collection("notifications").add({
 		type: "reservation_waitlist_offer",
@@ -561,15 +634,6 @@ exports.saveReservationSettings = functions.https.onCall(async (data, context) =
 	};
 
 	await getReservationSettingsRef(restaurantId).set(cleanSettings, { merge: true });
-	if (cleanSettings.enabled && isFeatureAllowed(restaurantData, "reservations")) {
-		// Enabling slot availability should also expose the reservation action.
-		await db.collection("restaurants").doc(restaurantId).set(
-			{
-				"features.reservations": true,
-			},
-			{ merge: true },
-		);
-	}
 	return { success: true, settings: cleanSettings };
 });
 
@@ -607,7 +671,7 @@ exports.saveRestaurantExperienceSettings = functions.https.onCall(
 		);
 		EXPERIENCE_FEATURE_KEYS.forEach((key) => {
 			if (typeof allowedFeatures[key] === "boolean") {
-				featurePatch[`features.${key}`] = allowedFeatures[key];
+				featurePatch[key] = allowedFeatures[key];
 			}
 		});
 
@@ -617,7 +681,7 @@ exports.saveRestaurantExperienceSettings = functions.https.onCall(
 			.set(
 				{
 					hospitalityStyle: normalizedStyle,
-					...featurePatch,
+					features: featurePatch,
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				},
 				{ merge: true },
@@ -695,6 +759,226 @@ exports.createReservationRequest = functions.https.onCall(async (data, context) 
 	}));
 
 	return { success: true, reservationId: reservationRef.id };
+});
+
+exports.createReservationParty = functions.https.onCall(async (data, context) => {
+	const customerId = requireAuth(context);
+	const reservationId = sanitizeString(data && data.reservationId, 120);
+	if (!reservationId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Reservation ID is required.",
+		);
+	}
+
+	const reservationRef = db.collection("reservations").doc(reservationId);
+	const customerRef = db.collection("customers").doc(customerId);
+
+	return db.runTransaction(async (transaction) => {
+		const [reservationSnap, customerSnap] = await Promise.all([
+			transaction.get(reservationRef),
+			transaction.get(customerRef),
+		]);
+
+		if (!reservationSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Reservation not found.");
+		}
+
+		const reservation = reservationSnap.data() || {};
+		if (reservation.customerId !== customerId) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"You can only create a party for your own reservation.",
+			);
+		}
+		if (!["confirmed", "arrival_requested"].includes(reservation.status)) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Only confirmed reservations can be planned with a party.",
+			);
+		}
+
+		const restaurantRef = db.collection("restaurants").doc(reservation.restaurantId);
+		const restaurantSnap = await transaction.get(restaurantRef);
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+		}
+		const restaurantData = restaurantSnap.data() || {};
+		assertFeatureAllowed(
+			restaurantData,
+			"parties",
+			"Party planning is not enabled for this restaurant plan.",
+		);
+
+		const existingPartyRef = reservation.partyId
+			? db.collection("parties").doc(reservation.partyId)
+			: null;
+		const existingPartySnap = existingPartyRef
+			? await transaction.get(existingPartyRef)
+			: null;
+
+		if (existingPartySnap && existingPartySnap.exists) {
+			const existingParty = existingPartySnap.data() || {};
+			if (existingParty.hostUserId !== customerId) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This reservation is linked to another party.",
+				);
+			}
+			const reservationPatch = buildReservationPartyPatch({
+				reservationId,
+				reservation,
+			});
+			const basketRef = db
+				.collection("shared_baskets")
+				.doc(existingPartySnap.id);
+
+			transaction.set(existingPartyRef, reservationPatch, { merge: true });
+			transaction.set(basketRef, reservationPatch, { merge: true });
+			transaction.set(
+				reservationRef,
+				{
+					partyId: existingPartySnap.id,
+					partyLinkedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			return {
+				success: true,
+				partyId: existingPartySnap.id,
+				reusedExistingParty: true,
+			};
+		}
+
+		const customerData = customerSnap.exists ? customerSnap.data() || {} : {};
+		const customerPartyIds = Array.isArray(customerData.partyIds)
+			? customerData.partyIds.slice(0, 15)
+			: [];
+		const candidatePartyRefs = customerPartyIds.map((partyId) =>
+			db.collection("parties").doc(partyId),
+		);
+		const candidatePartySnaps = candidatePartyRefs.length
+			? await Promise.all(candidatePartyRefs.map((ref) => transaction.get(ref)))
+			: [];
+		const reusablePartySnap = candidatePartySnaps.find((partySnap) => {
+			if (!partySnap.exists) return false;
+			const party = partySnap.data() || {};
+			return (
+				party.hostUserId === customerId &&
+				party.restaurantId === reservation.restaurantId &&
+				party.orderMode !== "pickup" &&
+				["pending", "AWAITING_TABLE", "active"].includes(party.status)
+			);
+		});
+		const reservationPatch = buildReservationPartyPatch({
+			reservationId,
+			reservation,
+		});
+
+		if (reusablePartySnap) {
+			const partyRef = db.collection("parties").doc(reusablePartySnap.id);
+			const basketRef = db.collection("shared_baskets").doc(reusablePartySnap.id);
+
+			transaction.set(partyRef, reservationPatch, { merge: true });
+			transaction.set(basketRef, reservationPatch, { merge: true });
+			transaction.set(
+				reservationRef,
+				{
+					partyId: reusablePartySnap.id,
+					partyLinkedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			return {
+				success: true,
+				partyId: reusablePartySnap.id,
+				reusedExistingParty: true,
+			};
+		}
+
+		const partyId = db.collection("parties").doc().id;
+		const partyRef = db.collection("parties").doc(partyId);
+		const sharedBasketRef = db.collection("shared_baskets").doc(partyId);
+		const hostName =
+			getCustomerDisplayName(customerData, reservation.customerName || "Host");
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		const restaurantName =
+			reservation.restaurantName ||
+			restaurantData.restaurantName ||
+			restaurantData.name ||
+			"Restaurant";
+		const restaurantTaxRate =
+			typeof restaurantData.taxRate === "number" &&
+			!isNaN(restaurantData.taxRate)
+				? restaurantData.taxRate
+				: 0;
+		const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
+
+		transaction.set(partyRef, {
+			id: partyId,
+			restaurantId: reservation.restaurantId,
+			restaurantName,
+			restaurantTaxRate,
+			restaurantStripeAccountId,
+			restaurantCanAcceptPayments: !!restaurantStripeAccountId,
+			sharedBasketId: partyId,
+			orderMode: "dineIn",
+			fulfillmentType: "reservation",
+			joinable: true,
+			table: null,
+			hostUserId: customerId,
+			hostName,
+			guestUserIds: [customerId],
+			memberUids: [customerId],
+			guestPips: [
+				{
+					userId: customerId,
+					name: hostName,
+					joinedAt: new Date(),
+					isLocal: true,
+				},
+			],
+			guestNames: [],
+			status: "pending",
+			createdAt: now,
+			checkInId: null,
+			inviteCode: null,
+			inviteCodeExpiry: null,
+			...reservationPatch,
+		});
+		transaction.set(sharedBasketRef, {
+			partyId,
+			restaurantId: reservation.restaurantId,
+			orderMode: "dineIn",
+			fulfillmentType: "reservation",
+			items: [],
+			lastUpdated: now,
+			createdAt: now,
+			...reservationPatch,
+		});
+		transaction.set(
+			customerRef,
+			{
+				partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+			},
+			{ merge: true },
+		);
+		transaction.set(
+			reservationRef,
+			{
+				partyId,
+				partyLinkedAt: now,
+				updatedAt: now,
+			},
+			{ merge: true },
+		);
+
+		return { success: true, partyId, reusedExistingParty: false };
+	});
 });
 
 exports.joinReservationWaitlist = functions.https.onCall(async (data, context) => {
@@ -775,6 +1059,7 @@ exports.joinReservationWaitlist = functions.https.onCall(async (data, context) =
 			null,
 		partySize,
 		requestedDate: date,
+		preferredTimeWindow: sanitizeString(data && data.preferredTimeWindow, 80),
 		status: "waiting",
 		occasion: sanitizeString(data && data.occasion, 80),
 		seatingPreference: sanitizeString(data && data.seatingPreference, 80),
@@ -789,6 +1074,8 @@ exports.joinReservationWaitlist = functions.https.onCall(async (data, context) =
 		createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 	});
+
+	await refreshWaitlistQueue({ restaurantId, date });
 
 	return { success: true, waitlistId: waitlistRef.id };
 });
@@ -806,7 +1093,7 @@ exports.acceptWaitlistOffer = functions.https.onCall(async (data, context) => {
 	const waitlistRef = db.collection("reservationWaitlist").doc(waitlistId);
 	const reservationRef = db.collection("reservations").doc();
 
-	return db.runTransaction(async (transaction) => {
+	const result = await db.runTransaction(async (transaction) => {
 		const waitlistSnap = await transaction.get(waitlistRef);
 		if (!waitlistSnap.exists) {
 			throw new functions.https.HttpsError("not-found", "Waitlist offer not found.");
@@ -905,6 +1192,15 @@ exports.acceptWaitlistOffer = functions.https.onCall(async (data, context) => {
 
 		return { success: true, reservationId: reservationRef.id };
 	});
+
+	const acceptedSnap = await waitlistRef.get();
+	const acceptedOffer = acceptedSnap.exists ? acceptedSnap.data() || {} : {};
+	await refreshWaitlistQueue({
+		restaurantId: acceptedOffer.restaurantId,
+		date: acceptedOffer.requestedDate,
+	});
+
+	return result;
 });
 
 exports.passWaitlistOffer = functions.https.onCall(async (data, context) => {
@@ -948,6 +1244,114 @@ exports.passWaitlistOffer = functions.https.onCall(async (data, context) => {
 
 	return { success: true };
 });
+
+exports.restaurantOfferWaitlistSlot = functions.https.onCall(
+	async (data, context) => {
+		const uid = requireAuth(context);
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const date = normalizeDate(data && data.date);
+		const time = normalizeTime(data && data.time);
+		const preferredTimeWindow = sanitizeString(
+			data && data.preferredTimeWindow,
+			80,
+		);
+
+		if (!restaurantId || !date || !time) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant, date, and offer time are required.",
+			);
+		}
+
+		const restaurantData = await assertRestaurantAccess(uid, restaurantId);
+		assertFeatureAllowed(
+			restaurantData,
+			"reservationWaitlist",
+			"Reservation waitlist is not enabled for this restaurant plan.",
+		);
+
+		const waitlistSnap = await db
+			.collection("reservationWaitlist")
+			.where("restaurantId", "==", restaurantId)
+			.get();
+		const candidates = waitlistSnap.docs
+			.map((doc) => ({ id: doc.id, ...doc.data() }))
+			.filter((entry) => {
+				if (entry.requestedDate !== date || entry.status !== "waiting") {
+					return false;
+				}
+				if (!preferredTimeWindow || preferredTimeWindow === "Any time") {
+					return true;
+				}
+				return entry.preferredTimeWindow === preferredTimeWindow;
+			})
+			.sort((a, b) => {
+				const aTrust = a.customerTrustSnapshot || {};
+				const bTrust = b.customerTrustSnapshot || {};
+				const aNoShows = Number(aTrust.noShows || 0);
+				const bNoShows = Number(bTrust.noShows || 0);
+				if (aNoShows !== bNoShows) return aNoShows - bNoShows;
+				const aJoined =
+					a.createdAt && typeof a.createdAt.toMillis === "function"
+						? a.createdAt.toMillis()
+						: 0;
+				const bJoined =
+					b.createdAt && typeof b.createdAt.toMillis === "function"
+						? b.createdAt.toMillis()
+						: 0;
+				return aJoined - bJoined;
+			});
+
+		const candidate = candidates[0];
+		if (!candidate) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"No waiting guests match this waitlist group.",
+			);
+		}
+
+		const now = admin.firestore.Timestamp.now();
+		const expiresAt = admin.firestore.Timestamp.fromMillis(
+			now.toMillis() + WAITLIST_OFFER_WINDOW_MINUTES * 60 * 1000,
+		);
+		await db.collection("reservationWaitlist").doc(candidate.id).set(
+			{
+				status: "offer_pending",
+				offeredTime: time,
+				offerExpiresAt: expiresAt,
+				offeredAt: admin.firestore.FieldValue.serverTimestamp(),
+				offeredBy: uid,
+				offeredByRestaurant: true,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		await refreshWaitlistQueue({ restaurantId, date });
+
+		await db
+			.collection("customers")
+			.doc(candidate.customerId)
+			.collection("notifications")
+			.add({
+				type: "reservation_waitlist_offer",
+				waitlistId: candidate.id,
+				restaurantId,
+				title: "Reservation opened",
+				message: `${candidate.restaurantName || "A restaurant"} has a ${time} opening. Confirm within ${WAITLIST_OFFER_WINDOW_MINUTES} minutes.`,
+				read: false,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				expiresAt,
+			});
+
+		return {
+			success: true,
+			waitlistId: candidate.id,
+			customerName: candidate.customerName || "Guest",
+			partySize: Number(candidate.partySize || 1),
+		};
+	},
+);
 
 exports.cancelCustomerReservation = functions.https.onCall(async (data, context) => {
 	const customerId = requireAuth(context);
@@ -1190,6 +1594,9 @@ exports.seatReservation = functions.https.onCall(async (data, context) => {
 					server: { id: serverId, name: serverName },
 					checkInId,
 					activeCheckInId: checkInId,
+					reservationStatus: "seated",
+					reservationTable: { id: tableId, name: tableName },
+					reservationServer: { id: serverId, name: serverName },
 					lastUpdated: timestamp,
 				},
 				{ merge: true },

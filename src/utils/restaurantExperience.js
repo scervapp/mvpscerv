@@ -65,6 +65,9 @@ const readFeatureOverride = (restaurant, featureKey) => {
 	for (const key of keys) {
 		if (typeof source[key] === "boolean") return source[key];
 		if (typeof restaurant?.[key] === "boolean") return restaurant[key];
+		if (typeof restaurant?.[`features.${key}`] === "boolean") {
+			return restaurant[`features.${key}`];
+		}
 	}
 
 	return undefined;

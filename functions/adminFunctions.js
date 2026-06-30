@@ -893,29 +893,39 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 			160,
 		);
 		const featurePatch = {};
+		const reservationSettingsPatch = {};
+		const experienceSettingsPatch = {};
 
 		// When Scerv revokes access, the restaurant-facing toggle should also
 		// switch off immediately so screens do not briefly advertise locked tools.
 		if (cleanEntitlements.reservations === false) {
-			featurePatch["features.reservations"] = false;
-			featurePatch["reservationSettings.enabled"] = false;
-			featurePatch["reservationSettings.reservationsEnabled"] = false;
+			featurePatch.reservations = false;
+			reservationSettingsPatch.enabled = false;
+			reservationSettingsPatch.reservationsEnabled = false;
 		}
 		if (cleanEntitlements.reservationWaitlist === false) {
-			featurePatch["features.reservationWaitlist"] = false;
-			featurePatch["reservationSettings.waitlistEnabled"] = false;
+			featurePatch.reservationWaitlist = false;
+			reservationSettingsPatch.waitlistEnabled = false;
 		}
 		if (cleanEntitlements.hostCheckInRequests === false) {
-			featurePatch["features.hostCheckInRequests"] = false;
-			featurePatch["experienceSettings.hostCheckInRequestsEnabled"] = false;
+			featurePatch.hostCheckInRequests = false;
+			experienceSettingsPatch.hostCheckInRequestsEnabled = false;
 		}
 		if (cleanEntitlements.rewards === false) {
-			featurePatch["features.loyaltyClub"] = false;
+			featurePatch.loyaltyClub = false;
 		}
 
 		await restaurantRef.set(
 			{
-				...featurePatch,
+				...(Object.keys(featurePatch).length > 0 && {
+					features: featurePatch,
+				}),
+				...(Object.keys(reservationSettingsPatch).length > 0 && {
+					reservationSettings: reservationSettingsPatch,
+				}),
+				...(Object.keys(experienceSettingsPatch).length > 0 && {
+					experienceSettings: experienceSettingsPatch,
+				}),
 				featureEntitlements: cleanEntitlements,
 				subscriptionFeatures: cleanEntitlements,
 				planLevel,

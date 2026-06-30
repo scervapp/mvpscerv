@@ -2,10 +2,12 @@ import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
+	Modal,
 	SafeAreaView,
 	ScrollView,
 	StyleSheet,
 	Text,
+	TextInput,
 	TouchableOpacity,
 	View,
 } from "react-native";
@@ -33,6 +35,11 @@ const TRUST_TONES = {
 
 const getReservationSortKey = (reservation = {}) =>
 	`${reservation.requestedDate || ""} ${reservation.requestedTime || ""}`;
+
+const extractTimeFromWindow = (value = "") => {
+	const match = String(value).match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+	return match ? match[0] : "";
+};
 
 const getTrustSnapshot = (reservation = {}) => ({
 	completedReservations: Number(
@@ -69,11 +76,16 @@ const RestaurantReservationsScreen = () => {
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [reservations, setReservations] = useState([]);
+	const [waitlistEntries, setWaitlistEntries] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [isLoadingWaitlist, setIsLoadingWaitlist] = useState(true);
 	const [actionId, setActionId] = useState(null);
 	const [selectedReservationForSeating, setSelectedReservationForSeating] =
 		useState(null);
 	const [isSeatingRequest, setIsSeatingRequest] = useState(false);
+	const [selectedWaitlistGroup, setSelectedWaitlistGroup] = useState(null);
+	const [waitlistOfferTime, setWaitlistOfferTime] = useState("");
+	const [isOfferingWaitlistSlot, setIsOfferingWaitlistSlot] = useState(false);
 
 	useEffect(() => {
 		if (!restaurantId) return undefined;
@@ -103,6 +115,35 @@ const RestaurantReservationsScreen = () => {
 				(error) => {
 					console.error("Error loading reservations:", error);
 					setIsLoading(false);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [restaurantId]);
+
+	useEffect(() => {
+		if (!restaurantId) return undefined;
+
+		setIsLoadingWaitlist(true);
+		const unsubscribe = db
+			.collection("reservationWaitlist")
+			.where("restaurantId", "==", restaurantId)
+			.onSnapshot(
+				(snapshot) => {
+					const rows = snapshot.docs
+						.map((doc) => ({ id: doc.id, ...doc.data() }))
+						.sort((a, b) => {
+							const aTime = a.createdAt?.toMillis?.() || 0;
+							const bTime = b.createdAt?.toMillis?.() || 0;
+							if (aTime !== bTime) return aTime - bTime;
+							return a.id.localeCompare(b.id);
+						});
+					setWaitlistEntries(rows);
+					setIsLoadingWaitlist(false);
+				},
+				(error) => {
+					console.error("Error loading reservation waitlist:", error);
+					setIsLoadingWaitlist(false);
 				},
 			);
 
@@ -144,6 +185,38 @@ const RestaurantReservationsScreen = () => {
 	const confirmedCount = activeReservations.filter(
 		(item) => item.status === "confirmed" || item.status === "arrival_requested",
 	).length;
+	const activeWaitlistEntries = useMemo(
+		() =>
+			waitlistEntries.filter((entry) =>
+				["waiting", "offer_pending"].includes(entry.status),
+			),
+		[waitlistEntries],
+	);
+	const waitlistDemandGroups = useMemo(() => {
+		const groups = new Map();
+		activeWaitlistEntries.forEach((entry) => {
+			const windowLabel = entry.preferredTimeWindow || "Any time";
+			const key = `${entry.requestedDate || "Date TBD"}|${windowLabel}`;
+			const existing = groups.get(key) || {
+				key,
+				date: entry.requestedDate || "Date TBD",
+				windowLabel,
+				count: 0,
+				covers: 0,
+				offers: 0,
+				entries: [],
+			};
+			existing.count += 1;
+			existing.covers += Number(entry.partySize || 1);
+			if (entry.status === "offer_pending") existing.offers += 1;
+			existing.entries.push(entry);
+			groups.set(key, existing);
+		});
+		return Array.from(groups.values()).sort((a, b) => {
+			if (a.date !== b.date) return a.date.localeCompare(b.date);
+			return b.covers - a.covers;
+		});
+	}, [activeWaitlistEntries]);
 
 	const runReservationAction = async (reservationId, functionName, payload = {}) => {
 		setActionId(reservationId);
@@ -178,6 +251,119 @@ const RestaurantReservationsScreen = () => {
 			setIsSeatingRequest(false);
 			setActionId(null);
 		}
+	};
+
+	const openWaitlistOfferModal = (group) => {
+		setSelectedWaitlistGroup(group);
+		setWaitlistOfferTime(extractTimeFromWindow(group.windowLabel));
+	};
+
+	const closeWaitlistOfferModal = () => {
+		if (isOfferingWaitlistSlot) return;
+		setSelectedWaitlistGroup(null);
+		setWaitlistOfferTime("");
+	};
+
+	const handleOfferWaitlistSlot = async () => {
+		if (!selectedWaitlistGroup) return;
+		if (!/^\d{2}:\d{2}$/.test(waitlistOfferTime)) {
+			Alert.alert("Time required", "Enter the offer time as HH:MM.");
+			return;
+		}
+
+		setIsOfferingWaitlistSlot(true);
+		try {
+			const offerSlot = httpsCallable(functions, "restaurantOfferWaitlistSlot");
+			const result = await offerSlot({
+				restaurantId,
+				date: selectedWaitlistGroup.date,
+				time: waitlistOfferTime,
+				preferredTimeWindow:
+					selectedWaitlistGroup.windowLabel === "Any time"
+						? ""
+						: selectedWaitlistGroup.windowLabel,
+			});
+			const offeredGuest = result?.data?.customerName || "the next guest";
+			Alert.alert(
+				"Offer sent",
+				`${offeredGuest} has 10 minutes to confirm this reservation.`,
+			);
+			setSelectedWaitlistGroup(null);
+			setWaitlistOfferTime("");
+		} catch (error) {
+			console.error("Waitlist offer failed:", error);
+			Alert.alert("Could not send offer", error.message || "Please try again.");
+		} finally {
+			setIsOfferingWaitlistSlot(false);
+		}
+	};
+
+	const renderWaitlistDemandGroup = (group) => {
+		const shouldOpenCapacity = group.count >= 3 || group.covers >= 8;
+		const topEntries = group.entries.slice(0, 3);
+
+		return (
+			<View key={group.key} style={styles.waitlistCard}>
+				<View style={styles.waitlistTopRow}>
+					<View style={styles.cardTitleBlock}>
+						<Text style={styles.waitlistTitle}>{group.date}</Text>
+						<Text style={styles.reservationMeta}>{group.windowLabel}</Text>
+					</View>
+					<View
+						style={[
+							styles.waitlistCue,
+							shouldOpenCapacity && styles.waitlistCueHot,
+						]}
+					>
+						<Text
+							style={[
+								styles.waitlistCueText,
+								shouldOpenCapacity && styles.waitlistCueTextHot,
+							]}
+						>
+							{shouldOpenCapacity ? "Add capacity?" : "Monitor"}
+						</Text>
+					</View>
+				</View>
+				<View style={styles.waitlistMetricRow}>
+					<View style={styles.waitlistMetric}>
+						<Text style={styles.waitlistMetricValue}>{group.count}</Text>
+						<Text style={styles.waitlistMetricLabel}>parties</Text>
+					</View>
+					<View style={styles.waitlistMetric}>
+						<Text style={styles.waitlistMetricValue}>{group.covers}</Text>
+						<Text style={styles.waitlistMetricLabel}>covers</Text>
+					</View>
+					<View style={styles.waitlistMetric}>
+						<Text style={styles.waitlistMetricValue}>{group.offers}</Text>
+						<Text style={styles.waitlistMetricLabel}>offers out</Text>
+					</View>
+				</View>
+				{topEntries.map((entry) => (
+					<View key={entry.id} style={styles.waitlistGuestRow}>
+						<Text style={styles.waitlistGuestName} numberOfLines={1}>
+							#{entry.queuePosition || "-"} {entry.customerName || "Guest"}
+						</Text>
+						<Text style={styles.waitlistGuestMeta}>
+							Party of {entry.partySize || 1} -{" "}
+							{entry.customerReliabilityLabel || "New Guest"}
+						</Text>
+					</View>
+				))}
+				{group.entries.length > topEntries.length ? (
+					<Text style={styles.waitlistMoreText}>
+						+{group.entries.length - topEntries.length} more waiting
+					</Text>
+				) : null}
+				<TouchableOpacity
+					style={styles.waitlistOfferButton}
+					onPress={() => openWaitlistOfferModal(group)}
+				>
+					<Ionicons name="ticket-outline" size={17} color={colors.primary} />
+					<Text style={styles.waitlistOfferButtonText}>Offer slot</Text>
+				</TouchableOpacity>
+			</View>
+		);
 	};
 
 	const renderReservationCard = (reservation) => {
@@ -265,6 +451,12 @@ const RestaurantReservationsScreen = () => {
 				{reservation.guestNotes ? (
 					<Text style={styles.detailText}>Notes: {reservation.guestNotes}</Text>
 				) : null}
+				{reservation.partyId ? (
+					<View style={styles.linkedPartyBadge}>
+						<Ionicons name="people-outline" size={15} color={colors.primary} />
+						<Text style={styles.linkedPartyText}>Scerv party linked</Text>
+					</View>
+				) : null}
 
 				{isBusy ? (
 					<ActivityIndicator color={colors.primary} style={styles.cardLoader} />
@@ -351,6 +543,15 @@ const RestaurantReservationsScreen = () => {
 					</View>
 				</View>
 
+				<Text style={styles.sectionTitle}>Waitlist demand</Text>
+				{isLoadingWaitlist ? (
+					<ActivityIndicator color={colors.primary} />
+				) : waitlistDemandGroups.length === 0 ? (
+					<Text style={styles.emptyText}>No active waitlist demand.</Text>
+				) : (
+					waitlistDemandGroups.map(renderWaitlistDemandGroup)
+				)}
+
 				<Text style={styles.sectionTitle}>Requests</Text>
 				{isLoading ? (
 					<ActivityIndicator color={colors.primary} />
@@ -367,6 +568,54 @@ const RestaurantReservationsScreen = () => {
 					activeReservations.map(renderReservationCard)
 				)}
 			</ScrollView>
+			<Modal
+				visible={Boolean(selectedWaitlistGroup)}
+				transparent
+				animationType="fade"
+				onRequestClose={closeWaitlistOfferModal}
+			>
+				<View style={styles.modalOverlay}>
+					<View style={styles.offerModal}>
+						<Text style={styles.offerModalTitle}>Offer waitlist slot</Text>
+						<Text style={styles.offerModalMeta}>
+							{selectedWaitlistGroup?.date} -{" "}
+							{selectedWaitlistGroup?.windowLabel || "Any time"}
+						</Text>
+						<Text style={styles.offerModalHelp}>
+							Enter the exact time to offer the top eligible guest.
+						</Text>
+						<TextInput
+							value={waitlistOfferTime}
+							onChangeText={setWaitlistOfferTime}
+							style={styles.offerInput}
+							placeholder="HH:MM"
+							placeholderTextColor={colors.textLight}
+							keyboardType="numbers-and-punctuation"
+							maxLength={5}
+						/>
+						<View style={styles.offerModalActions}>
+							<TouchableOpacity
+								style={styles.offerCancelButton}
+								onPress={closeWaitlistOfferModal}
+								disabled={isOfferingWaitlistSlot}
+							>
+								<Text style={styles.offerCancelText}>Cancel</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={styles.offerConfirmButton}
+								onPress={handleOfferWaitlistSlot}
+								disabled={isOfferingWaitlistSlot}
+							>
+								{isOfferingWaitlistSlot ? (
+									<ActivityIndicator color="#fff" />
+								) : (
+									<Text style={styles.offerConfirmText}>Send offer</Text>
+								)}
+							</TouchableOpacity>
+						</View>
+					</View>
+				</View>
+			</Modal>
 			<TableAndServerSelectionModal
 				isVisible={Boolean(selectedReservationForSeating)}
 				onClose={() => setSelectedReservationForSeating(null)}
@@ -430,6 +679,175 @@ const styles = StyleSheet.create({
 	emptyText: {
 		color: colors.textMedium,
 		marginBottom: 14,
+	},
+	waitlistCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 14,
+		marginBottom: 12,
+	},
+	waitlistTopRow: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		justifyContent: "space-between",
+	},
+	waitlistTitle: {
+		fontSize: 16,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	waitlistCue: {
+		borderRadius: 8,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 8,
+		paddingVertical: 5,
+	},
+	waitlistCueHot: {
+		backgroundColor: "#fff7ed",
+	},
+	waitlistCueText: {
+		color: colors.textMedium,
+		fontSize: 11,
+		fontWeight: "900",
+		textTransform: "uppercase",
+	},
+	waitlistCueTextHot: {
+		color: "#c2410c",
+	},
+	waitlistMetricRow: {
+		flexDirection: "row",
+		marginTop: 12,
+		marginBottom: 8,
+	},
+	waitlistMetric: {
+		flex: 1,
+		borderRadius: 8,
+		backgroundColor: colors.backgroundLight,
+		padding: 10,
+		marginRight: 8,
+	},
+	waitlistMetricValue: {
+		fontSize: 18,
+		fontWeight: "900",
+		color: colors.primary,
+	},
+	waitlistMetricLabel: {
+		fontSize: 10,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginTop: 2,
+	},
+	waitlistGuestRow: {
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 8,
+		marginTop: 8,
+	},
+	waitlistGuestName: {
+		color: colors.textDark,
+		fontWeight: "900",
+	},
+	waitlistGuestMeta: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		marginTop: 2,
+	},
+	waitlistMoreText: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "900",
+		marginTop: 8,
+	},
+	waitlistOfferButton: {
+		minHeight: 42,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		backgroundColor: colors.primary + "10",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		marginTop: 12,
+	},
+	waitlistOfferButtonText: {
+		color: colors.primary,
+		fontWeight: "900",
+		marginLeft: 6,
+	},
+	modalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.45)",
+		justifyContent: "center",
+		padding: 20,
+	},
+	offerModal: {
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		padding: 18,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	offerModalTitle: {
+		fontSize: 19,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	offerModalMeta: {
+		color: colors.primary,
+		fontWeight: "900",
+		marginTop: 5,
+	},
+	offerModalHelp: {
+		color: colors.textMedium,
+		fontWeight: "700",
+		marginTop: 10,
+		lineHeight: 19,
+	},
+	offerInput: {
+		minHeight: 50,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 12,
+		color: colors.textDark,
+		fontSize: 16,
+		fontWeight: "900",
+		marginTop: 14,
+	},
+	offerModalActions: {
+		flexDirection: "row",
+		marginTop: 16,
+	},
+	offerCancelButton: {
+		flex: 1,
+		minHeight: 44,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 8,
+	},
+	offerCancelText: {
+		color: colors.textDark,
+		fontWeight: "900",
+	},
+	offerConfirmButton: {
+		flex: 1,
+		minHeight: 44,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	offerConfirmText: {
+		color: "#fff",
+		fontWeight: "900",
 	},
 	reservationCard: {
 		backgroundColor: colors.surfaceWhite,
@@ -533,6 +951,24 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		marginTop: 8,
 		lineHeight: 19,
+	},
+	linkedPartyBadge: {
+		alignSelf: "flex-start",
+		flexDirection: "row",
+		alignItems: "center",
+		marginTop: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.primary + "30",
+		backgroundColor: colors.primary + "10",
+		paddingHorizontal: 9,
+		paddingVertical: 6,
+	},
+	linkedPartyText: {
+		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "900",
+		marginLeft: 5,
 	},
 	actionRow: {
 		flexDirection: "row",

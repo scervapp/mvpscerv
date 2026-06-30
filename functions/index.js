@@ -112,10 +112,13 @@ exports.saveRestaurantExperienceSettings =
 	reservationFunctions.saveRestaurantExperienceSettings;
 exports.createReservationRequest =
 	reservationFunctions.createReservationRequest;
+exports.createReservationParty = reservationFunctions.createReservationParty;
 exports.joinReservationWaitlist =
 	reservationFunctions.joinReservationWaitlist;
 exports.acceptWaitlistOffer = reservationFunctions.acceptWaitlistOffer;
 exports.passWaitlistOffer = reservationFunctions.passWaitlistOffer;
+exports.restaurantOfferWaitlistSlot =
+	reservationFunctions.restaurantOfferWaitlistSlot;
 exports.cancelCustomerReservation =
 	reservationFunctions.cancelCustomerReservation;
 exports.seatReservation = reservationFunctions.seatReservation;

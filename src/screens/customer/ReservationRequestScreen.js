@@ -31,6 +31,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 
 	const [date, setDate] = useState(formatDateInput(new Date()));
 	const [partySize, setPartySize] = useState("2");
+	const [preferredTimeWindow, setPreferredTimeWindow] = useState("");
 	const [occasion, setOccasion] = useState("");
 	const [seatingPreference, setSeatingPreference] = useState("");
 	const [allergyNotes, setAllergyNotes] = useState("");
@@ -164,6 +165,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 				restaurantId: restaurant.id,
 				date,
 				partySize: parsedPartySize,
+				preferredTimeWindow,
 				customerName:
 					`${currentUserData?.firstName || ""} ${
 						currentUserData?.lastName || ""
@@ -247,6 +249,15 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					keyboardType="number-pad"
 					placeholder="2"
+					placeholderTextColor={colors.textLight}
+				/>
+
+				<Text style={styles.label}>Preferred waitlist time</Text>
+				<TextInput
+					value={preferredTimeWindow}
+					onChangeText={setPreferredTimeWindow}
+					style={styles.input}
+					placeholder="Any time, 6:30-8:00, after 7..."
 					placeholderTextColor={colors.textLight}
 				/>
 

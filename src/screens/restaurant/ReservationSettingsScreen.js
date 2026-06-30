@@ -47,31 +47,37 @@ const STYLE_FEATURE_PRESETS = {
 		reservations: false,
 		hostCheckInRequests: false,
 		qrSelfCheckIn: true,
+		tableScanOrdering: true,
 	},
 	quick_service: {
 		reservations: false,
 		hostCheckInRequests: false,
 		qrSelfCheckIn: false,
+		tableScanOrdering: false,
 	},
 	casual_dining: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
+		tableScanOrdering: true,
 	},
 	full_service: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
+		tableScanOrdering: true,
 	},
 	fine_dining: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: false,
+		tableScanOrdering: true,
 	},
 	hotel_concierge: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: false,
+		tableScanOrdering: true,
 	},
 };
 
@@ -138,11 +144,13 @@ const getDefaultExperienceState = () => ({
 		reservations: false,
 		hostCheckInRequests: false,
 		qrSelfCheckIn: true,
+		tableScanOrdering: true,
 	},
 	allowedFeatures: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
+		tableScanOrdering: true,
 	},
 });
 
@@ -177,12 +185,16 @@ const ReservationSettingsScreen = () => {
 						hostCheckInRequests:
 							experienceConfig.features.hostCheckInRequests === true,
 						qrSelfCheckIn: experienceConfig.features.qrSelfCheckIn !== false,
+						tableScanOrdering:
+							experienceConfig.features.tableScanOrdering === true,
 					},
 					allowedFeatures: {
 						reservations: experienceConfig.isFeatureAllowed("reservations"),
 						hostCheckInRequests:
 							experienceConfig.isFeatureAllowed("hostCheckInRequests"),
 						qrSelfCheckIn: experienceConfig.isFeatureAllowed("qrSelfCheckIn"),
+						tableScanOrdering:
+							experienceConfig.isFeatureAllowed("tableScanOrdering"),
 					},
 				});
 			});
@@ -274,6 +286,12 @@ const ReservationSettingsScreen = () => {
 			features: {
 				...prev.features,
 				[featureKey]: !prev.features[featureKey],
+				...(featureKey === "qrSelfCheckIn" && {
+					tableScanOrdering:
+						prev.allowedFeatures.tableScanOrdering !== false
+							? !prev.features[featureKey]
+							: false,
+				}),
 			},
 		}));
 	};
@@ -288,16 +306,6 @@ const ReservationSettingsScreen = () => {
 			return;
 		}
 		updateSettings({ enabled });
-		if (enabled) {
-			// Keep the public guest reservation action on when slot inventory is live.
-			setExperienceState((prev) => ({
-				...prev,
-				features: {
-					...prev.features,
-					reservations: prev.allowedFeatures.reservations !== false,
-				},
-			}));
-		}
 	};
 
 	const toggleDay = (dayKey) => {
@@ -314,11 +322,7 @@ const ReservationSettingsScreen = () => {
 		if (!restaurantId || !requireReservationManager()) return;
 		setIsSavingExperience(true);
 		const featuresToSave = clampExperienceFeatures(
-			{
-				...experienceState.features,
-				reservations:
-					settingsState.enabled || experienceState.features.reservations,
-			},
+			{ ...experienceState.features },
 			experienceState.allowedFeatures,
 		);
 
@@ -346,11 +350,7 @@ const ReservationSettingsScreen = () => {
 		if (!restaurantId || !requireReservationManager()) return;
 		setIsSaving(true);
 		const featuresToSave = clampExperienceFeatures(
-			{
-				...experienceState.features,
-				reservations:
-					settingsState.enabled || experienceState.features.reservations,
-			},
+			{ ...experienceState.features },
 			experienceState.allowedFeatures,
 		);
 
@@ -484,14 +484,19 @@ const ReservationSettingsScreen = () => {
 							<Text style={styles.panelSubtitle}>
 								Guests can start from a table QR code.
 							</Text>
+							{experienceState.allowedFeatures.qrSelfCheckIn === false && (
+								<Text style={styles.lockedFeatureText}>Locked by Scerv plan</Text>
+							)}
 						</View>
 						<Switch
 							value={experienceState.features.qrSelfCheckIn}
 							onValueChange={() => toggleExperienceFeature("qrSelfCheckIn")}
-							disabled={!canManageReservationSettings}
+							disabled={
+								!canManageReservationSettings ||
+								experienceState.allowedFeatures.qrSelfCheckIn === false
+							}
 						/>
 					</View>
-
 					<TouchableOpacity
 						style={[
 							styles.saveButton,

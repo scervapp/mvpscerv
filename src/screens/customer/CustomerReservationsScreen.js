@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { httpsCallable } from "@react-native-firebase/functions";
+import { useNavigation } from "@react-navigation/native";
 
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
@@ -35,6 +36,7 @@ const getSortKey = (reservation = {}) =>
 
 const CustomerReservationsScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const navigation = useNavigation();
 	const { currentPartyIds, partyDetails } = useParty();
 	const [reservations, setReservations] = useState([]);
 	const [waitlistEntries, setWaitlistEntries] = useState([]);
@@ -163,13 +165,56 @@ const CustomerReservationsScreen = () => {
 	};
 
 	const getRestaurantParty = (reservation) => {
-		const partyId = currentPartyIds?.[reservation.restaurantId]?.dineIn || null;
+		const partyId =
+			reservation.partyId || currentPartyIds?.[reservation.restaurantId]?.dineIn || null;
 		const party = partyId ? partyDetails?.[partyId] : null;
+		if (reservation.partyId && !party) {
+			return { partyId: reservation.partyId, party: null };
+		}
 		if (!party || party.hostUserId !== currentUserData?.uid) return null;
 		if (!["pending", "AWAITING_TABLE", "active"].includes(party.status)) {
 			return null;
 		}
 		return { partyId, party };
+	};
+
+	const openParty = (partyId) => {
+		if (!partyId) return;
+		navigation.navigate("PartyTab", {
+			screen: "PartySession",
+			params: { partyId },
+		});
+	};
+
+	const handleCreateReservationParty = async (reservation) => {
+		if (reservation.partyId) {
+			openParty(reservation.partyId);
+			return;
+		}
+
+		setActionId(reservation.id);
+		try {
+			const createReservationParty = httpsCallable(
+				functions,
+				"createReservationParty",
+			);
+			const result = await createReservationParty({
+				reservationId: reservation.id,
+			});
+			const partyId = result?.data?.partyId;
+			if (!partyId) {
+				throw new Error("The reservation party could not be created.");
+			}
+			openParty(partyId);
+		} catch (error) {
+			console.error("Error creating reservation party:", error);
+			Alert.alert(
+				"Could not create party",
+				error.message || "Please try again.",
+			);
+		} finally {
+			setActionId(null);
+		}
 	};
 
 	const submitArrivalRequest = async (reservation, partyContext = null) => {
@@ -270,6 +315,11 @@ const CustomerReservationsScreen = () => {
 						<Text style={styles.reservationMeta}>
 							Party of {entry.partySize || 1}
 						</Text>
+						{entry.preferredTimeWindow ? (
+							<Text style={styles.reservationMeta}>
+								Preferred: {entry.preferredTimeWindow}
+							</Text>
+						) : null}
 					</View>
 					<View style={styles.statusPill}>
 						<Text style={styles.statusText}>
@@ -283,9 +333,18 @@ const CustomerReservationsScreen = () => {
 						A spot opened. Confirm before the offer expires.
 					</Text>
 				) : (
-					<Text style={styles.detailText}>
-						We'll notify you if a matching reservation opens.
-					</Text>
+					<View style={styles.queueNotice}>
+						<Ionicons
+							name="people-outline"
+							size={17}
+							color={colors.primary}
+						/>
+						<Text style={styles.queueNoticeText}>
+							{entry.queuePosition && entry.queueTotal
+								? `You're #${entry.queuePosition} of ${entry.queueTotal} on this waitlist.`
+								: "You're on the waitlist. We'll notify you if a matching reservation opens."}
+						</Text>
+					</View>
 				)}
 
 				{isOffer ? (
@@ -315,6 +374,10 @@ const CustomerReservationsScreen = () => {
 		const isBusy = actionId === reservation.id;
 		const canRequestArrival = reservation.status === "confirmed";
 		const isWaitingForHost = reservation.status === "arrival_requested";
+		const hasLinkedParty = Boolean(reservation.partyId);
+		const canPlanParty =
+			["confirmed", "arrival_requested"].includes(reservation.status) ||
+			(reservation.status === "seated" && hasLinkedParty);
 
 		return (
 			<View key={reservation.id} style={styles.card}>
@@ -348,6 +411,33 @@ const CustomerReservationsScreen = () => {
 				) : null}
 				{reservation.server?.name ? (
 					<Text style={styles.detailText}>Server: {reservation.server.name}</Text>
+				) : null}
+
+				{canPlanParty ? (
+					<TouchableOpacity
+						style={styles.partyButton}
+						onPress={() => handleCreateReservationParty(reservation)}
+						disabled={isBusy}
+					>
+						{isBusy ? (
+							<ActivityIndicator size="small" color={colors.primary} />
+						) : (
+							<>
+								<Ionicons
+									name={hasLinkedParty ? "people" : "people-outline"}
+									size={18}
+									color={colors.primary}
+								/>
+								<Text style={styles.partyButtonText}>
+									{hasLinkedParty
+										? reservation.status === "seated"
+											? "Open table"
+											: "Open party"
+										: "Plan with party"}
+								</Text>
+							</>
+						)}
+					</TouchableOpacity>
 				) : null}
 
 				{canRequestArrival ? (
@@ -528,6 +618,22 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		marginLeft: 6,
 	},
+	partyButton: {
+		marginTop: 12,
+		minHeight: 42,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		backgroundColor: colors.primary + "10",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	partyButtonText: {
+		color: colors.primary,
+		fontWeight: "900",
+		marginLeft: 6,
+	},
 	waitingNotice: {
 		marginTop: 12,
 		borderRadius: 8,
@@ -541,6 +647,22 @@ const styles = StyleSheet.create({
 	waitingNoticeText: {
 		color: colors.textMedium,
 		fontWeight: "700",
+		marginLeft: 7,
+		flex: 1,
+	},
+	queueNotice: {
+		marginTop: 12,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "10",
+		borderWidth: 1,
+		borderColor: colors.primary + "25",
+		padding: 10,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	queueNoticeText: {
+		color: colors.textDark,
+		fontWeight: "800",
 		marginLeft: 7,
 		flex: 1,
 	},

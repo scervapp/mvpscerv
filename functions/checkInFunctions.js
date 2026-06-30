@@ -371,6 +371,8 @@ exports.createHostCheckInRequest = functions.https.onCall(async (data, context) 
 					checkInId: checkInRef.id,
 					activeCheckInId: checkInRef.id,
 					reservationId,
+					reservationStatus: "arrival_requested",
+					reservationPartySize: numberOfPeople,
 					lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
 				},
 				{ merge: true },
