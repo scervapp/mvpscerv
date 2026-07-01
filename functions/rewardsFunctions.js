@@ -139,6 +139,8 @@ const calculateEarnedPoints = (orderData) => {
 const normalizeTier = (tier, index) => ({
 	id: String(tier.id || `tier_${index + 1}`).trim(),
 	name: String(tier.name || `Tier ${index + 1}`).trim(),
+	tierLevel: Number(tier.tierLevel || tier.sortOrder || index + 1),
+	sortOrder: Number(tier.sortOrder || tier.tierLevel || index + 1),
 	thresholdType: ALLOWED_THRESHOLD_TYPES.includes(
 		String(tier.thresholdType || "visits").trim(),
 	)
@@ -229,25 +231,54 @@ const getProgressValue = (progress, thresholdType) => {
 	return progress.visitCount;
 };
 
+const sortTiersByLadder = (tiers = []) =>
+	[...tiers].sort((a, b) => {
+		const levelDiff = Number(a.tierLevel || 0) - Number(b.tierLevel || 0);
+		if (levelDiff !== 0) return levelDiff;
+		return Number(a.thresholdValue || 0) - Number(b.thresholdValue || 0);
+	});
+
+const buildMembershipStatus = (tier) =>
+	tier
+		? {
+				tierId: tier.id,
+				tierName: tier.name,
+				tierLevel: tier.tierLevel,
+				thresholdType: tier.thresholdType,
+				thresholdValue: tier.thresholdValue,
+			}
+		: {
+				tierId: null,
+				tierName: "New Guest",
+				tierLevel: 0,
+				thresholdType: null,
+				thresholdValue: 0,
+			};
+
 const evaluateRestaurantClub = (program, nextProgress) => {
 	if (!program || program.tiers.length === 0) {
 		return {
 			currentTier: null,
 			nextTier: null,
 			nextTierProgress: null,
+			membershipStatus: buildMembershipStatus(null),
 			unlockedRewards: [],
 		};
 	}
 
-	const unlockedTiers = program.tiers
-		.filter((tier) => getProgressValue(nextProgress, tier.thresholdType) >= tier.thresholdValue)
-		.sort((a, b) => a.thresholdValue - b.thresholdValue);
+	const ladderTiers = sortTiersByLadder(program.tiers);
+	const unlockedTiers = ladderTiers.filter(
+		(tier) => getProgressValue(nextProgress, tier.thresholdType) >= tier.thresholdValue,
+	);
+	const currentTier = unlockedTiers[unlockedTiers.length - 1] || null;
 	const unlockedRewards = unlockedTiers
 		.filter((tier) => tier.rewardLabel || tier.rewardType)
 		.map((tier) => ({
 			id: tier.id,
 			tierId: tier.id,
 			tierName: tier.name,
+			tierLevel: tier.tierLevel,
+			isCurrentTierReward: currentTier ? tier.id === currentTier.id : false,
 			rewardType: tier.rewardType,
 			rewardValue: tier.rewardValue,
 			rewardLabel: tier.rewardLabel,
@@ -258,14 +289,14 @@ const evaluateRestaurantClub = (program, nextProgress) => {
 			eligibleMenuItems: tier.eligibleMenuItems || [],
 			status: "available",
 		}));
-	const currentTier = unlockedTiers[unlockedTiers.length - 1] || null;
-	const nextTier = program.tiers.find((tier) => {
+	const nextTier = ladderTiers.find((tier) => {
 		return getProgressValue(nextProgress, tier.thresholdType) < tier.thresholdValue;
 	}) || null;
 	const nextTierProgress = nextTier
 		? {
 				tierId: nextTier.id,
 				tierName: nextTier.name,
+				tierLevel: nextTier.tierLevel,
 				thresholdType: nextTier.thresholdType,
 				thresholdValue: nextTier.thresholdValue,
 				currentValue: getProgressValue(nextProgress, nextTier.thresholdType),
@@ -284,6 +315,7 @@ const evaluateRestaurantClub = (program, nextProgress) => {
 		currentTier,
 		nextTier,
 		nextTierProgress,
+		membershipStatus: buildMembershipStatus(currentTier),
 		unlockedRewards,
 	};
 };
@@ -318,7 +350,11 @@ exports.saveRestaurantLoyaltyProgram = functions.https.onCall(
 					.slice(0, 8)
 					.map(normalizeTier)
 					.filter((tier) => tier.name && tier.thresholdValue > 0)
-					.sort((a, b) => a.thresholdValue - b.thresholdValue)
+					.map((tier, index) => ({
+						...tier,
+						tierLevel: index + 1,
+						sortOrder: index + 1,
+					}))
 			: [];
 		const program = {
 			enabled: requestedProgram.enabled === true,
@@ -894,8 +930,14 @@ exports.awardRewardsForPaidOrder = functions.firestore
 						existingReward.status === "consumed")
 				) {
 					return {
-						...reward,
 						...existingReward,
+						...reward,
+						status: existingReward.status,
+						redemptionId: existingReward.redemptionId || null,
+						redeemedAt: existingReward.redeemedAt || null,
+						redeemedBy: existingReward.redeemedBy || null,
+						partyId: existingReward.partyId || null,
+						orderId: existingReward.orderId || null,
 					};
 				}
 
@@ -923,8 +965,13 @@ exports.awardRewardsForPaidOrder = functions.firestore
 					currentTierName: clubResult.currentTier
 						? clubResult.currentTier.name
 						: null,
+					currentTierLevel: clubResult.currentTier
+						? clubResult.currentTier.tierLevel
+						: 0,
+					membershipStatus: clubResult.membershipStatus,
 					nextTierId: clubResult.nextTier ? clubResult.nextTier.id : null,
 					nextTierName: clubResult.nextTier ? clubResult.nextTier.name : null,
+					nextTierLevel: clubResult.nextTier ? clubResult.nextTier.tierLevel : null,
 					nextTierProgress: clubResult.nextTierProgress,
 					unlockedRewards: nextUnlockedRewards,
 					...(automaticRedemption

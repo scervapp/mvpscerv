@@ -113,6 +113,24 @@ const CheckoutScreen = ({ route, navigation }) => {
 		restaurant?.uid,
 		currentUserData?.uid,
 	);
+	const serverRatingContext = useMemo(() => {
+		const server = checkInObj?.server || null;
+		const serverId = String(server?.id || "").trim();
+
+		if (
+			!restaurant?.uid ||
+			!serverId ||
+			serverId.toLowerCase() === "unassigned"
+		) {
+			return null;
+		}
+
+		return {
+			restaurantId: restaurant.uid,
+			checkInId: checkInObj?.id || null,
+			server,
+		};
+	}, [checkInObj?.id, checkInObj?.server, restaurant?.uid]);
 
 	const [isPaymentSheetReady, setIsPaymentSheetReady] = useState(false);
 	const [stripePublishableKey, setStripePublishableKey] = useState(null);
@@ -493,6 +511,8 @@ const CheckoutScreen = ({ route, navigation }) => {
 									})),
 									isIndividual: true,
 									origin: "individual",
+									appOrderId: prepData.orderId || null,
+									serverRatingContext,
 								},
 							},
 						],
@@ -596,6 +616,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 									isIndividual: true,
 									origin: "individual",
 									appOrderId: pendingOrderId,
+									serverRatingContext,
 								},
 							},
 						],

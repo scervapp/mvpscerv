@@ -17,6 +17,9 @@ import {
 	FlatList,
 	Modal,
 	Share,
+	TextInput,
+	KeyboardAvoidingView,
+	Platform,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -46,6 +49,15 @@ const DRINK_CATEGORIES = [
 	"Non-Alcoholic Drinks",
 	"Alcoholic Drinks",
 	"Beverages",
+];
+
+const SERVICE_QUICK_MESSAGES = [
+	"Napkins",
+	"Water refill",
+	"Utensils",
+	"Sauce",
+	"A1 sauce",
+	"Question for server",
 ];
 
 const PartySessionScreen = () => {
@@ -85,6 +97,9 @@ const PartySessionScreen = () => {
 	const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 	const [isSendingItems, setIsSendingItems] = useState(false);
 	const [lastServiceRequest, setLastServiceRequest] = useState(0);
+	const [isServiceRequestModalVisible, setIsServiceRequestModalVisible] =
+		useState(false);
+	const [serviceRequestMessage, setServiceRequestMessage] = useState("");
 	const [restaurantData, setRestaurantData] = useState(null);
 
 	// UI Upgrades State
@@ -155,6 +170,62 @@ const PartySessionScreen = () => {
 		return () => unsubscribe();
 	}, [currentParty?.restaurantId]);
 
+	// Keep the guest informed after they request help so the table does not feel ignored.
+	const serviceRequestStatus = useMemo(() => {
+		if (!currentParty) return null;
+
+		const rawStatus = String(currentParty.serviceRequestStatus || "").toLowerCase();
+		const acknowledgedBy =
+			currentParty.serviceAcknowledgedBy?.name ||
+			currentParty.server?.name ||
+			t("your_server", "Your server");
+
+		if (currentParty.serviceRequested === true || rawStatus === "new") {
+			return {
+				type: "pending",
+				icon: "time-outline",
+				title: t("service_request_sent", "Request sent"),
+				message: t(
+					"service_request_sent_detail",
+					"Your server has been notified.",
+				),
+			};
+		}
+
+		if (rawStatus === "acknowledged") {
+			return {
+				type: "acknowledged",
+				icon: "walk-outline",
+				title: t("server_on_the_way", "Server on the way"),
+				message: t(
+					"server_on_the_way_detail",
+					"{{serverName}} acknowledged your request.",
+					{ serverName: acknowledgedBy },
+				),
+			};
+		}
+
+		return null;
+	}, [currentParty, t]);
+
+	const openServiceRequestModal = () => {
+		const now = Date.now();
+		const cooldownMs = 60000;
+
+		if (now - lastServiceRequest < cooldownMs) {
+			Alert.alert(
+				t("please_wait", "Please Wait"),
+				t(
+					"staff_already_notified",
+					"We've already notified the staff. Someone will be right with you!",
+				),
+			);
+			return;
+		}
+
+		setIsServiceRequestModalVisible(true);
+	};
+
 	// --- Virtual Service Bell Action ---
 	const handleCallServer = async () => {
 		const now = Date.now();
@@ -173,6 +244,8 @@ const PartySessionScreen = () => {
 
 		if (!currentPartyId) return;
 
+		const cleanMessage = serviceRequestMessage.trim().slice(0, 160);
+
 		try {
 			await db
 				.collection("parties")
@@ -182,10 +255,15 @@ const PartySessionScreen = () => {
 					serviceRequestType: "service",
 					serviceRequestStatus: "new",
 					serviceRequestedAt: new Date().toISOString(),
+					serviceAcknowledgedAt: null,
+					serviceAcknowledgedBy: null,
+					serviceRequestMessage: cleanMessage,
 					serviceTableName: currentParty?.table?.name || "A table",
 				});
 
 			setLastServiceRequest(now);
+			setServiceRequestMessage("");
+			setIsServiceRequestModalVisible(false);
 
 			Alert.alert(
 				t("service_requested", "Service Requested"),
@@ -718,7 +796,7 @@ const PartySessionScreen = () => {
 				<View style={styles.headerActionsRow}>
 					<TouchableOpacity
 						style={styles.headerIconButton}
-						onPress={handleCallServer}
+						onPress={openServiceRequestModal}
 					>
 						<Ionicons
 							name="notifications-outline"
@@ -812,6 +890,35 @@ const PartySessionScreen = () => {
 								: ""}
 							{" - "}
 							Party of {currentParty.reservationPartySize || 1}
+						</Text>
+					</View>
+				</View>
+			) : null}
+
+			{partyIsActive && serviceRequestStatus ? (
+				<View
+					style={[
+						styles.serviceStatusBanner,
+						serviceRequestStatus.type === "acknowledged"
+							? styles.serviceStatusAcknowledged
+							: styles.serviceStatusPending,
+					]}
+				>
+					<Ionicons
+						name={serviceRequestStatus.icon}
+						size={20}
+						color={
+							serviceRequestStatus.type === "acknowledged"
+								? colors.statusSuccess
+								: colors.statusWarning
+						}
+					/>
+					<View style={styles.serviceStatusTextWrap}>
+						<Text style={styles.serviceStatusTitle}>
+							{serviceRequestStatus.title}
+						</Text>
+						<Text style={styles.serviceStatusMessage}>
+							{serviceRequestStatus.message}
 						</Text>
 					</View>
 				</View>
@@ -1167,6 +1274,112 @@ const PartySessionScreen = () => {
 			{/* Modals remain structurally identical */}
 			<Modal
 				transparent={true}
+				visible={isServiceRequestModalVisible}
+				onRequestClose={() => setIsServiceRequestModalVisible(false)}
+				animationType="fade"
+			>
+				<KeyboardAvoidingView
+					style={styles.modalOverlay}
+					behavior={Platform.OS === "ios" ? "padding" : undefined}
+				>
+					<View style={styles.serviceModalContent}>
+						<View style={styles.serviceModalHeader}>
+							<View style={styles.serviceModalIcon}>
+								<Ionicons
+									name="notifications-outline"
+									size={22}
+									color={colors.primary}
+								/>
+							</View>
+							<View style={styles.serviceModalTitleWrap}>
+								<Text style={styles.serviceModalTitle}>
+									{t("request_service", "Request service")}
+								</Text>
+								<Text style={styles.serviceModalSubtitle}>
+									{t(
+										"request_service_detail",
+										"Send your server a quick note.",
+									)}
+								</Text>
+							</View>
+						</View>
+
+						<View style={styles.quickMessageGrid}>
+							{SERVICE_QUICK_MESSAGES.map((message) => {
+								const isSelected = serviceRequestMessage === message;
+								return (
+									<TouchableOpacity
+										key={message}
+										style={[
+											styles.quickMessagePill,
+											isSelected && styles.quickMessagePillSelected,
+										]}
+										onPress={() => setServiceRequestMessage(message)}
+									>
+										<Text
+											style={[
+												styles.quickMessageText,
+												isSelected && styles.quickMessageTextSelected,
+											]}
+										>
+											{message}
+										</Text>
+									</TouchableOpacity>
+								);
+							})}
+						</View>
+
+						<TextInput
+							style={styles.serviceRequestInput}
+							value={serviceRequestMessage}
+							onChangeText={setServiceRequestMessage}
+							placeholder={t(
+								"service_request_placeholder",
+								"Need napkins, A1, another sauce...",
+							)}
+							placeholderTextColor={colors.textLight}
+							multiline
+							maxLength={160}
+							returnKeyType="done"
+							blurOnSubmit={true}
+						/>
+						<Text style={styles.serviceRequestCount}>
+							{serviceRequestMessage.length}/160
+						</Text>
+
+						<View style={styles.serviceModalActions}>
+							<TouchableOpacity
+								style={styles.serviceModalSecondary}
+								onPress={() => {
+									setServiceRequestMessage("");
+									setIsServiceRequestModalVisible(false);
+								}}
+							>
+								<Text style={styles.serviceModalSecondaryText}>
+									{t("cancel", "Cancel")}
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={styles.serviceModalPrimary}
+								onPress={handleCallServer}
+							>
+								<Ionicons
+									name="send"
+									size={17}
+									color={colors.surfaceWhite}
+									style={{ marginRight: 8 }}
+								/>
+								<Text style={styles.serviceModalPrimaryText}>
+									{t("send_request", "Send request")}
+								</Text>
+							</TouchableOpacity>
+						</View>
+					</View>
+				</KeyboardAvoidingView>
+			</Modal>
+
+			<Modal
+				transparent={true}
 				visible={isMembersModalVisible}
 				onRequestClose={() => setIsMembersModalVisible(false)}
 				animationType="fade"
@@ -1362,6 +1575,40 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 	},
 	reservationMeta: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		marginTop: 2,
+	},
+	serviceStatusBanner: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginHorizontal: 15,
+		marginTop: 10,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+	},
+	serviceStatusPending: {
+		backgroundColor: colors.statusWarning + "12",
+		borderColor: colors.statusWarning + "35",
+	},
+	serviceStatusAcknowledged: {
+		backgroundColor: colors.statusSuccess + "12",
+		borderColor: colors.statusSuccess + "35",
+	},
+	serviceStatusTextWrap: {
+		flex: 1,
+		marginLeft: 10,
+		minWidth: 0,
+	},
+	serviceStatusTitle: {
+		color: colors.textDark,
+		fontSize: 13,
+		fontWeight: "900",
+	},
+	serviceStatusMessage: {
 		color: colors.textMedium,
 		fontSize: 12,
 		fontWeight: "700",
@@ -1572,6 +1819,121 @@ const styles = StyleSheet.create({
 		borderRadius: 16,
 		width: "90%",
 		maxHeight: "70%",
+	},
+	serviceModalContent: {
+		backgroundColor: colors.surfaceWhite,
+		padding: 18,
+		borderRadius: 16,
+		width: "92%",
+		maxWidth: 440,
+	},
+	serviceModalHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginBottom: 16,
+	},
+	serviceModalIcon: {
+		width: 42,
+		height: 42,
+		borderRadius: 10,
+		backgroundColor: colors.primary + "12",
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 12,
+	},
+	serviceModalTitleWrap: {
+		flex: 1,
+		minWidth: 0,
+	},
+	serviceModalTitle: {
+		color: colors.textDark,
+		fontSize: 19,
+		fontWeight: "900",
+	},
+	serviceModalSubtitle: {
+		color: colors.textMedium,
+		fontSize: 13,
+		fontWeight: "700",
+		marginTop: 2,
+	},
+	quickMessageGrid: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 8,
+		marginBottom: 12,
+	},
+	quickMessagePill: {
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: 999,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+	},
+	quickMessagePillSelected: {
+		backgroundColor: colors.primary,
+		borderColor: colors.primary,
+	},
+	quickMessageText: {
+		color: colors.textMedium,
+		fontSize: 13,
+		fontWeight: "800",
+	},
+	quickMessageTextSelected: {
+		color: colors.surfaceWhite,
+	},
+	serviceRequestInput: {
+		minHeight: 92,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		borderRadius: 12,
+		padding: 12,
+		color: colors.textDark,
+		backgroundColor: colors.backgroundLight,
+		fontSize: 15,
+		fontWeight: "700",
+		textAlignVertical: "top",
+	},
+	serviceRequestCount: {
+		alignSelf: "flex-end",
+		color: colors.textLight,
+		fontSize: 12,
+		fontWeight: "700",
+		marginTop: 6,
+		marginBottom: 14,
+	},
+	serviceModalActions: {
+		flexDirection: "row",
+		gap: 10,
+	},
+	serviceModalSecondary: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		borderRadius: 10,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	serviceModalSecondaryText: {
+		color: colors.textMedium,
+		fontSize: 15,
+		fontWeight: "900",
+	},
+	serviceModalPrimary: {
+		flex: 1.4,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		borderRadius: 10,
+		backgroundColor: colors.primary,
+	},
+	serviceModalPrimaryText: {
+		color: colors.surfaceWhite,
+		fontSize: 15,
+		fontWeight: "900",
 	},
 	modalTitle: {
 		fontSize: 20,

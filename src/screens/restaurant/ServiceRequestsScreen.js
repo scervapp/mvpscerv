@@ -178,6 +178,7 @@ const ServiceRequestsScreen = ({ navigation }) => {
 			: Number(item.partySize || 1);
 		const serverName = item.server?.name || t("unassigned", "Unassigned");
 		const isAcknowledging = acknowledgingIds[item.id];
+		const requestMessage = String(item.serviceRequestMessage || "").trim();
 
 		return (
 			<TouchableOpacity
@@ -231,6 +232,19 @@ const ServiceRequestsScreen = ({ navigation }) => {
 						</View>
 					)}
 				</View>
+
+				{!isCheckoutRequest && requestMessage ? (
+					<View style={styles.requestNoteBox}>
+						<Ionicons
+							name="chatbubble-ellipses"
+							size={16}
+							color={colors.primary}
+						/>
+						<Text style={styles.requestNoteText} numberOfLines={3}>
+							{requestMessage}
+						</Text>
+					</View>
+				) : null}
 
 				<View style={styles.cardActions}>
 					<TouchableOpacity
@@ -485,6 +499,25 @@ const styles = StyleSheet.create({
 		fontSize: 13,
 		fontWeight: "700",
 		marginLeft: 5,
+	},
+	requestNoteBox: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		backgroundColor: colors.primary + "10",
+		borderWidth: 1,
+		borderColor: colors.primary + "25",
+		borderRadius: 8,
+		paddingHorizontal: 10,
+		paddingVertical: 9,
+		marginBottom: 12,
+	},
+	requestNoteText: {
+		flex: 1,
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "800",
+		marginLeft: 8,
+		lineHeight: 19,
 	},
 	cardActions: {
 		flexDirection: "row",

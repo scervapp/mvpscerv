@@ -2,6 +2,9 @@ import React, { useContext, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
+	InputAccessoryView,
+	Keyboard,
+	Platform,
 	SafeAreaView,
 	ScrollView,
 	StyleSheet,
@@ -28,6 +31,7 @@ const addDays = (date, days) => {
 const ReservationRequestScreen = ({ route, navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 	const restaurant = route.params?.restaurant;
+	const keyboardAccessoryId = "reservation-request-keyboard-toolbar";
 
 	const [date, setDate] = useState(formatDateInput(new Date()));
 	const [partySize, setPartySize] = useState("2");
@@ -192,7 +196,11 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView contentContainerStyle={styles.container}>
+			<ScrollView
+				contentContainerStyle={styles.container}
+				keyboardDismissMode="interactive"
+				keyboardShouldPersistTaps="handled"
+			>
 				<Text style={styles.title}>Request a reservation</Text>
 				<Text style={styles.subtitle}>{restaurant?.restaurantName}</Text>
 
@@ -234,6 +242,9 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="YYYY-MM-DD"
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Party size</Text>
@@ -250,6 +261,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					keyboardType="number-pad"
 					placeholder="2"
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
 				/>
 
 				<Text style={styles.label}>Preferred waitlist time</Text>
@@ -259,6 +271,9 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="Any time, 6:30-8:00, after 7..."
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<TouchableOpacity
@@ -311,6 +326,9 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="Birthday, date night, business dinner..."
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Seating preference</Text>
@@ -320,6 +338,9 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="Booth, patio, quiet table..."
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Allergies or dietary needs</Text>
@@ -330,6 +351,10 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					placeholder="Shellfish allergy, gluten-free, high chair..."
 					placeholderTextColor={colors.textLight}
 					multiline
+					blurOnSubmit
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Notes for the restaurant</Text>
@@ -340,6 +365,10 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					placeholder="Anything that helps them host you better."
 					placeholderTextColor={colors.textLight}
 					multiline
+					blurOnSubmit
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<TouchableOpacity
@@ -381,6 +410,18 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					</TouchableOpacity>
 				) : null}
 			</ScrollView>
+			{Platform.OS === "ios" ? (
+				<InputAccessoryView nativeID={keyboardAccessoryId}>
+					<View style={styles.keyboardAccessory}>
+						<TouchableOpacity
+							style={styles.keyboardDoneButton}
+							onPress={Keyboard.dismiss}
+						>
+							<Text style={styles.keyboardDoneText}>Done</Text>
+						</TouchableOpacity>
+					</View>
+				</InputAccessoryView>
+			) : null}
 		</SafeAreaView>
 	);
 };
@@ -521,6 +562,26 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		fontSize: 15,
 		marginLeft: 8,
+	},
+	keyboardAccessory: {
+		minHeight: 44,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		alignItems: "flex-end",
+		justifyContent: "center",
+		paddingHorizontal: 12,
+	},
+	keyboardDoneButton: {
+		minHeight: 36,
+		paddingHorizontal: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	keyboardDoneText: {
+		color: colors.primary,
+		fontWeight: "900",
+		fontSize: 16,
 	},
 });
 

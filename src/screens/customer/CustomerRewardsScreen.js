@@ -198,6 +198,7 @@ const formatTimestamp = (value) => {
 };
 
 const thresholdLabel = (club) => {
+	if (club.membershipStatus?.tierName) return club.membershipStatus.tierName;
 	if (club.currentTierName) return club.currentTierName;
 	if (Number(club.visitCount || 0) > 0) return `${club.visitCount} visits`;
 	return "New club";
@@ -205,7 +206,11 @@ const thresholdLabel = (club) => {
 
 const getClubProgress = (club) => {
 	const rewards = Array.isArray(club.unlockedRewards)
-		? club.unlockedRewards
+		? [...club.unlockedRewards].sort((a, b) => {
+				if (a.isCurrentTierReward && !b.isCurrentTierReward) return -1;
+				if (!a.isCurrentTierReward && b.isCurrentTierReward) return 1;
+				return Number(b.tierLevel || 0) - Number(a.tierLevel || 0);
+			})
 		: [];
 	const visits = Number(club.visitCount || 0);
 	const clubPoints = Number(club.clubPoints || 0);
@@ -215,6 +220,7 @@ const getClubProgress = (club) => {
 		visits,
 		clubPoints,
 		spend,
+		membershipStatus: club.membershipStatus || null,
 	};
 };
 
@@ -652,7 +658,7 @@ const CustomerRewardsScreen = () => {
 					</>
 				)}
 
-				<Text style={styles.sectionTitle}>Restaurant Clubs</Text>
+				<Text style={styles.sectionTitle}>Restaurant Status</Text>
 				{clubs.length === 0 ? (
 					<View style={styles.emptyPanel}>
 						<MaterialCommunityIcons
@@ -662,7 +668,7 @@ const CustomerRewardsScreen = () => {
 						/>
 						<Text style={styles.emptyTitle}>No club progress yet</Text>
 						<Text style={styles.emptyText}>
-							Order at participating restaurants to unlock local tiers and perks.
+							Order at participating restaurants to build status and unlock local perks.
 						</Text>
 					</View>
 				) : (
@@ -683,7 +689,9 @@ const CustomerRewardsScreen = () => {
 										<Text style={styles.clubName}>
 											{club.restaurantName || "Restaurant Club"}
 										</Text>
-										<Text style={styles.clubTier}>{thresholdLabel(club)}</Text>
+										<Text style={styles.clubTier}>
+											Current status: {thresholdLabel(club)}
+										</Text>
 									</View>
 								</View>
 								<View style={styles.clubStatsRow}>
@@ -696,7 +704,7 @@ const CustomerRewardsScreen = () => {
 								{nextTier ? (
 									<View style={styles.clubNextBox}>
 										<View style={styles.clubNextHeader}>
-											<Text style={styles.clubNextTitle}>Next unlock</Text>
+											<Text style={styles.clubNextTitle}>Next status</Text>
 											<Text style={styles.clubNextPercent}>
 												{Math.round(nextTier.progress * 100)}%
 											</Text>
@@ -717,7 +725,7 @@ const CustomerRewardsScreen = () => {
 											color={colors.statusSuccess}
 										/>
 										<Text style={styles.clubCompleteText}>
-											Top club tier reached
+											Top status reached
 										</Text>
 									</View>
 								)}
@@ -734,6 +742,9 @@ const CustomerRewardsScreen = () => {
 													color={colors.primary}
 												/>
 												<Text style={styles.perkText}>
+													{reward.isCurrentTierReward
+														? "Current status benefit: "
+														: ""}
 													{reward.rewardLabel || reward.tierName}
 												</Text>
 											</View>

@@ -95,6 +95,7 @@ exports.captureStaffTerminalPayment =
 exports.submitDishRating = dishRatingFunction.submitDishRating;
 exports.aggregateDishRating = dishRatingFunction.aggregateDishRating;
 exports.submitMenuItemRating = dishRatingFunction.submitMenuItemRating;
+exports.submitServerRating = dishRatingFunction.submitServerRating;
 exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
 exports.aggregateMenuItemOrderStats =
 	dishRatingFunction.aggregateMenuItemOrderStats;

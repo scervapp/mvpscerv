@@ -181,6 +181,8 @@ const getEnabledLoyaltyProgram = (restaurantData = {}) => {
 				.map((tier, index) => ({
 					id: sanitizeString(tier.id || `tier_${index + 1}`, 160),
 					name: sanitizeString(tier.name || `Tier ${index + 1}`, 160),
+					tierLevel: Number(tier.tierLevel || tier.sortOrder || index + 1),
+					sortOrder: Number(tier.sortOrder || tier.tierLevel || index + 1),
 					thresholdType: normalizeThresholdType(tier.thresholdType),
 					thresholdValue: Number(tier.thresholdValue || 0),
 					rewardType: normalizeRewardType(tier.rewardType),
@@ -216,7 +218,11 @@ const getEnabledLoyaltyProgram = (restaurantData = {}) => {
 						: [],
 				}))
 				.filter((tier) => tier.id && tier.thresholdValue > 0)
-				.sort((a, b) => a.thresholdValue - b.thresholdValue)
+				.sort((a, b) => {
+					const levelDiff = Number(a.tierLevel || 0) - Number(b.tierLevel || 0);
+					if (levelDiff !== 0) return levelDiff;
+					return Number(a.thresholdValue || 0) - Number(b.thresholdValue || 0);
+				})
 		: [];
 
 	if (tiers.length === 0) return null;
@@ -352,7 +358,11 @@ const buildAutomaticRestaurantRewardDiscount = async ({
 			),
 		}))
 		.filter((tier) => tier.appliedDiscountCents > 0)
-		.sort((a, b) => b.appliedDiscountCents - a.appliedDiscountCents);
+		.sort((a, b) => {
+			const levelDiff = Number(b.tierLevel || 0) - Number(a.tierLevel || 0);
+			if (levelDiff !== 0) return levelDiff;
+			return b.appliedDiscountCents - a.appliedDiscountCents;
+		});
 
 	const reward = candidates[0];
 	if (!reward) return null;
@@ -364,6 +374,7 @@ const buildAutomaticRestaurantRewardDiscount = async ({
 		rewardId: reward.id,
 		tierId: reward.id,
 		tierName: reward.name,
+		tierLevel: reward.tierLevel || null,
 		rewardType: reward.rewardType,
 		rewardValue: reward.rewardValue || null,
 		rewardLabel: reward.rewardLabel || reward.name || "Restaurant reward",
@@ -2939,6 +2950,9 @@ const fulfillOrder = async ({
 					t.update(partySnap.ref, {
 						status: "checkedOut", // keep visible for cleaning
 						paymentStatus: "paid",
+						...(partyData.reservationId && {
+							reservationStatus: "completed",
+						}),
 						closedAt: admin.firestore.FieldValue.serverTimestamp(),
 						closedByUserId: "system_digital_checkout",
 					});
@@ -2963,6 +2977,21 @@ const fulfillOrder = async ({
 								completedBy: "system_digital_checkout",
 								archivedForAudit: true,
 								archivedOrderId: orderId,
+							},
+							{ merge: true },
+						);
+					}
+
+					if (partyData.reservationId) {
+						t.set(
+							db.collection("reservations").doc(partyData.reservationId),
+							{
+								status: "completed",
+								paymentStatus: "paid",
+								completedAt: admin.firestore.FieldValue.serverTimestamp(),
+								completedBy: "system_digital_checkout",
+								checkedOutAt: admin.firestore.FieldValue.serverTimestamp(),
+								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 							},
 							{ merge: true },
 						);

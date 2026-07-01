@@ -499,15 +499,17 @@ const EmployeeScreen = () => {
 			.toLowerCase();
 		const canManageThisEmployee = canActorManageEmployee(item);
 		const canDeleteThisEmployee = canManageThisEmployee && employeeRole !== "owner";
+		const serviceRatingCount = Number(item.serviceRatingCount || 0);
+		const serviceAverageRating = Number(item.serviceAverageRating || 0);
+		const cardSubtitle =
+			employeeRole.charAt(0).toUpperCase() + employeeRole.slice(1);
 
 		return (
 		<Card style={styles.card}>
 			<Card.Title
 				title={`${item.firstName} ${item.lastName}`}
 				titleStyle={styles.employeeName}
-				subtitle={
-					employeeRole.charAt(0).toUpperCase() + employeeRole.slice(1)
-				}
+				subtitle={cardSubtitle}
 				subtitleStyle={[
 					styles.employeeRole,
 					(employeeRole === "manager" || employeeRole === "owner") &&
@@ -550,6 +552,20 @@ const EmployeeScreen = () => {
 					</View>
 				)}
 			/>
+			{serviceRatingCount > 0 && (
+				<View style={styles.serviceRatingRow}>
+					<Ionicons name="star" size={16} color="#F5B301" />
+					<Text style={styles.serviceRatingText}>
+						{serviceAverageRating.toFixed(1)} {t("service_rating", "service")}
+					</Text>
+					<Text style={styles.serviceRatingMeta}>
+						{serviceRatingCount}{" "}
+						{serviceRatingCount === 1
+							? t("guest_rating", "guest rating")
+							: t("guest_ratings", "guest ratings")}
+					</Text>
+				</View>
+			)}
 		</Card>
 		);
 	};
@@ -651,6 +667,23 @@ const styles = StyleSheet.create({
 	managerRole: { color: colors.primary, fontWeight: "600" },
 
 	// 🚨 NEW: Row styling for right-side card icons
+	serviceRatingRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		paddingHorizontal: 18,
+		paddingBottom: 14,
+		marginTop: -4,
+	},
+	serviceRatingText: {
+		color: colors.textDark,
+		fontWeight: "700",
+		fontSize: 13,
+	},
+	serviceRatingMeta: {
+		color: colors.textMedium,
+		fontSize: 12,
+	},
 	cardActionRow: { flexDirection: "row", alignItems: "center" },
 
 	fab: {

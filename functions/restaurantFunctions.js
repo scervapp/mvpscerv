@@ -4300,6 +4300,9 @@ exports.closePartyTable = functions
 								status: "checkedOut",
 								paymentStatus: "paid",
 								customerStatus: "closed",
+								...(partyData.reservationId && {
+									reservationStatus: "completed",
+								}),
 								serviceRequested: false,
 								closedAt: admin.firestore.FieldValue.serverTimestamp(),
 							}
@@ -4455,6 +4458,24 @@ exports.closePartyTable = functions
 							completedBy: "restaurant_pos_closeout",
 							archivedForAudit: true,
 							closeoutId: partyId,
+						},
+						{ merge: true },
+					);
+				}
+
+				if (partyData.reservationId) {
+					const reservationRef = db
+						.collection("reservations")
+						.doc(partyData.reservationId);
+					transaction.set(
+						reservationRef,
+						{
+							status: "completed",
+							paymentStatus: "paid",
+							completedAt: admin.firestore.FieldValue.serverTimestamp(),
+							completedBy: "restaurant_pos_closeout",
+							checkedOutAt: admin.firestore.FieldValue.serverTimestamp(),
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 						},
 						{ merge: true },
 					);

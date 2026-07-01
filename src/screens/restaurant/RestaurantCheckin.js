@@ -537,6 +537,7 @@ const RestaurantActiveTables = () => {
 		const timeWaiting = item.serviceRequestedAt
 			? moment(item.serviceRequestedAt).fromNow()
 			: "";
+		const serviceRequestMessage = String(item.serviceRequestMessage || "").trim();
 
 		const isAssignedToMe = item?.server?.id === activeSession?.id;
 		const statusConfig = isDirty
@@ -702,6 +703,11 @@ const RestaurantActiveTables = () => {
 										: t("service_requested", "Service Requested")}
 								</Text>
 								<Text style={styles.serviceBannerTime}>{timeWaiting}</Text>
+								{!isCheckoutRequest && serviceRequestMessage ? (
+									<Text style={styles.serviceBannerNote} numberOfLines={2}>
+										{serviceRequestMessage}
+									</Text>
+								) : null}
 							</View>
 						</View>
 						<TouchableOpacity
@@ -1197,9 +1203,21 @@ const styles = StyleSheet.create({
 	},
 	bgDangerLight: { backgroundColor: colors.statusDanger + "15" },
 	bgSuccessLight: { backgroundColor: colors.statusSuccess + "15" },
-	serviceBannerLeft: { flexDirection: "row", alignItems: "center" },
+	serviceBannerLeft: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		minWidth: 0,
+	},
 	serviceBannerTitle: { fontSize: 14, fontWeight: "bold" },
 	serviceBannerTime: { fontSize: 12, color: colors.textMedium },
+	serviceBannerNote: {
+		color: colors.textDark,
+		fontSize: 12,
+		fontWeight: "800",
+		marginTop: 2,
+		maxWidth: 190,
+	},
 	foodReadyBanner: {
 		flexDirection: "row",
 		justifyContent: "space-between",

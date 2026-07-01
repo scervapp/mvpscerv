@@ -8,6 +8,8 @@ import {
 	TouchableOpacity,
 	Alert,
 	ActivityIndicator,
+	InputAccessoryView,
+	Keyboard,
 	Platform,
 	Modal,
 	KeyboardAvoidingView,
@@ -179,6 +181,7 @@ const PartyCheckoutScreen = () => {
 	const route = useRoute();
 
 	const { partyId } = route.params;
+	const pickupInstructionsAccessoryId = "pickup-instructions-keyboard-toolbar";
 
 	const sharedBasket = sharedBaskets[partyId] || {};
 	const sharedBasketItems = sharedBasket.items || [];
@@ -613,6 +616,34 @@ const PartyCheckoutScreen = () => {
 
 	const resolvedRestaurantId =
 		party?.restaurantId || myItemsInBasket[0]?.restaurantId || null;
+	const serverRatingContext = useMemo(() => {
+		const server = party?.server || null;
+		const serverId = String(server?.id || "").trim();
+
+		// Server feedback belongs to seated service, not pickup or unassigned/self-seated flows.
+		if (
+			isPickupMode ||
+			!resolvedRestaurantId ||
+			!serverId ||
+			serverId.toLowerCase() === "unassigned"
+		) {
+			return null;
+		}
+
+		return {
+			restaurantId: resolvedRestaurantId,
+			partyId: party?.id || partyId || null,
+			checkInId: resolvedCheckInId,
+			server,
+		};
+	}, [
+		isPickupMode,
+		party?.server,
+		party?.id,
+		partyId,
+		resolvedCheckInId,
+		resolvedRestaurantId,
+	]);
 
 	const isReadyToPay =
 		myFinalTotal > 0 &&
@@ -791,13 +822,23 @@ const PartyCheckoutScreen = () => {
 								isIndividual: false,
 								origin: "party",
 								appOrderId: party.id,
+								completedPartyId: party.id,
+								completedRestaurantId: resolvedRestaurantId,
+								serverRatingContext,
 							},
 						},
 					],
 				}),
 			);
 		}
-	}, [party?.status, navigation, myItemsInBasket, party?.id, isPickupMode]);
+	}, [
+		party?.status,
+		navigation,
+		myItemsInBasket,
+		party?.id,
+		isPickupMode,
+		serverRatingContext,
+	]);
 
 	const handleSmartFieldToken = async (cardData) => {
 		if (!isReadyToPay || myFinalTotal <= 0) return;
@@ -977,6 +1018,9 @@ const PartyCheckoutScreen = () => {
 									isIndividual: false,
 									origin: "party",
 									appOrderId: pendingOrderId,
+									completedPartyId: party.id,
+									completedRestaurantId: resolvedRestaurantId,
+									serverRatingContext,
 								},
 							},
 						],
@@ -1085,6 +1129,9 @@ const PartyCheckoutScreen = () => {
 											recoveryResult.data.fulfilledOrderId ||
 											recoveryResult.data.orderId ||
 											null,
+										completedPartyId: party.id,
+										completedRestaurantId: resolvedRestaurantId,
+										serverRatingContext,
 									},
 								},
 							],
@@ -1239,6 +1286,9 @@ const PartyCheckoutScreen = () => {
 								origin: isPickupMode ? "pickup" : "party",
 								isIndividual: false,
 								appOrderId: prepData.orderId,
+								completedPartyId: party.id,
+								completedRestaurantId: resolvedRestaurantId,
+								serverRatingContext,
 							},
 						},
 					],
@@ -1369,6 +1419,8 @@ const PartyCheckoutScreen = () => {
 				<ScrollView
 					style={styles.container}
 					contentContainerStyle={styles.scrollContentContainer}
+					keyboardDismissMode="interactive"
+					keyboardShouldPersistTaps="handled"
 				>
 					<View style={styles.header}>
 						<Text style={styles.title}>{primaryTitle}</Text>
@@ -1568,6 +1620,10 @@ const PartyCheckoutScreen = () => {
 								)}
 								placeholderTextColor={colors.textMedium}
 								multiline
+								blurOnSubmit
+								inputAccessoryViewID={pickupInstructionsAccessoryId}
+								returnKeyType="done"
+								onSubmitEditing={Keyboard.dismiss}
 								textAlignVertical="top"
 								maxLength={250}
 							/>
@@ -1897,6 +1953,18 @@ const PartyCheckoutScreen = () => {
 						</View>
 					</KeyboardAvoidingView>
 				</Modal>
+				{Platform.OS === "ios" ? (
+					<InputAccessoryView nativeID={pickupInstructionsAccessoryId}>
+						<View style={styles.keyboardAccessory}>
+							<TouchableOpacity
+								style={styles.keyboardDoneButton}
+								onPress={Keyboard.dismiss}
+							>
+								<Text style={styles.keyboardDoneText}>Done</Text>
+							</TouchableOpacity>
+						</View>
+					</InputAccessoryView>
+				) : null}
 			</SafeAreaView>
 		</StripeProvider>
 	);
@@ -2214,6 +2282,26 @@ const styles = StyleSheet.create({
 		textAlign: "right",
 		fontSize: 12,
 		color: colors.textMedium,
+	},
+	keyboardAccessory: {
+		minHeight: 44,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		alignItems: "flex-end",
+		justifyContent: "center",
+		paddingHorizontal: 12,
+	},
+	keyboardDoneButton: {
+		minHeight: 36,
+		paddingHorizontal: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	keyboardDoneText: {
+		color: colors.primary,
+		fontWeight: "900",
+		fontSize: 16,
 	},
 });
 

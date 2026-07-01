@@ -8,6 +8,9 @@ import {
 	TouchableOpacity,
 	ScrollView,
 	Alert,
+	InputAccessoryView,
+	Keyboard,
+	Platform,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Button, Divider, IconButton, TextInput } from "react-native-paper";
@@ -53,6 +56,7 @@ const PipInstructionModal = ({
 }) => {
 	const { t } = useTranslation();
 	const [instructions, setInstructions] = useState(initialInstructions);
+	const keyboardAccessoryId = "pip-instruction-keyboard-toolbar";
 
 	useEffect(() => {
 		if (visible) {
@@ -90,6 +94,10 @@ const PipInstructionModal = ({
 						onChangeText={setInstructions}
 						multiline
 						numberOfLines={4}
+						blurOnSubmit
+						inputAccessoryViewID={keyboardAccessoryId}
+						returnKeyType="done"
+						onSubmitEditing={Keyboard.dismiss}
 						placeholderTextColor={colors.textLight}
 					/>
 					<View style={styles.modalButtonRow}>
@@ -110,6 +118,18 @@ const PipInstructionModal = ({
 					</View>
 				</View>
 			</View>
+			{Platform.OS === "ios" ? (
+				<InputAccessoryView nativeID={keyboardAccessoryId}>
+					<View style={styles.keyboardAccessory}>
+						<TouchableOpacity
+							style={styles.keyboardDoneButton}
+							onPress={Keyboard.dismiss}
+						>
+							<Text style={styles.keyboardDoneText}>Done</Text>
+						</TouchableOpacity>
+					</View>
+				</InputAccessoryView>
+			) : null}
 		</Modal>
 	);
 };
@@ -127,6 +147,7 @@ const SelectedItemModal = ({
 	const { t, i18n } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
+	const keyboardAccessoryId = "selected-item-keyboard-toolbar";
 
 	const [quantity, setQuantity] = useState(1);
 	const [partyModeTarget, setPartyModeTarget] = useState(null);
@@ -747,6 +768,8 @@ const SelectedItemModal = ({
 				<View style={styles.modalContent}>
 					<ScrollView
 						showsVerticalScrollIndicator={false}
+						keyboardDismissMode="interactive"
+						keyboardShouldPersistTaps="handled"
 						contentContainerStyle={styles.scrollContainer}
 					>
 						<IconButton
@@ -914,6 +937,10 @@ const SelectedItemModal = ({
 										}
 										multiline
 										numberOfLines={3}
+										blurOnSubmit
+										inputAccessoryViewID={keyboardAccessoryId}
+										returnKeyType="done"
+										onSubmitEditing={Keyboard.dismiss}
 										placeholderTextColor={colors.textLight}
 									/>
 								)}
@@ -1038,6 +1065,18 @@ const SelectedItemModal = ({
 					</View>
 				</View>
 			</View>
+			{Platform.OS === "ios" ? (
+				<InputAccessoryView nativeID={keyboardAccessoryId}>
+					<View style={styles.keyboardAccessory}>
+						<TouchableOpacity
+							style={styles.keyboardDoneButton}
+							onPress={Keyboard.dismiss}
+						>
+							<Text style={styles.keyboardDoneText}>Done</Text>
+						</TouchableOpacity>
+					</View>
+				</InputAccessoryView>
+			) : null}
 
 			{editingTargetForInstructions && (
 				<PipInstructionModal
@@ -1091,6 +1130,8 @@ const SelectedItemModal = ({
 
 						<ScrollView
 							showsVerticalScrollIndicator={false}
+							keyboardDismissMode="interactive"
+							keyboardShouldPersistTaps="handled"
 							contentContainerStyle={styles.allReviewsScrollContent}
 						>
 							{reviewHighlights.length > 0 ? (
@@ -1128,6 +1169,26 @@ const styles = StyleSheet.create({
 		shadowOpacity: 0.25,
 		shadowRadius: 4,
 		elevation: 5,
+	},
+	keyboardAccessory: {
+		minHeight: 44,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		alignItems: "flex-end",
+		justifyContent: "center",
+		paddingHorizontal: 12,
+	},
+	keyboardDoneButton: {
+		minHeight: 36,
+		paddingHorizontal: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	keyboardDoneText: {
+		color: colors.primary,
+		fontWeight: "900",
+		fontSize: 16,
 	},
 	scrollContainer: {
 		paddingHorizontal: 20,

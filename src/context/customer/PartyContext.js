@@ -27,6 +27,7 @@ export const PartyContext = createContext({
 	getOrCreatePickupParty: async (restaurantId, restaurantName) => null,
 	joinParty: async (_inviteData) => false,
 	leaveParty: async (_partyId) => false,
+	clearPartySession: (_partyId, _restaurantId) => {},
 	activatePartyCheckIn: async (_checkInDocId, _partyIdOverride) => false,
 	cancelPartyCheckIn: async (_partyIdOverride) => false,
 	inviteToParty: async (_partyIdOverride) => null,
@@ -116,6 +117,38 @@ export const PartyProvider = ({ children }) => {
 		setIsLoadingBasket(false);
 		setIsLoadingPartyAction(false);
 	}, []);
+
+	const clearPartySession = useCallback(
+		(partyId, restaurantId = null) => {
+			if (!partyId) return;
+
+			setCurrentPartyIds((prev) => {
+				const next = { ...prev };
+				const entries = restaurantId
+					? [[restaurantId, next[restaurantId]]]
+					: Object.entries(next);
+
+				entries.forEach(([currentRestaurantId, sessions]) => {
+					if (!sessions) return;
+					const nextSessions = { ...sessions };
+
+					if (nextSessions.dineIn === partyId) nextSessions.dineIn = null;
+					if (nextSessions.pickup === partyId) nextSessions.pickup = null;
+
+					if (nextSessions.dineIn || nextSessions.pickup) {
+						next[currentRestaurantId] = nextSessions;
+					} else {
+						delete next[currentRestaurantId];
+					}
+				});
+
+				return next;
+			});
+			clearPartyCache(partyId);
+			setPartyStatus(null);
+		},
+		[clearPartyCache],
+	);
 
 	// Reset when user logs out
 	useEffect(() => {
@@ -1045,6 +1078,7 @@ export const PartyProvider = ({ children }) => {
 			getRestaurantSessions,
 			joinParty,
 			leaveParty,
+			clearPartySession,
 			activatePartyCheckIn,
 			cancelPartyCheckIn,
 			inviteToParty,
@@ -1069,6 +1103,7 @@ export const PartyProvider = ({ children }) => {
 			getRestaurantSessions,
 			joinParty,
 			leaveParty,
+			clearPartySession,
 			activatePartyCheckIn,
 			cancelPartyCheckIn,
 			inviteToParty,

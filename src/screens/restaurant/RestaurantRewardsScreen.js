@@ -80,6 +80,7 @@ const normalizeProgramForState = (program = {}, restaurantName = "Restaurant") =
 			? program.tiers.map((tier, index) => ({
 					id: tier.id || `tier_${index + 1}`,
 					name: tier.name || `Tier ${index + 1}`,
+					tierLevel: Number(tier.tierLevel || tier.sortOrder || index + 1),
 					thresholdType: tier.thresholdType || "visits",
 					thresholdValue:
 						tier.thresholdType === "spend"
@@ -224,12 +225,12 @@ const RestaurantRewardsScreen = () => {
 
 	const previewTiers = useMemo(() => {
 		return program.tiers
-			.map((tier) => ({
+			.map((tier, index) => ({
 				...tier,
+				tierLevel: Number(tier.tierLevel || index + 1),
 				thresholdValue: Number(tier.thresholdValue || 0),
 			}))
-			.filter((tier) => tier.name && tier.thresholdValue > 0)
-			.sort((a, b) => a.thresholdValue - b.thresholdValue);
+			.filter((tier) => tier.name && tier.thresholdValue > 0);
 	}, [program.tiers]);
 
 	const updateProgram = (patch) => {
@@ -303,8 +304,32 @@ const RestaurantRewardsScreen = () => {
 	const removeTier = (tierId) => {
 		setProgram((prev) => ({
 			...prev,
-			tiers: prev.tiers.filter((tier) => tier.id !== tierId),
+			tiers: prev.tiers
+				.filter((tier) => tier.id !== tierId)
+				.map((tier, index) => ({ ...tier, tierLevel: index + 1 })),
 		}));
+	};
+
+	const moveTier = (tierId, direction) => {
+		setProgram((prev) => {
+			const currentIndex = prev.tiers.findIndex((tier) => tier.id === tierId);
+			const nextIndex = currentIndex + direction;
+			if (currentIndex < 0 || nextIndex < 0 || nextIndex >= prev.tiers.length) {
+				return prev;
+			}
+
+			const tiers = [...prev.tiers];
+			const [movedTier] = tiers.splice(currentIndex, 1);
+			tiers.splice(nextIndex, 0, movedTier);
+
+			return {
+				...prev,
+				tiers: tiers.map((tier, index) => ({
+					...tier,
+					tierLevel: index + 1,
+				})),
+			};
+		});
 	};
 
 	const handleSave = async () => {
@@ -326,8 +351,10 @@ const RestaurantRewardsScreen = () => {
 					enabled: isRewardsAllowed && program.enabled,
 					name: program.name,
 					pointsPerDollar: Number(program.pointsPerDollar || 0),
-					tiers: program.tiers.map((tier) => ({
+					tiers: program.tiers.map((tier, index) => ({
 						...tier,
+						tierLevel: index + 1,
+						sortOrder: index + 1,
 						thresholdValue:
 							tier.thresholdType === "spend"
 								? parseCurrencyToCents(tier.thresholdValue)
@@ -439,7 +466,8 @@ const RestaurantRewardsScreen = () => {
 						<View>
 							<Text style={styles.panelTitle}>Tiers</Text>
 							<Text style={styles.panelSubtitle}>
-								Visits, spend, or club-point milestones.
+								One progressive status ladder. The order below controls the
+								guest's membership level.
 							</Text>
 						</View>
 						<TouchableOpacity style={styles.iconButton} onPress={addTier}>
@@ -450,16 +478,59 @@ const RestaurantRewardsScreen = () => {
 					{program.tiers.map((tier, index) => (
 						<View key={tier.id} style={styles.tierBlock}>
 							<View style={styles.tierHeader}>
-								<Text style={styles.tierTitle}>Tier {index + 1}</Text>
-								{program.tiers.length > 1 ? (
-									<TouchableOpacity onPress={() => removeTier(tier.id)}>
+								<View>
+									<Text style={styles.tierTitle}>Status {index + 1}</Text>
+									<Text style={styles.tierSubtitle}>
+										Guests can only hold one current status here.
+									</Text>
+								</View>
+								<View style={styles.tierActionRow}>
+									<TouchableOpacity
+										onPress={() => moveTier(tier.id, -1)}
+										disabled={index === 0}
+										style={[
+											styles.tierIconButton,
+											index === 0 && styles.tierIconButtonDisabled,
+										]}
+									>
 										<MaterialCommunityIcons
-											name="trash-can-outline"
-											size={20}
-											color={colors.statusDanger}
+											name="arrow-up"
+											size={18}
+											color={index === 0 ? colors.textLight : colors.textDark}
 										/>
 									</TouchableOpacity>
-								) : null}
+									<TouchableOpacity
+										onPress={() => moveTier(tier.id, 1)}
+										disabled={index === program.tiers.length - 1}
+										style={[
+											styles.tierIconButton,
+											index === program.tiers.length - 1 &&
+												styles.tierIconButtonDisabled,
+										]}
+									>
+										<MaterialCommunityIcons
+											name="arrow-down"
+											size={18}
+											color={
+												index === program.tiers.length - 1
+													? colors.textLight
+													: colors.textDark
+											}
+										/>
+									</TouchableOpacity>
+									{program.tiers.length > 1 ? (
+										<TouchableOpacity
+											style={styles.tierIconButton}
+											onPress={() => removeTier(tier.id)}
+										>
+											<MaterialCommunityIcons
+												name="trash-can-outline"
+												size={18}
+												color={colors.statusDanger}
+											/>
+										</TouchableOpacity>
+									) : null}
+								</View>
 							</View>
 
 							<Text style={styles.label}>Tier name</Text>
@@ -709,7 +780,9 @@ const RestaurantRewardsScreen = () => {
 					<Text style={styles.panelTitle}>Guest journey preview</Text>
 					{previewTiers.map((tier) => (
 						<View key={`preview_${tier.id}`} style={styles.previewRow}>
-							<View style={styles.previewDot} />
+							<View style={styles.previewDot}>
+								<Text style={styles.previewDotText}>{tier.tierLevel}</Text>
+							</View>
 							<View style={styles.previewTextWrap}>
 								<Text style={styles.previewTitle}>{tier.name}</Text>
 								<Text style={styles.previewText}>
@@ -899,6 +972,31 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 	},
 	tierTitle: { fontSize: 15, fontWeight: "900", color: colors.textDark },
+	tierSubtitle: {
+		color: colors.textMedium,
+		fontSize: 11,
+		fontWeight: "700",
+		marginTop: 2,
+		maxWidth: 190,
+	},
+	tierActionRow: {
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	tierIconButton: {
+		width: 32,
+		height: 32,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+		alignItems: "center",
+		justifyContent: "center",
+		marginLeft: 6,
+	},
+	tierIconButtonDisabled: {
+		opacity: 0.45,
+	},
 	segmentRow: {
 		flexDirection: "row",
 		flexWrap: "wrap",
@@ -926,12 +1024,19 @@ const styles = StyleSheet.create({
 		marginTop: 12,
 	},
 	previewDot: {
-		width: 10,
-		height: 10,
-		borderRadius: 5,
+		width: 24,
+		height: 24,
+		borderRadius: 12,
 		backgroundColor: colors.primary,
-		marginTop: 5,
+		alignItems: "center",
+		justifyContent: "center",
+		marginTop: 1,
 		marginRight: 10,
+	},
+	previewDotText: {
+		color: "#fff",
+		fontSize: 11,
+		fontWeight: "900",
 	},
 	previewTextWrap: { flex: 1 },
 	previewTitle: { fontSize: 14, fontWeight: "900", color: colors.textDark },

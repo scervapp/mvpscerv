@@ -2,6 +2,9 @@ import React, { useContext, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
+	InputAccessoryView,
+	Keyboard,
+	Platform,
 	SafeAreaView,
 	ScrollView,
 	StyleSheet,
@@ -23,6 +26,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 	const { getRestaurantSessions } = useParty();
 	const restaurant = route.params?.restaurant;
 	const { dineInPartyId } = getRestaurantSessions(restaurant?.id);
+	const keyboardAccessoryId = "host-check-in-keyboard-toolbar";
 
 	const [partySize, setPartySize] = useState("2");
 	const [occasion, setOccasion] = useState("");
@@ -89,7 +93,11 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
-			<ScrollView contentContainerStyle={styles.container}>
+			<ScrollView
+				contentContainerStyle={styles.container}
+				keyboardDismissMode="interactive"
+				keyboardShouldPersistTaps="handled"
+			>
 				<Text style={styles.title}>Request check-in</Text>
 				<Text style={styles.subtitle}>{restaurant?.restaurantName}</Text>
 				{hasActiveRequest ? (
@@ -113,6 +121,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					keyboardType="number-pad"
 					placeholder="2"
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
 				/>
 
 				<Text style={styles.label}>Occasion</Text>
@@ -122,6 +131,9 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="Date night, celebration, business meal..."
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Seating preference</Text>
@@ -131,6 +143,9 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					style={styles.input}
 					placeholder="Patio, booth, quiet table..."
 					placeholderTextColor={colors.textLight}
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Allergies or dietary needs</Text>
@@ -141,6 +156,10 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					placeholder="Anything the host or server should know."
 					placeholderTextColor={colors.textLight}
 					multiline
+					blurOnSubmit
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<Text style={styles.label}>Notes for the host</Text>
@@ -151,6 +170,10 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					placeholder="Tell them what would make the visit better."
 					placeholderTextColor={colors.textLight}
 					multiline
+					blurOnSubmit
+					inputAccessoryViewID={keyboardAccessoryId}
+					returnKeyType="done"
+					onSubmitEditing={Keyboard.dismiss}
 				/>
 
 				<TouchableOpacity
@@ -173,6 +196,18 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					)}
 				</TouchableOpacity>
 			</ScrollView>
+			{Platform.OS === "ios" ? (
+				<InputAccessoryView nativeID={keyboardAccessoryId}>
+					<View style={styles.keyboardAccessory}>
+						<TouchableOpacity
+							style={styles.keyboardDoneButton}
+							onPress={Keyboard.dismiss}
+						>
+							<Text style={styles.keyboardDoneText}>Done</Text>
+						</TouchableOpacity>
+					</View>
+				</InputAccessoryView>
+			) : null}
 		</SafeAreaView>
 	);
 };
@@ -256,6 +291,26 @@ const styles = StyleSheet.create({
 		marginLeft: 8,
 	},
 	buttonDisabled: { opacity: 0.55 },
+	keyboardAccessory: {
+		minHeight: 44,
+		backgroundColor: colors.surfaceWhite,
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		alignItems: "flex-end",
+		justifyContent: "center",
+		paddingHorizontal: 12,
+	},
+	keyboardDoneButton: {
+		minHeight: 36,
+		paddingHorizontal: 14,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	keyboardDoneText: {
+		color: colors.primary,
+		fontWeight: "900",
+		fontSize: 16,
+	},
 });
 
 export default HostCheckInRequestScreen;

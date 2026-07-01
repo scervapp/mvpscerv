@@ -341,6 +341,151 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 	}
 });
 
+exports.submitServerRating = functions.https.onCall(async (data, context) => {
+	const uid = context.auth && context.auth.uid;
+	if (!uid) {
+		throw new functions.https.HttpsError("unauthenticated", "Login required.");
+	}
+
+	const {
+		restaurantId,
+		serverId,
+		serverName = "",
+		ratingValue,
+		feedbackText = "",
+		feedbackTags = [],
+		orderId = null,
+		partyId = null,
+		checkInId = null,
+		origin = null,
+		customerName = "",
+	} = data || {};
+
+	const cleanRestaurantId = String(restaurantId || "").trim();
+	const cleanServerId = String(serverId || "").trim();
+	const cleanServerName = String(serverName || "Server").trim().slice(0, 120);
+	const numericRating = Number(ratingValue);
+	const cleanFeedbackText = String(feedbackText || "").trim().slice(0, 600);
+	const cleanCustomerName = String(customerName || "").trim().slice(0, 80);
+	const cleanFeedbackTags = Array.isArray(feedbackTags)
+		? [
+				...new Set(
+					feedbackTags
+						.map((tag) =>
+							String(tag || "")
+								.trim()
+								.toLowerCase()
+								.replace(/\s+/g, " ")
+						)
+						.filter(Boolean)
+						.slice(0, 8)
+				),
+			]
+		: [];
+
+	if (
+		!cleanRestaurantId ||
+		!cleanServerId ||
+		cleanServerId.toLowerCase() === "unassigned" ||
+		numericRating < 1 ||
+		numericRating > 5
+	) {
+		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
+	}
+
+	const restaurantRef = db.collection("restaurants").doc(cleanRestaurantId);
+	const restaurantSnap = await restaurantRef.get();
+	if (!restaurantSnap.exists) {
+		throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+	}
+	assertFeatureAllowed(
+		restaurantSnap.data() || {},
+		"reviews",
+		"Service feedback is not enabled for this restaurant plan.",
+	);
+
+	const ratingScope = orderId || partyId || checkInId || "service";
+	const ratingDocId = makeSafeDocId(`${uid}_${cleanServerId}_${ratingScope}`);
+	const ratingRef = restaurantRef.collection("serverRatings").doc(ratingDocId);
+	const employeeRef = restaurantRef.collection("employees").doc(cleanServerId);
+	const serverStatsRef = restaurantRef
+		.collection("serverRatingStats")
+		.doc(cleanServerId);
+
+	try {
+		await db.runTransaction(async (t) => {
+			const [ratingDoc, employeeDoc, serverStatsDoc] = await Promise.all([
+				t.get(ratingRef),
+				t.get(employeeRef),
+				t.get(serverStatsRef),
+			]);
+
+			if (ratingDoc.exists) {
+				throw new functions.https.HttpsError(
+					"already-exists",
+					"This server has already been rated for this visit."
+				);
+			}
+
+			const statsData = serverStatsDoc.exists ? serverStatsDoc.data() || {} : {};
+			const currentSum = Number(statsData.serviceRatingSum || 0);
+			const currentCount = Number(statsData.serviceRatingCount || 0);
+			const nextSum = currentSum + numericRating;
+			const nextCount = currentCount + 1;
+			const nextAverage = nextCount > 0 ? nextSum / nextCount : 0;
+			const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+			t.set(ratingRef, {
+				restaurantId: cleanRestaurantId,
+				serverId: cleanServerId,
+				serverName: cleanServerName,
+				customerId: uid,
+				customerName: cleanCustomerName || null,
+				ratingValue: numericRating,
+				feedbackText: cleanFeedbackText || null,
+				feedbackTags: cleanFeedbackTags,
+				orderId,
+				partyId,
+				checkInId,
+				origin,
+				status: "published",
+				createdAt: timestamp,
+			});
+
+			const aggregatePayload = {
+				serverId: cleanServerId,
+				serverName: cleanServerName,
+				serviceRatingSum: nextSum,
+				serviceRatingCount: nextCount,
+				serviceAverageRating: nextAverage,
+				lastServiceRatingAt: timestamp,
+				...(cleanFeedbackTags.length > 0
+					? {
+							serviceFeedbackTags:
+								admin.firestore.FieldValue.arrayUnion(...cleanFeedbackTags),
+						}
+					: {}),
+			};
+
+			// Keep a durable stats document even if an employee profile is later edited.
+			t.set(serverStatsRef, aggregatePayload, { merge: true });
+
+			if (employeeDoc.exists) {
+				t.set(employeeRef, aggregatePayload, { merge: true });
+			}
+		});
+
+		return { success: true };
+	} catch (error) {
+		console.error("Server rating error:", error);
+		if (error.code) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Failed to submit server rating."
+		);
+	}
+});
+
 exports.aggregateMenuItemRating = functions.firestore
 	.document("menuItems/{itemId}/ratings/{ratingId}")
 	.onCreate(async (snap, context) => {

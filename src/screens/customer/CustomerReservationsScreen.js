@@ -110,7 +110,15 @@ const CustomerReservationsScreen = () => {
 		const history = [];
 
 		reservations.forEach((reservation) => {
+			const linkedParty = reservation.partyId
+				? partyDetails?.[reservation.partyId] || null
+				: null;
+			const linkedPartyIsClosed = ["checkedOut", "completed"].includes(
+				linkedParty?.status,
+			);
+
 			if (
+				!linkedPartyIsClosed &&
 				["requested", "confirmed", "arrival_requested", "seated"].includes(
 					reservation.status,
 				)
@@ -122,7 +130,7 @@ const CustomerReservationsScreen = () => {
 		});
 
 		return { active, history };
-	}, [reservations]);
+	}, [partyDetails, reservations]);
 
 	const activeWaitlistEntries = useMemo(
 		() =>

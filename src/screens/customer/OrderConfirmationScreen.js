@@ -1,4 +1,10 @@
-import React, { useContext, useMemo, useState, useEffect } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	View,
 	Text,
@@ -52,6 +58,15 @@ const REVIEW_TAGS = [
 	"would order again",
 ];
 
+const SERVER_REVIEW_TAGS = [
+	"attentive",
+	"welcoming",
+	"fast",
+	"helpful",
+	"knowledgeable",
+	"needs follow-up",
+];
+
 const buildCustomerReviewName = (customer = {}) => {
 	const fullName = String(customer.fullName || customer.name || "").trim();
 	const firstName = String(customer.firstName || "").trim();
@@ -70,6 +85,7 @@ const buildCustomerReviewName = (customer = {}) => {
 const OrderConfirmationScreen = () => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
+	const { clearPartySession } = useParty();
 	const route = useRoute();
 	const navigation = useNavigation();
 	const {
@@ -79,6 +95,9 @@ const OrderConfirmationScreen = () => {
 		isIndividual,
 		origin,
 		appOrderId,
+		completedPartyId = null,
+		completedRestaurantId = null,
+		serverRatingContext = null,
 	} = route.params || {};
 
 	const [status, setStatus] = useState(initialStatus);
@@ -86,11 +105,59 @@ const OrderConfirmationScreen = () => {
 	const [ratings, setRatings] = useState({});
 	const [reviewTexts, setReviewTexts] = useState({});
 	const [reviewTags, setReviewTags] = useState({});
+	const [serverRating, setServerRating] = useState(0);
+	const [serverReviewText, setServerReviewText] = useState("");
+	const [serverReviewTags, setServerReviewTags] = useState([]);
 	const [submitting, setSubmitting] = useState(false);
 	const customerReviewName = useMemo(
 		() => buildCustomerReviewName(currentUserData),
 		[currentUserData],
 	);
+	const resolvedServerRatingContext = useMemo(() => {
+		const server = serverRatingContext?.server || {};
+		const serverId = String(server.id || server.serverId || "").trim();
+		const serverName = String(server.name || server.serverName || "").trim();
+		const lowerServerId = serverId.toLowerCase();
+
+		// Only invite server feedback when the party was assigned to a real staff member.
+		if (
+			!serverRatingContext?.restaurantId ||
+			!serverId ||
+			lowerServerId === "unassigned" ||
+			lowerServerId === "self-seated"
+		) {
+			return null;
+		}
+
+		return {
+			...serverRatingContext,
+			server: {
+				id: serverId,
+				name: serverName || t("your_server", "your server"),
+			},
+		};
+	}, [serverRatingContext, t]);
+	const clearCompletedPartySession = useCallback(() => {
+		const partyIdToClear =
+			completedPartyId ||
+			serverRatingContext?.partyId ||
+			(origin === "party" ? basketId : null);
+
+		if (origin !== "party" || !partyIdToClear) return;
+
+		clearPartySession(
+			partyIdToClear,
+			completedRestaurantId || serverRatingContext?.restaurantId || null,
+		);
+	}, [
+		basketId,
+		clearPartySession,
+		completedPartyId,
+		completedRestaurantId,
+		origin,
+		serverRatingContext?.partyId,
+		serverRatingContext?.restaurantId,
+	]);
 
 	useEffect(() => {
 		if (status === "processing") {
@@ -100,7 +167,12 @@ const OrderConfirmationScreen = () => {
 			}, 1500);
 			return () => clearTimeout(timer);
 		}
-	}, [status]);
+
+		if (status === "confirmed" || status === "completed") {
+			setShowRatingModal(true);
+			clearCompletedPartySession();
+		}
+	}, [clearCompletedPartySession, status]);
 
 	const handleRate = (itemId, value) => {
 		setRatings((prev) => ({ ...prev, [itemId]: value }));
@@ -121,12 +193,23 @@ const OrderConfirmationScreen = () => {
 		});
 	};
 
+	const handleToggleServerReviewTag = (tag) => {
+		setServerReviewTags((prev) =>
+			prev.includes(tag)
+				? prev.filter((value) => value !== tag)
+				: [...prev, tag],
+		);
+	};
+
 	const handleSubmitRatings = async () => {
 		if (submitting) return;
 		setSubmitting(true);
 
 		try {
 			const submitRating = httpsCallable(functions, "submitMenuItemRating");
+			const submitServerRating = resolvedServerRatingContext
+				? httpsCallable(functions, "submitServerRating")
+				: null;
 
 			for (const item of itemsToRate) {
 				const rating = ratings[item.id];
@@ -147,7 +230,24 @@ const OrderConfirmationScreen = () => {
 				}
 			}
 
+			if (submitServerRating && serverRating) {
+				await submitServerRating({
+					restaurantId: resolvedServerRatingContext.restaurantId,
+					serverId: resolvedServerRatingContext.server.id,
+					serverName: resolvedServerRatingContext.server.name,
+					ratingValue: serverRating,
+					feedbackText: serverReviewText,
+					feedbackTags: serverReviewTags,
+					orderId: appOrderId || basketId || null,
+					partyId: resolvedServerRatingContext.partyId || null,
+					checkInId: resolvedServerRatingContext.checkInId || null,
+					origin,
+					customerName: customerReviewName || null,
+				});
+			}
+
 			Alert.alert(t("thank_you"), t("your_ratings_have_been_submitted"));
+			clearCompletedPartySession();
 			setShowRatingModal(false);
 			navigation.dispatch(
 				CommonActions.reset({
@@ -164,13 +264,12 @@ const OrderConfirmationScreen = () => {
 	};
 
 	const handleSkip = () => {
+		clearCompletedPartySession();
 		setShowRatingModal(false);
 		navigation.dispatch(
 			CommonActions.reset({
 				index: 0,
-				routes: [
-					{ name: origin === "individual" ? "CustomerDashboard" : "PartyHub" },
-				],
+				routes: [{ name: "CustomerDashboard" }],
 			})
 		);
 	};
@@ -261,6 +360,55 @@ const OrderConfirmationScreen = () => {
 									);
 								})
 							)}
+							{resolvedServerRatingContext && (
+								<View style={styles.serverRatingCard}>
+									<Text style={styles.serverRatingEyebrow}>
+										{t("service_feedback", "Service feedback")}
+									</Text>
+									<Text style={styles.serverRatingTitle}>
+										{t("rate_server_prompt", "Rate {{serverName}}", {
+											serverName: resolvedServerRatingContext.server.name,
+										})}
+									</Text>
+									<StarRating rating={serverRating} onRate={setServerRating} />
+									<View style={styles.tagWrap}>
+										{SERVER_REVIEW_TAGS.map((tag) => {
+											const isSelected = serverReviewTags.includes(tag);
+											return (
+												<TouchableOpacity
+													key={tag}
+													style={[
+														styles.reviewTag,
+														isSelected && styles.reviewTagSelected,
+													]}
+													onPress={() => handleToggleServerReviewTag(tag)}
+												>
+													<Text
+														style={[
+															styles.reviewTagText,
+															isSelected && styles.reviewTagTextSelected,
+														]}
+													>
+														{tag}
+													</Text>
+												</TouchableOpacity>
+											);
+										})}
+									</View>
+									<TextInput
+										value={serverReviewText}
+										onChangeText={setServerReviewText}
+										placeholder={t(
+											"optional_server_review_placeholder",
+											"Anything the owner should know? Optional.",
+										)}
+										placeholderTextColor={colors.textLight || "#999"}
+										style={styles.reviewInput}
+										multiline
+										maxLength={600}
+									/>
+								</View>
+							)}
 						</ScrollView>
 						<View style={styles.modalButtons}>
 							<TouchableOpacity
@@ -331,6 +479,26 @@ const styles = {
 		backgroundColor: "#f9f9f9",
 		borderRadius: 8,
 		color: colors.textDark,
+	},
+	serverRatingCard: {
+		marginBottom: 16,
+		padding: 14,
+		borderWidth: 1,
+		borderColor: colors.primary || "#2196F3",
+		backgroundColor: "#F3FBFC",
+		borderRadius: 10,
+	},
+	serverRatingEyebrow: {
+		color: colors.primary || "#2196F3",
+		fontSize: 12,
+		fontWeight: "800",
+		textTransform: "uppercase",
+		marginBottom: 4,
+	},
+	serverRatingTitle: {
+		fontSize: 16,
+		fontWeight: "700",
+		color: colors.textDark || "#333",
 	},
 	itemName: {
 		fontSize: 16,
