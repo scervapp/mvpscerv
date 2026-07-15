@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 // You can swap these out with your actual screenshots later
 import fohImage from "../images/ordering.jpeg";
 import bohImage from "../images/chefsQ.jpeg";
-import guestImage from "../images/language.png";
+import guestImage from "../images/scerv-guest-experience.png";
 
 const Section = styled.section`
 	padding: 72px 0;
