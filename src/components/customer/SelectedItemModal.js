@@ -15,10 +15,11 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Button, Divider, IconButton, TextInput } from "react-native-paper";
+import { httpsCallable } from "@react-native-firebase/functions";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
-import { db } from "../../config/firebase";
+import { db, functions } from "../../config/firebase";
 import {
 	formatCurrencyFromDollars,
 	normalizeMenuPriceToDollars,
@@ -47,6 +48,36 @@ const StarRatingDisplay = ({ rating = 0, size = 15 }) => {
 		</View>
 	);
 };
+
+const InteractiveStarRating = ({ rating = 0, onRate, size = 30 }) => (
+	<View style={styles.interactiveStarRow}>
+		{[1, 2, 3, 4, 5].map((star) => (
+			<TouchableOpacity
+				key={star}
+				activeOpacity={0.75}
+				onPress={() => onRate(star)}
+				style={styles.interactiveStarButton}
+			>
+				<Ionicons
+					name={star <= rating ? "star" : "star-outline"}
+					size={size}
+					color={star <= rating ? "#F5B301" : colors.borderMedium || "#C9D1D9"}
+				/>
+			</TouchableOpacity>
+		))}
+	</View>
+);
+
+const COMMUNITY_REVIEW_TAGS = [
+	"crispy",
+	"fresh",
+	"great sauce",
+	"well seasoned",
+	"spicy",
+	"shareable",
+	"would order again",
+	"hidden gem",
+];
 
 // Keep media flexible so old menu images, customer photos, and future video reviews can share one gallery.
 const normalizeMediaType = (value, url = "") => {
@@ -247,6 +278,12 @@ const SelectedItemModal = ({
 	const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 	const [isAllReviewsVisible, setIsAllReviewsVisible] = useState(false);
 	const [selectedMediaPreview, setSelectedMediaPreview] = useState(null);
+	const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
+	const [communityRating, setCommunityRating] = useState(0);
+	const [communityReviewText, setCommunityReviewText] = useState("");
+	const [communityReviewTags, setCommunityReviewTags] = useState([]);
+	const [isSubmittingCommunityReview, setIsSubmittingCommunityReview] =
+		useState(false);
 
 	const [isPipInstructionModalVisible, setIsPipInstructionModalVisible] =
 		useState(false);
@@ -332,6 +369,10 @@ const SelectedItemModal = ({
 			setIsLoadingReviews(false);
 			setIsAllReviewsVisible(false);
 			setSelectedMediaPreview(null);
+			setIsReviewModalVisible(false);
+			setCommunityRating(0);
+			setCommunityReviewText("");
+			setCommunityReviewTags([]);
 			return undefined;
 		}
 
@@ -409,6 +450,135 @@ const SelectedItemModal = ({
 		ratingSummary.reviewCount > 0 ||
 		topReviewTags.length > 0 ||
 		reviewHighlights.length > 0;
+
+	const currentUserReview = useMemo(() => {
+		if (!currentUserData?.uid) return null;
+		return (
+			reviewHighlights.find(
+				(review) => review.customerId === currentUserData.uid,
+			) || null
+		);
+	}, [currentUserData?.uid, reviewHighlights]);
+
+	const canOpenDishReview = Boolean(
+		!isOrderingAvailable && selectedItem?.id && selectedItem?.restaurantId,
+	);
+
+	const getCustomerReviewName = () => {
+		const fullName = String(
+			currentUserData?.fullName || currentUserData?.name || "",
+		).trim();
+		const firstName = String(currentUserData?.firstName || "").trim();
+		const lastName = String(currentUserData?.lastName || "").trim();
+
+		if (firstName && lastName) return `${firstName} ${lastName.charAt(0)}.`;
+		if (firstName) return firstName;
+		if (fullName) {
+			const parts = fullName.split(/\s+/).filter(Boolean);
+			return parts.length > 1 ? `${parts[0]} ${parts[1].charAt(0)}.` : parts[0];
+		}
+		return "";
+	};
+
+	const openDishReviewModal = () => {
+		if (!canOpenDishReview) return;
+		if (!currentUserData?.uid || currentUserData?.role === "guest") {
+			Alert.alert(
+				t("sign_in_required_title", "Sign in required"),
+				t(
+					"sign_in_to_rate_dish_message",
+					"Create or sign in to a customer account to rate dishes.",
+				),
+			);
+			return;
+		}
+		if (currentUserReview) {
+			Alert.alert(
+				t("already_rated_title", "Already rated"),
+				t(
+					"already_rated_dish_message",
+					"You already rated this dish. Your review is helping other guests.",
+				),
+			);
+			return;
+		}
+
+		setCommunityRating(0);
+		setCommunityReviewText("");
+		setCommunityReviewTags([]);
+		setIsReviewModalVisible(true);
+	};
+
+	const toggleCommunityReviewTag = (tag) => {
+		setCommunityReviewTags((currentTags) =>
+			currentTags.includes(tag)
+				? currentTags.filter((value) => value !== tag)
+				: [...currentTags, tag],
+		);
+	};
+
+	const submitCommunityReview = async () => {
+		if (!selectedItem?.id || !selectedItem?.restaurantId) return;
+		if (communityRating < 1) {
+			Alert.alert(
+				t("rating_required_title", "Rating required"),
+				t("choose_star_rating_message", "Choose a star rating first."),
+			);
+			return;
+		}
+
+		setIsSubmittingCommunityReview(true);
+		try {
+			const submitRating = httpsCallable(functions, "submitMenuItemRating");
+			await submitRating({
+				menuItemId: selectedItem.id,
+				restaurantId: selectedItem.restaurantId,
+				ratingValue: communityRating,
+				comment: communityReviewText,
+				reviewText: communityReviewText,
+				reviewTags: communityReviewTags,
+				orderId: null,
+				origin: "community_discovery_review",
+				isIndividual: true,
+				customerName: getCustomerReviewName() || null,
+				customerDisplayName: getCustomerReviewName() || null,
+				verificationLevel: "community_guest",
+				media: [],
+			});
+			setIsReviewModalVisible(false);
+			setCommunityRating(0);
+			setCommunityReviewText("");
+			setCommunityReviewTags([]);
+			Alert.alert(
+				t("thank_you", "Thank you"),
+				t(
+					"community_review_submitted_message",
+					"Your dish rating was added to Scerv discovery.",
+				),
+			);
+		} catch (error) {
+			console.error("Community dish review failed:", error);
+			const alreadyExists =
+				String(error?.code || "").includes("already-exists") ||
+				String(error?.message || "").toLowerCase().includes("already");
+			Alert.alert(
+				alreadyExists
+					? t("already_rated_title", "Already rated")
+					: t("error", "Error"),
+				alreadyExists
+					? t(
+							"already_rated_dish_message",
+							"You already rated this dish. Your review is helping other guests.",
+						)
+					: t(
+							"community_review_failed_message",
+							"We could not submit your dish rating. Please try again.",
+						),
+			);
+		} finally {
+			setIsSubmittingCommunityReview(false);
+		}
+	};
 
 	const openInstructionModalForTarget = (target) => {
 		const existingTarget = orderTargets.find((t) => t.id === target.id);
@@ -768,7 +938,7 @@ const SelectedItemModal = ({
 	};
 
 	const renderGuestSignals = () => {
-		if (!hasGuestSignals) return null;
+		if (!hasGuestSignals && !canOpenDishReview) return null;
 
 		return (
 			<>
@@ -778,14 +948,44 @@ const SelectedItemModal = ({
 						<Text style={styles.sectionTitle}>
 							{t("guest_reviews_title", "Guest reviews")}
 						</Text>
-						{ratingSummary.averageRating > 0 && (
-							<View style={styles.ratingSummaryPill}>
-								<StarRatingDisplay rating={ratingSummary.averageRating} size={13} />
-								<Text style={styles.ratingSummaryText}>
-									{ratingSummary.averageRating.toFixed(1)}
-								</Text>
-							</View>
-						)}
+						<View style={styles.reviewHeaderActions}>
+							{ratingSummary.averageRating > 0 && (
+								<View style={styles.ratingSummaryPill}>
+									<StarRatingDisplay rating={ratingSummary.averageRating} size={13} />
+									<Text style={styles.ratingSummaryText}>
+										{ratingSummary.averageRating.toFixed(1)}
+									</Text>
+								</View>
+							)}
+							{canOpenDishReview && (
+								<TouchableOpacity
+									style={[
+										styles.rateDishButton,
+										currentUserReview ? styles.rateDishButtonDisabled : null,
+									]}
+									activeOpacity={0.75}
+									onPress={openDishReviewModal}
+								>
+									<Ionicons
+										name={currentUserReview ? "checkmark-circle" : "star-outline"}
+										size={14}
+										color={currentUserReview ? colors.success || "#16703F" : colors.primary}
+									/>
+									<Text
+										style={[
+											styles.rateDishButtonText,
+											currentUserReview
+												? styles.rateDishButtonTextDisabled
+												: null,
+										]}
+									>
+										{currentUserReview
+											? t("rated_label", "Rated")
+											: t("rate_this_dish", "Rate")}
+									</Text>
+								</TouchableOpacity>
+							)}
+						</View>
 					</View>
 
 					{ratingSummary.ratingCount > 0 && (
@@ -817,10 +1017,22 @@ const SelectedItemModal = ({
 						<Text style={styles.reviewMetaText}>
 							{t("loading_reviews", "Loading reviews...")}
 						</Text>
-					) : (
+					) : reviewHighlights.length > 0 ? (
 						reviewHighlights
 							.slice(0, 3)
 							.map((review) => renderReviewCard(review, { numberOfLines: 3 }))
+					) : (
+						<View style={styles.noReviewsBox}>
+							<Text style={styles.noReviewsTitle}>
+								{t("no_reviews_yet", "No reviews yet.")}
+							</Text>
+							<Text style={styles.noReviewsText}>
+								{t(
+									"be_first_to_rate_dish",
+									"Be the first guest to help others know what to order.",
+								)}
+							</Text>
+						</View>
 					)}
 
 					{reviewHighlights.length > 3 && (
@@ -851,6 +1063,23 @@ const SelectedItemModal = ({
 			: review.customerDisplayName ||
 				review.customerName ||
 				t("scerv_guest", "Scerv guest");
+
+	const getReviewTrustLabel = (review = {}) => {
+		const level = String(review.verificationLevel || "").toLowerCase();
+		if (level === "scerv_order_verified") {
+			return t("scerv_order_verified_label", "Scerv order verified");
+		}
+		if (level === "receipt_verified") {
+			return t("receipt_verified_label", "Receipt verified");
+		}
+		if (level === "location_verified") {
+			return t("location_verified_label", "Visit verified");
+		}
+		if (level === "community_guest") {
+			return t("community_guest_label", "Community guest");
+		}
+		return t("guest_rated_label", "Guest rated");
+	};
 
 	const renderMediaTile = (mediaItem, options = {}) => {
 		const isVideo = mediaItem.type === "video";
@@ -921,7 +1150,12 @@ const SelectedItemModal = ({
 			<View key={review.id} style={styles.reviewCard}>
 				<View style={styles.reviewCardHeader}>
 					<StarRatingDisplay rating={Number(review.ratingValue || 0)} size={12} />
-					<Text style={styles.reviewAuthorText}>{getReviewAuthor(review)}</Text>
+					<View style={styles.reviewAuthorBlock}>
+						<Text style={styles.reviewAuthorText}>{getReviewAuthor(review)}</Text>
+						<Text style={styles.reviewTrustText}>
+							{getReviewTrustLabel(review)}
+						</Text>
+					</View>
 				</View>
 				{reviewText ? (
 					<Text
@@ -1374,6 +1608,101 @@ const SelectedItemModal = ({
 			</Modal>
 
 			<Modal
+				visible={isReviewModalVisible}
+				animationType="slide"
+				transparent={true}
+				onRequestClose={() => setIsReviewModalVisible(false)}
+			>
+				<View style={styles.modalOverlay}>
+					<View style={styles.communityReviewModalContent}>
+						<View style={styles.communityReviewHeader}>
+							<View style={styles.allReviewsTitleBlock}>
+								<Text style={styles.allReviewsTitle}>
+									{t("rate_this_dish_title", "Rate this dish")}
+								</Text>
+								<Text style={styles.allReviewsSubtitle} numberOfLines={1}>
+									{getLocalizedText(selectedItem && selectedItem.name)}
+								</Text>
+							</View>
+							<IconButton
+								icon="close-circle"
+								size={28}
+								onPress={() => setIsReviewModalVisible(false)}
+								color={colors.textMedium}
+							/>
+						</View>
+
+						<InteractiveStarRating
+							rating={communityRating}
+							onRate={setCommunityRating}
+							size={32}
+						/>
+
+						<TextInput
+							style={styles.communityReviewInput}
+							placeholder={t(
+								"community_review_placeholder",
+								"What should other guests know about this dish?",
+							)}
+							value={communityReviewText}
+							onChangeText={setCommunityReviewText}
+							multiline
+							numberOfLines={4}
+							blurOnSubmit
+							inputAccessoryViewID={keyboardAccessoryId}
+							returnKeyType="done"
+							onSubmitEditing={Keyboard.dismiss}
+							placeholderTextColor={colors.textLight}
+						/>
+
+						<View style={styles.communityReviewTagRow}>
+							{COMMUNITY_REVIEW_TAGS.map((tag) => {
+								const isSelected = communityReviewTags.includes(tag);
+								return (
+									<TouchableOpacity
+										key={tag}
+										style={[
+											styles.communityReviewTag,
+											isSelected && styles.communityReviewTagSelected,
+										]}
+										activeOpacity={0.75}
+										onPress={() => toggleCommunityReviewTag(tag)}
+									>
+										<Text
+											style={[
+												styles.communityReviewTagText,
+												isSelected && styles.communityReviewTagTextSelected,
+											]}
+										>
+											{tag}
+										</Text>
+									</TouchableOpacity>
+								);
+							})}
+						</View>
+
+						<Text style={styles.communityReviewTrustText}>
+							{t(
+								"community_review_trust_note",
+								"Community ratings help Scerv discovery. Verified visit and order signals can be added later.",
+							)}
+						</Text>
+
+						<Button
+							mode="contained"
+							onPress={submitCommunityReview}
+							loading={isSubmittingCommunityReview}
+							disabled={isSubmittingCommunityReview}
+							style={styles.communityReviewSubmitButton}
+							labelStyle={{ color: colors.textOnPrimaryBrand, fontSize: 15 }}
+						>
+							{t("submit_review_button", "Submit review")}
+						</Button>
+					</View>
+				</View>
+			</Modal>
+
+			<Modal
 				visible={!!selectedMediaPreview}
 				animationType="fade"
 				transparent={true}
@@ -1653,6 +1982,16 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 	},
+	interactiveStarRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		marginBottom: 14,
+	},
+	interactiveStarButton: {
+		paddingHorizontal: 3,
+		paddingVertical: 5,
+	},
 	starIcon: {
 		marginRight: 1,
 	},
@@ -1679,6 +2018,35 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
+		gap: 10,
+	},
+	reviewHeaderActions: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	rateDishButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderRadius: 999,
+		backgroundColor: colors.primary + "12",
+		borderWidth: 1,
+		borderColor: colors.primary + "30",
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+	},
+	rateDishButtonDisabled: {
+		backgroundColor: "#EAF7EF",
+		borderColor: "#BBF7D0",
+	},
+	rateDishButtonText: {
+		marginLeft: 4,
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.primary,
+	},
+	rateDishButtonTextDisabled: {
+		color: colors.success || "#16703F",
 	},
 	ratingSummaryPill: {
 		flexDirection: "row",
@@ -1735,13 +2103,44 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		color: colors.textMedium,
 		fontWeight: "700",
+		textAlign: "right",
+	},
+	reviewAuthorBlock: {
+		flex: 1,
 		marginLeft: 8,
+		alignItems: "flex-end",
+	},
+	reviewTrustText: {
+		marginTop: 2,
+		fontSize: 10,
+		color: colors.primary,
+		fontWeight: "900",
+		textTransform: "uppercase",
 	},
 	reviewQuoteText: {
 		fontSize: 13,
 		lineHeight: 18,
 		color: colors.textDark,
 		fontWeight: "600",
+	},
+	noReviewsBox: {
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		padding: 12,
+	},
+	noReviewsTitle: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginBottom: 4,
+	},
+	noReviewsText: {
+		fontSize: 13,
+		lineHeight: 18,
+		fontWeight: "600",
+		color: colors.textMedium,
 	},
 	reviewMediaRow: {
 		paddingTop: 10,
@@ -1805,6 +2204,74 @@ const styles = StyleSheet.create({
 	},
 	allReviewsScrollContent: {
 		paddingBottom: 6,
+	},
+	communityReviewModalContent: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		width: "90%",
+		maxHeight: "86%",
+		paddingHorizontal: 18,
+		paddingTop: 12,
+		paddingBottom: 16,
+	},
+	communityReviewHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 6,
+	},
+	communityReviewInput: {
+		width: "100%",
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+		fontSize: 14,
+		color: colors.textDark,
+		minHeight: 105,
+		textAlignVertical: "top",
+	},
+	communityReviewTagRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		marginTop: 12,
+		marginBottom: 6,
+	},
+	communityReviewTag: {
+		borderRadius: 999,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 10,
+		paddingVertical: 7,
+		marginRight: 7,
+		marginBottom: 7,
+	},
+	communityReviewTagSelected: {
+		backgroundColor: colors.primary + "12",
+		borderColor: colors.primary,
+	},
+	communityReviewTagText: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "800",
+		textTransform: "capitalize",
+	},
+	communityReviewTagTextSelected: {
+		color: colors.primary,
+	},
+	communityReviewTrustText: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "600",
+		lineHeight: 17,
+		marginBottom: 12,
+	},
+	communityReviewSubmitButton: {
+		backgroundColor: colors.primary,
+		borderRadius: 8,
 	},
 	groupDescription: {
 		fontSize: 13,

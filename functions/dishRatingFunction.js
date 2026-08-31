@@ -288,6 +288,7 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 		customerName = "",
 		customerDisplayName = "",
 		media = [],
+		verificationLevel = "",
 	} = data;
 	const cleanReviewText = String(reviewText || comment || "").trim().slice(0, 800);
 	const cleanClientName = String(customerDisplayName || customerName || "")
@@ -309,6 +310,26 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 			]
 		: [];
 	const cleanReviewMedia = normalizeReviewMediaList(media);
+	const cleanOrigin = String(origin || "").trim();
+	const allowedVerificationLevels = [
+		"community_guest",
+		"unverified_guest",
+		"location_verified",
+		"receipt_verified",
+		"scerv_order_verified",
+	];
+	const requestedVerificationLevel = String(verificationLevel || "")
+		.trim()
+		.toLowerCase();
+	const cleanVerificationLevel = allowedVerificationLevels.includes(
+		requestedVerificationLevel,
+	)
+		? requestedVerificationLevel
+		: orderId
+			? "scerv_order_verified"
+			: cleanOrigin === "community_discovery_review"
+				? "community_guest"
+				: "unverified_guest";
 
 	if (!menuItemId || !restaurantId || ratingValue < 1 || ratingValue > 5) {
 		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
@@ -376,9 +397,11 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				customerName: safeCustomerName || null,
 				customerDisplayName: safeCustomerName || null,
 				orderId,
-				origin,
+				origin: cleanOrigin || null,
 				isIndividual,
 				status: "published",
+				verificationLevel: cleanVerificationLevel,
+				wasOrderedThroughScerv: Boolean(orderId),
 				timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			});
 		});
