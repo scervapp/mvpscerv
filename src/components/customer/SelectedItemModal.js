@@ -1197,6 +1197,7 @@ const SelectedItemModal = ({
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
 					<ScrollView
+						style={styles.modalScrollView}
 						showsVerticalScrollIndicator={false}
 						keyboardDismissMode="interactive"
 						keyboardShouldPersistTaps="handled"
@@ -1246,6 +1247,56 @@ const SelectedItemModal = ({
 								</Text>
 							)}
 						</View>
+
+						{canOpenDishReview && (
+							<TouchableOpacity
+								style={[
+									styles.discoveryRatePrompt,
+									currentUserReview ? styles.discoveryRatePromptDone : null,
+								]}
+								activeOpacity={0.78}
+								onPress={openDishReviewModal}
+							>
+								<View style={styles.discoveryRateIconWrap}>
+									<Ionicons
+										name={
+											currentUserReview
+												? "checkmark-circle"
+												: "star-outline"
+										}
+										size={22}
+										color={
+											currentUserReview
+												? colors.success || "#16703F"
+												: colors.primary
+										}
+									/>
+								</View>
+								<View style={styles.discoveryRateTextWrap}>
+									<Text style={styles.discoveryRateTitle}>
+										{currentUserReview
+											? t("you_rated_this_dish", "You rated this dish")
+											: t("rate_this_dish_title", "Rate this dish")}
+									</Text>
+									<Text style={styles.discoveryRateSubtitle}>
+										{currentUserReview
+											? t(
+													"dish_rating_thanks_short",
+													"Your rating is helping other guests decide.",
+												)
+											: t(
+													"rate_dish_prompt_short",
+													"Help other guests know if this is worth ordering.",
+												)}
+									</Text>
+								</View>
+								<Ionicons
+									name="chevron-forward"
+									size={18}
+									color={colors.textMedium}
+								/>
+							</TouchableOpacity>
+						)}
 
 						{isOrderingAvailable ? (
 							<>
@@ -1761,13 +1812,17 @@ const styles = StyleSheet.create({
 		backgroundColor: colors.surfaceWhite,
 		padding: 0,
 		borderRadius: 12,
-		width: "90%",
-		maxHeight: "85%",
+		width: "92%",
+		maxHeight: "92%",
+		overflow: "hidden",
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.25,
 		shadowRadius: 4,
 		elevation: 5,
+	},
+	modalScrollView: {
+		flexShrink: 1,
 	},
 	keyboardAccessory: {
 		minHeight: 44,
@@ -1792,7 +1847,7 @@ const styles = StyleSheet.create({
 	scrollContainer: {
 		paddingHorizontal: 20,
 		paddingTop: 45,
-		paddingBottom: 20,
+		paddingBottom: 32,
 	},
 	closeButton: {
 		position: "absolute",
@@ -1803,6 +1858,46 @@ const styles = StyleSheet.create({
 	itemDetailsContainer: {
 		alignItems: "center",
 		marginBottom: 15,
+	},
+	discoveryRatePrompt: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "#F3FBFB",
+		borderWidth: 1,
+		borderColor: "#D4EAEA",
+		borderRadius: 10,
+		paddingHorizontal: 12,
+		paddingVertical: 11,
+		marginBottom: 14,
+	},
+	discoveryRatePromptDone: {
+		backgroundColor: "#EAF7EF",
+		borderColor: "#BBF7D0",
+	},
+	discoveryRateIconWrap: {
+		width: 34,
+		height: 34,
+		borderRadius: 17,
+		backgroundColor: colors.surfaceWhite,
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	discoveryRateTextWrap: {
+		flex: 1,
+		paddingRight: 8,
+	},
+	discoveryRateTitle: {
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "900",
+		marginBottom: 2,
+	},
+	discoveryRateSubtitle: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+		lineHeight: 16,
 	},
 	mediaGalleryContainer: {
 		marginHorizontal: -20,
