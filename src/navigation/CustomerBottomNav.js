@@ -431,7 +431,7 @@ const LIVE_ORDER_BUTTON_HIDDEN_ROUTES = new Set([
 ]);
 
 const LiveOrderButton = ({
-	currentPartyId,
+	currentPartyIds,
 	partyDetails,
 	sharedBaskets,
 	navigation,
@@ -439,25 +439,36 @@ const LiveOrderButton = ({
 	activeRouteName,
 	t,
 }) => {
-	const activeParty = currentPartyId ? partyDetails?.[currentPartyId] : null;
-	const basketCount = getBasketItemCount(sharedBaskets?.[currentPartyId]);
+	const liveParty = useMemo(() => {
+		const sessionGroups = Object.values(currentPartyIds || {});
 
-	if (!currentPartyId || !activeParty) return null;
+		for (const sessionGroup of sessionGroups) {
+			const partyId = sessionGroup?.dineIn;
+			const party = partyId ? partyDetails?.[partyId] : null;
+			const isCheckedIn =
+				party?.status === "active" &&
+				(Boolean(party?.table?.id || party?.tableId) ||
+					Boolean(party?.checkInId || party?.activeCheckInId));
+
+			if (isCheckedIn) {
+				return { id: partyId, ...party };
+			}
+		}
+
+		return null;
+	}, [currentPartyIds, partyDetails]);
+
+	const basketCount = getBasketItemCount(sharedBaskets?.[liveParty?.id]);
+
+	if (!liveParty) return null;
 	if (LIVE_ORDER_BUTTON_HIDDEN_ROUTES.has(activeRouteName)) return null;
-
-	const isPickup = activeParty.orderMode === "pickup";
-	const label = isPickup
-		? t("pickup_order", "Pickup Order")
-		: activeParty.status === "AWAITING_TABLE"
-			? t("waiting_for_table", "Waiting")
-			: t("live_order", "Live Order");
 
 	const handlePress = () => {
 		navigation.navigate("CustomerApp", {
 			screen: "PartyTab",
 			params: {
 				screen: "PartySession",
-				params: { partyId: currentPartyId },
+				params: { partyId: liveParty.id },
 			},
 		});
 	};
@@ -471,16 +482,16 @@ const LiveOrderButton = ({
 			accessibilityLabel={t("open_live_order", "Open live order")}
 		>
 			<MaterialCommunityIcons
-				name={isPickup ? "bag-personal-outline" : "silverware-fork-knife"}
+				name="silverware-fork-knife"
 				size={22}
 				color={colors.surfaceWhite}
 			/>
 			<View style={styles.liveOrderTextWrap}>
-				<Text style={styles.liveOrderLabel}>{label}</Text>
+				<Text style={styles.liveOrderLabel}>{t("live_order", "Live Order")}</Text>
 				<Text style={styles.liveOrderSubLabel} numberOfLines={1}>
 					{basketCount > 0
 						? t("items_count", "{{count}} items", { count: basketCount })
-						: activeParty.restaurantName || t("view_order", "View order")}
+						: liveParty.restaurantName || t("view_order", "View order")}
 				</Text>
 			</View>
 			<MaterialCommunityIcons
@@ -499,7 +510,8 @@ const CustomerBottomNavigation = () => {
 
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
-	const { joinParty, currentPartyId, partyDetails, sharedBaskets } = useParty();
+	const { joinParty, currentPartyIds, currentPartyId, partyDetails, sharedBaskets } =
+		useParty();
 	const navigation = useNavigation();
 	const [activeRouteName, setActiveRouteName] = useState(null);
 	const liveOrderBottomOffset = useMemo(
@@ -653,6 +665,14 @@ const CustomerBottomNavigation = () => {
 			<Tab.Screen
 				name="PartyTab"
 				component={PartyStackScreen}
+				listeners={({ navigation: tabNavigation }) => ({
+					tabPress: (event) => {
+						event.preventDefault();
+						tabNavigation.navigate("PartyTab", {
+							screen: "PartyHub",
+						});
+					},
+				})}
 				options={{
 					headerShown: false,
 					tabBarIcon: ({ focused }) => (
@@ -697,7 +717,7 @@ const CustomerBottomNavigation = () => {
 			/>
 			</Tab.Navigator>
 			<LiveOrderButton
-				currentPartyId={currentPartyId}
+				currentPartyIds={currentPartyIds}
 				partyDetails={partyDetails}
 				sharedBaskets={sharedBaskets}
 				navigation={navigation}

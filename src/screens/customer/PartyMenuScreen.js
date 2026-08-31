@@ -325,8 +325,11 @@ const PartyMenuScreen = () => {
 
 	const totalPendingCount = selectedCount + customizedItems.length;
 
+	// Only use the full-screen party loader before the party is hydrated.
+	// Basket writes also flip the party action loading flag, but the menu should stay
+	// visible while an item is being added so the experience feels immediate.
 	const shouldShowInitialLoader =
-		isLoadingMenu || (!isPickupMode && (isLoadingParty || !activeParty));
+		isLoadingMenu || (!isPickupMode && !activeParty && isLoadingParty);
 
 	if (shouldShowInitialLoader) {
 		return (
@@ -335,7 +338,7 @@ const PartyMenuScreen = () => {
 				<Text style={styles.loadingText}>
 					{isLoadingMenu
 						? `${t("loading_menu", "Loading menu")}...`
-						: `${t("syncing_party_details", "Syncing party details")}...`}
+						: `${t("getting_party_ready", "Getting your party ready")}...`}
 				</Text>
 			</SafeAreaView>
 		);
@@ -370,7 +373,7 @@ const PartyMenuScreen = () => {
 						<Text style={styles.headerTitle}>
 							{isPickupMode
 								? t("pickup_order", "Pickup Order")
-								: t("order_for_party", "Order for Party")}
+								: t("add_food", "Add food")}
 						</Text>
 						<Text style={styles.headerSubtitle}>
 							{t("at", "At")} {restaurantName}
@@ -409,7 +412,7 @@ const PartyMenuScreen = () => {
 									color="#fff"
 								/>
 								<Text style={styles.bulkAddButtonText}>
-									{t("add_to_basket", "Add to Basket")} ({totalPendingCount})
+									{t("add_to_order", "Add to order")} ({totalPendingCount})
 								</Text>
 							</>
 						)}

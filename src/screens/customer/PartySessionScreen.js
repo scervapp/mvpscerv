@@ -34,7 +34,6 @@ import PartyBasketGuide from "../../components/customer/Party/PartyBasketGuide";
 import PipInvitationModal from "../../components/customer/Party/PipInvitationModal";
 import AddMembersModal from "../../components/customer/Party/AddMembersModal";
 import { collection, onSnapshot } from "@react-native-firebase/firestore";
-import formatTimeLeft from "../../utils/formatTimeLeft";
 import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
 import { handleCancelCheckIn } from "../../utils/customerUtils";
 
@@ -52,6 +51,7 @@ const DRINK_CATEGORIES = [
 ];
 
 const SERVICE_QUICK_MESSAGES = [
+	"Help",
 	"Napkins",
 	"Water refill",
 	"Utensils",
@@ -102,8 +102,6 @@ const PartySessionScreen = () => {
 	const [serviceRequestMessage, setServiceRequestMessage] = useState("");
 	const [restaurantData, setRestaurantData] = useState(null);
 
-	// UI Upgrades State
-	const [showInviteCode, setShowInviteCode] = useState(false);
 	const [localInviteCode, setLocalInviteCode] = useState(null);
 
 	const currentParty = partyDetails[currentPartyId];
@@ -111,7 +109,6 @@ const PartySessionScreen = () => {
 		? currentParty.hostUserId === currentUserData?.uid
 		: false;
 	const displayInviteCode = currentParty?.inviteCode || localInviteCode;
-	const displayInviteExpiry = currentParty?.inviteCodeExpiry || null;
 	const restaurantConfig = useMemo(
 		() => getRestaurantExperienceConfig(restaurantData || currentParty || {}),
 		[restaurantData, currentParty],
@@ -258,7 +255,7 @@ const PartySessionScreen = () => {
 					serviceAcknowledgedAt: null,
 					serviceAcknowledgedBy: null,
 					serviceRequestMessage: cleanMessage,
-					serviceTableName: currentParty?.table?.name || "A table",
+					serviceTableName: currentParty?.table?.name || "Waiting area",
 				});
 
 			setLastServiceRequest(now);
@@ -269,7 +266,7 @@ const PartySessionScreen = () => {
 				t("service_requested", "Service Requested"),
 				t(
 					"a_staff_member_will_be_with_you_shortly",
-					"A staff member has been alerted and will be with you shortly.",
+					"The restaurant has been alerted and will be with you shortly.",
 				),
 			);
 		} catch (error) {
@@ -346,22 +343,37 @@ const PartySessionScreen = () => {
 	};
 
 	const handleLeaveParty = async () => {
+		const isPendingDraftParty = ["pending", "AWAITING_TABLE"].includes(
+			currentParty?.status,
+		);
+		const shouldCancelDraft = isHost && isPendingDraftParty;
+
 		Alert.alert(
-			t("leave_party", "Leave Party"),
-			t(
-				"are_you_sure_you_want_to_leave_this_party",
-				"Are you sure you want to leave this party?",
-			),
+			shouldCancelDraft
+				? t("discard_party", "Discard party")
+				: t("leave_party", "Leave Party"),
+			shouldCancelDraft
+				? t(
+						"discard_pending_party_message",
+						"This will close this draft party and remove any unsent items.",
+					)
+				: t(
+						"are_you_sure_you_want_to_leave_this_party",
+						"Are you sure you want to leave this party?",
+					),
 			[
 				{ text: t("cancel", "Cancel"), style: "cancel" },
 				{
-					text: t("leave", "Leave"),
+					text: shouldCancelDraft
+						? t("discard", "Discard")
+						: t("leave", "Leave"),
 					style: "destructive",
 					onPress: async () => {
 						setUiLoading(true);
 						try {
-							// 🚨 THE FIX: Pass the currentPartyId here!
-							const success = await leaveParty(currentPartyId);
+							const success = shouldCancelDraft
+								? await cancelParty(currentPartyId)
+								: await leaveParty(currentPartyId);
 							if (success) {
 								navigation.goBack();
 							}
@@ -468,9 +480,15 @@ const PartySessionScreen = () => {
 		}
 	};
 
-	const handleInvitePip = () => {
+	const handleOpenInvitePanel = () => {
 		if (!isHost) return;
+		setIsMembersModalVisible(false);
 		setIsPipInviteModalVisible(true);
+	};
+
+	const handleSharePartyInvite = async () => {
+		setIsMembersModalVisible(false);
+		await handleShareInvite(displayInviteCode);
 	};
 
 	const sendInviteToUserPIP = async (pipUserId, pipName) => {
@@ -487,28 +505,6 @@ const PartySessionScreen = () => {
 					`${t("invite_sent_to", "Invite sent to")} ${pipName}!`,
 				);
 				setIsPipInviteModalVisible(false);
-			}
-		} finally {
-			setUiLoading(false);
-		}
-	};
-
-	const handleShowInviteCode = async () => {
-		if (!currentPartyId) return;
-
-		if (displayInviteCode) {
-			setShowInviteCode((visible) => !visible);
-			return;
-		}
-
-		if (!isHost) return;
-
-		setUiLoading(true);
-		try {
-			const code = await inviteToParty(currentPartyId);
-			if (code) {
-				setLocalInviteCode(code);
-				setShowInviteCode(true);
 			}
 		} finally {
 			setUiLoading(false);
@@ -728,7 +724,7 @@ const PartySessionScreen = () => {
 
 	// --- RENDERS ---
 
-	if (isLoadingParty || !currentPartyId || !partyDetails[currentPartyId]) {
+	if (!currentPartyId || !partyDetails[currentPartyId]) {
 		return (
 			<SafeAreaView
 				style={[
@@ -756,81 +752,105 @@ const PartySessionScreen = () => {
 	);
 	const partyIsActive = currentParty.status === "active";
 	const isMultiplayer = groupedBasket.length > 1;
+	const myItemCount = myItems.length;
+	const otherGuestCount = Math.max((currentParty?.guestPips?.length || 1) - 1, 0);
+	const tableOrderSubtitle = partyIsActive
+		? currentParty?.table?.name
+			? `${t("seated_at", "Seated at")} ${currentParty.table.name}`
+			: t("connected_to_table", "Connected to table")
+		: pendingHostCheckInRequest
+			? t("host_notified", "Host notified")
+			: t("not_seated_yet", "Not seated yet");
+	const tableOrderStatus = partyIsActive
+		? {
+				icon: "checkmark-circle",
+				color: colors.statusSuccess,
+			}
+		: pendingHostCheckInRequest
+			? {
+					icon: "time-outline",
+					color: colors.statusWarning,
+				}
+			: {
+					icon: "restaurant-outline",
+					color: colors.primary,
+				};
+	const nextStepTitle = partyIsActive
+		? myItemCount === 0
+			? t("ready_to_order", "Ready to order?")
+			: hasUnsentItems
+				? t("review_then_send", "Review, then send")
+				: userHasPaid
+					? t("all_set", "All set")
+					: t("order_sent", "Order sent")
+		: pendingHostCheckInRequest
+			? t("we_will_connect_your_table", "We will connect your table")
+			: t("start_your_order", "Start your order");
+	const nextStepMessage = partyIsActive
+		? myItemCount === 0
+			? t(
+					"ready_to_order_detail",
+					"Browse the menu and add items when you are ready.",
+				)
+			: hasUnsentItems
+				? t(
+						"review_then_send_detail",
+						"Your new items are saved. Send them when you want the kitchen to start.",
+					)
+				: userHasPaid
+					? t("all_set_detail", "Your part of the bill is complete.")
+					: t(
+							"order_sent_detail",
+							"We will update this screen as your items move through the kitchen.",
+						)
+		: pendingHostCheckInRequest
+			? t(
+					"host_request_sent_detail",
+					"You can keep adding items while the host prepares your table.",
+				)
+			: t(
+					"start_order_detail",
+					"Add items now, then scan your table or request host check-in when you arrive.",
+				);
 
 	return (
 		<SafeAreaView style={styles.screen}>
 			{/* STICKY TOP HEADER */}
 			<View style={styles.headerBar}>
 				<View style={styles.headerInfo}>
-					<Text style={styles.headerRestaurantName} numberOfLines={1}>
+					<Text style={styles.headerEyebrow} numberOfLines={1}>
 						{currentParty?.restaurantName}
 					</Text>
-					{partyIsActive && currentParty?.table?.name ? (
-						<View style={styles.statusContainer}>
-							<Ionicons
-								name="checkmark-circle"
-								size={16}
-								color={colors.statusSuccess}
-							/>
-							<Text style={[styles.headerPartyStatus, styles.statusActive]}>
-								{t("seated_at", "Seated at")} {currentParty.table.name}
-							</Text>
-						</View>
-					) : (
-						<View style={styles.statusContainer}>
-							<Ionicons
-								name="time-outline"
-								size={16}
-								color={colors.statusWarning}
-							/>
-							<Text style={[styles.headerPartyStatus, styles.statusPending]}>
-								{currentParty?.status === "AWAITING_TABLE"
-									? t("waiting_for_table", "Waiting for table")
-									: `${t("status", "Status")}: ${currentParty?.status}`}
-							</Text>
-						</View>
-					)}
+					<Text style={styles.headerRestaurantName}>
+						{t("my_table", "My Table")}
+					</Text>
+					<View style={styles.statusContainer}>
+						<Ionicons
+							name={tableOrderStatus.icon}
+							size={16}
+							color={tableOrderStatus.color}
+						/>
+						<Text style={styles.headerPartyStatus} numberOfLines={1}>
+							{tableOrderSubtitle}
+						</Text>
+					</View>
 				</View>
 
 				{/* HEADER ACTIONS */}
 				<View style={styles.headerActionsRow}>
 					<TouchableOpacity
-						style={styles.headerIconButton}
+						style={styles.headerHelpButton}
 						onPress={openServiceRequestModal}
 					>
 						<Ionicons
 							name="notifications-outline"
-							size={26}
-							color={colors.textDark}
+							size={18}
+							color={colors.primary}
 						/>
+						<Text style={styles.headerHelpText}>
+							{t("need_help", "Need help?")}
+						</Text>
 					</TouchableOpacity>
-
-					{isHost && (
-						<TouchableOpacity
-							style={styles.headerIconButton}
-							onPress={handleInvitePip}
-						>
-							<Ionicons
-								name="person-add-outline"
-								size={26}
-								color={colors.primary}
-							/>
-						</TouchableOpacity>
-					)}
-
-					{isHost && (
-						<TouchableOpacity
-							style={styles.headerIconButton}
-							onPress={handleShowInviteCode}
-							disabled={uiLoading}
-						>
-							<Ionicons
-								name="qr-code-outline"
-								size={26}
-								color={colors.primary}
-							/>
-						</TouchableOpacity>
-					)}
 
 					<TouchableOpacity
 						style={styles.headerIconButton}
@@ -838,43 +858,39 @@ const PartySessionScreen = () => {
 					>
 						<Ionicons name="people-outline" size={28} color={colors.textDark} />
 					</TouchableOpacity>
-
-					{/* 🚨 NEW: LEAVE PARTY BUTTON IN HEADER */}
-					<TouchableOpacity
-						style={styles.headerIconButton}
-						onPress={handleLeavePartyPress}
-					>
-						<Ionicons
-							name="exit-outline"
-							size={28}
-							color={colors.statusDanger}
-						/>
-					</TouchableOpacity>
 				</View>
 			</View>
 
-			{/* EXPANDABLE SMART INVITE BANNER */}
-			{displayInviteCode && showInviteCode && (
-				<View style={styles.inviteCodeBanner}>
-					<Text style={styles.inviteLabel}>
-						{t("invite_code", "Invite Code")}
-					</Text>
-					<View style={styles.inviteCodeBox}>
-						<Text style={styles.inviteCodeText}>{displayInviteCode}</Text>
-						<TouchableOpacity
-							onPress={() => handleShareInvite(displayInviteCode)}
-						>
-							<Ionicons name="share-social" size={28} color={colors.primary} />
-						</TouchableOpacity>
-					</View>
-					{displayInviteExpiry && (
-						<Text style={styles.expiryText}>
-							{t("expires_in", "Expires in")}{" "}
-							{formatTimeLeft(displayInviteExpiry)}
-						</Text>
-					)}
+			<View style={styles.partyStepRail}>
+				<View
+					style={[
+						styles.partyStepIcon,
+						{ backgroundColor: tableOrderStatus.color + "14" },
+					]}
+				>
+					<Ionicons
+						name={tableOrderStatus.icon}
+						size={18}
+						color={tableOrderStatus.color}
+					/>
 				</View>
-			)}
+				<View style={styles.partyStepCopy}>
+					<Text style={styles.partyStepTitle} numberOfLines={1}>
+						{nextStepTitle}
+					</Text>
+					<Text style={styles.partyStepMessage} numberOfLines={1}>
+						{nextStepMessage}
+					</Text>
+				</View>
+				<View style={styles.partyStepCounts}>
+					<Text style={styles.partyStepCountText}>
+						{myItemCount} {t("items", "items")}
+					</Text>
+					<Text style={styles.partyStepCountText}>
+						{otherGuestCount} {t("guests", "guests")}
+					</Text>
+				</View>
+			</View>
 
 			{currentParty?.reservationId ? (
 				<View style={styles.reservationBanner}>
@@ -895,7 +911,7 @@ const PartySessionScreen = () => {
 				</View>
 			) : null}
 
-			{partyIsActive && serviceRequestStatus ? (
+			{serviceRequestStatus ? (
 				<View
 					style={[
 						styles.serviceStatusBanner,
@@ -1036,7 +1052,7 @@ const PartySessionScreen = () => {
 								onPress={handleAddMyItems}
 							>
 								<Text style={styles.pendingWideSecondaryText}>
-									+ {t("add_more", "Add More")}
+									+ {t("add_food_while_you_wait", "Add food while you wait")}
 								</Text>
 							</TouchableOpacity>
 
@@ -1074,7 +1090,7 @@ const PartySessionScreen = () => {
 											style={{ marginRight: 7 }}
 										/>
 										<Text style={styles.pendingPrimaryText}>
-											{t("scan_table", "Scan Table")}
+											{t("scan_table", "Scan table")}
 										</Text>
 									</TouchableOpacity>
 								) : null}
@@ -1119,14 +1135,44 @@ const PartySessionScreen = () => {
 											{pendingHostCheckInRequest
 												? t(
 														"cancel_check_in_request",
-														"Cancel Check-In Request",
+														"Cancel request",
 													)
-												: t("request_check_in", "Request Check-In")}
+												: t("request_check_in", "Request check-in")}
 										</Text>
 									</TouchableOpacity>
 								)}
 							</View>
 							)}
+
+							<TouchableOpacity
+								style={[
+									styles.pendingLeaveButton,
+									(uiLoading || isProcessingPartyCheckIn) &&
+										styles.pendingLeaveButtonDisabled,
+								]}
+								onPress={handleLeavePartyPress}
+								disabled={uiLoading || isProcessingPartyCheckIn}
+							>
+								{uiLoading ? (
+									<ActivityIndicator
+										size="small"
+										color={colors.statusDanger}
+										style={{ marginRight: 6 }}
+									/>
+								) : (
+									<Ionicons
+										name="exit-outline"
+										size={16}
+										color={colors.statusDanger}
+										style={{ marginRight: 6 }}
+									/>
+								)}
+								<Text style={styles.pendingLeaveText}>
+									{uiLoading
+										? t("leaving_party", "Leaving party...")
+										: t("leave_party", "Leave party")}
+								</Text>
+							</TouchableOpacity>
 						</View>
 					)}
 
@@ -1137,17 +1183,28 @@ const PartySessionScreen = () => {
 							{myItems.length === 0 && !userHasPaid && (
 								<View style={styles.stickySplitRow}>
 									<TouchableOpacity
-										style={styles.stickySecondaryBtn}
+										style={[
+											styles.stickySecondaryBtn,
+											uiLoading && styles.pendingLeaveButtonDisabled,
+										]}
 										onPress={handleLeavePartyPress}
+										disabled={uiLoading}
 									>
-										<Text
-											style={[
-												styles.stickySecondaryBtnText,
-												{ color: colors.statusDanger },
-											]}
-										>
-											{t("leave_party", "Leave Party")}
-										</Text>
+										{uiLoading ? (
+											<ActivityIndicator
+												size="small"
+												color={colors.statusDanger}
+											/>
+										) : (
+											<Text
+												style={[
+													styles.stickySecondaryBtnText,
+													{ color: colors.statusDanger },
+												]}
+											>
+												{t("leave_party", "Leave Party")}
+											</Text>
+										)}
 									</TouchableOpacity>
 
 									<TouchableOpacity
@@ -1164,7 +1221,7 @@ const PartySessionScreen = () => {
 											style={{ marginRight: 8 }}
 										/>
 										<Text style={styles.stickyPrimaryBtnText}>
-											{t("browse_menu", "Browse Menu")}
+											{t("order_food", "Order food")}
 										</Text>
 									</TouchableOpacity>
 								</View>
@@ -1187,7 +1244,7 @@ const PartySessionScreen = () => {
 											onPress={handleAddMyItems}
 										>
 											<Text style={styles.stickySecondaryBtnText}>
-												+ {t("add_more", "Add More")}
+												+ {t("add_more", "Add more")}
 											</Text>
 										</TouchableOpacity>
 										<TouchableOpacity
@@ -1208,7 +1265,7 @@ const PartySessionScreen = () => {
 												/>
 											) : (
 												<Text style={styles.stickyPrimaryBtnText}>
-													{t("send_to_kitchen", "Send to Kitchen")}
+													{t("send_order", "Send order")}
 												</Text>
 											)}
 										</TouchableOpacity>
@@ -1241,7 +1298,7 @@ const PartySessionScreen = () => {
 											style={{ marginRight: 8 }}
 										/>
 										<Text style={styles.stickyPrimaryBtnText}>
-											{t("pay_my_bill", "Pay My Bill")}
+											{t("pay", "Pay")}
 										</Text>
 									</TouchableOpacity>
 								</View>
@@ -1298,7 +1355,7 @@ const PartySessionScreen = () => {
 								<Text style={styles.serviceModalSubtitle}>
 									{t(
 										"request_service_detail",
-										"Send your server a quick note.",
+										"Send the restaurant a quick note.",
 									)}
 								</Text>
 							</View>
@@ -1393,6 +1450,17 @@ const PartySessionScreen = () => {
 						<Text style={styles.modalTitle}>
 							{t("party_members", "Party Members")}
 						</Text>
+						<Text style={styles.partyPanelSubtitle}>
+							{isHost
+								? t(
+										"party_members_host_detail",
+										"See who is here and invite more guests.",
+									)
+								: t(
+										"party_members_guest_detail",
+										"Guests connected to this party.",
+									)}
+						</Text>
 						<FlatList
 							data={currentParty?.guestPips || []}
 							keyExtractor={(pip) => pip.userId || pip.localPipId}
@@ -1419,6 +1487,36 @@ const PartySessionScreen = () => {
 								);
 							}}
 						/>
+						{isHost ? (
+							<View style={styles.partyPanelActions}>
+								<TouchableOpacity
+									style={styles.partyPanelAction}
+									onPress={handleSharePartyInvite}
+								>
+									<Ionicons
+										name="share-social-outline"
+										size={18}
+										color={colors.textDark}
+									/>
+									<Text style={styles.partyPanelActionText}>
+										{t("share_invite", "Share invite")}
+									</Text>
+								</TouchableOpacity>
+								<TouchableOpacity
+									style={styles.partyPanelActionPrimary}
+									onPress={handleOpenInvitePanel}
+								>
+									<Ionicons
+										name="person-add-outline"
+										size={18}
+										color={colors.surfaceWhite}
+									/>
+									<Text style={styles.partyPanelActionPrimaryText}>
+										{t("add_people", "Add people")}
+									</Text>
+								</TouchableOpacity>
+							</View>
+						) : null}
 						<TouchableOpacity
 							style={styles.modalCloseButton}
 							onPress={() => setIsMembersModalVisible(false)}
@@ -1476,7 +1574,7 @@ const styles = StyleSheet.create({
 	},
 	statusText: { marginTop: 15, fontSize: 16, color: colors.textDark },
 
-	flatListContentContainer: { paddingBottom: 120, paddingTop: 10 },
+	flatListContentContainer: { paddingBottom: 140, paddingTop: 4 },
 
 	headerBar: {
 		flexDirection: "row",
@@ -1488,62 +1586,101 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderBottomColor: colors.borderLight,
 	},
-	headerInfo: { flexShrink: 1, marginRight: 10 },
+	headerInfo: { flex: 1, minWidth: 0, marginRight: 10 },
+	headerEyebrow: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+		marginBottom: 2,
+	},
 	headerRestaurantName: {
-		fontSize: 18,
-		fontWeight: "bold",
-		color: colors.primary,
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.textDark,
 		marginBottom: 2,
 	},
 	statusContainer: { flexDirection: "row", alignItems: "center", marginTop: 2 },
-	headerPartyStatus: { fontSize: 14, marginLeft: 4 },
+	headerPartyStatus: {
+		flex: 1,
+		minWidth: 0,
+		fontSize: 14,
+		marginLeft: 4,
+		color: colors.textMedium,
+		fontWeight: "700",
+	},
 	statusPending: { color: colors.statusWarning, fontWeight: "bold" },
 	statusActive: { color: colors.statusSuccess, fontWeight: "bold" },
 
-	headerActionsRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+	headerActionsRow: { flexDirection: "row", alignItems: "center", gap: 8 },
 	headerIconButton: {
-		padding: 6,
+		width: 40,
+		height: 40,
+		alignItems: "center",
+		justifyContent: "center",
 		backgroundColor: colors.backgroundLight,
 		borderRadius: 8,
 	},
-
-	inviteCodeBanner: {
-		backgroundColor: colors.surfaceWhite,
-		paddingVertical: 20,
-		paddingHorizontal: 20,
-		alignItems: "center",
-		borderBottomWidth: 1,
-		borderBottomColor: colors.borderLight,
-	},
-	inviteLabel: {
-		fontSize: 14,
-		color: colors.textMedium,
-		fontWeight: "600",
-		marginBottom: 10,
-	},
-	inviteCodeBox: {
+	headerHelpButton: {
+		minHeight: 40,
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: colors.primary + "15",
-		paddingHorizontal: 30,
-		paddingVertical: 15,
-		borderRadius: 16,
+		paddingHorizontal: 10,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "10",
 		borderWidth: 1,
-		borderColor: colors.primary + "50",
-		gap: 15,
+		borderColor: colors.primary + "20",
 	},
-	inviteCodeText: {
-		fontSize: 32,
-		fontWeight: "900",
-		letterSpacing: 8,
+	headerHelpText: {
+		marginLeft: 5,
 		color: colors.primary,
+		fontSize: 12,
+		fontWeight: "900",
 	},
-	expiryText: {
-		marginTop: 10,
-		fontSize: 13,
-		color: colors.textLight,
-		fontStyle: "italic",
+	partyStepRail: {
+		flexDirection: "row",
+		alignItems: "center",
+		marginHorizontal: 15,
+		marginTop: 8,
+		paddingHorizontal: 11,
+		paddingVertical: 9,
+		borderRadius: 10,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	partyStepIcon: {
+		width: 36,
+		height: 36,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		marginRight: 10,
+	},
+	partyStepCopy: {
+		flex: 1,
+		minWidth: 0,
+	},
+	partyStepTitle: {
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "900",
+	},
+	partyStepMessage: {
+		marginTop: 2,
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "700",
+	},
+	partyStepCounts: {
+		alignItems: "flex-end",
+		marginLeft: 8,
+	},
+	partyStepCountText: {
+		color: colors.textMedium,
+		fontSize: 11,
+		fontWeight: "900",
 	},
 	reservationBanner: {
 		flexDirection: "row",
@@ -1768,6 +1905,24 @@ const styles = StyleSheet.create({
 		fontWeight: "800",
 		textAlign: "center",
 	},
+	pendingLeaveButton: {
+		flexDirection: "row",
+		justifyContent: "center",
+		alignItems: "center",
+		paddingVertical: 8,
+		borderRadius: 10,
+		backgroundColor: colors.statusDanger + "10",
+		borderWidth: 1,
+		borderColor: colors.statusDanger + "25",
+	},
+	pendingLeaveButtonDisabled: {
+		opacity: 0.65,
+	},
+	pendingLeaveText: {
+		color: colors.statusDanger,
+		fontSize: 13,
+		fontWeight: "900",
+	},
 	stickyPrimaryBtn: {
 		flexDirection: "row",
 		justifyContent: "center",
@@ -1938,9 +2093,17 @@ const styles = StyleSheet.create({
 	modalTitle: {
 		fontSize: 20,
 		fontWeight: "bold",
-		marginBottom: 20,
+		marginBottom: 6,
 		textAlign: "center",
 		color: colors.textDark,
+	},
+	partyPanelSubtitle: {
+		color: colors.textMedium,
+		fontSize: 13,
+		fontWeight: "700",
+		lineHeight: 19,
+		textAlign: "center",
+		marginBottom: 16,
 	},
 	memberItemContainer: {
 		flexDirection: "row",
@@ -1960,6 +2123,43 @@ const styles = StyleSheet.create({
 		color: colors.primary,
 		marginLeft: 8,
 		fontStyle: "italic",
+	},
+	partyPanelActions: {
+		flexDirection: "row",
+		gap: 10,
+		marginTop: 14,
+	},
+	partyPanelAction: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		borderRadius: 10,
+		backgroundColor: colors.backgroundLight,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	partyPanelActionPrimary: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 12,
+		borderRadius: 10,
+		backgroundColor: colors.primary,
+	},
+	partyPanelActionText: {
+		marginLeft: 6,
+		color: colors.textDark,
+		fontSize: 14,
+		fontWeight: "900",
+	},
+	partyPanelActionPrimaryText: {
+		marginLeft: 6,
+		color: colors.surfaceWhite,
+		fontSize: 14,
+		fontWeight: "900",
 	},
 	modalCloseButton: {
 		backgroundColor: colors.textMedium,

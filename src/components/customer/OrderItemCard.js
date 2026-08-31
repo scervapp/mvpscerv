@@ -1,5 +1,12 @@
-import React from "react";
-import { View, Text, StyleSheet, Alert, ActivityIndicator } from "react-native";
+import React, { useState } from "react";
+import {
+	View,
+	Text,
+	StyleSheet,
+	Alert,
+	ActivityIndicator,
+	Pressable,
+} from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { IconButton } from "react-native-paper";
 import { useTranslation } from "react-i18next";
@@ -25,6 +32,7 @@ const OrderItemCard = (props) => {
 	const isPickupVariant = variant === "pickup";
 	const isCompactVariant = variant === "compact";
 	const currentLang = i18n.language?.substring(0, 2) || "en";
+	const [isExpanded, setIsExpanded] = useState(false);
 
 	if (!item || !item.dishName) {
 		return (
@@ -72,6 +80,13 @@ const OrderItemCard = (props) => {
 	const selectedModifiers = Array.isArray(item.selectedModifiers)
 		? item.selectedModifiers
 		: [];
+
+	const displaySpecialInstructions =
+		typeof item.specialInstructions === "object"
+			? item.specialInstructions[currentLang] ||
+				item.specialInstructions.original ||
+				""
+			: String(item.specialInstructions || "").trim();
 
 	const getModifierDisplayName = (modifier) => {
 		if (!modifier) return "";
@@ -142,6 +157,13 @@ const OrderItemCard = (props) => {
 		t("order_preparing_short", "Preparing"),
 		t("order_on_the_way_short", "On the way"),
 	];
+	const isDetailsExpanded = isCompactVariant && isExpanded;
+	const hasExpandableDetails =
+		isCompactVariant &&
+		(Boolean(displaySpecialInstructions) ||
+			selectedModifiers.length > 0 ||
+			String(item.dishName || "").length > 24);
+	const DetailsShell = hasExpandableDetails ? Pressable : View;
 
 	return (
 		<View
@@ -149,6 +171,7 @@ const OrderItemCard = (props) => {
 				styles.orderItemCard,
 				isPickupVariant && styles.pickupOrderItemCard,
 				isCompactVariant && styles.compactOrderItemCard,
+				isDetailsExpanded && styles.compactOrderItemCardExpanded,
 				isSentToKitchen && styles.sentItemCardVisual,
 			]}
 		>
@@ -157,6 +180,7 @@ const OrderItemCard = (props) => {
 					styles.itemContent,
 					isPickupVariant && styles.pickupItemContent,
 					isCompactVariant && styles.compactItemContent,
+					isDetailsExpanded && styles.compactItemContentExpanded,
 				]}
 			>
 				{(!isPickupVariant || badgeConfig) && (
@@ -178,16 +202,27 @@ const OrderItemCard = (props) => {
 								size={isCompactVariant ? 18 : 24}
 								color={colors.textLight}
 							/>
-						)}
+					)}
 					</View>
 				)}
 
-				<View
+				<DetailsShell
 					style={[
 						styles.detailsContainer,
 						isPickupVariant && styles.pickupDetailsContainer,
 						isCompactVariant && styles.compactDetailsContainer,
 					]}
+					onPress={
+						hasExpandableDetails
+							? () => setIsExpanded((currentValue) => !currentValue)
+							: undefined
+					}
+					accessibilityRole={hasExpandableDetails ? "button" : undefined}
+					accessibilityLabel={
+						hasExpandableDetails
+							? t("view_item_details", "View item details")
+							: undefined
+					}
 				>
 					<Text
 						style={[
@@ -196,7 +231,7 @@ const OrderItemCard = (props) => {
 							isCompactVariant && styles.compactDishName,
 							isSentToKitchen && styles.sentItemText,
 						]}
-						numberOfLines={isCompactVariant ? 1 : undefined}
+						numberOfLines={isCompactVariant && !isDetailsExpanded ? 1 : undefined}
 					>
 						{item.dishName}
 					</Text>
@@ -215,7 +250,8 @@ const OrderItemCard = (props) => {
 						</Text>
 					)}
 
-					{!isCompactVariant && item.specialInstructions && (
+					{(!isCompactVariant || isDetailsExpanded) &&
+						Boolean(displaySpecialInstructions) && (
 						<Text
 							style={[
 								styles.specialInstructions,
@@ -224,14 +260,11 @@ const OrderItemCard = (props) => {
 							]}
 						>
 							{t("notes_label")}:{" "}
-							{typeof item.specialInstructions === "object"
-								? item.specialInstructions[currentLang] ||
-									item.specialInstructions.original ||
-									""
-								: item.specialInstructions}
+							{displaySpecialInstructions}
 							</Text>
 						)}
-					{!isCompactVariant && selectedModifiers.length > 0 && (
+					{(!isCompactVariant || isDetailsExpanded) &&
+						selectedModifiers.length > 0 && (
 						<View style={styles.modifiersContainer}>
 							{selectedModifiers.map((modifier, index) => {
 								const modifierName = getModifierDisplayName(modifier);
@@ -316,7 +349,22 @@ const OrderItemCard = (props) => {
 							})}
 						</View>
 					)}
-				</View>
+
+					{hasExpandableDetails && (
+						<View style={styles.compactDetailsHint}>
+							<Text style={styles.compactDetailsHintText}>
+								{isDetailsExpanded
+									? t("hide_details", "Hide details")
+									: t("view_details", "View details")}
+							</Text>
+							<MaterialCommunityIcons
+								name={isDetailsExpanded ? "chevron-up" : "chevron-down"}
+								size={14}
+								color={colors.primary}
+							/>
+						</View>
+					)}
+				</DetailsShell>
 
 				<View
 					style={[
@@ -432,6 +480,9 @@ const styles = StyleSheet.create({
 		elevation: 0,
 		borderWidth: 0,
 	},
+	compactOrderItemCardExpanded: {
+		paddingVertical: 8,
+	},
 	sentItemCardVisual: {
 		backgroundColor: colors.backgroundLight,
 	},
@@ -444,6 +495,9 @@ const styles = StyleSheet.create({
 	},
 	compactItemContent: {
 		alignItems: "center",
+	},
+	compactItemContentExpanded: {
+		alignItems: "flex-start",
 	},
 	statusIconContainer: {
 		marginRight: 10,
@@ -538,6 +592,18 @@ const styles = StyleSheet.create({
 	compactProgressLabel: {
 		fontSize: 9,
 		color: colors.textLight,
+	},
+	compactDetailsHint: {
+		flexDirection: "row",
+		alignItems: "center",
+		alignSelf: "flex-start",
+		marginTop: 4,
+	},
+	compactDetailsHintText: {
+		color: colors.primary,
+		fontSize: 11,
+		fontWeight: "800",
+		marginRight: 2,
 	},
 	controlsAndPriceContainer: {
 		alignItems: "flex-end",
