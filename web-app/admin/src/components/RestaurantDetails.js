@@ -37,6 +37,42 @@ const getListingLabel = (restaurant = {}) => {
 	return "Scerv enabled";
 };
 
+const getOperationalLabel = (restaurant = {}) => {
+	const status =
+		restaurant.claimWorkflow?.operationalActivationStatus ||
+		restaurant.listingStatus ||
+		restaurant.scervStatus ||
+		restaurant.claimStatus;
+	if (status === "claimed_discovery_only" || status === "claimed") {
+		return "Claimed, discovery only";
+	}
+	if (status === "community") return "Unclaimed discovery profile";
+	if (status === "scerv_enabled") return "Scerv tools enabled";
+	return "Operational status pending";
+};
+
+const getClaimChecklist = (restaurant = {}, owner = {}) => {
+	const status = restaurant.listingStatus || restaurant.scervStatus;
+	return [
+		{
+			label: "Community profile created",
+			done: Boolean(restaurant.isCommunityProfile || restaurant.isClaimed),
+		},
+		{
+			label: "Owner assigned",
+			done: Boolean(restaurant.ownerUid || restaurant.uid || owner?.email),
+		},
+		{
+			label: "Setup link sent",
+			done: Boolean(restaurant.ownerSetupLastSentAt || restaurant.claimedAt),
+		},
+		{
+			label: "Operational features enabled",
+			done: status === "scerv_enabled",
+		},
+	];
+};
+
 const RestaurantDetails = () => {
 	const { id } = useParams();
 	const [profile, setProfile] = useState(null);
@@ -64,9 +100,32 @@ const RestaurantDetails = () => {
 			const getProfile = httpsCallable(functions, "getScervRestaurantProfile");
 			const response = await getProfile({ restaurantId: id });
 			const data = response.data || {};
+			const restaurantData = data.restaurant || {};
+			const ownerData = data.owner || {};
 			setProfile(data);
-			setRestaurant(data.restaurant);
-			setFormData(data.restaurant || {});
+			setRestaurant(restaurantData);
+			setFormData(restaurantData);
+			setClaimForm((prev) => ({
+				...prev,
+				firstName:
+					ownerData.firstName || restaurantData.firstName || prev.firstName || "",
+				lastName:
+					ownerData.lastName || restaurantData.lastName || prev.lastName || "",
+				email:
+					ownerData.email ||
+					restaurantData.email ||
+					restaurantData.claimContactEmail ||
+					prev.email ||
+					"",
+				phoneNumber:
+					ownerData.phoneNumber ||
+					restaurantData.phoneNumber ||
+					prev.phoneNumber ||
+					"",
+				enableScerv:
+					(restaurantData.listingStatus || restaurantData.scervStatus) ===
+					"scerv_enabled",
+			}));
 		} catch (err) {
 			console.error("Error fetching restaurant data:", err);
 			setError("Error fetching restaurant data.");
@@ -86,9 +145,13 @@ const RestaurantDetails = () => {
 	const tables = useMemo(() => profile?.tables || [], [profile]);
 	const employees = useMemo(() => profile?.employees || [], [profile]);
 	const menuItems = useMemo(() => profile?.menuItems || [], [profile]);
-	const owner = profile?.owner || {};
+	const owner = useMemo(() => profile?.owner || {}, [profile]);
 	const entitlements = restaurant?.featureEntitlements || {};
 	const listingStatus = restaurant?.listingStatus || restaurant?.scervStatus || "scerv_enabled";
+	const claimChecklist = useMemo(
+		() => getClaimChecklist(restaurant || {}, owner),
+		[restaurant, owner],
+	);
 
 	const orderTotals = useMemo(
 		() =>
@@ -281,7 +344,34 @@ const RestaurantDetails = () => {
 						<h2>Shortcuts</h2>
 						<div className="shortcut-row">
 							<Link to={`/restaurants/${id}/menu`}>Manage Menu</Link>
+							<button
+								type="button"
+								onClick={() => setActiveTab("owner")}
+							>
+								Claim Setup
+							</button>
 							<Link to="/command-center">Command Center</Link>
+						</div>
+					</section>
+					<section className="restaurant-panel wide-panel">
+						<h2>Claim Readiness</h2>
+						<div className="claim-status-grid">
+							<div>
+								<span>Listing</span>
+								<strong>{getListingLabel(restaurant)}</strong>
+							</div>
+							<div>
+								<span>Operations</span>
+								<strong>{getOperationalLabel(restaurant)}</strong>
+							</div>
+							<div>
+								<span>Ratings</span>
+								<strong>{restaurant.ratingCount || 0}</strong>
+							</div>
+							<div>
+								<span>Menu items</span>
+								<strong>{menuItems.length}</strong>
+							</div>
 						</div>
 					</section>
 				</div>
@@ -478,17 +568,63 @@ const RestaurantDetails = () => {
 
 			{activeTab === "owner" && (
 				<section className="restaurant-panel">
-					<h2>Owner Setup</h2>
+					<div className="owner-setup-header">
+						<div>
+							<h2>Claim Flow</h2>
+							<p>
+								Assign a verified owner without deleting menu items, ratings,
+								reviews, or discovery media.
+							</p>
+						</div>
+						<span className={`listing-pill listing-${listingStatus}`}>
+							{getListingLabel(restaurant)}
+						</span>
+					</div>
+					<div className="claim-status-grid">
+						<div>
+							<span>Claim state</span>
+							<strong>{restaurant.claimStatus || "unclaimed"}</strong>
+						</div>
+						<div>
+							<span>Operational state</span>
+							<strong>{getOperationalLabel(restaurant)}</strong>
+						</div>
+						<div>
+							<span>Ratings preserved</span>
+							<strong>{restaurant.ratingCount || 0}</strong>
+						</div>
+						<div>
+							<span>Reviews preserved</span>
+							<strong>{restaurant.reviewCount || 0}</strong>
+						</div>
+					</div>
+					<div className="claim-checklist">
+						{claimChecklist.map((step) => (
+							<div key={step.label} className={step.done ? "done" : ""}>
+								<span>{step.done ? "Done" : "Todo"}</span>
+								{step.label}
+							</div>
+						))}
+					</div>
 					<dl>
 						<dt>Listing</dt><dd>{getListingLabel(restaurant)}</dd>
 						<dt>Claim status</dt><dd>{restaurant.claimStatus || "--"}</dd>
+						<dt>Claim method</dt><dd>{restaurant.claimWorkflow?.method || "--"}</dd>
 						<dt>Name</dt><dd>{owner.fullName || `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || "--"}</dd>
 						<dt>Email</dt><dd>{owner.email || restaurant.email || "--"}</dd>
 						<dt>Phone</dt><dd>{owner.phoneNumber || restaurant.phoneNumber || "--"}</dd>
-						<dt>Auth UID</dt><dd>{restaurant.uid || id}</dd>
+						<dt>Owner UID</dt><dd>{restaurant.ownerUid || restaurant.uid || "--"}</dd>
+						<dt>Restaurant ID</dt><dd>{id}</dd>
 					</dl>
 					<form className="owner-claim-form" onSubmit={assignOwner}>
-						<h3>Assign Verified Owner</h3>
+						<h3>
+							{restaurant.isClaimed ? "Update Verified Owner" : "Assign Verified Owner"}
+						</h3>
+						<p className="owner-claim-help">
+							Claiming keeps the restaurant visible for discovery and keeps all
+							existing reputation attached. Only choose Scerv enabled when the
+							restaurant should receive operational tools.
+						</p>
 						<div className="restaurant-profile-form">
 							<label>
 								First name
@@ -564,10 +700,19 @@ const RestaurantDetails = () => {
 									}))
 								}
 							/>
-							Enable ordering/reservations controls now
+							Enable Scerv operational tools now
 						</label>
+						<p className="owner-claim-help">
+							Unchecked means claimed discovery profile: reviews stay live, but
+							ordering, reservations, QR check-in, rewards, payments, and host
+							check-in stay locked until Scerv enables them later.
+						</p>
 						<button type="submit" disabled={saving}>
-							{saving ? "Assigning..." : "Assign Owner"}
+							{saving
+								? "Saving..."
+								: restaurant.isClaimed
+									? "Update Owner Claim"
+									: "Claim Restaurant"}
 						</button>
 					</form>
 					<button type="button" onClick={resendOwnerSetup} disabled={saving}>

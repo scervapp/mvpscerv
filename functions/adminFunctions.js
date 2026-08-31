@@ -1720,15 +1720,24 @@ exports.assignScervRestaurantOwner = functions
 		});
 
 		const existingRestaurant = restaurantSnap.data() || {};
+		const previousListingStatus = normalizeListingStatus(
+			existingRestaurant.listingStatus || existingRestaurant.scervStatus,
+			"community",
+		);
 		const listingStatus = enableScerv ? "scerv_enabled" : "claimed";
 		const existingEntitlements = existingRestaurant.featureEntitlements || {};
 		const featureEntitlements = enableScerv
-			? getFeatureEntitlementDefaults(existingEntitlements)
+			? getFeatureEntitlementDefaults({
+					reviews: existingEntitlements.reviews !== false,
+				})
 			: {
 					...getCommunityProfileEntitlements(),
 					reviews: existingEntitlements.reviews !== false,
 				};
 		const now = admin.firestore.FieldValue.serverTimestamp();
+		const operationalActivationStatus = enableScerv
+			? "scerv_enabled"
+			: "claimed_discovery_only";
 
 		await restaurantRef.set(
 			{
@@ -1744,7 +1753,9 @@ exports.assignScervRestaurantOwner = functions
 				claimStatus: "claimed",
 				isClaimed: true,
 				isCommunityProfile: listingStatus !== "scerv_enabled",
-				onboardingStatus: "claimed_pending_owner_login",
+				onboardingStatus: enableScerv
+					? "claimed_pending_scerv_setup"
+					: "claimed_pending_owner_login",
 				featureEntitlements,
 				subscriptionFeatures: featureEntitlements,
 				features: {
@@ -1755,8 +1766,34 @@ exports.assignScervRestaurantOwner = functions
 					loyaltyClub: featureEntitlements.rewards,
 					qrSelfCheckIn: featureEntitlements.qrSelfCheckIn,
 					parties: featureEntitlements.parties,
+					pickup: featureEntitlements.pickup,
 					tableScanOrdering: featureEntitlements.tableScanOrdering,
 					serviceRequests: featureEntitlements.serviceRequests,
+				},
+				reservationSettings: {
+					enabled: featureEntitlements.reservations,
+					reservationsEnabled: featureEntitlements.reservations,
+					waitlistEnabled: featureEntitlements.reservationWaitlist,
+				},
+				experienceSettings: {
+					hostCheckInRequestsEnabled: featureEntitlements.hostCheckInRequests,
+					qrSelfCheckInEnabled: featureEntitlements.qrSelfCheckIn,
+				},
+				claimWorkflow: {
+					status: "claimed",
+					method: "admin_assignment",
+					previousListingStatus,
+					operationalActivationStatus,
+					ownerUid: userRecord.uid,
+					ownerEmail: email,
+					preserveCommunityReputation: true,
+					claimedAt: now,
+					claimedByAdminUid: actorUid,
+				},
+				reputationAtClaim: {
+					averageRating: Number(existingRestaurant.averageRating || existingRestaurant.rating || 0),
+					ratingCount: Number(existingRestaurant.ratingCount || 0),
+					reviewCount: Number(existingRestaurant.reviewCount || 0),
 				},
 				claimedAt: now,
 				claimedByAdminUid: actorUid,
@@ -1774,6 +1811,7 @@ exports.assignScervRestaurantOwner = functions
 				fullName: ownerName,
 				phoneNumber,
 				claimStatus: "claimed",
+				operationalActivationStatus,
 				updatedAt: now,
 				adminUpdatedBy: actorUid,
 			},
@@ -1808,6 +1846,8 @@ exports.assignScervRestaurantOwner = functions
 			ownerUid: userRecord.uid,
 			createdAuthUser,
 			listingStatus,
+			previousListingStatus,
+			operationalActivationStatus,
 			emailSent: emailResult.sent,
 		});
 
@@ -1820,6 +1860,7 @@ exports.assignScervRestaurantOwner = functions
 			emailWarning: emailResult.sent ? null : emailResult.reason,
 			resetLink,
 			listingStatus,
+			operationalActivationStatus,
 		};
 	});
 
