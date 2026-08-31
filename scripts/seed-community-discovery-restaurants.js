@@ -1,5 +1,8 @@
 const auth = require("firebase-tools/lib/auth");
 const scopes = require("firebase-tools/lib/scopes");
+const {
+	calculateScervDiscoveryScore,
+} = require("../functions/discoveryScoring");
 
 const PROJECT_ID = "scervmvp-dev";
 const DATABASE_ID = "(default)";
@@ -449,23 +452,6 @@ function uniqueLowerStrings(values) {
 	];
 }
 
-function confidenceAdjustedRating(averageRating, ratingCount) {
-	const globalAverage = 4.2;
-	const minimumConfidenceRatings = 10;
-	return (
-		(ratingCount / (ratingCount + minimumConfidenceRatings)) * averageRating +
-		(minimumConfidenceRatings / (ratingCount + minimumConfidenceRatings)) *
-			globalAverage
-	);
-}
-
-function discoveryScore(item) {
-	const confidence = confidenceAdjustedRating(item.averageRating, item.ratingCount);
-	const popularityWeight = Math.min(item.ratingCount / 50, 1) * 0.25;
-	const reviewWeight = Math.min(item.reviewCount / 25, 1) * 0.15;
-	return Number((confidence + popularityWeight + reviewWeight).toFixed(4));
-}
-
 function standardMenuCategory(category, item = {}) {
 	if (item.isDailySpecial) return "daily_special";
 	const normalized = String(category || "")
@@ -582,6 +568,22 @@ async function seedRestaurant(token, restaurant) {
 		);
 		const topReviewTags = [...new Set(item.reviews.flatMap((review) => review[2]))];
 		const itemMedia = getItemMedia(item, restaurant, menuIndex);
+		const verificationStats = {
+			locationVerifiedCount: Math.round(item.ratingCount * 0.45),
+			scervOrderVerifiedCount: 0,
+			receiptVerifiedCount: Math.round(item.ratingCount * 0.12),
+			communityReviewCount: Math.max(
+				0,
+				item.ratingCount -
+					Math.round(item.ratingCount * 0.45) -
+					Math.round(item.ratingCount * 0.12),
+			),
+		};
+		const scervScore = calculateScervDiscoveryScore({
+			...item,
+			media: itemMedia,
+			verificationStats,
+		});
 
 		await setDoc(token, `menuItems/${item.id}`, {
 			id: item.id,
@@ -633,17 +635,13 @@ async function seedRestaurant(token, restaurant) {
 			ratingCount: item.ratingCount,
 			averageRating: item.averageRating,
 			reviewCount: item.reviewCount,
-			confidenceAdjustedRating: confidenceAdjustedRating(
-				item.averageRating,
-				item.ratingCount,
-			),
-			discoveryScore: discoveryScore(item),
+			confidenceAdjustedRating: scervScore.confidenceAdjustedRating,
+			scervScore: scervScore.score,
+			scervScoreComponents: scervScore.components,
+			scervScoreVersion: scervScore.version,
+			discoveryScore: scervScore.score,
 			orderCount: item.orderCount,
-			verificationStats: {
-				locationVerifiedCount: Math.round(item.ratingCount * 0.45),
-				scervOrderVerifiedCount: 0,
-				receiptVerifiedCount: Math.round(item.ratingCount * 0.12),
-			},
+			verificationStats,
 			createdAt: now,
 			updatedAt: now,
 		});

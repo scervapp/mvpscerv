@@ -25,6 +25,7 @@ import { NotificationBanner } from "../../utils/NotificationBanner";
 import CompleteProfileScreen from "../auth/CompleteProfile";
 import CustomSearchBar from "./CustomSearchBar";
 import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -132,6 +133,16 @@ const getRatingCount = (menuItem = {}) => {
 	const safeMenuItem = menuItem || {};
 	const count = Number(safeMenuItem.ratingCount || safeMenuItem.reviewCount || 0);
 	return Number.isFinite(count) ? count : 0;
+};
+
+const compareDiscoveryItems = (a, b) => {
+	const scoreDiff = getStoredScervScore(b) - getStoredScervScore(a);
+	if (scoreDiff !== 0) return scoreDiff;
+
+	const ratingDiff = (getFoodRating(b) || 0) - (getFoodRating(a) || 0);
+	if (ratingDiff !== 0) return ratingDiff;
+
+	return getRatingCount(b) - getRatingCount(a);
 };
 
 const getMenuItemSearchText = (menuItem = {}) => {
@@ -549,11 +560,7 @@ const CustomerDashboard = ({ navigation }) => {
 				const searchableText = getMenuItemSearchText(item);
 				return matchesTerms(searchableText, queryTerms);
 			})
-			.sort((a, b) => {
-				const ratingDiff = (getFoodRating(b) || 0) - (getFoodRating(a) || 0);
-				if (ratingDiff !== 0) return ratingDiff;
-				return getRatingCount(b) - getRatingCount(a);
-			});
+			.sort(compareDiscoveryItems);
 	}, [debouncedSearchText, selectedIntent.terms, visibleMenuItems]);
 
 	const topFoodResults = useMemo(() => {
@@ -571,10 +578,7 @@ const CustomerDashboard = ({ navigation }) => {
 					return;
 				}
 
-				const ratingDiff =
-					(getFoodRating(item) || 0) - (getFoodRating(current) || 0);
-				const countDiff = getRatingCount(item) - getRatingCount(current);
-				if (ratingDiff > 0 || (ratingDiff === 0 && countDiff > 0)) {
+				if (compareDiscoveryItems(item, current) < 0) {
 					bestItemByDisplayLabel.set(key, item);
 				}
 			});
@@ -594,13 +598,7 @@ const CustomerDashboard = ({ navigation }) => {
 				return;
 			}
 
-			const itemScore = getFoodRating(item) || 0;
-			const currentScore = getFoodRating(current) || 0;
-			if (
-				itemScore > currentScore ||
-				(itemScore === currentScore &&
-					getRatingCount(item) > getRatingCount(current))
-			) {
+			if (compareDiscoveryItems(item, current) < 0) {
 				map.set(item.restaurantId, item);
 			}
 		});
@@ -644,9 +642,9 @@ const CustomerDashboard = ({ navigation }) => {
 			.sort((a, b) => {
 				const foodA = bestFoodByRestaurantId.get(a.id);
 				const foodB = bestFoodByRestaurantId.get(b.id);
-				const ratingDiff =
-					(getFoodRating(foodB) || 0) - (getFoodRating(foodA) || 0);
-				if (ratingDiff !== 0) return ratingDiff;
+				const scoreDiff =
+					getStoredScervScore(foodB) - getStoredScervScore(foodA);
+				if (scoreDiff !== 0) return scoreDiff;
 
 				const countDiff = getRatingCount(foodB) - getRatingCount(foodA);
 				if (countDiff !== 0) return countDiff;

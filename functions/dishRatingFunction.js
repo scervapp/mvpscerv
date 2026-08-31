@@ -3,6 +3,10 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { assertFeatureAllowed } = require("./featureEntitlements");
+const {
+	calculateScervDiscoveryScore,
+	getVerificationStatsFromReviews,
+} = require("./discoveryScoring");
 const db = admin.firestore();
 
 const makeSafeDocId = (value) =>
@@ -572,7 +576,10 @@ exports.aggregateMenuItemRating = functions.firestore
 
 		try {
 			await db.runTransaction(async (t) => {
-				const doc = await t.get(itemRef);
+				const [doc, reviewsSnap] = await Promise.all([
+					t.get(itemRef),
+					t.get(itemRef.collection("ratings")),
+				]);
 				const currentSum = doc.data().totalRatingSum || 0;
 				const currentCount = doc.data().ratingCount || 0;
 				const currentReviewCount = doc.data().reviewCount || 0;
@@ -583,17 +590,16 @@ exports.aggregateMenuItemRating = functions.firestore
 				const newReviewCount = reviewText
 					? currentReviewCount + 1
 					: currentReviewCount;
-				const globalAverage = 4.2;
-				const minimumConfidenceRatings = 10;
-				const confidenceAdjustedRating =
-					(newCount / (newCount + minimumConfidenceRatings)) * newAverage +
-					(minimumConfidenceRatings /
-						(newCount + minimumConfidenceRatings)) *
-						globalAverage;
-				const popularityWeight = Math.min(newCount / 50, 1) * 0.25;
-				const discoveryScore = Number(
-					(confidenceAdjustedRating + popularityWeight).toFixed(4)
+				const verificationStats = getVerificationStatsFromReviews(
+					reviewsSnap.docs,
 				);
+				const scervScore = calculateScervDiscoveryScore({
+					...(doc.data() || {}),
+					averageRating: newAverage,
+					ratingCount: newCount,
+					reviewCount: newReviewCount,
+					verificationStats,
+				});
 				const topReviewTags = Array.isArray(reviewTags)
 					? [...new Set(reviewTags)].slice(0, 8)
 					: [];
@@ -605,8 +611,12 @@ exports.aggregateMenuItemRating = functions.firestore
 						ratingCount: newCount,
 						averageRating: newAverage,
 						reviewCount: newReviewCount,
-						confidenceAdjustedRating,
-						discoveryScore,
+						verificationStats,
+						confidenceAdjustedRating: scervScore.confidenceAdjustedRating,
+						scervScore: scervScore.score,
+						scervScoreComponents: scervScore.components,
+						scervScoreVersion: scervScore.version,
+						discoveryScore: scervScore.score,
 						...(topReviewTags.length > 0
 							? {
 									topReviewTags:
@@ -641,8 +651,9 @@ exports.aggregateMenuItemOrderStats = functions.firestore
 
 		const batch = db.batch();
 		itemCounts.forEach((quantity, menuItemId) => {
+			const itemRef = db.collection("menuItems").doc(menuItemId);
 			batch.set(
-				db.collection("menuItems").doc(menuItemId),
+				itemRef,
 				{
 					orderCount: admin.firestore.FieldValue.increment(quantity),
 					updatedStatsAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -652,5 +663,27 @@ exports.aggregateMenuItemOrderStats = functions.firestore
 		});
 
 		await batch.commit();
+
+		await Promise.all(
+			[...itemCounts.keys()].map(async (menuItemId) => {
+				const itemRef = db.collection("menuItems").doc(menuItemId);
+				const itemSnap = await itemRef.get();
+				if (!itemSnap.exists) return;
+
+				const scervScore = calculateScervDiscoveryScore(itemSnap.data() || {});
+
+				// Re-score after the increment lands so order activity helps discovery.
+				await itemRef.set(
+					{
+						confidenceAdjustedRating: scervScore.confidenceAdjustedRating,
+						scervScore: scervScore.score,
+						scervScoreComponents: scervScore.components,
+						scervScoreVersion: scervScore.version,
+						discoveryScore: scervScore.score,
+					},
+					{ merge: true },
+				);
+			}),
+		);
 		return null;
 	});

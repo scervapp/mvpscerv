@@ -24,6 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
 import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 import {
 	pickImage,
 	uploadImageAndGetDownloadURL,
@@ -98,7 +99,11 @@ const pickReputationFields = (item = {}) => ({
 	reorderCount: item.reorderCount || 0,
 	favoriteCount: item.favoriteCount || 0,
 	confidenceAdjustedRating: item.confidenceAdjustedRating || 0,
+	scervScore: item.scervScore || item.discoveryScore || 0,
+	scervScoreComponents: item.scervScoreComponents || null,
+	scervScoreVersion: item.scervScoreVersion || 1,
 	discoveryScore: item.discoveryScore || item.averageRating || 0,
+	verificationStats: item.verificationStats || null,
 	topReviewTags: item.topReviewTags || [],
 	reviewHighlight: item.reviewHighlight || item.topReview || "",
 	topReview: item.topReview || item.reviewHighlight || "",
@@ -535,9 +540,12 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 				);
 			})
 			.sort((a, b) => {
-				const bScore = Number(b.ratingCount || 0) + Number(b.reviewCount || 0);
-				const aScore = Number(a.ratingCount || 0) + Number(a.reviewCount || 0);
-				return bScore - aScore;
+				const scoreDiff = getStoredScervScore(b) - getStoredScervScore(a);
+				if (scoreDiff !== 0) return scoreDiff;
+
+				const bSignals = Number(b.ratingCount || 0) + Number(b.reviewCount || 0);
+				const aSignals = Number(a.ratingCount || 0) + Number(a.reviewCount || 0);
+				return bSignals - aSignals;
 			});
 
 		return matches[0] || null;

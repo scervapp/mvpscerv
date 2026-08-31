@@ -24,6 +24,7 @@ import {
 	formatCurrencyFromDollars,
 	normalizeMenuPriceToDollars,
 } from "../../utils/currencyFormatter";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 
 const StarRatingDisplay = ({ rating = 0, size = 15 }) => {
 	const fullStars = Math.floor(rating);
@@ -426,7 +427,8 @@ const SelectedItemModal = ({
 		const averageRating = Number(selectedItem?.averageRating || 0);
 		const ratingCount = Number(selectedItem?.ratingCount || 0);
 		const reviewCount = Number(selectedItem?.reviewCount || 0);
-		return { averageRating, ratingCount, reviewCount };
+		const scervScore = Math.round(getStoredScervScore(selectedItem || {}));
+		return { averageRating, ratingCount, reviewCount, scervScore };
 	}, [selectedItem]);
 
 	const dishGalleryMedia = useMemo(() => {
@@ -954,6 +956,18 @@ const SelectedItemModal = ({
 									<StarRatingDisplay rating={ratingSummary.averageRating} size={13} />
 									<Text style={styles.ratingSummaryText}>
 										{ratingSummary.averageRating.toFixed(1)}
+									</Text>
+								</View>
+							)}
+							{ratingSummary.scervScore > 0 && (
+								<View style={styles.scervScorePill}>
+									<Ionicons
+										name="analytics-outline"
+										size={13}
+										color={colors.primary}
+									/>
+									<Text style={styles.scervScorePillText}>
+										Scerv {ratingSummary.scervScore}
 									</Text>
 								</View>
 							)}
@@ -2156,6 +2170,20 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "800",
 		color: colors.textDark,
+	},
+	scervScorePill: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderRadius: 999,
+		backgroundColor: colors.primary + "12",
+		paddingHorizontal: 8,
+		paddingVertical: 5,
+	},
+	scervScorePillText: {
+		marginLeft: 4,
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	reviewMetaText: {
 		fontSize: 13,

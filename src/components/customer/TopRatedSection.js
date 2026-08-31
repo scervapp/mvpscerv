@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { db } from "../../config/firebase.native";
 import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 import {
 	collection,
 	getDocs,
@@ -65,7 +66,9 @@ const TopRatedSection = ({ category, title, onPressItem }) => {
 					limit(6)
 				);
 				const snap = await getDocs(q);
-				const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+				const data = snap.docs
+					.map((d) => ({ id: d.id, ...d.data() }))
+					.sort((a, b) => getStoredScervScore(b) - getStoredScervScore(a));
 				setItems(data);
 			} catch (e) {
 				console.error("TopRatedSection error:", e);

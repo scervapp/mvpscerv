@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
 import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 
 const getFoodRating = (menuItem = {}) => {
 	const safeMenuItem = menuItem || {};
@@ -54,6 +55,9 @@ const RestaurantCard = ({
 	const imageUri = restaurant.imageUri;
 	const bestFoodRating = getFoodRating(bestMatchingFood);
 	const bestFoodRatingCount = getRatingCount(bestMatchingFood);
+	const bestFoodScervScore = bestMatchingFood
+		? Math.round(getStoredScervScore(bestMatchingFood))
+		: 0;
 	const bestFoodName = bestMatchingFood
 		? getDiscoveryDishLabel(bestMatchingFood)
 		: null;
@@ -155,6 +159,11 @@ const RestaurantCard = ({
 									{bestFoodRating.toFixed(1)}
 									{bestFoodRatingCount > 0 ? ` (${bestFoodRatingCount})` : ""}
 								</Text>
+								{bestFoodScervScore > 0 ? (
+									<Text style={styles.scervScoreText}>
+										Scerv {bestFoodScervScore}
+									</Text>
+								) : null}
 							</View>
 						) : null}
 					</TouchableOpacity>
@@ -287,6 +296,12 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "900",
 		color: "#92400E",
+	},
+	scervScoreText: {
+		marginLeft: 6,
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	bottomRow: {
 		flexDirection: "row",

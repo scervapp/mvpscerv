@@ -3064,9 +3064,13 @@ exports.saveScervMenuItem = functions.https.onCall(async (data, context) => {
 				: {
 						averageRating: 0,
 						confidenceAdjustedRating: 0,
+						scervScore: 0,
+						scervScoreComponents: null,
+						scervScoreVersion: 1,
 						rating: 0,
 						ratingCount: 0,
 						reviewCount: 0,
+						discoveryScore: 0,
 						createdAt: admin.firestore.FieldValue.serverTimestamp(),
 						createdBy: actorUid,
 					}),

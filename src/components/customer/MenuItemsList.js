@@ -19,6 +19,7 @@ import SelectedItemModal from "./SelectedItemModal";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons } from "@expo/vector-icons";
 import { formatMenuPrice } from "../../utils/currencyFormatter";
+import { getStoredScervScore } from "../../utils/discoveryScoring";
 
 // --- IMPORT THE HELPER HERE ---
 import { getLocalizedValue } from "../../utils/localizationHelper";
@@ -68,22 +69,7 @@ const normalizeSearchText = (value) =>
 		.toLowerCase();
 
 const getDiscoveryScore = (item) => {
-	const rating = Number(
-		item.confidenceAdjustedRating || item.averageRating || item.rating || 0,
-	);
-	const ratingCount = Number(item.ratingCount || 0);
-	const reviewCount = Number(item.reviewCount || 0);
-	const orderCount = Number(item.orderCount || 0);
-	const favoriteCount = Number(item.favoriteCount || 0);
-
-	if (Number(item.discoveryScore || 0) > 0) return Number(item.discoveryScore);
-	return (
-		rating +
-		Math.min(ratingCount / 50, 1) * 0.35 +
-		Math.min(reviewCount / 25, 1) * 0.2 +
-		Math.min(orderCount / 100, 1) * 0.15 +
-		Math.min(favoriteCount / 25, 1) * 0.1
-	);
+	return getStoredScervScore(item);
 };
 
 const getReviewHighlight = (item) =>
