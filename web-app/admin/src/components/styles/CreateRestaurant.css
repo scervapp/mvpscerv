@@ -23,6 +23,17 @@
 	margin: 0;
 }
 
+.create-restaurant-help {
+	background: #f7fafc;
+	border: 1px solid #dbe5ea;
+	border-radius: 4px;
+	color: #3d5361;
+	font-size: 14px;
+	line-height: 1.45;
+	margin: 0;
+	padding: 10px 12px;
+}
+
 .create-restaurant-form,
 .create-restaurant-result {
 	display: grid;
@@ -81,6 +92,11 @@
 	flex-direction: row;
 	font-weight: 400;
 	padding: 10px;
+}
+
+.create-restaurant-toggles input:disabled + *,
+.create-restaurant-toggles label:has(input:disabled) {
+	opacity: 0.62;
 }
 
 .create-restaurant-form button,

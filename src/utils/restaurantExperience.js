@@ -9,6 +9,17 @@ const BASE_FEATURES = {
 	loyaltyClub: true,
 };
 
+const OPERATIONAL_FEATURES = [
+	"reservations",
+	"hostCheckInRequests",
+	"qrSelfCheckIn",
+	"parties",
+	"pickup",
+	"tableScanOrdering",
+	"serviceRequests",
+	"loyaltyClub",
+];
+
 const STYLE_DEFAULTS = {
 	standard: {},
 	quick_service: {
@@ -58,6 +69,53 @@ const ENTITLEMENT_SOURCES = [
 	"entitlements",
 ];
 
+const normalizeStatus = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+
+export const getRestaurantListingStatus = (restaurant = {}) => {
+	const rawStatus = normalizeStatus(
+		restaurant.scervStatus ||
+			restaurant.listingStatus ||
+			restaurant.profileStatus ||
+			restaurant.claimStatus,
+	);
+
+	if (
+		["scerv_enabled", "enabled", "active_partner", "partner"].includes(rawStatus)
+	) {
+		return "scerv_enabled";
+	}
+	if (["claimed", "verified", "restaurant_claimed"].includes(rawStatus)) {
+		return "claimed";
+	}
+	if (
+		restaurant.isCommunityProfile === true ||
+		restaurant.isClaimed === false ||
+		[
+			"community",
+			"community_listed",
+			"unclaimed",
+			"discovery",
+			"discovery_only",
+		].includes(rawStatus)
+	) {
+		return "community";
+	}
+
+	// Existing production restaurant docs did not have a listing status, so we
+	// keep them fully enabled unless Scerv explicitly marks them as community.
+	return "scerv_enabled";
+};
+
+export const isScervEnabledRestaurant = (restaurant = {}) =>
+	getRestaurantListingStatus(restaurant) === "scerv_enabled";
+
+export const isCommunityListedRestaurant = (restaurant = {}) =>
+	getRestaurantListingStatus(restaurant) === "community";
+
 const readFeatureOverride = (restaurant, featureKey) => {
 	const keys = FEATURE_ALIASES[featureKey] || [featureKey];
 	const source = restaurant?.features || {};
@@ -104,8 +162,17 @@ export const getRestaurantExperienceConfig = (restaurant) => {
 		}
 	});
 
+	if (!isScervEnabledRestaurant(restaurant)) {
+		OPERATIONAL_FEATURES.forEach((featureKey) => {
+			features[featureKey] = false;
+		});
+		features.reviews = isRestaurantFeatureAllowed(restaurant, "reviews");
+	}
+
 	return {
 		hospitalityStyle,
+		listingStatus: getRestaurantListingStatus(restaurant),
+		isScervEnabled: isScervEnabledRestaurant(restaurant),
 		features,
 		isFeatureAllowed: (featureKey) =>
 			isRestaurantFeatureAllowed(restaurant, featureKey),

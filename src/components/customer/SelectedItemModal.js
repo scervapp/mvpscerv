@@ -143,6 +143,9 @@ const SelectedItemModal = ({
 	orderingMode = "individual",
 	isLoading = false,
 	partyData,
+	isOrderingAvailable = true,
+	restaurantName = "",
+	onViewRestaurant,
 }) => {
 	const { t, i18n } = useTranslation();
 	const navigation = useNavigation();
@@ -481,6 +484,12 @@ const SelectedItemModal = ({
 	const finalPrice = unitPriceWithModifiers * quantity;
 
 	const handleConfirmPress = () => {
+		if (!isOrderingAvailable) {
+			if (onViewRestaurant) onViewRestaurant();
+			else onClose();
+			return;
+		}
+
 		if (!selectedItem) {
 			console.error("handleConfirmPress: Aborted, selectedItem is missing.");
 			return;
@@ -784,6 +793,11 @@ const SelectedItemModal = ({
 							<Text style={styles.itemName}>
 								{getLocalizedText(selectedItem && selectedItem.name)}
 							</Text>
+							{restaurantName || selectedItem?.restaurantName ? (
+								<Text style={styles.restaurantNameText}>
+									{restaurantName || selectedItem.restaurantName}
+								</Text>
+							) : null}
 
 							{!!(
 								selectedItem &&
@@ -810,9 +824,11 @@ const SelectedItemModal = ({
 							)}
 						</View>
 
-						<Divider style={styles.divider} />
+						{isOrderingAvailable ? (
+							<>
+								<Divider style={styles.divider} />
 
-						<View style={styles.sectionContainer}>
+								<View style={styles.sectionContainer}>
 							<Text style={styles.sectionTitle}>
 								{t("quantity_title", "Quantity")}
 							</Text>
@@ -842,11 +858,27 @@ const SelectedItemModal = ({
 									{formatCurrencyFromDollars(finalPrice)}
 								</Text>
 							</View>
-						</View>
+								</View>
 
-						<Divider style={styles.divider} />
+								<Divider style={styles.divider} />
+							</>
+						) : (
+							<View style={styles.discoveryOnlyNotice}>
+								<MaterialCommunityIcons
+									name="silverware-clean"
+									size={18}
+									color={colors.primary}
+								/>
+								<Text style={styles.discoveryOnlyNoticeText}>
+									{t(
+										"discovery_only_dish_notice",
+										"Ordering is not available here yet. You can still explore the dish and guest reviews.",
+									)}
+								</Text>
+							</View>
+						)}
 
-						{modifierGroups.length > 0 && (
+						{isOrderingAvailable && modifierGroups.length > 0 && (
 							<View style={styles.sectionContainer}>
 								<Text style={styles.sectionTitle}>
 									{t("customize_item_title", "Customize Item")}
@@ -860,9 +892,9 @@ const SelectedItemModal = ({
 							</View>
 						)}
 
-						{modifierGroups.map(renderModifierGroup)}
+						{isOrderingAvailable ? modifierGroups.map(renderModifierGroup) : null}
 
-						{orderingMode === "party" && (
+						{isOrderingAvailable && orderingMode === "party" && (
 							<View style={styles.sectionContainer}>
 								<Text style={styles.sectionTitle}>
 									{t("order_item_for_party_title", "Order this item for")}
@@ -947,7 +979,7 @@ const SelectedItemModal = ({
 							</View>
 						)}
 
-						{orderingMode === "individual" && (
+						{isOrderingAvailable && orderingMode === "individual" && (
 							<View style={styles.sectionContainer}>
 								<View style={styles.sectionHeaderWithHelp}>
 									<Text style={styles.sectionTitle}>
@@ -1060,7 +1092,11 @@ const SelectedItemModal = ({
 							disabled={isLoading}
 							loading={isLoading}
 						>
-							{t("add_button", "Add")}
+							{!isOrderingAvailable && onViewRestaurant
+								? t("view_restaurant", "View Restaurant")
+								: !isOrderingAvailable
+									? t("close_button", "Close")
+								: t("add_button", "Add")}
 						</Button>
 					</View>
 				</View>
@@ -1212,6 +1248,13 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		marginBottom: 6,
 	},
+	restaurantNameText: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.primary,
+		marginBottom: 8,
+		textAlign: "center",
+	},
 	itemDescription: {
 		fontSize: 14,
 		color: colors.textMedium,
@@ -1228,6 +1271,25 @@ const styles = StyleSheet.create({
 		fontSize: 13,
 		color: colors.textMedium,
 		textAlign: "center",
+	},
+	discoveryOnlyNotice: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		gap: 8,
+		backgroundColor: "#EAF5F5",
+		borderColor: "#D4EAEA",
+		borderWidth: 1,
+		borderRadius: 8,
+		padding: 12,
+		marginTop: 4,
+		marginBottom: 15,
+	},
+	discoveryOnlyNoticeText: {
+		flex: 1,
+		fontSize: 13,
+		lineHeight: 18,
+		fontWeight: "700",
+		color: colors.textMedium,
 	},
 	starRow: {
 		flexDirection: "row",

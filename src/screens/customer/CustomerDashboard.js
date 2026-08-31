@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 
 import RestaurantCard from "../../components/customer/RestaurantCard";
+import SelectedItemModal from "../../components/customer/SelectedItemModal";
 import { db } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
 import { useDebounce } from "../../hooks/useBounce";
@@ -305,6 +306,7 @@ const CustomerDashboard = ({ navigation }) => {
 	const [forceGlobalView, setForceGlobalView] = useState(false);
 	const [showRegionModal, setShowRegionModal] = useState(false);
 	const [selectedRegion, setSelectedRegion] = useState(null);
+	const [selectedDiscoveryDish, setSelectedDiscoveryDish] = useState(null);
 
 	const debouncedSearchText = useDebounce(searchText, 300);
 	const isActivelySearching = searchText.trim().length > 0;
@@ -451,8 +453,21 @@ const CustomerDashboard = ({ navigation }) => {
 	};
 
 	const handleTopFoodPress = (item) => {
-		setActiveIntent("all");
-		setSearchText(getDiscoveryDishLabel(item));
+		const restaurant = restaurantById.get(item.restaurantId);
+		setSelectedDiscoveryDish({
+			item: {
+				...item,
+				restaurantName:
+					item.restaurantName || restaurant?.restaurantName || restaurant?.name,
+			},
+			restaurant,
+		});
+	};
+
+	const handleViewDiscoveryDishRestaurant = () => {
+		const restaurant = selectedDiscoveryDish?.restaurant;
+		setSelectedDiscoveryDish(null);
+		if (restaurant) handleRestaurantPress(restaurant);
 	};
 
 	const areaOptions = useMemo(() => {
@@ -937,6 +952,14 @@ const CustomerDashboard = ({ navigation }) => {
 							<RestaurantCard
 								restaurant={item}
 								onPress={() => handleRestaurantPress(item)}
+								onBestFoodPress={
+									shouldShowBestMatchFood
+										? () => {
+												const bestFood = bestFoodByRestaurantId.get(item.id);
+												if (bestFood) handleTopFoodPress(bestFood);
+											}
+										: undefined
+								}
 								bestMatchingFood={
 									shouldShowBestMatchFood
 										? bestFoodByRestaurantId.get(item.id)
@@ -975,6 +998,24 @@ const CustomerDashboard = ({ navigation }) => {
 					}
 				/>
 			)}
+
+			{selectedDiscoveryDish?.item ? (
+				<SelectedItemModal
+					visible={Boolean(selectedDiscoveryDish?.item)}
+					selectedItem={selectedDiscoveryDish.item}
+					pips={[]}
+					onClose={() => setSelectedDiscoveryDish(null)}
+					onConfirm={() => {}}
+					isOrderingAvailable={false}
+					restaurantName={
+						selectedDiscoveryDish.restaurant?.restaurantName ||
+						selectedDiscoveryDish.restaurant?.name ||
+						selectedDiscoveryDish.item.restaurantName ||
+						""
+					}
+					onViewRestaurant={handleViewDiscoveryDishRestaurant}
+				/>
+			) : null}
 		</SafeAreaView>
 	);
 };

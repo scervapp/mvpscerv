@@ -31,6 +31,56 @@ const ENTITLEMENT_SOURCES = [
 	"entitlements",
 ];
 
+const OPERATIONAL_FEATURES = new Set([
+	"reservations",
+	"reservationWaitlist",
+	"hostCheckInRequests",
+	"qrSelfCheckIn",
+	"parties",
+	"pickup",
+	"tableScanOrdering",
+	"serviceRequests",
+	"rewards",
+	"loyaltyClub",
+]);
+
+const getRestaurantListingStatus = (restaurantData = {}) => {
+	const rawStatus = String(
+		restaurantData.scervStatus ||
+			restaurantData.listingStatus ||
+			restaurantData.profileStatus ||
+			restaurantData.claimStatus ||
+			"",
+	)
+		.trim()
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+
+	if (
+		["scerv_enabled", "enabled", "active_partner", "partner"].includes(rawStatus)
+	) {
+		return "scerv_enabled";
+	}
+	if (["claimed", "verified", "restaurant_claimed"].includes(rawStatus)) {
+		return "claimed";
+	}
+	if (
+		restaurantData.isCommunityProfile === true ||
+		restaurantData.isClaimed === false ||
+		[
+			"community",
+			"community_listed",
+			"unclaimed",
+			"discovery",
+			"discovery_only",
+		].includes(rawStatus)
+	) {
+		return "community";
+	}
+
+	return "scerv_enabled";
+};
+
 const getFeatureKeys = (featureKey) => {
 	const aliases = FEATURE_ALIASES[featureKey] || [];
 	return [featureKey].concat(aliases);
@@ -44,6 +94,13 @@ const hasExplicitDeny = (source, featureKey) => {
 
 const isFeatureAllowed = (restaurantData, featureKey) => {
 	const data = restaurantData || {};
+	if (
+		getRestaurantListingStatus(data) !== "scerv_enabled" &&
+		OPERATIONAL_FEATURES.has(featureKey)
+	) {
+		return false;
+	}
+
 	return !ENTITLEMENT_SOURCES.some((sourceKey) => {
 		return hasExplicitDeny(data[sourceKey], featureKey);
 	});

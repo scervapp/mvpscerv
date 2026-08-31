@@ -47,21 +47,25 @@ export const AuthProvider = ({ children }) => {
 						? "restaurants"
 						: "customers";
 
-					const docRef = db.collection(collectionName).doc(user.uid);
+					const profileDocId =
+						["owner", "manager", "worker"].includes(userRole) && restId
+							? restId
+							: user.uid;
+					const docRef = db.collection(collectionName).doc(profileDocId);
 					const unsubDoc = docRef.onSnapshot(
 						(docSnap) => {
 							if (docSnap.exists) {
 								setCurrentUserData({
 									uid: user.uid,
 									role: userRole,
-									restaurantId: restId,
+									restaurantId: restId || profileDocId,
 									...docSnap.data(),
 								});
 							} else {
 								setCurrentUserData({
 									uid: user.uid,
 									role: userRole,
-									restaurantId: restId,
+									restaurantId: restId || profileDocId,
 								});
 							}
 							setIsLoading(false);

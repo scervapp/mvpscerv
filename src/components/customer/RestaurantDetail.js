@@ -28,7 +28,10 @@ import RestaurantHeader from "./RestaurantHeader";
 import AuthPromptModal from "../global/AuthPromptModal";
 import MenuItemsList from "./MenuItemsList";
 import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
-import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
+import {
+	getRestaurantExperienceConfig,
+	isScervEnabledRestaurant,
+} from "../../utils/restaurantExperience";
 
 const RestaurantDetailScreen = () => {
 	const { t } = useTranslation();
@@ -76,6 +79,11 @@ const RestaurantDetailScreen = () => {
 	const reservationsEnabled = experienceConfig.features.reservations;
 	const hostCheckInEnabled = experienceConfig.features.hostCheckInRequests;
 	const qrSelfCheckInEnabled = experienceConfig.features.qrSelfCheckIn === true;
+	const isScervEnabled = isScervEnabledRestaurant(liveRestaurantData || restaurant);
+	const isOrderingAvailable =
+		isScervEnabled &&
+		experienceConfig.features.parties === true &&
+		experienceConfig.features.tableScanOrdering === true;
 	const reservationStatusCopy = useMemo(() => {
 		if (!activeReservation) {
 			return {
@@ -809,6 +817,34 @@ const RestaurantDetailScreen = () => {
 		const hasDineInTable =
 			checkInStatus === "ACCEPTED" || Boolean(dineInParty?.table?.id);
 
+		if (
+			!isOrderingAvailable &&
+			!reservationsEnabled &&
+			!hostCheckInEnabled &&
+			!pickupEnabled
+		) {
+			return (
+				<View style={styles.discoveryOnlyPanel}>
+					<MaterialCommunityIcons
+						name="silverware-clean"
+						size={24}
+						color={colors.primary}
+					/>
+					<View style={styles.discoveryOnlyTextWrap}>
+						<Text style={styles.discoveryOnlyTitle}>
+							{t("discovery_profile_title", "Menu and reviews")}
+						</Text>
+						<Text style={styles.discoveryOnlySubtitle}>
+							{t(
+								"discovery_profile_subtitle",
+								"This restaurant is listed for food discovery. Ordering, check-in, rewards, and reservations are not enabled yet.",
+							)}
+						</Text>
+					</View>
+				</View>
+			);
+		}
+
 		// 1. FULLY SEATED DINE-IN SESSION
 		if (hasDineInTable) {
 			return (
@@ -1039,27 +1075,29 @@ const RestaurantDetailScreen = () => {
 		// 4. DEFAULT STATE: always show both
 		return (
 			<View style={styles.actionsRow}>
-				<TouchableOpacity
-					style={styles.primaryScanButton}
-					onPress={handleStartParty}
-					disabled={isAddingDineInItem}
-					activeOpacity={0.85}
-				>
-					{isAddingDineInItem ? (
-						<ActivityIndicator size="small" color="#fff" />
-					) : (
-						<>
-							<MaterialCommunityIcons
-								name="party-popper"
-								size={22}
-								color="#fff"
-							/>
-							<Text style={styles.primaryScanText} numberOfLines={1}>
-								{t("start_party", "Start Party")}
-							</Text>
-						</>
-					)}
-				</TouchableOpacity>
+				{isOrderingAvailable ? (
+					<TouchableOpacity
+						style={styles.primaryScanButton}
+						onPress={handleStartParty}
+						disabled={isAddingDineInItem}
+						activeOpacity={0.85}
+					>
+						{isAddingDineInItem ? (
+							<ActivityIndicator size="small" color="#fff" />
+						) : (
+							<>
+								<MaterialCommunityIcons
+									name="party-popper"
+									size={22}
+									color="#fff"
+								/>
+								<Text style={styles.primaryScanText} numberOfLines={1}>
+									{t("start_party", "Start Party")}
+								</Text>
+							</>
+						)}
+					</TouchableOpacity>
+				) : null}
 
 				{qrSelfCheckInEnabled || pickupEnabled ? (
 				<View style={styles.compactActionRow}>
@@ -1255,6 +1293,8 @@ const RestaurantDetailScreen = () => {
 					</>
 				}
 				onConfirmAddItemToContext={handleAddDineInMenuItem}
+				isOrderingAvailable={isOrderingAvailable}
+				restaurantName={getRestaurantDisplayName()}
 			/>
 
 			{currentUserData?.role === "customer" && basketCount > 0 && (
@@ -1372,6 +1412,33 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderColor: colors.borderLight,
 		marginBottom: 10,
+	},
+	discoveryOnlyPanel: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		gap: 10,
+		marginHorizontal: 15,
+		marginTop: 12,
+		marginBottom: 10,
+		padding: 14,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: "#D4EAEA",
+		backgroundColor: "#EAF5F5",
+	},
+	discoveryOnlyTextWrap: {
+		flex: 1,
+	},
+	discoveryOnlyTitle: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	discoveryOnlySubtitle: {
+		fontSize: 12,
+		lineHeight: 17,
+		color: colors.textMedium,
+		marginTop: 3,
 	},
 	splitActionsRow: {
 		flexDirection: "row",

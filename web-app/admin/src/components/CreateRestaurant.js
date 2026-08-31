@@ -5,10 +5,12 @@ import { functions } from "../config/firebase";
 import "./styles/CreateRestaurant.css";
 
 const emptyForm = {
+	profileMode: "community",
 	restaurantName: "",
 	firstName: "",
 	lastName: "",
 	email: "",
+	claimContactEmail: "",
 	phoneNumber: "",
 	address: "",
 	area: "",
@@ -32,6 +34,34 @@ const emptyForm = {
 	rewards: false,
 };
 
+const COMMUNITY_FEATURES = {
+	reservations: false,
+	reservationWaitlist: false,
+	hostCheckInRequests: false,
+	reviews: true,
+	rewards: false,
+	qrSelfCheckIn: false,
+	parties: false,
+	pickup: false,
+	tableScanOrdering: false,
+	serviceRequests: false,
+	advancedReporting: false,
+};
+
+const SCERV_ENABLED_DEFAULTS = {
+	reservations: false,
+	reservationWaitlist: false,
+	hostCheckInRequests: false,
+	reviews: true,
+	rewards: false,
+	qrSelfCheckIn: true,
+	parties: true,
+	pickup: false,
+	tableScanOrdering: true,
+	serviceRequests: true,
+	advancedReporting: false,
+};
+
 const CreateRestaurant = () => {
 	const [form, setForm] = useState(emptyForm);
 	const [loading, setLoading] = useState(false);
@@ -43,6 +73,18 @@ const CreateRestaurant = () => {
 		setForm((prev) => ({ ...prev, [field]: value }));
 	};
 
+	const updateProfileMode = (profileMode) => {
+		setForm((prev) => ({
+			...prev,
+			profileMode,
+			isLive: profileMode === "community" ? true : prev.isLive,
+			emailOwner: profileMode === "community" ? false : prev.emailOwner,
+			...(profileMode === "community"
+				? COMMUNITY_FEATURES
+				: SCERV_ENABLED_DEFAULTS),
+		}));
+	};
+
 	const handleSubmit = async (event) => {
 		event.preventDefault();
 		setError("");
@@ -50,10 +92,10 @@ const CreateRestaurant = () => {
 
 		if (
 			!form.restaurantName ||
-			!form.firstName ||
-			!form.lastName ||
-			!form.email ||
-			!form.phoneNumber ||
+			(form.profileMode !== "community" && !form.firstName) ||
+			(form.profileMode !== "community" && !form.lastName) ||
+			(form.profileMode !== "community" && !form.email) ||
+			(form.profileMode !== "community" && !form.phoneNumber) ||
 			!form.address ||
 			!form.city ||
 			!form.state ||
@@ -78,8 +120,12 @@ const CreateRestaurant = () => {
 					phoneNumber: form.phoneNumber,
 				},
 				restaurant: {
+					profileMode: form.profileMode,
+					listingStatus:
+						form.profileMode === "community" ? "community" : "scerv_enabled",
 					restaurantName: form.restaurantName,
 					phoneNumber: form.phoneNumber,
+					claimContactEmail: form.claimContactEmail,
 					address: form.address,
 					area: form.area,
 					city: form.city,
@@ -100,6 +146,12 @@ const CreateRestaurant = () => {
 						hostCheckInRequests: form.hostCheckInRequests,
 						reviews: form.reviews,
 						rewards: form.rewards,
+						qrSelfCheckIn: form.qrSelfCheckIn,
+						parties: form.parties,
+						pickup: form.pickup,
+						tableScanOrdering: form.tableScanOrdering,
+						serviceRequests: form.serviceRequests,
+						advancedReporting: form.advancedReporting,
 					},
 				},
 			});
@@ -153,6 +205,21 @@ const CreateRestaurant = () => {
 				<section>
 					<h2>Restaurant</h2>
 					<label>
+						Profile type
+						<select
+							value={form.profileMode}
+							onChange={(event) => updateProfileMode(event.target.value)}
+						>
+							<option value="community">Community listed</option>
+							<option value="scerv_enabled">Scerv enabled onboarding</option>
+						</select>
+					</label>
+					<p className="create-restaurant-help">
+						Community profiles are visible for discovery and reviews, with
+						reservations, ordering, rewards, and payments off until Scerv enables
+						the restaurant.
+					</p>
+					<label>
 						Restaurant name *
 						<input
 							value={form.restaurantName}
@@ -194,9 +261,15 @@ const CreateRestaurant = () => {
 
 				<section>
 					<h2>Owner</h2>
+					{form.profileMode === "community" ? (
+						<p className="create-restaurant-help">
+							Owner fields can stay empty for a community profile. Add a claim
+							contact if you already know who should verify it later.
+						</p>
+					) : null}
 					<div className="create-restaurant-grid">
 						<label>
-							First name *
+							First name {form.profileMode !== "community" ? "*" : ""}
 							<input
 								value={form.firstName}
 								onChange={(event) =>
@@ -205,14 +278,14 @@ const CreateRestaurant = () => {
 							/>
 						</label>
 						<label>
-							Last name *
+							Last name {form.profileMode !== "community" ? "*" : ""}
 							<input
 								value={form.lastName}
 								onChange={(event) => updateField("lastName", event.target.value)}
 							/>
 						</label>
 						<label>
-							Email *
+							Email {form.profileMode !== "community" ? "*" : ""}
 							<input
 								type="email"
 								value={form.email}
@@ -220,7 +293,7 @@ const CreateRestaurant = () => {
 							/>
 						</label>
 						<label>
-							Phone *
+							Phone {form.profileMode !== "community" ? "*" : ""}
 							<input
 								value={form.phoneNumber}
 								onChange={(event) =>
@@ -228,6 +301,18 @@ const CreateRestaurant = () => {
 								}
 							/>
 						</label>
+						{form.profileMode === "community" ? (
+							<label>
+								Claim contact email
+								<input
+									type="email"
+									value={form.claimContactEmail}
+									onChange={(event) =>
+										updateField("claimContactEmail", event.target.value)
+									}
+								/>
+							</label>
+						) : null}
 					</div>
 				</section>
 
@@ -299,11 +384,23 @@ const CreateRestaurant = () => {
 							["hostCheckInRequests", "Host check-in"],
 							["reviews", "Reviews"],
 							["rewards", "Rewards"],
+							["qrSelfCheckIn", "QR self check-in"],
+							["parties", "Parties"],
+							["tableScanOrdering", "Table ordering"],
+							["serviceRequests", "Service requests"],
+							["advancedReporting", "Advanced reporting"],
 						].map(([field, label]) => (
 							<label key={field}>
 								<input
 									type="checkbox"
 									checked={Boolean(form[field])}
+									disabled={
+										form.profileMode === "community" &&
+										field !== "isActive" &&
+										field !== "isLive" &&
+										field !== "isTestAccount" &&
+										field !== "reviews"
+									}
 									onChange={(event) =>
 										updateField(field, event.target.checked)
 									}

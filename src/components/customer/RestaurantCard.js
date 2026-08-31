@@ -21,7 +21,34 @@ const getRatingCount = (menuItem = {}) => {
 	return Number.isFinite(count) ? count : 0;
 };
 
-const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
+const getListingStatus = (restaurant = {}) => {
+	const status = String(
+		restaurant.listingStatus ||
+			restaurant.scervStatus ||
+			restaurant.claimStatus ||
+			"scerv_enabled",
+	)
+		.trim()
+		.toLowerCase();
+
+	if (
+		restaurant.isCommunityProfile === true ||
+		["community", "community_listed", "unclaimed", "discovery_only"].includes(
+			status,
+		)
+	) {
+		return "community";
+	}
+	if (["claimed", "verified"].includes(status)) return "claimed";
+	return "scerv_enabled";
+};
+
+const RestaurantCard = ({
+	restaurant,
+	onPress,
+	bestMatchingFood,
+	onBestFoodPress,
+}) => {
 	const { t } = useTranslation();
 	const isComingSoon = restaurant.isComingSoon === true;
 	const imageUri = restaurant.imageUri;
@@ -40,16 +67,25 @@ const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
 	const isOpen = restaurant.isOpen === true || restaurant.openNow === true;
 	const explicitlyClosed =
 		restaurant.isOpen === false || restaurant.openNow === false;
+	const listingStatus = getListingStatus(restaurant);
 	const statusLabel = isComingSoon
 		? t("coming_soon")
-		: isOpen
+		: listingStatus === "community"
+			? "Discovery"
+			: listingStatus === "claimed"
+				? "Claimed"
+				: isOpen
 			? "Open"
 			: explicitlyClosed
 				? "Closed"
 				: "Available";
 	const statusStyle = isComingSoon
 		? styles.statusSoon
-		: isOpen
+		: listingStatus === "community"
+			? styles.statusDiscovery
+			: listingStatus === "claimed"
+				? styles.statusClaimed
+				: isOpen
 			? styles.statusOpen
 			: explicitlyClosed
 				? styles.statusClosed
@@ -98,7 +134,14 @@ const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
 				) : null}
 
 				{bestFoodName ? (
-					<View style={styles.bestFoodBox}>
+					<TouchableOpacity
+						style={styles.bestFoodBox}
+						activeOpacity={0.78}
+						onPress={(event) => {
+							event?.stopPropagation?.();
+							(onBestFoodPress || onPress)?.();
+						}}
+					>
 						<Text style={styles.bestFoodLabel}>
 							{t("best_match_label", "Best match")}
 						</Text>
@@ -114,7 +157,7 @@ const RestaurantCard = ({ restaurant, onPress, bestMatchingFood }) => {
 								</Text>
 							</View>
 						) : null}
-					</View>
+					</TouchableOpacity>
 				) : null}
 
 				<View style={styles.bottomRow}>
@@ -188,6 +231,8 @@ const styles = StyleSheet.create({
 	statusClosed: { backgroundColor: "#FEE2E2" },
 	statusSoon: { backgroundColor: "#FEF3C7" },
 	statusNeutral: { backgroundColor: "#EAF5F5" },
+	statusDiscovery: { backgroundColor: "#FFF7E6" },
+	statusClaimed: { backgroundColor: "#EEF6FF" },
 	statusText: {
 		fontSize: 11,
 		fontWeight: "900",

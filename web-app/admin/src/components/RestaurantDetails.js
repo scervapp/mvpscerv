@@ -28,6 +28,15 @@ const formatDate = (value) => {
 const getFeatureCount = (features = {}) =>
 	Object.values(features).filter((value) => value !== false).length;
 
+const getListingLabel = (restaurant = {}) => {
+	const status =
+		restaurant.listingStatus || restaurant.scervStatus || restaurant.claimStatus;
+	if (status === "community") return "Community listed";
+	if (status === "claimed") return "Claimed";
+	if (status === "scerv_enabled") return "Scerv enabled";
+	return "Scerv enabled";
+};
+
 const RestaurantDetails = () => {
 	const { id } = useParams();
 	const [profile, setProfile] = useState(null);
@@ -39,6 +48,14 @@ const RestaurantDetails = () => {
 	const [error, setError] = useState("");
 	const [message, setMessage] = useState("");
 	const [setupResult, setSetupResult] = useState(null);
+	const [claimForm, setClaimForm] = useState({
+		firstName: "",
+		lastName: "",
+		email: "",
+		phoneNumber: "",
+		emailOwner: true,
+		enableScerv: false,
+	});
 
 	const loadProfile = async () => {
 		setLoading(true);
@@ -71,6 +88,7 @@ const RestaurantDetails = () => {
 	const menuItems = useMemo(() => profile?.menuItems || [], [profile]);
 	const owner = profile?.owner || {};
 	const entitlements = restaurant?.featureEntitlements || {};
+	const listingStatus = restaurant?.listingStatus || restaurant?.scervStatus || "scerv_enabled";
 
 	const orderTotals = useMemo(
 		() =>
@@ -143,6 +161,40 @@ const RestaurantDetails = () => {
 		}
 	};
 
+	const assignOwner = async (event) => {
+		event.preventDefault();
+		setSaving(true);
+		setError("");
+		setMessage("");
+		setSetupResult(null);
+
+		try {
+			const assignRestaurantOwner = httpsCallable(
+				functions,
+				"assignScervRestaurantOwner",
+			);
+			const response = await assignRestaurantOwner({
+				restaurantId: id,
+				owner: {
+					firstName: claimForm.firstName,
+					lastName: claimForm.lastName,
+					email: claimForm.email,
+					phoneNumber: claimForm.phoneNumber,
+				},
+				emailOwner: claimForm.emailOwner,
+				enableScerv: claimForm.enableScerv,
+			});
+			setSetupResult(response.data);
+			setMessage("Owner assigned and setup link generated.");
+			await loadProfile();
+		} catch (err) {
+			console.error("Error assigning owner:", err);
+			setError(err.message || "Could not assign owner.");
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	if (loading) return <div className="restaurant-details-container">Loading...</div>;
 	if (error && !restaurant) {
 		return <div className="restaurant-details-container error">{error}</div>;
@@ -171,6 +223,9 @@ const RestaurantDetails = () => {
 					</span>
 					<span className="neutral-pill">
 						{restaurant.planLevel || restaurant.subscription?.planLevel || "starter"}
+					</span>
+					<span className={`listing-pill listing-${listingStatus}`}>
+						{getListingLabel(restaurant)}
 					</span>
 				</div>
 			</div>
@@ -266,6 +321,28 @@ const RestaurantDetails = () => {
 								value={formData.description || ""}
 								onChange={handleChange}
 							/>
+						</label>
+						<label>
+							Listing status
+							<select
+								name="listingStatus"
+								value={formData.listingStatus || formData.scervStatus || "scerv_enabled"}
+								onChange={(event) => {
+									handleChange(event);
+									setFormData((prev) => ({
+										...prev,
+										scervStatus: event.target.value,
+										claimStatus:
+											event.target.value === "community"
+												? "unclaimed"
+												: "claimed",
+									}));
+								}}
+							>
+								<option value="community">Community listed</option>
+								<option value="claimed">Claimed</option>
+								<option value="scerv_enabled">Scerv enabled</option>
+							</select>
 						</label>
 						<label className="check-field">
 							<input
@@ -403,11 +480,96 @@ const RestaurantDetails = () => {
 				<section className="restaurant-panel">
 					<h2>Owner Setup</h2>
 					<dl>
+						<dt>Listing</dt><dd>{getListingLabel(restaurant)}</dd>
+						<dt>Claim status</dt><dd>{restaurant.claimStatus || "--"}</dd>
 						<dt>Name</dt><dd>{owner.fullName || `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || "--"}</dd>
 						<dt>Email</dt><dd>{owner.email || restaurant.email || "--"}</dd>
 						<dt>Phone</dt><dd>{owner.phoneNumber || restaurant.phoneNumber || "--"}</dd>
 						<dt>Auth UID</dt><dd>{restaurant.uid || id}</dd>
 					</dl>
+					<form className="owner-claim-form" onSubmit={assignOwner}>
+						<h3>Assign Verified Owner</h3>
+						<div className="restaurant-profile-form">
+							<label>
+								First name
+								<input
+									value={claimForm.firstName}
+									onChange={(event) =>
+										setClaimForm((prev) => ({
+											...prev,
+											firstName: event.target.value,
+										}))
+									}
+								/>
+							</label>
+							<label>
+								Last name
+								<input
+									value={claimForm.lastName}
+									onChange={(event) =>
+										setClaimForm((prev) => ({
+											...prev,
+											lastName: event.target.value,
+										}))
+									}
+								/>
+							</label>
+							<label>
+								Email
+								<input
+									type="email"
+									value={claimForm.email}
+									onChange={(event) =>
+										setClaimForm((prev) => ({
+											...prev,
+											email: event.target.value,
+										}))
+									}
+								/>
+							</label>
+							<label>
+								Phone
+								<input
+									value={claimForm.phoneNumber}
+									onChange={(event) =>
+										setClaimForm((prev) => ({
+											...prev,
+											phoneNumber: event.target.value,
+										}))
+									}
+								/>
+							</label>
+						</div>
+						<label className="check-field">
+							<input
+								type="checkbox"
+								checked={claimForm.emailOwner}
+								onChange={(event) =>
+									setClaimForm((prev) => ({
+										...prev,
+										emailOwner: event.target.checked,
+									}))
+								}
+							/>
+							Email setup link
+						</label>
+						<label className="check-field">
+							<input
+								type="checkbox"
+								checked={claimForm.enableScerv}
+								onChange={(event) =>
+									setClaimForm((prev) => ({
+										...prev,
+										enableScerv: event.target.checked,
+									}))
+								}
+							/>
+							Enable ordering/reservations controls now
+						</label>
+						<button type="submit" disabled={saving}>
+							{saving ? "Assigning..." : "Assign Owner"}
+						</button>
+					</form>
 					<button type="button" onClick={resendOwnerSetup} disabled={saving}>
 						{saving ? "Generating..." : "Resend Setup Link"}
 					</button>

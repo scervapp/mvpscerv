@@ -567,6 +567,26 @@ const getFeatureEntitlementDefaults = (input = {}) => {
 	}, {});
 };
 
+const normalizeListingStatus = (value, fallback = "scerv_enabled") => {
+	const normalized = sanitizeString(value || fallback, 60)
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+
+	if (["community", "community_listed", "unclaimed", "discovery_only"].includes(normalized)) {
+		return "community";
+	}
+	if (["claimed", "verified", "restaurant_claimed"].includes(normalized)) {
+		return "claimed";
+	}
+	return "scerv_enabled";
+};
+
+const getCommunityProfileEntitlements = () =>
+	FEATURE_KEYS.reduce((acc, key) => {
+		acc[key] = key === "reviews";
+		return acc;
+	}, {});
+
 const buildRestaurantOnboardingEmail = ({
 	ownerName,
 	restaurantName,
@@ -866,7 +886,7 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 		}
 
 		const currentRestaurant = restaurantSnap.data() || {};
-		const cleanEntitlements = {
+		let cleanEntitlements = {
 			...(currentRestaurant.featureEntitlements || {}),
 		};
 		FEATURE_KEYS.forEach((key) => {
@@ -874,6 +894,15 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 				cleanEntitlements[key] = entitlements[key];
 			}
 		});
+		const currentListingStatus = normalizeListingStatus(
+			currentRestaurant.listingStatus || currentRestaurant.scervStatus,
+		);
+		if (currentListingStatus !== "scerv_enabled") {
+			cleanEntitlements = {
+				...getCommunityProfileEntitlements(),
+				reviews: cleanEntitlements.reviews !== false,
+			};
+		}
 
 		const planLevel = SUBSCRIPTION_PLANS.includes(
 			sanitizeString(subscriptionInput.planLevel, 40),
@@ -895,6 +924,24 @@ exports.saveRestaurantFeatureEntitlements = functions.https.onCall(
 		const featurePatch = {};
 		const reservationSettingsPatch = {};
 		const experienceSettingsPatch = {};
+		featurePatch.reservations = cleanEntitlements.reservations;
+		featurePatch.reservationWaitlist = cleanEntitlements.reservationWaitlist;
+		featurePatch.hostCheckInRequests = cleanEntitlements.hostCheckInRequests;
+		featurePatch.reviews = cleanEntitlements.reviews;
+		featurePatch.loyaltyClub = cleanEntitlements.rewards;
+		featurePatch.qrSelfCheckIn = cleanEntitlements.qrSelfCheckIn;
+		featurePatch.parties = cleanEntitlements.parties;
+		featurePatch.pickup = cleanEntitlements.pickup;
+		featurePatch.tableScanOrdering = cleanEntitlements.tableScanOrdering;
+		featurePatch.serviceRequests = cleanEntitlements.serviceRequests;
+		reservationSettingsPatch.enabled = cleanEntitlements.reservations;
+		reservationSettingsPatch.reservationsEnabled = cleanEntitlements.reservations;
+		reservationSettingsPatch.waitlistEnabled =
+			cleanEntitlements.reservationWaitlist;
+		experienceSettingsPatch.hostCheckInRequestsEnabled =
+			cleanEntitlements.hostCheckInRequests;
+		experienceSettingsPatch.qrSelfCheckInEnabled =
+			cleanEntitlements.qrSelfCheckIn;
 
 		// When Scerv revokes access, the restaurant-facing toggle should also
 		// switch off immediately so screens do not briefly advertise locked tools.
@@ -1329,6 +1376,11 @@ exports.createScervRestaurantOnboarding = functions
 		const payload = (data && data.restaurant) || {};
 		const owner = (data && data.owner) || {};
 		const emailOwner = data && data.emailOwner !== false;
+		const listingStatus = normalizeListingStatus(
+			payload.listingStatus || payload.profileMode,
+			"scerv_enabled",
+		);
+		const isCommunityProfile = listingStatus === "community";
 
 		const email = normalizeEmail(owner.email);
 		const restaurantName = sanitizeString(payload.restaurantName, 160);
@@ -1349,12 +1401,12 @@ exports.createScervRestaurantOnboarding = functions
 			countryCode;
 
 		if (
-			!email ||
-			!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+			(!isCommunityProfile &&
+				(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
 			!restaurantName ||
-			!firstName ||
-			!lastName ||
-			!phoneNumber ||
+			(!isCommunityProfile && !firstName) ||
+			(!isCommunityProfile && !lastName) ||
+			(!isCommunityProfile && !phoneNumber) ||
 			!address ||
 			!city ||
 			!state ||
@@ -1362,7 +1414,9 @@ exports.createScervRestaurantOnboarding = functions
 		) {
 			throw new functions.https.HttpsError(
 				"invalid-argument",
-				"Restaurant, owner, email, phone, and address fields are required.",
+				isCommunityProfile
+					? "Restaurant name and address fields are required."
+					: "Restaurant, owner, email, phone, and address fields are required.",
 			);
 		}
 
@@ -1370,38 +1424,47 @@ exports.createScervRestaurantOnboarding = functions
 		let createdAuthUser = false;
 		const temporaryPassword = `${crypto.randomBytes(18).toString("base64")}Aa1!`;
 
-		try {
-			userRecord = await admin.auth().getUserByEmail(email);
-		} catch (error) {
-			if (error.code !== "auth/user-not-found") throw error;
-			userRecord = await admin.auth().createUser({
-				email,
-				password: temporaryPassword,
-				displayName: ownerName || restaurantName,
-				emailVerified: false,
-				disabled: false,
-			});
-			createdAuthUser = true;
+		if (!isCommunityProfile) {
+			try {
+				userRecord = await admin.auth().getUserByEmail(email);
+			} catch (error) {
+				if (error.code !== "auth/user-not-found") throw error;
+				userRecord = await admin.auth().createUser({
+					email,
+					password: temporaryPassword,
+					displayName: ownerName || restaurantName,
+					emailVerified: false,
+					disabled: false,
+				});
+				createdAuthUser = true;
+			}
 		}
 
-		const restaurantId = userRecord.uid;
-		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const requestedRestaurantId = sanitizeString(payload.restaurantId, 128);
+		const restaurantRef = requestedRestaurantId
+			? db.collection("restaurants").doc(requestedRestaurantId)
+			: isCommunityProfile
+				? db.collection("restaurants").doc()
+				: db.collection("restaurants").doc(userRecord.uid);
+		const restaurantId = restaurantRef.id;
 		const existingRestaurantSnap = await restaurantRef.get();
 		if (existingRestaurantSnap.exists && !data.allowExistingRestaurantUpdate) {
 			throw new functions.https.HttpsError(
 				"already-exists",
-				"A restaurant profile already exists for this owner email.",
+				"A restaurant profile already exists for this identifier.",
 			);
 		}
 
-		await admin.auth().updateUser(restaurantId, {
-			displayName: ownerName || restaurantName,
-			disabled: false,
-		});
-		await admin.auth().setCustomUserClaims(restaurantId, {
-			role: "owner",
-			restaurantId,
-		});
+		if (userRecord) {
+			await admin.auth().updateUser(userRecord.uid, {
+				displayName: ownerName || restaurantName,
+				disabled: false,
+			});
+			await admin.auth().setCustomUserClaims(userRecord.uid, {
+				role: "owner",
+				restaurantId,
+			});
+		}
 
 		const restaurantNumber =
 			payload.restaurantNumber !== undefined &&
@@ -1409,18 +1472,19 @@ exports.createScervRestaurantOnboarding = functions
 			payload.restaurantNumber !== ""
 				? Number(payload.restaurantNumber)
 				: await generateUniqueRestaurantNumber();
-		const featureEntitlements = getFeatureEntitlementDefaults(
-			payload.featureEntitlements || {},
-		);
+		const featureEntitlements = isCommunityProfile
+			? getCommunityProfileEntitlements()
+			: getFeatureEntitlementDefaults(payload.featureEntitlements || {});
 		const now = admin.firestore.FieldValue.serverTimestamp();
 		const restaurantDoc = {
-			uid: restaurantId,
-			role: "owner",
+			uid: userRecord ? userRecord.uid : null,
+			ownerUid: userRecord ? userRecord.uid : null,
+			role: userRecord ? "owner" : "community_profile",
 			restaurantName,
 			restaurantNumber,
-			email,
-			phone: phoneNumber,
-			phoneNumber,
+			email: userRecord ? email : normalizeEmail(payload.claimContactEmail),
+			phone: phoneNumber || normalizeInternationalPhone(payload.phoneNumber),
+			phoneNumber: phoneNumber || normalizeInternationalPhone(payload.phoneNumber),
 			address,
 			area: sanitizeString(payload.area, 120),
 			city,
@@ -1433,8 +1497,15 @@ exports.createScervRestaurantOnboarding = functions
 			taxRate: Number(payload.taxRate || 0),
 			website: sanitizeString(payload.website, 240),
 			imageUri: sanitizeString(payload.imageUri, 1000),
-			onboardingStatus: "admin_created_pending_owner_login",
-			isLive: Boolean(payload.isLive),
+			listingStatus,
+			scervStatus: listingStatus,
+			claimStatus: isCommunityProfile ? "unclaimed" : "claimed",
+			isCommunityProfile,
+			isClaimed: !isCommunityProfile,
+			onboardingStatus: isCommunityProfile
+				? "community_listed_unclaimed"
+				: "admin_created_pending_owner_login",
+			isLive: isCommunityProfile ? payload.isLive !== false : Boolean(payload.isLive),
 			isActive: payload.isActive !== false,
 			isTestAccount: payload.isTestAccount !== false,
 			isOpen: false,
@@ -1451,6 +1522,11 @@ exports.createScervRestaurantOnboarding = functions
 				hostCheckInRequests: featureEntitlements.hostCheckInRequests,
 				reviews: featureEntitlements.reviews,
 				loyaltyClub: featureEntitlements.rewards,
+				qrSelfCheckIn: featureEntitlements.qrSelfCheckIn,
+				parties: featureEntitlements.parties,
+				pickup: featureEntitlements.pickup,
+				tableScanOrdering: featureEntitlements.tableScanOrdering,
+				serviceRequests: featureEntitlements.serviceRequests,
 			},
 			reservationSettings: {
 				reservationsEnabled: featureEntitlements.reservations,
@@ -1458,7 +1534,7 @@ exports.createScervRestaurantOnboarding = functions
 			},
 			experienceSettings: {
 				hostCheckInRequestsEnabled: featureEntitlements.hostCheckInRequests,
-				qrSelfCheckInEnabled: true,
+				qrSelfCheckInEnabled: featureEntitlements.qrSelfCheckIn,
 			},
 			adminCreatedAt: now,
 			adminCreatedBy: actorUid,
@@ -1467,23 +1543,28 @@ exports.createScervRestaurantOnboarding = functions
 		};
 
 		await restaurantRef.set(restaurantDoc, { merge: true });
-		await restaurantRef.collection("private").doc("owner").set(
-			{
-				email,
-				firstName,
-				lastName,
-				fullName: ownerName,
-				phoneNumber,
-				createdAt: now,
-				updatedAt: now,
-				adminCreatedBy: actorUid,
-			},
-			{ merge: true },
-		);
+		if (email || payload.claimContactEmail) {
+			await restaurantRef.collection("private").doc("owner").set(
+				{
+					email: email || normalizeEmail(payload.claimContactEmail),
+					firstName,
+					lastName,
+					fullName: ownerName,
+					phoneNumber,
+					claimStatus: isCommunityProfile ? "unclaimed" : "claimed",
+					createdAt: now,
+					updatedAt: now,
+					adminCreatedBy: actorUid,
+				},
+				{ merge: true },
+			);
+		}
 
-		const resetLink = await admin.auth().generatePasswordResetLink(email);
+		const resetLink = userRecord
+			? await admin.auth().generatePasswordResetLink(email)
+			: null;
 		let emailResult = { sent: false, reason: "Email sending was skipped." };
-		if (emailOwner) {
+		if (emailOwner && userRecord) {
 			try {
 				emailResult = await sendRestaurantOnboardingEmail({
 					email,
@@ -1506,6 +1587,7 @@ exports.createScervRestaurantOnboarding = functions
 			restaurantName,
 			createdAuthUser,
 			emailSent: emailResult.sent,
+			listingStatus,
 		});
 
 		return {
@@ -1515,6 +1597,171 @@ exports.createScervRestaurantOnboarding = functions
 			emailSent: emailResult.sent,
 			emailWarning: emailResult.sent ? null : emailResult.reason,
 			resetLink,
+		};
+	});
+
+exports.assignScervRestaurantOwner = functions
+	.runWith({ secrets: [RESEND_API_KEY] })
+	.https.onCall(async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const restaurantId = sanitizeString(data && data.restaurantId, 128);
+		const owner = (data && data.owner) || {};
+		const emailOwner = data && data.emailOwner !== false;
+		const enableScerv = data && data.enableScerv === true;
+
+		const email = normalizeEmail(owner.email);
+		const firstName = sanitizeString(owner.firstName, 100);
+		const lastName = sanitizeString(owner.lastName, 100);
+		const ownerName = `${firstName} ${lastName}`.trim();
+		const phoneNumber = normalizeInternationalPhone(owner.phoneNumber);
+
+		if (
+			!restaurantId ||
+			!email ||
+			!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+			!firstName ||
+			!lastName
+		) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID, owner name, and email are required.",
+			);
+		}
+
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const restaurantSnap = await restaurantRef.get();
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Restaurant not found.");
+		}
+
+		let userRecord;
+		let createdAuthUser = false;
+		const temporaryPassword = `${crypto.randomBytes(18).toString("base64")}Aa1!`;
+
+		try {
+			userRecord = await admin.auth().getUserByEmail(email);
+		} catch (error) {
+			if (error.code !== "auth/user-not-found") throw error;
+			userRecord = await admin.auth().createUser({
+				email,
+				password: temporaryPassword,
+				displayName: ownerName,
+				emailVerified: false,
+				disabled: false,
+			});
+			createdAuthUser = true;
+		}
+
+		await admin.auth().updateUser(userRecord.uid, {
+			displayName: ownerName,
+			disabled: false,
+		});
+		await admin.auth().setCustomUserClaims(userRecord.uid, {
+			role: "owner",
+			restaurantId,
+		});
+
+		const existingRestaurant = restaurantSnap.data() || {};
+		const listingStatus = enableScerv ? "scerv_enabled" : "claimed";
+		const existingEntitlements = existingRestaurant.featureEntitlements || {};
+		const featureEntitlements = enableScerv
+			? getFeatureEntitlementDefaults(existingEntitlements)
+			: {
+					...getCommunityProfileEntitlements(),
+					reviews: existingEntitlements.reviews !== false,
+				};
+		const now = admin.firestore.FieldValue.serverTimestamp();
+
+		await restaurantRef.set(
+			{
+				uid: userRecord.uid,
+				ownerUid: userRecord.uid,
+				role: "owner",
+				email,
+				firstName,
+				lastName,
+				phoneNumber: phoneNumber || existingRestaurant.phoneNumber || "",
+				listingStatus,
+				scervStatus: listingStatus,
+				claimStatus: "claimed",
+				isClaimed: true,
+				isCommunityProfile: listingStatus !== "scerv_enabled",
+				onboardingStatus: "claimed_pending_owner_login",
+				featureEntitlements,
+				subscriptionFeatures: featureEntitlements,
+				features: {
+					reservations: featureEntitlements.reservations,
+					reservationWaitlist: featureEntitlements.reservationWaitlist,
+					hostCheckInRequests: featureEntitlements.hostCheckInRequests,
+					reviews: featureEntitlements.reviews,
+					loyaltyClub: featureEntitlements.rewards,
+					qrSelfCheckIn: featureEntitlements.qrSelfCheckIn,
+					parties: featureEntitlements.parties,
+					tableScanOrdering: featureEntitlements.tableScanOrdering,
+					serviceRequests: featureEntitlements.serviceRequests,
+				},
+				claimedAt: now,
+				claimedByAdminUid: actorUid,
+				adminUpdatedAt: now,
+				adminUpdatedBy: actorUid,
+			},
+			{ merge: true },
+		);
+
+		await restaurantRef.collection("private").doc("owner").set(
+			{
+				email,
+				firstName,
+				lastName,
+				fullName: ownerName,
+				phoneNumber,
+				claimStatus: "claimed",
+				updatedAt: now,
+				adminUpdatedBy: actorUid,
+			},
+			{ merge: true },
+		);
+
+		const resetLink = await admin.auth().generatePasswordResetLink(email);
+		let emailResult = { sent: false, reason: "Email sending was skipped." };
+		if (emailOwner) {
+			try {
+				emailResult = await sendRestaurantOnboardingEmail({
+					email,
+					ownerName,
+					restaurantName:
+						existingRestaurant.restaurantName ||
+						existingRestaurant.name ||
+						"your restaurant",
+					resetLink,
+				});
+			} catch (error) {
+				console.warn("Claim owner setup email failed:", error);
+				emailResult = {
+					sent: false,
+					reason: error.message || "Email failed.",
+				};
+			}
+		}
+
+		await writeAdminAuditLog(actorUid, "assign_restaurant_owner", {
+			restaurantId,
+			email,
+			ownerUid: userRecord.uid,
+			createdAuthUser,
+			listingStatus,
+			emailSent: emailResult.sent,
+		});
+
+		return {
+			success: true,
+			restaurantId,
+			ownerUid: userRecord.uid,
+			createdAuthUser,
+			emailSent: emailResult.sent,
+			emailWarning: emailResult.sent ? null : emailResult.reason,
+			resetLink,
+			listingStatus,
 		};
 	});
 
@@ -2582,6 +2829,7 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 			"restaurantName",
 			"restaurantNumber",
 			"address",
+			"area",
 			"city",
 			"state",
 			"zipcode",
@@ -2594,17 +2842,28 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 			"taxRate",
 			"website",
 			"imageUri",
+			"listingStatus",
+			"scervStatus",
+			"claimStatus",
 			"geoLat",
 			"geoLong",
 			"isActive",
+			"isLive",
+			"isFeatured",
 			"backOfficePin",
 		];
 		const cleanUpdates = {};
 
 		allowedFields.forEach((field) => {
 			if (updates[field] === undefined) return;
-			if (field === "isActive") {
+			if (["isActive", "isLive", "isFeatured"].includes(field)) {
 				cleanUpdates[field] = Boolean(updates[field]);
+			} else if (field === "listingStatus" || field === "scervStatus") {
+				cleanUpdates[field] = normalizeListingStatus(updates[field]);
+			} else if (field === "claimStatus") {
+				cleanUpdates[field] = sanitizeString(updates[field], 60)
+					.toLowerCase()
+					.replace(/[\s-]+/g, "_");
 			} else if (["restaurantNumber", "taxRate", "geoLat", "geoLong"].includes(field)) {
 				const numericValue = Number(updates[field]);
 				cleanUpdates[field] = Number.isFinite(numericValue) ? numericValue : 0;
@@ -2612,6 +2871,18 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 				cleanUpdates[field] = sanitizeString(updates[field], 1000);
 			}
 		});
+
+		const nextListingStatus = cleanUpdates.listingStatus || cleanUpdates.scervStatus;
+		if (nextListingStatus) {
+			cleanUpdates.listingStatus = nextListingStatus;
+			cleanUpdates.scervStatus = nextListingStatus;
+			cleanUpdates.claimStatus =
+				nextListingStatus === "community"
+					? "unclaimed"
+					: cleanUpdates.claimStatus || "claimed";
+			cleanUpdates.isCommunityProfile = nextListingStatus !== "scerv_enabled";
+			cleanUpdates.isClaimed = nextListingStatus !== "community";
+		}
 
 		if (Object.keys(cleanUpdates).length === 0) {
 			throw new functions.https.HttpsError(

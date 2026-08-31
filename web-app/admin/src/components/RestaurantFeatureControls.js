@@ -22,8 +22,11 @@ const STATUS_OPTIONS = ["trial", "active", "past_due", "paused", "cancelled", "c
 
 const getInitialFeatureState = (restaurant = {}) => {
 	const source = restaurant.featureEntitlements || restaurant.subscriptionFeatures || {};
+	const listingStatus = restaurant.listingStatus || restaurant.scervStatus;
+	const isDiscoveryOnly = ["community", "claimed"].includes(listingStatus);
 	return FEATURE_DEFINITIONS.reduce((acc, [key]) => {
-		acc[key] = source[key] !== false;
+		const isOperational = key !== "reviews";
+		acc[key] = isDiscoveryOnly && isOperational ? false : source[key] !== false;
 		return acc;
 	}, {});
 };
@@ -54,6 +57,10 @@ const RestaurantFeatureControls = ({ restaurantId, restaurant, onSaved }) => {
 	}, [restaurant]);
 
 	const updateFeature = (key, value) => {
+		const listingStatus = restaurant?.listingStatus || restaurant?.scervStatus;
+		if (["community", "claimed"].includes(listingStatus) && key !== "reviews") {
+			return;
+		}
 		setFeatures((prev) => ({ ...prev, [key]: value }));
 	};
 
@@ -181,6 +188,11 @@ const RestaurantFeatureControls = ({ restaurantId, restaurant, onSaved }) => {
 							<input
 								type="checkbox"
 								checked={Boolean(features[key])}
+								disabled={
+									["community", "claimed"].includes(
+										restaurant?.listingStatus || restaurant?.scervStatus,
+									) && key !== "reviews"
+								}
 								onChange={(event) => updateFeature(key, event.target.checked)}
 							/>
 							<span>

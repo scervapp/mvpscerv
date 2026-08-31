@@ -146,6 +146,7 @@ exports.updateScervNewsletterSubscriber =
 exports.listScervCustomers = adminFunctions.listScervCustomers;
 exports.createScervRestaurantOnboarding =
 	adminFunctions.createScervRestaurantOnboarding;
+exports.assignScervRestaurantOwner = adminFunctions.assignScervRestaurantOwner;
 exports.searchScervAdminRecords = adminFunctions.searchScervAdminRecords;
 exports.getScervCustomerProfile = adminFunctions.getScervCustomerProfile;
 exports.sendScervCustomerPasswordReset =

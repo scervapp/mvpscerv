@@ -385,6 +385,9 @@ const MenuItemsList = ({
 	onConfirmAddItemToContext,
 	orderingMode = "individual",
 	partyData,
+	isOrderingAvailable = true,
+	restaurantName = "",
+	onViewRestaurant,
 	// 🚨 NEW PROPS FROM PARENT
 	selectedItems = {},
 	onToggleItemSelection = () => {},
@@ -402,7 +405,7 @@ const MenuItemsList = ({
 	const isGuest = currentUserData?.role === "guest";
 
 	const handleSelectItemForModal = (menuItem) => {
-		if (isGuest) {
+		if (isOrderingAvailable && isGuest) {
 			Alert.alert(
 				t("create_account_to_order_title"),
 				t("create_account_to_order_message"),
@@ -693,6 +696,9 @@ const MenuItemsList = ({
 					orderingMode={orderingMode}
 					isLoading={isSubmitting}
 					partyData={partyData}
+					isOrderingAvailable={isOrderingAvailable}
+					restaurantName={restaurantName}
+					onViewRestaurant={onViewRestaurant}
 				/>
 			)}
 
