@@ -246,6 +246,7 @@ const SelectedItemModal = ({
 	const [reviewHighlights, setReviewHighlights] = useState([]);
 	const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 	const [isAllReviewsVisible, setIsAllReviewsVisible] = useState(false);
+	const [selectedMediaPreview, setSelectedMediaPreview] = useState(null);
 
 	const [isPipInstructionModalVisible, setIsPipInstructionModalVisible] =
 		useState(false);
@@ -330,6 +331,7 @@ const SelectedItemModal = ({
 			setReviewHighlights([]);
 			setIsLoadingReviews(false);
 			setIsAllReviewsVisible(false);
+			setSelectedMediaPreview(null);
 			return undefined;
 		}
 
@@ -855,12 +857,14 @@ const SelectedItemModal = ({
 		const imageSource = mediaItem.thumbnailUrl || mediaItem.url;
 
 		return (
-			<View
+			<TouchableOpacity
 				key={`${options.prefix || "media"}_${mediaItem.id}_${mediaItem.url}`}
 				style={[
 					styles.mediaTile,
 					options.small ? styles.reviewMediaTile : null,
 				]}
+				activeOpacity={0.88}
+				onPress={() => setSelectedMediaPreview(mediaItem)}
 			>
 				<Image source={{ uri: imageSource }} style={styles.mediaTileImage} />
 				{isVideo && (
@@ -878,7 +882,7 @@ const SelectedItemModal = ({
 						</Text>
 					</View>
 				)}
-			</View>
+			</TouchableOpacity>
 		);
 	};
 
@@ -1368,6 +1372,51 @@ const SelectedItemModal = ({
 					</View>
 				</View>
 			</Modal>
+
+			<Modal
+				visible={!!selectedMediaPreview}
+				animationType="fade"
+				transparent={true}
+				onRequestClose={() => setSelectedMediaPreview(null)}
+			>
+				<View style={styles.mediaPreviewOverlay}>
+					<TouchableOpacity
+						style={styles.mediaPreviewBackdrop}
+						activeOpacity={1}
+						onPress={() => setSelectedMediaPreview(null)}
+					/>
+					<View style={styles.mediaPreviewContent}>
+						<TouchableOpacity
+							style={styles.mediaPreviewCloseButton}
+							onPress={() => setSelectedMediaPreview(null)}
+							activeOpacity={0.8}
+						>
+							<Ionicons name="close" size={26} color={colors.surfaceWhite} />
+						</TouchableOpacity>
+						{selectedMediaPreview?.type === "video" && (
+							<View style={styles.mediaPreviewVideoBadge}>
+								<Ionicons name="play" size={14} color={colors.surfaceWhite} />
+								<Text style={styles.mediaPreviewVideoText}>
+									{t("video_review_preview_label", "Video preview")}
+								</Text>
+							</View>
+						)}
+						<Image
+							source={{
+								uri:
+									selectedMediaPreview?.thumbnailUrl ||
+									selectedMediaPreview?.url,
+							}}
+							style={styles.mediaPreviewImage}
+						/>
+						{!!selectedMediaPreview?.caption && (
+							<Text style={styles.mediaPreviewCaption} numberOfLines={2}>
+								{selectedMediaPreview.caption}
+							</Text>
+						)}
+					</View>
+				</View>
+			</Modal>
 		</Modal>
 	);
 };
@@ -1487,6 +1536,68 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "700",
 		color: colors.textMedium,
+	},
+	mediaPreviewOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0, 0, 0, 0.92)",
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: 14,
+		paddingVertical: 24,
+	},
+	mediaPreviewBackdrop: {
+		...StyleSheet.absoluteFillObject,
+	},
+	mediaPreviewContent: {
+		width: "100%",
+		maxHeight: "88%",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	mediaPreviewCloseButton: {
+		position: "absolute",
+		top: 0,
+		right: 4,
+		zIndex: 2,
+		width: 44,
+		height: 44,
+		borderRadius: 22,
+		backgroundColor: "rgba(255, 255, 255, 0.16)",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	mediaPreviewImage: {
+		width: "100%",
+		height: "82%",
+		resizeMode: "contain",
+		borderRadius: 10,
+	},
+	mediaPreviewCaption: {
+		marginTop: 12,
+		paddingHorizontal: 18,
+		color: colors.surfaceWhite,
+		fontSize: 14,
+		lineHeight: 20,
+		fontWeight: "700",
+		textAlign: "center",
+	},
+	mediaPreviewVideoBadge: {
+		position: "absolute",
+		top: 8,
+		left: 4,
+		zIndex: 2,
+		borderRadius: 999,
+		backgroundColor: "rgba(255, 255, 255, 0.18)",
+		paddingHorizontal: 10,
+		paddingVertical: 7,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	mediaPreviewVideoText: {
+		marginLeft: 5,
+		color: colors.surfaceWhite,
+		fontSize: 12,
+		fontWeight: "900",
 	},
 	itemName: {
 		fontSize: 22,
