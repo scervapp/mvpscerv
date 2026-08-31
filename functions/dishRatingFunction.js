@@ -10,6 +10,56 @@ const makeSafeDocId = (value) =>
 		.replace(/[^a-zA-Z0-9_-]/g, "_")
 		.slice(0, 500);
 
+// Store review photos/videos in a future-ready shape while upload moderation evolves separately.
+const normalizeReviewMediaList = (value) => {
+	if (!Array.isArray(value)) return [];
+	const seenUrls = new Set();
+
+	return value
+		.map((entry) => {
+			const rawUrl =
+				typeof entry === "string"
+					? entry
+					: entry && (entry.url || entry.imageUrl || entry.imageUri || entry.thumbnailUrl);
+			const url = String(rawUrl || "").trim().slice(0, 1000);
+			if (!url || seenUrls.has(url)) return null;
+			seenUrls.add(url);
+
+			const rawType =
+				typeof entry === "object" && entry ? String(entry.type || "").trim() : "";
+			const type =
+				rawType.toLowerCase() === "video" ||
+				/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)
+					? "video"
+					: "photo";
+
+			return {
+				id:
+					(typeof entry === "object" &&
+						entry &&
+						String(entry.id || entry.mediaId || "").trim().slice(0, 120)) ||
+					`review_media_${seenUrls.size}`,
+				type,
+				url,
+				thumbnailUrl:
+					typeof entry === "object" && entry
+						? String(
+								entry.thumbnailUrl || entry.thumbnailUri || entry.posterUrl || url
+							)
+								.trim()
+								.slice(0, 1000)
+						: url,
+				source: "customer",
+				status:
+					typeof entry === "object" && entry
+						? String(entry.status || "published").trim().slice(0, 40)
+						: "published",
+			};
+		})
+		.filter(Boolean)
+		.slice(0, 8);
+};
+
 /**
  * Submits a rating for a specific dish within a completed order.
  * Marks the item in the order as rated.
@@ -237,6 +287,7 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 		isIndividual = null,
 		customerName = "",
 		customerDisplayName = "",
+		media = [],
 	} = data;
 	const cleanReviewText = String(reviewText || comment || "").trim().slice(0, 800);
 	const cleanClientName = String(customerDisplayName || customerName || "")
@@ -257,6 +308,7 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				),
 			]
 		: [];
+	const cleanReviewMedia = normalizeReviewMediaList(media);
 
 	if (!menuItemId || !restaurantId || ratingValue < 1 || ratingValue > 5) {
 		throw new functions.https.HttpsError("invalid-argument", "Invalid data.");
@@ -320,6 +372,7 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				comment: cleanReviewText || null,
 				reviewText: cleanReviewText || null,
 				reviewTags: cleanReviewTags,
+				media: cleanReviewMedia,
 				customerName: safeCustomerName || null,
 				customerDisplayName: safeCustomerName || null,
 				orderId,

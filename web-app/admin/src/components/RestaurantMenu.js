@@ -37,6 +37,7 @@ const getNewMenuItemTemplate = () => ({
 	menuSection: "",
 	imageUri: "",
 	thumbnailUri: "",
+	mediaUrls: "",
 	preparationStyle: "",
 	popularityLabel: "",
 	metadataNotes: "",
@@ -65,6 +66,16 @@ const getNewMenuItemTemplate = () => ({
 
 const toCommaText = (value) => (Array.isArray(value) ? value.join(", ") : value || "");
 
+const mediaToText = (media = []) =>
+	Array.isArray(media)
+		? media
+				.map((item) =>
+					typeof item === "string" ? item : item?.url || item?.imageUrl || "",
+				)
+				.filter(Boolean)
+				.join("\n")
+		: "";
+
 const normalizeForForm = (item = {}) => ({
 	...getNewMenuItemTemplate(),
 	...item,
@@ -72,6 +83,7 @@ const normalizeForForm = (item = {}) => ({
 	spiceLevel: String(item.spiceLevel || 0),
 	sortOrder: String(item.sortOrder || 0),
 	calories: item.calories ? String(item.calories) : "",
+	mediaUrls: mediaToText(item.media),
 	...commaFields.reduce((acc, field) => {
 		acc[field] = toCommaText(item[field]);
 		return acc;
@@ -84,6 +96,12 @@ const splitCommaList = (value) =>
 		.map((item) => item.trim())
 		.filter(Boolean);
 
+const splitMediaUrls = (value) =>
+	String(value || "")
+		.split(/[\n,]+/)
+		.map((item) => item.trim())
+		.filter(Boolean);
+
 const normalizeForSave = (form = {}) => {
 	const payload = {
 		...form,
@@ -92,6 +110,16 @@ const normalizeForSave = (form = {}) => {
 		sortOrder: Number(form.sortOrder || 0),
 		calories: Number(form.calories || 0),
 	};
+	const mediaUrls = splitMediaUrls(form.mediaUrls);
+	payload.media = mediaUrls.map((url, index) => ({
+		id: `admin_media_${index + 1}`,
+		type: /\.(mp4|mov|m4v|webm)(\?|$)/i.test(url) ? "video" : "photo",
+		url,
+		thumbnailUrl: url,
+		source: "admin",
+		status: "published",
+	}));
+	delete payload.mediaUrls;
 
 	commaFields.forEach((field) => {
 		payload[field] = splitCommaList(form[field]);
@@ -205,6 +233,15 @@ const MenuItemForm = ({
 					name="thumbnailUri"
 					value={form.thumbnailUri}
 					onChange={onChange}
+				/>
+			</label>
+			<label className="wide-field">
+				Gallery media URLs
+				<textarea
+					name="mediaUrls"
+					value={form.mediaUrls}
+					onChange={onChange}
+					placeholder="One image or video URL per line"
 				/>
 			</label>
 			<label>
@@ -584,6 +621,9 @@ const RestaurantMenu = () => {
 												<strong>{item.name}</strong>
 												<span>{item.description || "No description"}</span>
 												<small>{formatMoney(item.price)}</small>
+												{Array.isArray(item.media) && item.media.length > 0 && (
+													<small>{item.media.length} gallery media</small>
+												)}
 											</div>
 										</div>
 									</td>

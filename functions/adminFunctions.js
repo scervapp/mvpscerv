@@ -463,6 +463,60 @@ const normalizeStringList = (value, maxItems = 24, maxLength = 80) => {
 		.slice(0, maxItems);
 };
 
+// Admin-created media uses the same shape the customer app expects for dish galleries.
+const normalizeMenuMediaList = (value) => {
+	if (!Array.isArray(value)) return [];
+	const seenUrls = new Set();
+
+	return value
+		.map((entry) => {
+			const rawUrl =
+				typeof entry === "string"
+					? entry
+					: entry && (entry.url || entry.imageUrl || entry.imageUri || entry.thumbnailUrl);
+			const url = sanitizeString(rawUrl, 1000);
+			if (!url || seenUrls.has(url)) return null;
+			seenUrls.add(url);
+
+			const rawType =
+				typeof entry === "object" && entry ? sanitizeString(entry.type, 20) : "";
+			const type =
+				rawType.toLowerCase() === "video" ||
+				/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url)
+					? "video"
+					: "photo";
+
+			return {
+				id:
+					(typeof entry === "object" && entry && sanitizeString(entry.id, 120)) ||
+					`media_${seenUrls.size}`,
+				type,
+				url,
+				thumbnailUrl:
+					typeof entry === "object" && entry
+						? sanitizeString(
+								entry.thumbnailUrl || entry.thumbnailUri || entry.posterUrl || url,
+								1000,
+							)
+						: url,
+				source:
+					typeof entry === "object" && entry
+						? sanitizeString(entry.source || "restaurant", 40)
+						: "restaurant",
+				caption:
+					typeof entry === "object" && entry
+						? sanitizeString(entry.caption || entry.altText, 160)
+						: "",
+				status:
+					typeof entry === "object" && entry
+						? sanitizeString(entry.status || "published", 40)
+						: "published",
+			};
+		})
+		.filter(Boolean)
+		.slice(0, 12);
+};
+
 const normalizeInteger = (value, fallback = 0, min = 0, max = 100) => {
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed)) return fallback;
@@ -478,6 +532,9 @@ const getMenuSearchKeywords = (item) => {
 		item.menuSection,
 		item.preparationStyle,
 		item.popularityLabel,
+		...(Array.isArray(item.media)
+			? item.media.map((mediaItem) => mediaItem.caption || "")
+			: []),
 		...item.tags,
 		...item.cuisineTags,
 		...item.dietaryTags,
@@ -505,6 +562,7 @@ const getMenuItemPayload = (data) => ({
 	menuSection: sanitizeString(data && data.menuSection, 120),
 	imageUri: sanitizeString(data && data.imageUri, 1000),
 	thumbnailUri: sanitizeString(data && data.thumbnailUri, 1000),
+	media: normalizeMenuMediaList(data && data.media),
 	preparationStyle: sanitizeString(data && data.preparationStyle, 120),
 	popularityLabel: sanitizeString(data && data.popularityLabel, 120),
 	metadataNotes: sanitizeString(data && data.metadataNotes, 1000),

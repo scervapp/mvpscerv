@@ -122,6 +122,78 @@ const featureEntitlements = {
 const demoPhotoUrl = (terms, lock) =>
 	`https://loremflickr.com/1200/900/${terms}?lock=${lock}`;
 
+function stableLock(value, offset = 0) {
+	return (
+		String(value || "")
+			.split("")
+			.reduce((sum, char) => sum + char.charCodeAt(0), 0) + offset
+	);
+}
+
+function getItemMedia(item, restaurant, menuIndex) {
+	const tags = Array.isArray(item.tags) ? item.tags : [];
+	const primaryTerms = tags.slice(0, 3).join(",") || item.discoveryLabel || item.name;
+	const contextTerms = [item.discoveryLabel, restaurant.cuisine, "restaurant-food"]
+		.filter(Boolean)
+		.join(",");
+	const fallbackTerms = [item.category, "dish", restaurant.area]
+		.filter(Boolean)
+		.join(",");
+
+	return [
+		{
+			id: `${item.id}_official_1`,
+			type: "photo",
+			url: item.imageUri,
+			thumbnailUrl: item.imageUri,
+			source: "admin",
+			caption: item.name,
+			status: "published",
+		},
+		{
+			id: `${item.id}_official_2`,
+			type: "photo",
+			url: demoPhotoUrl(primaryTerms, stableLock(item.id, 700 + menuIndex)),
+			thumbnailUrl: demoPhotoUrl(primaryTerms, stableLock(item.id, 700 + menuIndex)),
+			source: "admin",
+			caption: `${item.discoveryLabel || item.name} close-up`,
+			status: "published",
+		},
+		{
+			id: `${item.id}_guest_preview`,
+			type: "photo",
+			url: demoPhotoUrl(contextTerms || fallbackTerms, stableLock(item.id, 900 + menuIndex)),
+			thumbnailUrl: demoPhotoUrl(
+				contextTerms || fallbackTerms,
+				stableLock(item.id, 900 + menuIndex),
+			),
+			source: "customer",
+			caption: "Guest review photo",
+			status: "published",
+		},
+	];
+}
+
+function getReviewMedia(item, reviewIndex) {
+	if (reviewIndex > 1) return [];
+	const tags = Array.isArray(item.tags) ? item.tags : [];
+	const terms = [item.discoveryLabel, ...tags.slice(0, 2), "restaurant-food"]
+		.filter(Boolean)
+		.join(",");
+	const url = demoPhotoUrl(terms, stableLock(`${item.id}_${reviewIndex}`, 1100));
+
+	return [
+		{
+			id: `${item.id}_review_media_${reviewIndex + 1}`,
+			type: "photo",
+			url,
+			thumbnailUrl: url,
+			source: "customer",
+			status: "published",
+		},
+	];
+}
+
 const communityRestaurants = [
 	{
 		id: "community_greenpoint_lantern_thai",
@@ -509,6 +581,7 @@ async function seedRestaurant(token, restaurant) {
 			(item.averageRating * item.ratingCount).toFixed(2),
 		);
 		const topReviewTags = [...new Set(item.reviews.flatMap((review) => review[2]))];
+		const itemMedia = getItemMedia(item, restaurant, menuIndex);
 
 		await setDoc(token, `menuItems/${item.id}`, {
 			id: item.id,
@@ -529,6 +602,7 @@ async function seedRestaurant(token, restaurant) {
 			isDemoSeed: true,
 			imageUri: item.imageUri,
 			imageUrl: item.imageUri,
+			media: itemMedia,
 			ingredientTags: uniqueLowerStrings(item.tags).slice(0, 8),
 			flavorTags: uniqueLowerStrings(item.tags).slice(1, 9),
 			dishTypeTags: uniqueLowerStrings([
@@ -591,6 +665,7 @@ async function seedRestaurant(token, restaurant) {
 					comment: reviewText,
 					reviewText,
 					reviewTags,
+					media: getReviewMedia(item, reviewIndex),
 					orderId: `community_seed_${restaurant.id}_${menuIndex}_${reviewIndex}`,
 					origin: "community_discovery_seed",
 					isIndividual: true,

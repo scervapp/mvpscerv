@@ -11,6 +11,7 @@ import {
 	InputAccessoryView,
 	Keyboard,
 	Platform,
+	Image,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Button, Divider, IconButton, TextInput } from "react-native-paper";
@@ -45,6 +46,93 @@ const StarRatingDisplay = ({ rating = 0, size = 15 }) => {
 			))}
 		</View>
 	);
+};
+
+// Keep media flexible so old menu images, customer photos, and future video reviews can share one gallery.
+const normalizeMediaType = (value, url = "") => {
+	const type = String(value || "").toLowerCase();
+	if (type === "video") return "video";
+	if (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(String(url || ""))) return "video";
+	return "photo";
+};
+
+const normalizeMediaItem = (media, fallback = {}) => {
+	if (!media) return null;
+	const url =
+		typeof media === "string"
+			? media
+			: media.url || media.imageUrl || media.imageUri || media.thumbnailUrl;
+	const cleanUrl = String(url || "").trim();
+	if (!cleanUrl) return null;
+
+	const thumbnailUrl =
+		typeof media === "string"
+			? cleanUrl
+			: media.thumbnailUrl || media.thumbnailUri || media.posterUrl || cleanUrl;
+
+	return {
+		id:
+			(typeof media === "object" && (media.id || media.mediaId)) ||
+			`${fallback.source || "media"}_${cleanUrl}`,
+		type: normalizeMediaType(
+			typeof media === "object" ? media.type : fallback.type,
+			cleanUrl,
+		),
+		url: cleanUrl,
+		thumbnailUrl,
+		source:
+			(typeof media === "object" && media.source) || fallback.source || "menu",
+		caption:
+			(typeof media === "object" && (media.caption || media.altText)) ||
+			fallback.caption ||
+			"",
+		reviewId:
+			(typeof media === "object" && media.reviewId) || fallback.reviewId || null,
+	};
+};
+
+const getMenuItemMedia = (item = {}) => {
+	const media = Array.isArray(item.media) ? item.media : [];
+	const fallbackUrls = [
+		item.imageUri,
+		item.imageUrl,
+		item.thumbnailUri,
+		item.thumbnailUrl,
+	].filter(Boolean);
+
+	return [...media, ...fallbackUrls]
+		.map((entry, index) =>
+			normalizeMediaItem(entry, {
+				source: index === 0 ? "menu" : "restaurant",
+				caption: item.name || "",
+			}),
+		)
+		.filter(Boolean)
+		.filter(
+			(mediaItem, index, allItems) =>
+				allItems.findIndex((candidate) => candidate.url === mediaItem.url) === index,
+		)
+		.slice(0, 12);
+};
+
+const getReviewMedia = (review = {}) => {
+	const media = Array.isArray(review.media) ? review.media : [];
+	const fallbackUrls = [
+		review.photoUrl,
+		review.imageUrl,
+		review.imageUri,
+		review.videoUrl,
+	].filter(Boolean);
+
+	return [...media, ...fallbackUrls]
+		.map((entry) =>
+			normalizeMediaItem(entry, {
+				source: "customer",
+				reviewId: review.id,
+				caption: review.reviewText || review.comment || "",
+			}),
+		)
+		.filter(Boolean);
 };
 
 const PipInstructionModal = ({
@@ -297,6 +385,21 @@ const SelectedItemModal = ({
 		const reviewCount = Number(selectedItem?.reviewCount || 0);
 		return { averageRating, ratingCount, reviewCount };
 	}, [selectedItem]);
+
+	const dishGalleryMedia = useMemo(() => {
+		const mediaByUrl = new Map();
+		getMenuItemMedia(selectedItem).forEach((mediaItem) => {
+			mediaByUrl.set(mediaItem.url, mediaItem);
+		});
+		reviewHighlights.forEach((review) => {
+			getReviewMedia(review).forEach((mediaItem) => {
+				if (!mediaByUrl.has(mediaItem.url)) {
+					mediaByUrl.set(mediaItem.url, mediaItem);
+				}
+			});
+		});
+		return [...mediaByUrl.values()].slice(0, 12);
+	}, [reviewHighlights, selectedItem]);
 
 	const hasGuestSignals =
 		ratingSummary.averageRating > 0 ||
@@ -747,9 +850,68 @@ const SelectedItemModal = ({
 				review.customerName ||
 				t("scerv_guest", "Scerv guest");
 
+	const renderMediaTile = (mediaItem, options = {}) => {
+		const isVideo = mediaItem.type === "video";
+		const imageSource = mediaItem.thumbnailUrl || mediaItem.url;
+
+		return (
+			<View
+				key={`${options.prefix || "media"}_${mediaItem.id}_${mediaItem.url}`}
+				style={[
+					styles.mediaTile,
+					options.small ? styles.reviewMediaTile : null,
+				]}
+			>
+				<Image source={{ uri: imageSource }} style={styles.mediaTileImage} />
+				{isVideo && (
+					<View style={styles.videoBadge}>
+						<Ionicons name="play" size={12} color={colors.surfaceWhite} />
+						<Text style={styles.videoBadgeText}>
+							{t("video_label", "Video")}
+						</Text>
+					</View>
+				)}
+				{mediaItem.source === "customer" && !options.small && (
+					<View style={styles.mediaSourceBadge}>
+						<Text style={styles.mediaSourceText}>
+							{t("guest_photo_label", "Guest")}
+						</Text>
+					</View>
+				)}
+			</View>
+		);
+	};
+
+	const renderDishMediaGallery = () => {
+		if (dishGalleryMedia.length === 0) return null;
+
+		return (
+			<View style={styles.mediaGalleryContainer}>
+				<ScrollView
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					contentContainerStyle={styles.mediaGalleryContent}
+				>
+					{dishGalleryMedia.map((mediaItem) =>
+						renderMediaTile(mediaItem, { prefix: "dish_gallery" }),
+					)}
+				</ScrollView>
+				<Text style={styles.mediaGalleryHint}>
+					{t(
+						"dish_media_gallery_hint",
+						"Photos from the restaurant and guest reviews",
+					)}
+				</Text>
+			</View>
+		);
+	};
+
 	const renderReviewCard = (review, options = {}) => {
 		const reviewText = review.reviewText || review.comment || "";
-		if (!reviewText && !options.showRatingOnly) return null;
+		const reviewMedia = getReviewMedia(review).slice(0, 4);
+		if (!reviewText && reviewMedia.length === 0 && !options.showRatingOnly) {
+			return null;
+		}
 
 		return (
 			<View key={review.id} style={styles.reviewCard}>
@@ -757,11 +919,32 @@ const SelectedItemModal = ({
 					<StarRatingDisplay rating={Number(review.ratingValue || 0)} size={12} />
 					<Text style={styles.reviewAuthorText}>{getReviewAuthor(review)}</Text>
 				</View>
-				<Text style={styles.reviewQuoteText} numberOfLines={options.numberOfLines}>
-					{reviewText
-						? `"${reviewText}"`
-						: t("rating_only_review", "Rating only")}
-				</Text>
+				{reviewText ? (
+					<Text
+						style={styles.reviewQuoteText}
+						numberOfLines={options.numberOfLines}
+					>
+						"{reviewText}"
+					</Text>
+				) : (
+					<Text style={styles.reviewQuoteText}>
+						{t("rating_only_review", "Rating only")}
+					</Text>
+				)}
+				{reviewMedia.length > 0 && (
+					<ScrollView
+						horizontal
+						showsHorizontalScrollIndicator={false}
+						contentContainerStyle={styles.reviewMediaRow}
+					>
+						{reviewMedia.map((mediaItem) =>
+							renderMediaTile(mediaItem, {
+								prefix: `review_${review.id}`,
+								small: true,
+							}),
+						)}
+					</ScrollView>
+				)}
 			</View>
 		);
 	};
@@ -788,6 +971,8 @@ const SelectedItemModal = ({
 							style={styles.closeButton}
 							color={colors.textMedium}
 						/>
+
+						{renderDishMediaGallery()}
 
 						<View style={styles.itemDetailsContainer}>
 							<Text style={styles.itemName}>
@@ -1241,6 +1426,68 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		marginBottom: 15,
 	},
+	mediaGalleryContainer: {
+		marginHorizontal: -20,
+		marginTop: -8,
+		marginBottom: 18,
+	},
+	mediaGalleryContent: {
+		paddingHorizontal: 20,
+		paddingRight: 28,
+	},
+	mediaTile: {
+		width: 210,
+		height: 145,
+		borderRadius: 12,
+		overflow: "hidden",
+		backgroundColor: colors.backgroundLight,
+		marginRight: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+	},
+	mediaTileImage: {
+		width: "100%",
+		height: "100%",
+		resizeMode: "cover",
+	},
+	videoBadge: {
+		position: "absolute",
+		left: 8,
+		top: 8,
+		borderRadius: 999,
+		backgroundColor: "rgba(0, 0, 0, 0.68)",
+		paddingHorizontal: 8,
+		paddingVertical: 5,
+		flexDirection: "row",
+		alignItems: "center",
+	},
+	videoBadgeText: {
+		color: colors.surfaceWhite,
+		fontSize: 11,
+		fontWeight: "900",
+		marginLeft: 4,
+	},
+	mediaSourceBadge: {
+		position: "absolute",
+		right: 8,
+		bottom: 8,
+		borderRadius: 999,
+		backgroundColor: "rgba(255, 255, 255, 0.92)",
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+	},
+	mediaSourceText: {
+		color: colors.textDark,
+		fontSize: 11,
+		fontWeight: "900",
+	},
+	mediaGalleryHint: {
+		paddingHorizontal: 20,
+		marginTop: 8,
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+	},
 	itemName: {
 		fontSize: 22,
 		fontWeight: "bold",
@@ -1384,6 +1631,16 @@ const styles = StyleSheet.create({
 		lineHeight: 18,
 		color: colors.textDark,
 		fontWeight: "600",
+	},
+	reviewMediaRow: {
+		paddingTop: 10,
+		paddingRight: 8,
+	},
+	reviewMediaTile: {
+		width: 88,
+		height: 74,
+		borderRadius: 8,
+		marginRight: 8,
 	},
 	viewAllReviewsButton: {
 		marginTop: 10,
