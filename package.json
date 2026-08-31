@@ -21,6 +21,7 @@
     "clean:prod:auth": "node scripts/clean-production-auth.js --delete --confirm-production-auth-wipe",
     "clean:prod:firestore": "node scripts/backup-clean-firestore.js --delete --confirm-production-wipe",
     "seed:dev:restaurants": "node scripts/seed-dev-restaurants.js --confirm-dev-seed",
+    "seed:dev:community-discovery": "node scripts/seed-community-discovery-restaurants.js --confirm-dev-community-seed",
     "eas-build-pre-install": "node scripts/prepare-eas-env.js",
     "postinstall": "patch-package"
   },
