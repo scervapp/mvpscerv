@@ -417,6 +417,7 @@ const TasteMatchCard = ({ item, onPress }) => {
 		? item.matchReasons.map(formatTasteSignal).filter(Boolean).slice(0, 2)
 		: [];
 	const matchConfidence = Number(item.matchConfidence || 0);
+	const hasTasteTwinSignal = Number(item.tasteTwinCount || 0) > 0;
 
 	return (
 		<TouchableOpacity
@@ -435,7 +436,11 @@ const TasteMatchCard = ({ item, onPress }) => {
 				<View style={styles.tasteMatchBadge}>
 					<Ionicons name="sparkles" size={12} color={colors.primary} />
 					<Text style={styles.tasteMatchBadgeText}>
-						{matchConfidence ? `${matchConfidence}% match` : "Taste match"}
+						{hasTasteTwinSignal
+							? "Taste Twin pick"
+							: matchConfidence
+								? `${matchConfidence}% match`
+								: "Taste match"}
 					</Text>
 				</View>
 				<Text style={styles.tasteMatchDish} numberOfLines={1}>
@@ -451,11 +456,15 @@ const TasteMatchCard = ({ item, onPress }) => {
 				) : null}
 				{reasons.length > 0 ? (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
-						Because you liked {reasons.join(" and ")}
+						{hasTasteTwinSignal
+							? `Similar palates liked ${reasons.join(" and ")}`
+							: `Because you liked ${reasons.join(" and ")}`}
 					</Text>
 				) : (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
-						Based on your dish ratings
+						{hasTasteTwinSignal
+							? "Loved by diners with taste like yours"
+							: "Based on your dish ratings"}
 					</Text>
 				)}
 			</View>
@@ -501,6 +510,7 @@ const CustomerDashboard = ({ navigation }) => {
 	const [tasteRecommendations, setTasteRecommendations] = useState([]);
 	const [tasteProfileStatus, setTasteProfileStatus] = useState(null);
 	const [tasteProfileCount, setTasteProfileCount] = useState(0);
+	const [tasteTwinCount, setTasteTwinCount] = useState(0);
 	const [isTasteLoading, setIsTasteLoading] = useState(false);
 	const [menuRefreshKey, setMenuRefreshKey] = useState(0);
 	const [tasteRefreshKey, setTasteRefreshKey] = useState(0);
@@ -647,6 +657,7 @@ const CustomerDashboard = ({ navigation }) => {
 				setTasteRecommendations([]);
 				setTasteProfileStatus(null);
 				setTasteProfileCount(0);
+				setTasteTwinCount(0);
 				return;
 			}
 
@@ -665,6 +676,7 @@ const CustomerDashboard = ({ navigation }) => {
 				const recommendations = response.data?.recommendations || [];
 				setTasteProfileStatus(response.data?.profileStatus || "ready");
 				setTasteProfileCount(Number(response.data?.totalDishRatings || 0));
+				setTasteTwinCount(Number(response.data?.tasteTwinCount || 0));
 				setTasteRecommendations(
 					Array.isArray(recommendations) ? recommendations : [],
 				);
@@ -674,6 +686,7 @@ const CustomerDashboard = ({ navigation }) => {
 					setTasteRecommendations([]);
 					setTasteProfileStatus("unavailable");
 					setTasteProfileCount(0);
+					setTasteTwinCount(0);
 				}
 			} finally {
 				if (isActive) setIsTasteLoading(false);
@@ -766,8 +779,14 @@ const CustomerDashboard = ({ navigation }) => {
 		}, 1600);
 	};
 
+	const tasteRecommendationTitle =
+		tasteTwinCount > 0 ? "Taste Twin picks" : "Matched to your taste";
 	const tasteRecommendationSubtitle =
-		tasteProfileCount > 0
+		tasteTwinCount > 0
+			? `${tasteTwinCount} anonymous ${
+					tasteTwinCount === 1 ? "palate" : "palates"
+				} helped shape these picks.`
+			: tasteProfileCount > 0
 			? `Scerv Intelligence picks shaped by ${tasteProfileCount} dish ${
 					tasteProfileCount === 1 ? "rating" : "ratings"
 				}.`
@@ -1095,7 +1114,7 @@ const CustomerDashboard = ({ navigation }) => {
 				{!isActivelySearching && tasteRecommendations.length > 0 ? (
 					<View style={styles.tasteMatchSection}>
 						<SectionHeader
-							title="Matched to your taste"
+							title={tasteRecommendationTitle}
 							subtitle={tasteRecommendationSubtitle}
 						/>
 						<FlatList
@@ -1193,6 +1212,8 @@ const CustomerDashboard = ({ navigation }) => {
 			isActivelySearching,
 			isMenuLoading,
 			isTasteLoading,
+			tasteRecommendationSubtitle,
+			tasteRecommendationTitle,
 			tasteProfileStatus,
 			resultTitle,
 			restaurantById,

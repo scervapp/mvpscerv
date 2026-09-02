@@ -90,12 +90,85 @@ const getSignalAffinity = (profile = {}, namespace, values = []) => {
 	return { score, strongestSignal, strongestAverage };
 };
 
+const SIGNAL_NAMESPACES = [
+	"dishTypes",
+	"flavors",
+	"ingredients",
+	"cuisines",
+	"categories",
+	"dietary",
+];
+
+const getPositiveSignalMap = (profile = {}) => {
+	const signalCounts = profile.signalCounts || {};
+	const positiveSignals = {};
+
+	SIGNAL_NAMESPACES.forEach((namespace) => {
+		const namespaceCounts = signalCounts[namespace] || {};
+		positiveSignals[namespace] = new Map();
+
+		Object.keys(namespaceCounts).forEach((signal) => {
+			const stats = namespaceCounts[signal] || {};
+			const count = Number(stats.count || 0);
+			const ratingSum = Number(stats.ratingSum || 0);
+			if (!count || !Number.isFinite(ratingSum)) return;
+
+			const average = ratingSum / count;
+			if (average < 3.8) return;
+
+			positiveSignals[namespace].set(signal, {
+				average,
+				count,
+			});
+		});
+	});
+
+	return positiveSignals;
+};
+
+const calculateProfileSimilarity = (basePositiveSignals, candidateProfile = {}) => {
+	const candidateSignals = getPositiveSignalMap(candidateProfile);
+	let score = 0;
+	let sharedSignalCount = 0;
+	const sharedSignals = [];
+
+	SIGNAL_NAMESPACES.forEach((namespace) => {
+		const baseNamespace = basePositiveSignals[namespace] || new Map();
+		const candidateNamespace = candidateSignals[namespace] || new Map();
+
+		candidateNamespace.forEach((candidateStats, signal) => {
+			const baseStats = baseNamespace.get(signal);
+			if (!baseStats) return;
+
+			const confidence = Math.min(
+				1,
+				Math.log1p(baseStats.count + candidateStats.count) / Math.log1p(8),
+			);
+			const contribution =
+				(baseStats.average - 3) * (candidateStats.average - 3) * confidence;
+			score += contribution;
+			sharedSignalCount += 1;
+
+			if (sharedSignals.length < 4) {
+				sharedSignals.push(signal.replace(/_/g, " "));
+			}
+		});
+	});
+
+	return {
+		score,
+		sharedSignalCount,
+		sharedSignals,
+	};
+};
+
 const serializeMenuItem = (
 	doc,
 	restaurant,
 	matchScore,
 	matchReasons,
 	matchConfidence,
+	tasteTwinData,
 ) => {
 	const data = doc.data() || {};
 	const scervScore = calculateScervDiscoveryScore(data);
@@ -127,6 +200,11 @@ const serializeMenuItem = (
 		matchScore: Number(matchScore.toFixed(2)),
 		matchReasons,
 		matchConfidence,
+		matchBasis: tasteTwinData ? "taste_twins" : "profile",
+		tasteTwinCount: tasteTwinData ? tasteTwinData.count : 0,
+		tasteTwinAverageRating: tasteTwinData
+			? Number(tasteTwinData.averageRating.toFixed(1))
+			: 0,
 		restaurant: {
 			id: restaurant.id,
 			restaurantName: restaurant.restaurantName || restaurant.name || "Restaurant",
@@ -180,6 +258,66 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 					return eventData.menuItemId;
 				})
 				.filter(Boolean),
+		);
+		const positiveSignals = getPositiveSignalMap(profile);
+
+		const profileCandidatesSnap = await db
+			.collection("customerPalateProfiles")
+			.limit(80)
+			.get();
+		const tasteTwins = profileCandidatesSnap.docs
+			.filter((doc) => doc.id !== uid)
+			.map((doc) => {
+				const candidateProfile = doc.data() || {};
+				const similarity = calculateProfileSimilarity(
+					positiveSignals,
+					candidateProfile,
+				);
+				return {
+					uid: doc.id,
+					...similarity,
+				};
+			})
+			.filter(
+				(candidate) =>
+					candidate.score > 0 && candidate.sharedSignalCount >= 2,
+			)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 12);
+		const tasteTwinSignals = [
+			...new Set(tasteTwins.flatMap((candidate) => candidate.sharedSignals || [])),
+		].slice(0, 4);
+		const tasteTwinItemScores = new Map();
+
+		await Promise.all(
+			tasteTwins.slice(0, 8).map(async (candidate) => {
+				const candidateEventsSnap = await db
+					.collection("customerPalateProfiles")
+					.doc(candidate.uid)
+					.collection("ratingEvents")
+					.orderBy("createdAt", "desc")
+					.limit(25)
+					.get();
+
+				candidateEventsSnap.docs.forEach((eventDoc) => {
+					const event = eventDoc.data() || {};
+					const menuItemId = event.menuItemId;
+					const ratingValue = Number(event.ratingValue || 0);
+					if (!menuItemId || ratedMenuItemIds.has(menuItemId) || ratingValue < 4) {
+						return;
+					}
+
+					const current = tasteTwinItemScores.get(menuItemId) || {
+						count: 0,
+						ratingSum: 0,
+						similaritySum: 0,
+					};
+					current.count += 1;
+					current.ratingSum += ratingValue;
+					current.similaritySum += candidate.score;
+					tasteTwinItemScores.set(menuItemId, current);
+				});
+			}),
 		);
 
 		const restaurantSnap = await db
@@ -243,8 +381,16 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 			);
 			const rating = Number(item.averageRating || item.rating || 0);
 			const reviewCount = Number(item.reviewCount || 0);
+			const tasteTwinScoreData = tasteTwinItemScores.get(doc.id);
+			const tasteTwinBonus = tasteTwinScoreData
+				? tasteTwinScoreData.count * 7 + tasteTwinScoreData.similaritySum * 2
+				: 0;
 			const matchScore =
-				affinityScore + discoveryScore * 0.35 + rating * 3 + Math.log1p(reviewCount);
+				affinityScore +
+				discoveryScore * 0.35 +
+				rating * 3 +
+				Math.log1p(reviewCount) +
+				tasteTwinBonus;
 
 			const matchReasons = affinities
 				.filter(
@@ -262,10 +408,18 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 						64 +
 							Math.min(totalDishRatings, 12) * 1.6 +
 							matchReasons.length * 4 +
+							(tasteTwinScoreData ? tasteTwinScoreData.count * 3 : 0) +
 							Math.min(reviewCount, 30) * 0.25,
 					),
 				),
 			);
+			const tasteTwinData = tasteTwinScoreData
+				? {
+						count: tasteTwinScoreData.count,
+						averageRating:
+							tasteTwinScoreData.ratingSum / tasteTwinScoreData.count,
+					}
+				: null;
 
 			scoredItems.push(
 				serializeMenuItem(
@@ -274,6 +428,7 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 					matchScore,
 					matchReasons,
 					matchConfidence,
+					tasteTwinData,
 				),
 			);
 		});
@@ -299,6 +454,8 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 			recommendations: diverse,
 			profileStatus: "ready",
 			totalDishRatings,
+			tasteTwinCount: tasteTwins.length,
+			tasteTwinSignals,
 		};
 	},
 );
