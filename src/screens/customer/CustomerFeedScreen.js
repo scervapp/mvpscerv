@@ -137,18 +137,25 @@ const FeedCard = ({ item, onPressRestaurant }) => {
 	);
 };
 
-const EmptyFeed = ({ activeFilter }) => (
+const EmptyFeed = ({ activeFilter, errorMessage }) => (
 	<View style={styles.emptyState}>
 		<View style={styles.emptyIcon}>
-			<Ionicons name="sparkles-outline" size={28} color={colors.primary} />
+			<Ionicons
+				name={errorMessage ? "alert-circle-outline" : "sparkles-outline"}
+				size={28}
+				color={colors.primary}
+			/>
 		</View>
 		<Text style={styles.emptyTitle}>
-			{activeFilter === "taste_twin"
+			{errorMessage
+				? "Feed could not load"
+				: activeFilter === "taste_twin"
 				? "Your Taste Twins are warming up"
 				: "No feed activity yet"}
 		</Text>
 		<Text style={styles.emptyText}>
-			Rate dishes and add friends to make this feed feel more personal.
+			{errorMessage ||
+				"Rate dishes and add friends to make this feed feel more personal."}
 		</Text>
 	</View>
 );
@@ -161,6 +168,7 @@ const CustomerFeedScreen = ({ navigation }) => {
 	const [isRefreshing, setIsRefreshing] = useState(false);
 	const [tasteTwinCount, setTasteTwinCount] = useState(0);
 	const [hasPips, setHasPips] = useState(false);
+	const [errorMessage, setErrorMessage] = useState("");
 
 	const filteredItems = useMemo(() => {
 		if (activeFilter === "all") return feedItems;
@@ -179,6 +187,7 @@ const CustomerFeedScreen = ({ navigation }) => {
 			}
 
 			refreshing ? setIsRefreshing(true) : setIsLoading(true);
+			setErrorMessage("");
 			try {
 				const savedRegion = await AsyncStorage.getItem("@scerv_region");
 				const getFeed = httpsCallable(functions, "getScervFeed");
@@ -191,6 +200,9 @@ const CustomerFeedScreen = ({ navigation }) => {
 				setHasPips(Boolean(response.data?.hasPips));
 			} catch (error) {
 				console.log("Error loading Scerv feed:", error);
+				setErrorMessage(
+					error?.message || "Pull to refresh and try loading the feed again.",
+				);
 				setFeedItems([]);
 			} finally {
 				setIsLoading(false);
@@ -281,7 +293,9 @@ const CustomerFeedScreen = ({ navigation }) => {
 						/>
 					</View>
 				}
-				ListEmptyComponent={<EmptyFeed activeFilter={activeFilter} />}
+				ListEmptyComponent={
+					<EmptyFeed activeFilter={activeFilter} errorMessage={errorMessage} />
+				}
 				contentContainerStyle={styles.listContent}
 				refreshControl={
 					<RefreshControl

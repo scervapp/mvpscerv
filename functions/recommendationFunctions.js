@@ -503,13 +503,10 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 		.slice(0, 8);
 	const limit = Math.min(Math.max(Number((data && data.limit) || 30), 5), 50);
 
-	const [profileSnap, pipsSnap, recentRatingsSnap] = await Promise.all([
+	const [profileSnap, pipsSnap, feedActivitySnap] = await Promise.all([
 		db.collection("customerPalateProfiles").doc(uid).get(),
 		db.collection("customers").doc(uid).collection("pips").get(),
-		db.collectionGroup("ratings")
-			.orderBy("timestamp", "desc")
-			.limit(160)
-			.get(),
+		db.collection("scervFeedActivity").orderBy("timestamp", "desc").limit(160).get(),
 	]);
 
 	const profile = profileSnap.exists ? profileSnap.data() || {} : {};
@@ -525,7 +522,22 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 		}
 	});
 
-	const recentRatings = recentRatingsSnap.docs
+	let recentRatingDocs = feedActivitySnap.docs;
+
+	if (recentRatingDocs.length === 0) {
+		try {
+			// Fallback keeps older rating data useful while the dedicated feed rail fills in.
+			const recentRatingsSnap = await db.collectionGroup("ratings")
+				.orderBy("timestamp", "desc")
+				.limit(160)
+				.get();
+			recentRatingDocs = recentRatingsSnap.docs;
+		} catch (error) {
+			functions.logger.warn("Scerv feed fallback query failed.", error);
+		}
+	}
+
+	const recentRatings = recentRatingDocs
 		.map((doc) => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
 		.filter((rating) => {
 			if (rating.status && rating.status !== "published") return false;
@@ -575,18 +587,25 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 
 		const customer = customersById.get(rating.customerId) || {};
 		const authorIsInfluencer = isApprovedInfluencer(customer);
+		const isFeaturedActivity =
+			rating.feedVisibility === "featured" ||
+			rating.feedType === "featured_diner";
 		const isPip = pipNameByUserId.has(rating.customerId);
 		const isTasteTwin = tasteTwinUserIds.has(rating.customerId);
 		const isOwnActivity = rating.customerId === uid;
 		const shouldInclude =
-			isOwnActivity || isPip || isTasteTwin || authorIsInfluencer;
+			isOwnActivity ||
+			isPip ||
+			isTasteTwin ||
+			authorIsInfluencer ||
+			isFeaturedActivity;
 		if (!shouldInclude) return;
 
 		const key = `${rating.customerId || "guest"}_${rating.menuItemId}`;
 		if (seenKeys.has(key)) return;
 		seenKeys.add(key);
 
-		const feedType = authorIsInfluencer
+		const feedType = authorIsInfluencer || isFeaturedActivity
 			? "influencer"
 			: isPip
 				? "pip"

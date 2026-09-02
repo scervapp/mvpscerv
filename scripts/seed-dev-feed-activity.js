@@ -97,6 +97,7 @@ async function setDoc(token, path, data) {
 const now = new Date();
 const demoPhotoUrl = (terms, lock) =>
 	`https://loremflickr.com/1200/900/${terms}?lock=${lock}`;
+const HARBOR_RESTAURANT_ID = "jaRr9o8wLcXUyDPeF6QsirPjNtA3";
 
 const featuredDiners = [
 	{
@@ -168,7 +169,7 @@ const feedReviews = [
 	{
 		customerId: "feed_featured_maya",
 		menuItemId: "dev_item_harbor_calamari",
-		restaurantId: "dev_restaurant_harbor",
+		restaurantId: HARBOR_RESTAURANT_ID,
 		ratingValue: 4.9,
 		reviewText:
 			"Light, crisp, and clean. The kind of calamari you order for the table before anyone argues.",
@@ -201,7 +202,7 @@ const feedReviews = [
 	{
 		customerId: "feed_featured_marcus",
 		menuItemId: "dev_item_harbor_steak_frites",
-		restaurantId: "dev_restaurant_harbor",
+		restaurantId: HARBOR_RESTAURANT_ID,
 		ratingValue: 4.6,
 		reviewText:
 			"Steak came out with a proper crust, fries stayed crisp, and the sauce carried the plate.",
@@ -212,7 +213,7 @@ const feedReviews = [
 	{
 		customerId: "feed_featured_jordan",
 		menuItemId: "dev_item_harbor_burger",
-		restaurantId: "dev_restaurant_harbor",
+		restaurantId: HARBOR_RESTAURANT_ID,
 		ratingValue: 4.5,
 		reviewText:
 			"Juicy, salty, and built right. A burger that makes sense even at a seafood spot.",
@@ -223,7 +224,7 @@ const feedReviews = [
 	{
 		customerId: "feed_featured_maya",
 		menuItemId: "dev_item_harbor_oysters",
-		restaurantId: "dev_restaurant_harbor",
+		restaurantId: HARBOR_RESTAURANT_ID,
 		ratingValue: 4.9,
 		reviewText:
 			"Cold, briny, and beautifully handled. This is the raw bar move.",
@@ -373,6 +374,8 @@ async function seedFeedReview(token, review, index) {
 		],
 		orderId: `feed_demo_order_${index + 1}`,
 		origin: "dev_feed_seed",
+		feedVisibility: "featured",
+		feedType: "featured_diner",
 		isIndividual: true,
 		status: "published",
 		verificationLevel: index % 3 === 0 ? "receipt_verified" : "location_verified",
@@ -386,6 +389,7 @@ async function seedFeedReview(token, review, index) {
 		`menuItems/${review.menuItemId}/ratings/${ratingId}`,
 		ratingPayload,
 	);
+	await setDoc(token, `scervFeedActivity/${ratingId}`, ratingPayload);
 	await setDoc(
 		token,
 		`customerPalateProfiles/${review.customerId}/ratingEvents/${ratingId}`,
