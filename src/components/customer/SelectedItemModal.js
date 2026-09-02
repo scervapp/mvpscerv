@@ -267,6 +267,7 @@ const SelectedItemModal = ({
 	isOrderingAvailable = true,
 	restaurantName = "",
 	onViewRestaurant,
+	onReviewSubmitted,
 }) => {
 	const { t, i18n } = useTranslation();
 	const navigation = useNavigation();
@@ -594,6 +595,11 @@ const SelectedItemModal = ({
 			setCommunityRating(0);
 			setCommunityReviewText("");
 			setCommunityReviewTags([]);
+			onReviewSubmitted?.({
+				menuItemId: selectedItem.id,
+				restaurantId: selectedItem.restaurantId,
+				ratingValue: communityRating,
+			});
 			Alert.alert(
 				t("thank_you", "Thank you"),
 				t(

@@ -451,6 +451,27 @@ const TasteMatchCard = ({ item, onPress }) => {
 	);
 };
 
+const TasteProfilePrompt = ({ onStart }) => (
+	<View style={styles.tasteProfilePrompt}>
+		<View style={styles.tasteProfileIcon}>
+			<Ionicons name="sparkles-outline" size={22} color={colors.primary} />
+		</View>
+		<View style={styles.tasteProfileTextWrap}>
+			<Text style={styles.tasteProfileTitle}>Shape your taste profile</Text>
+			<Text style={styles.tasteProfileText}>
+				Rate a few dishes and Scerv will start learning what belongs on your table.
+			</Text>
+		</View>
+		<TouchableOpacity
+			style={styles.tasteProfileButton}
+			activeOpacity={0.75}
+			onPress={onStart}
+		>
+			<Text style={styles.tasteProfileButtonText}>Start</Text>
+		</TouchableOpacity>
+	</View>
+);
+
 const CustomerDashboard = ({ navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 
@@ -466,7 +487,10 @@ const CustomerDashboard = ({ navigation }) => {
 	const [showRegionModal, setShowRegionModal] = useState(false);
 	const [selectedRegion, setSelectedRegion] = useState(null);
 	const [tasteRecommendations, setTasteRecommendations] = useState([]);
+	const [tasteProfileStatus, setTasteProfileStatus] = useState(null);
 	const [isTasteLoading, setIsTasteLoading] = useState(false);
+	const [menuRefreshKey, setMenuRefreshKey] = useState(0);
+	const [tasteRefreshKey, setTasteRefreshKey] = useState(0);
 	const [selectedDiscoveryGroup, setSelectedDiscoveryGroup] = useState(null);
 	const [selectedDiscoveryDish, setSelectedDiscoveryDish] = useState(null);
 
@@ -595,7 +619,7 @@ const CustomerDashboard = ({ navigation }) => {
 		return () => {
 			isActive = false;
 		};
-	}, [allRestaurants]);
+	}, [allRestaurants, menuRefreshKey]);
 
 	useEffect(() => {
 		let isActive = true;
@@ -607,6 +631,7 @@ const CustomerDashboard = ({ navigation }) => {
 				!currentUserData?.uid
 			) {
 				setTasteRecommendations([]);
+				setTasteProfileStatus(null);
 				return;
 			}
 
@@ -623,12 +648,16 @@ const CustomerDashboard = ({ navigation }) => {
 
 				if (!isActive) return;
 				const recommendations = response.data?.recommendations || [];
+				setTasteProfileStatus(response.data?.profileStatus || "ready");
 				setTasteRecommendations(
 					Array.isArray(recommendations) ? recommendations : [],
 				);
 			} catch (error) {
 				console.log("Error loading Scerv taste recommendations:", error);
-				if (isActive) setTasteRecommendations([]);
+				if (isActive) {
+					setTasteRecommendations([]);
+					setTasteProfileStatus("unavailable");
+				}
 			} finally {
 				if (isActive) setIsTasteLoading(false);
 			}
@@ -639,7 +668,7 @@ const CustomerDashboard = ({ navigation }) => {
 		return () => {
 			isActive = false;
 		};
-	}, [currentUserData?.role, currentUserData?.uid, selectedRegion]);
+	}, [currentUserData?.role, currentUserData?.uid, selectedRegion, tasteRefreshKey]);
 
 	const handleRestaurantPress = (restaurant) => {
 		if (restaurant.isComingSoon) return;
@@ -698,6 +727,14 @@ const CustomerDashboard = ({ navigation }) => {
 			},
 			restaurant,
 		});
+	};
+
+	const handleDiscoveryReviewSubmitted = () => {
+		setTasteRefreshKey((current) => current + 1);
+		// Rating aggregation is trigger-based, so refresh menu scores shortly after the review write lands.
+		setTimeout(() => {
+			setMenuRefreshKey((current) => current + 1);
+		}, 1600);
 	};
 
 	const handleViewDiscoveryDishRestaurant = () => {
@@ -1048,6 +1085,17 @@ const CustomerDashboard = ({ navigation }) => {
 							Tuning recommendations...
 						</Text>
 					</View>
+				) : !isActivelySearching &&
+					currentUserData?.role === "customer" &&
+					["not_enough_ratings", "no_market_restaurants"].includes(
+						tasteProfileStatus,
+					) &&
+					topFoodResults.length > 0 ? (
+					<View style={styles.tasteProfileSection}>
+						<TasteProfilePrompt
+							onStart={() => handleTopFoodPress(topFoodResults[0])}
+						/>
+					</View>
 				) : null}
 
 				{topFoodResults.length > 0 ? (
@@ -1109,6 +1157,7 @@ const CustomerDashboard = ({ navigation }) => {
 			isActivelySearching,
 			isMenuLoading,
 			isTasteLoading,
+			tasteProfileStatus,
 			resultTitle,
 			restaurantById,
 			searchText,
@@ -1322,6 +1371,7 @@ const CustomerDashboard = ({ navigation }) => {
 						""
 					}
 					onViewRestaurant={handleViewDiscoveryDishRestaurant}
+					onReviewSubmitted={handleDiscoveryReviewSubmitted}
 				/>
 			) : null}
 		</SafeAreaView>
@@ -1408,6 +1458,7 @@ const styles = StyleSheet.create({
 	discoverySection: { paddingTop: 20 },
 	featuredSection: { paddingTop: 18 },
 	tasteMatchSection: { paddingTop: 18 },
+	tasteProfileSection: { paddingTop: 18, paddingHorizontal: 20 },
 	topFoodSection: { paddingTop: 20 },
 	sectionHeader: { paddingHorizontal: 20, marginBottom: 12 },
 	sectionTitle: {
@@ -1635,6 +1686,53 @@ const styles = StyleSheet.create({
 		fontSize: 13,
 		fontWeight: "800",
 		color: colors.textMedium,
+	},
+	tasteProfilePrompt: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		padding: 12,
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#DDE7E9",
+	},
+	tasteProfileIcon: {
+		width: 42,
+		height: 42,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#EAF5F5",
+	},
+	tasteProfileTextWrap: {
+		flex: 1,
+		minWidth: 0,
+	},
+	tasteProfileTitle: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	tasteProfileText: {
+		fontSize: 12,
+		lineHeight: 17,
+		fontWeight: "700",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	tasteProfileButton: {
+		height: 34,
+		paddingHorizontal: 12,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+	},
+	tasteProfileButtonText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.surfaceWhite,
 	},
 	discoveryResultsOverlay: {
 		flex: 1,
