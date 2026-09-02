@@ -580,6 +580,28 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 		.doc(menuItemId)
 		.collection("ratings")
 		.doc(ratingDocId);
+	const feedActivityRef = db.collection("scervFeedActivity").doc(ratingDocId);
+	const timestamp = admin.firestore.FieldValue.serverTimestamp();
+	const ratingPayload = {
+		menuItemId,
+		restaurantId,
+		customerId: uid,
+		ratingValue,
+		comment: cleanReviewText || null,
+		reviewText: cleanReviewText || null,
+		reviewTags: cleanReviewTags,
+		media: cleanReviewMedia,
+		customerName: safeCustomerName || null,
+		customerDisplayName: safeCustomerName || null,
+		orderId,
+		origin: cleanOrigin || null,
+		isIndividual,
+		status: "published",
+		verificationLevel: cleanVerificationLevel,
+		wasOrderedThroughScerv: Boolean(orderId),
+		palateSignals,
+		timestamp,
+	};
 
 	try {
 		await db.runTransaction(async (t) => {
@@ -591,26 +613,15 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				);
 			}
 
-			t.set(ratingRef, {
-				menuItemId,
-				restaurantId,
-				customerId: uid,
-				ratingValue,
-				comment: cleanReviewText || null,
-				reviewText: cleanReviewText || null,
-				reviewTags: cleanReviewTags,
-				media: cleanReviewMedia,
-				customerName: safeCustomerName || null,
-				customerDisplayName: safeCustomerName || null,
-				orderId,
-				origin: cleanOrigin || null,
-				isIndividual,
-				status: "published",
-				verificationLevel: cleanVerificationLevel,
-				wasOrderedThroughScerv: Boolean(orderId),
-				palateSignals,
-				timestamp: admin.firestore.FieldValue.serverTimestamp(),
-			});
+			t.set(ratingRef, ratingPayload);
+			if (Number(ratingValue) >= 4) {
+				// The feed rail is denormalized so discovery can load quickly without scanning every menu item's ratings.
+				t.set(feedActivityRef, {
+					...ratingPayload,
+					feedVisibility: "network_candidate",
+					feedType: "guest_review",
+				});
+			}
 		});
 
 		try {
