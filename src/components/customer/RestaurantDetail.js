@@ -869,29 +869,33 @@ const RestaurantDetailScreen = () => {
 						color={colors.primary}
 					/>
 					<View style={styles.discoveryOnlyTextWrap}>
-						<Text style={styles.discoveryOnlyTitle}>
-							{t("discovery_profile_title", "Menu and reviews")}
-						</Text>
+						<View style={styles.discoveryOnlyTitleRow}>
+							<Text style={styles.discoveryOnlyTitle}>
+								{t("discovery_profile_title", "Menu and reviews")}
+							</Text>
+							<TouchableOpacity
+								style={styles.claimRestaurantIconButton}
+								activeOpacity={0.78}
+								onPress={handleClaimRestaurant}
+								accessibilityRole="button"
+								accessibilityLabel={t(
+									"claim_this_restaurant",
+									"Own this restaurant? Claim it",
+								)}
+							>
+								<MaterialCommunityIcons
+									name="store-check-outline"
+									size={17}
+									color={colors.primary}
+								/>
+							</TouchableOpacity>
+						</View>
 						<Text style={styles.discoveryOnlySubtitle}>
 							{t(
 								"discovery_profile_subtitle",
 								"This restaurant is listed for food discovery. Ordering, check-in, rewards, and reservations are not enabled yet.",
 							)}
 						</Text>
-						<TouchableOpacity
-							style={styles.claimRestaurantButton}
-							activeOpacity={0.78}
-							onPress={handleClaimRestaurant}
-						>
-							<Text style={styles.claimRestaurantButtonText}>
-								{t("claim_this_restaurant", "Own this restaurant? Claim it")}
-							</Text>
-							<MaterialCommunityIcons
-								name="arrow-right"
-								size={16}
-								color={colors.primary}
-							/>
-						</TouchableOpacity>
 					</View>
 				</View>
 			);
@@ -1481,7 +1485,14 @@ const styles = StyleSheet.create({
 	discoveryOnlyTextWrap: {
 		flex: 1,
 	},
+	discoveryOnlyTitleRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: 8,
+	},
 	discoveryOnlyTitle: {
+		flex: 1,
 		fontSize: 14,
 		fontWeight: "900",
 		color: colors.textDark,
@@ -1492,21 +1503,13 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		marginTop: 3,
 	},
-	claimRestaurantButton: {
-		alignSelf: "flex-start",
-		flexDirection: "row",
+	claimRestaurantIconButton: {
+		width: 30,
+		height: 30,
+		borderRadius: 15,
 		alignItems: "center",
-		gap: 6,
-		marginTop: 10,
-		paddingHorizontal: 11,
-		paddingVertical: 8,
-		borderRadius: 8,
+		justifyContent: "center",
 		backgroundColor: colors.primary + "12",
-	},
-	claimRestaurantButtonText: {
-		fontSize: 12,
-		fontWeight: "900",
-		color: colors.primary,
 	},
 	splitActionsRow: {
 		flexDirection: "row",
