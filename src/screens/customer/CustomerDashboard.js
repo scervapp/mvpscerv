@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -488,11 +488,13 @@ const CustomerDashboard = ({ navigation }) => {
 	const [selectedRegion, setSelectedRegion] = useState(null);
 	const [tasteRecommendations, setTasteRecommendations] = useState([]);
 	const [tasteProfileStatus, setTasteProfileStatus] = useState(null);
+	const [tasteProfileCount, setTasteProfileCount] = useState(0);
 	const [isTasteLoading, setIsTasteLoading] = useState(false);
 	const [menuRefreshKey, setMenuRefreshKey] = useState(0);
 	const [tasteRefreshKey, setTasteRefreshKey] = useState(0);
 	const [selectedDiscoveryGroup, setSelectedDiscoveryGroup] = useState(null);
 	const [selectedDiscoveryDish, setSelectedDiscoveryDish] = useState(null);
+	const reviewRefreshTimeoutRef = useRef(null);
 
 	const debouncedSearchText = useDebounce(searchText, 300);
 	const isActivelySearching = searchText.trim().length > 0;
@@ -632,6 +634,7 @@ const CustomerDashboard = ({ navigation }) => {
 			) {
 				setTasteRecommendations([]);
 				setTasteProfileStatus(null);
+				setTasteProfileCount(0);
 				return;
 			}
 
@@ -649,6 +652,7 @@ const CustomerDashboard = ({ navigation }) => {
 				if (!isActive) return;
 				const recommendations = response.data?.recommendations || [];
 				setTasteProfileStatus(response.data?.profileStatus || "ready");
+				setTasteProfileCount(Number(response.data?.totalDishRatings || 0));
 				setTasteRecommendations(
 					Array.isArray(recommendations) ? recommendations : [],
 				);
@@ -657,6 +661,7 @@ const CustomerDashboard = ({ navigation }) => {
 				if (isActive) {
 					setTasteRecommendations([]);
 					setTasteProfileStatus("unavailable");
+					setTasteProfileCount(0);
 				}
 			} finally {
 				if (isActive) setIsTasteLoading(false);
@@ -669,6 +674,14 @@ const CustomerDashboard = ({ navigation }) => {
 			isActive = false;
 		};
 	}, [currentUserData?.role, currentUserData?.uid, selectedRegion, tasteRefreshKey]);
+
+	useEffect(() => {
+		return () => {
+			if (reviewRefreshTimeoutRef.current) {
+				clearTimeout(reviewRefreshTimeoutRef.current);
+			}
+		};
+	}, []);
 
 	const handleRestaurantPress = (restaurant) => {
 		if (restaurant.isComingSoon) return;
@@ -731,11 +744,22 @@ const CustomerDashboard = ({ navigation }) => {
 
 	const handleDiscoveryReviewSubmitted = () => {
 		setTasteRefreshKey((current) => current + 1);
+		if (reviewRefreshTimeoutRef.current) {
+			clearTimeout(reviewRefreshTimeoutRef.current);
+		}
 		// Rating aggregation is trigger-based, so refresh menu scores shortly after the review write lands.
-		setTimeout(() => {
+		reviewRefreshTimeoutRef.current = setTimeout(() => {
 			setMenuRefreshKey((current) => current + 1);
+			reviewRefreshTimeoutRef.current = null;
 		}, 1600);
 	};
+
+	const tasteRecommendationSubtitle =
+		tasteProfileCount > 0
+			? `Scerv Intelligence picks shaped by ${tasteProfileCount} dish ${
+					tasteProfileCount === 1 ? "rating" : "ratings"
+				}.`
+			: "Early Scerv Intelligence picks shaped by your dish ratings.";
 
 	const handleViewDiscoveryDishRestaurant = () => {
 		const restaurant = selectedDiscoveryDish?.restaurant;
@@ -1060,7 +1084,7 @@ const CustomerDashboard = ({ navigation }) => {
 					<View style={styles.tasteMatchSection}>
 						<SectionHeader
 							title="Matched to your taste"
-							subtitle="Early Scerv Intelligence picks shaped by your dish ratings."
+							subtitle={tasteRecommendationSubtitle}
 						/>
 						<FlatList
 							data={tasteRecommendations}
