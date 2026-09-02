@@ -12,6 +12,7 @@ import {
 	Keyboard,
 	Platform,
 	Image,
+	useWindowDimensions,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Button, Divider, IconButton, TextInput } from "react-native-paper";
@@ -270,7 +271,10 @@ const SelectedItemModal = ({
 	const { t, i18n } = useTranslation();
 	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
+	const { height: windowHeight } = useWindowDimensions();
 	const keyboardAccessoryId = "selected-item-keyboard-toolbar";
+	const modalMaxHeight = Math.round(windowHeight * 0.9);
+	const modalScrollMaxHeight = Math.max(260, modalMaxHeight - 76);
 
 	const [quantity, setQuantity] = useState(1);
 	const [partyModeTarget, setPartyModeTarget] = useState(null);
@@ -1209,9 +1213,12 @@ const SelectedItemModal = ({
 			transparent={true}
 		>
 			<View style={styles.modalOverlay}>
-				<View style={styles.modalContent}>
+				<View style={[styles.modalContent, { maxHeight: modalMaxHeight }]}>
 					<ScrollView
-						style={styles.modalScrollView}
+						style={[
+							styles.modalScrollView,
+							{ maxHeight: modalScrollMaxHeight },
+						]}
 						showsVerticalScrollIndicator={false}
 						keyboardDismissMode="interactive"
 						keyboardShouldPersistTaps="handled"
@@ -1828,6 +1835,7 @@ const styles = StyleSheet.create({
 		borderRadius: 12,
 		width: "92%",
 		maxHeight: "92%",
+		flexShrink: 1,
 		overflow: "hidden",
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
@@ -1860,8 +1868,8 @@ const styles = StyleSheet.create({
 	},
 	scrollContainer: {
 		paddingHorizontal: 20,
-		paddingTop: 45,
-		paddingBottom: 32,
+		paddingTop: 38,
+		paddingBottom: 18,
 	},
 	closeButton: {
 		position: "absolute",
@@ -2125,13 +2133,16 @@ const styles = StyleSheet.create({
 	},
 	reviewSummaryHeader: {
 		flexDirection: "row",
-		alignItems: "center",
+		alignItems: "flex-start",
 		justifyContent: "space-between",
 		gap: 10,
 	},
 	reviewHeaderActions: {
 		flexDirection: "row",
 		alignItems: "center",
+		justifyContent: "flex-end",
+		flexShrink: 1,
+		flexWrap: "wrap",
 		gap: 8,
 	},
 	rateDishButton: {
@@ -2503,11 +2514,13 @@ const styles = StyleSheet.create({
 	modalActionButtonsContainer: {
 		flexDirection: "row",
 		justifyContent: "space-around",
-		paddingVertical: 15,
+		paddingTop: 12,
+		paddingBottom: 14,
 		paddingHorizontal: 15,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
-		backgroundColor: colors.backgroundLight,
+		backgroundColor: colors.surfaceWhite,
+		flexShrink: 0,
 	},
 	modalActionButton: {
 		flex: 1,
