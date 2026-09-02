@@ -22,6 +22,10 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { AuthContext } from "../../context/authContext";
 import { db, functions } from "../../config/firebase";
 import {
+	pickImage,
+	uploadImageAndGetDownloadURL,
+} from "../../utils/firebaseUtils";
+import {
 	formatCurrencyFromDollars,
 	normalizeMenuPriceToDollars,
 } from "../../utils/currencyFormatter";
@@ -288,6 +292,7 @@ const SelectedItemModal = ({
 	const [communityRating, setCommunityRating] = useState(0);
 	const [communityReviewText, setCommunityReviewText] = useState("");
 	const [communityReviewTags, setCommunityReviewTags] = useState([]);
+	const [communityReviewPhotoUri, setCommunityReviewPhotoUri] = useState("");
 	const [isSubmittingCommunityReview, setIsSubmittingCommunityReview] =
 		useState(false);
 
@@ -379,6 +384,7 @@ const SelectedItemModal = ({
 			setCommunityRating(0);
 			setCommunityReviewText("");
 			setCommunityReviewTags([]);
+			setCommunityReviewPhotoUri("");
 			return undefined;
 		}
 
@@ -552,6 +558,7 @@ const SelectedItemModal = ({
 		setCommunityRating(0);
 		setCommunityReviewText("");
 		setCommunityReviewTags([]);
+		setCommunityReviewPhotoUri("");
 		setIsReviewModalVisible(true);
 	};
 
@@ -561,6 +568,17 @@ const SelectedItemModal = ({
 				? currentTags.filter((value) => value !== tag)
 				: [...currentTags, tag],
 		);
+	};
+
+	const pickCommunityReviewPhoto = async () => {
+		try {
+			const result = await pickImage();
+			if (result?.success && result.uri) {
+				setCommunityReviewPhotoUri(result.uri);
+			}
+		} catch (error) {
+			console.error("Community review photo pick failed:", error);
+		}
 	};
 
 	const submitCommunityReview = async () => {
@@ -575,6 +593,27 @@ const SelectedItemModal = ({
 
 		setIsSubmittingCommunityReview(true);
 		try {
+			let uploadedReviewMedia = [];
+			if (communityReviewPhotoUri) {
+				const storagePath = `review-photos/${selectedItem.restaurantId}/${
+					selectedItem.id
+				}/${currentUserData.uid}_${Date.now()}.jpg`;
+				const photoUrl = await uploadImageAndGetDownloadURL(
+					communityReviewPhotoUri,
+					storagePath,
+				);
+				// Reviews store normalized media objects so photos and future videos can render through the same gallery.
+				uploadedReviewMedia = [
+					{
+						type: "photo",
+						url: photoUrl,
+						thumbnailUrl: photoUrl,
+						source: "customer",
+						status: "published",
+					},
+				];
+			}
+
 			const submitRating = httpsCallable(functions, "submitMenuItemRating");
 			await submitRating({
 				menuItemId: selectedItem.id,
@@ -589,16 +628,18 @@ const SelectedItemModal = ({
 				customerName: getCustomerReviewName() || null,
 				customerDisplayName: getCustomerReviewName() || null,
 				verificationLevel: "community_guest",
-				media: [],
+				media: uploadedReviewMedia,
 			});
 			setIsReviewModalVisible(false);
 			setCommunityRating(0);
 			setCommunityReviewText("");
 			setCommunityReviewTags([]);
+			setCommunityReviewPhotoUri("");
 			onReviewSubmitted?.({
 				menuItemId: selectedItem.id,
 				restaurantId: selectedItem.restaurantId,
 				ratingValue: communityRating,
+				media: uploadedReviewMedia,
 			});
 			Alert.alert(
 				t("thank_you", "Thank you"),
@@ -1786,61 +1827,107 @@ const SelectedItemModal = ({
 							/>
 						</View>
 
-						<InteractiveStarRating
-							rating={communityRating}
-							onRate={setCommunityRating}
-							size={32}
-						/>
+						<ScrollView
+							style={styles.communityReviewScroll}
+							contentContainerStyle={styles.communityReviewScrollContent}
+							keyboardDismissMode="interactive"
+							keyboardShouldPersistTaps="handled"
+							showsVerticalScrollIndicator={false}
+						>
+							<InteractiveStarRating
+								rating={communityRating}
+								onRate={setCommunityRating}
+								size={32}
+							/>
 
-						<TextInput
-							style={styles.communityReviewInput}
-							placeholder={t(
-								"community_review_placeholder",
-								"What should other guests know about this dish?",
-							)}
-							value={communityReviewText}
-							onChangeText={setCommunityReviewText}
-							multiline
-							numberOfLines={4}
-							blurOnSubmit
-							inputAccessoryViewID={keyboardAccessoryId}
-							returnKeyType="done"
-							onSubmitEditing={Keyboard.dismiss}
-							placeholderTextColor={colors.textLight}
-						/>
+							<TextInput
+								style={styles.communityReviewInput}
+								placeholder={t(
+									"community_review_placeholder",
+									"What should other guests know about this dish?",
+								)}
+								value={communityReviewText}
+								onChangeText={setCommunityReviewText}
+								multiline
+								numberOfLines={4}
+								blurOnSubmit
+								inputAccessoryViewID={keyboardAccessoryId}
+								returnKeyType="done"
+								onSubmitEditing={Keyboard.dismiss}
+								placeholderTextColor={colors.textLight}
+							/>
 
-						<View style={styles.communityReviewTagRow}>
-							{COMMUNITY_REVIEW_TAGS.map((tag) => {
-								const isSelected = communityReviewTags.includes(tag);
-								return (
-									<TouchableOpacity
-										key={tag}
-										style={[
-											styles.communityReviewTag,
-											isSelected && styles.communityReviewTagSelected,
-										]}
-										activeOpacity={0.75}
-										onPress={() => toggleCommunityReviewTag(tag)}
-									>
-										<Text
-											style={[
-												styles.communityReviewTagText,
-												isSelected && styles.communityReviewTagTextSelected,
-											]}
+							<View style={styles.communityPhotoRow}>
+								{communityReviewPhotoUri ? (
+									<View style={styles.communityPhotoPreviewWrap}>
+										<Image
+											source={{ uri: communityReviewPhotoUri }}
+											style={styles.communityPhotoPreview}
+										/>
+										<TouchableOpacity
+											style={styles.communityPhotoRemoveButton}
+											activeOpacity={0.75}
+											onPress={() => setCommunityReviewPhotoUri("")}
 										>
-											{tag}
-										</Text>
-									</TouchableOpacity>
-								);
-							})}
-						</View>
+											<Ionicons
+												name="close"
+												size={15}
+												color={colors.surfaceWhite}
+											/>
+										</TouchableOpacity>
+									</View>
+								) : null}
+								<TouchableOpacity
+									style={styles.communityPhotoButton}
+									activeOpacity={0.75}
+									onPress={pickCommunityReviewPhoto}
+								>
+									<Ionicons
+										name={communityReviewPhotoUri ? "image" : "image-outline"}
+										size={17}
+										color={colors.primary}
+									/>
+									<Text style={styles.communityPhotoButtonText}>
+										{communityReviewPhotoUri
+											? t("change_food_photo", "Change photo")
+											: t("add_food_photo", "Add food photo")}
+									</Text>
+								</TouchableOpacity>
+							</View>
 
-						<Text style={styles.communityReviewTrustText}>
-							{t(
-								"community_review_trust_note",
-								"Community ratings help Scerv discovery. Verified visit and order signals can be added later.",
-							)}
-						</Text>
+							<View style={styles.communityReviewTagRow}>
+								{COMMUNITY_REVIEW_TAGS.map((tag) => {
+									const isSelected = communityReviewTags.includes(tag);
+									return (
+										<TouchableOpacity
+											key={tag}
+											style={[
+												styles.communityReviewTag,
+												isSelected && styles.communityReviewTagSelected,
+											]}
+											activeOpacity={0.75}
+											onPress={() => toggleCommunityReviewTag(tag)}
+										>
+											<Text
+												style={[
+													styles.communityReviewTagText,
+													isSelected && styles.communityReviewTagTextSelected,
+												]}
+											>
+												{tag}
+											</Text>
+										</TouchableOpacity>
+									);
+								})}
+							</View>
+
+							<Text style={styles.communityReviewTrustText}>
+								{t(
+									"community_review_trust_note",
+									"Community ratings help Scerv discovery. Verified visit and order signals can be added later.",
+								)}
+							</Text>
+						</ScrollView>
 
 						<Button
 							mode="contained"
@@ -2476,6 +2563,12 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 		marginBottom: 6,
 	},
+	communityReviewScroll: {
+		maxHeight: 390,
+	},
+	communityReviewScrollContent: {
+		paddingBottom: 4,
+	},
 	communityReviewInput: {
 		width: "100%",
 		borderWidth: 1,
@@ -2488,6 +2581,51 @@ const styles = StyleSheet.create({
 		color: colors.textDark,
 		minHeight: 105,
 		textAlignVertical: "top",
+	},
+	communityPhotoRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		marginTop: 12,
+	},
+	communityPhotoPreviewWrap: {
+		position: "relative",
+		width: 58,
+		height: 58,
+		borderRadius: 8,
+		overflow: "hidden",
+		backgroundColor: colors.backgroundLight,
+	},
+	communityPhotoPreview: {
+		width: "100%",
+		height: "100%",
+	},
+	communityPhotoRemoveButton: {
+		position: "absolute",
+		top: 5,
+		right: 5,
+		width: 22,
+		height: 22,
+		borderRadius: 11,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.58)",
+	},
+	communityPhotoButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 7,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+	},
+	communityPhotoButtonText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	communityReviewTagRow: {
 		flexDirection: "row",
