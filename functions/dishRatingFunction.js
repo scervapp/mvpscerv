@@ -14,6 +14,195 @@ const makeSafeDocId = (value) =>
 		.replace(/[^a-zA-Z0-9_-]/g, "_")
 		.slice(0, 500);
 
+const normalizeSignal = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9\s_-]/g, " ")
+		.replace(/[\s-]+/g, "_")
+		.replace(/^_+|_+$/g, "")
+		.slice(0, 60);
+
+const normalizeSignalList = (value, limit = 12) => {
+	if (!Array.isArray(value)) return [];
+	return [
+		...new Set(value.map(normalizeSignal).filter((signal) => signal.length > 0)),
+	].slice(0, limit);
+};
+
+const buildMenuItemPalateSignals = (menuItem = {}, restaurant = {}) => {
+	const categorySignals = normalizeSignalList([
+		menuItem.standardCategory,
+		menuItem.category,
+		menuItem.subcategory,
+		menuItem.menuSection,
+	]);
+	const cuisineSignals = normalizeSignalList([
+		restaurant.cuisineType,
+		restaurant.cuisine,
+		...(Array.isArray(menuItem.cuisineTags) ? menuItem.cuisineTags : []),
+	]);
+
+	return {
+		dishTypes: normalizeSignalList([
+			menuItem.discoveryLabel,
+			menuItem.displayCategory,
+			menuItem.name,
+			...(Array.isArray(menuItem.dishTypeTags) ? menuItem.dishTypeTags : []),
+			...(Array.isArray(menuItem.dishAliases) ? menuItem.dishAliases : []),
+		]),
+		categories: categorySignals,
+		cuisines: cuisineSignals,
+		ingredients: normalizeSignalList([
+			...(Array.isArray(menuItem.ingredientTags) ? menuItem.ingredientTags : []),
+			...(Array.isArray(menuItem.ingredients) ? menuItem.ingredients : []),
+		], 18),
+		flavors: normalizeSignalList(menuItem.flavorTags, 14),
+		dietary: normalizeSignalList([
+			...(Array.isArray(menuItem.dietaryTags) ? menuItem.dietaryTags : []),
+			menuItem.isVegetarian ? "vegetarian" : "",
+			menuItem.isVegan ? "vegan" : "",
+			menuItem.isGlutenFree ? "gluten_free" : "",
+		]),
+		allergens: normalizeSignalList(menuItem.allergenTags, 10),
+		mealPeriods: normalizeSignalList(menuItem.mealPeriodTags, 8),
+		spiceLevel: Number.isFinite(Number(menuItem.spiceLevel))
+			? Number(menuItem.spiceLevel)
+			: null,
+	};
+};
+
+const getRatingSentiment = (ratingValue) => {
+	const rating = Number(ratingValue);
+	if (rating >= 4) return "positive";
+	if (rating <= 2) return "negative";
+	return "neutral";
+};
+
+const addSignalCounters = (patch, namespace, values, ratingValue, sentiment) => {
+	patch.signalCounts = patch.signalCounts || {};
+	patch.signalCounts[namespace] = patch.signalCounts[namespace] || {};
+
+	values.forEach((value) => {
+		const key = normalizeSignal(value);
+		if (!key) return;
+		patch.signalCounts[namespace][key] = {
+			count: admin.firestore.FieldValue.increment(1),
+			ratingSum: admin.firestore.FieldValue.increment(Number(ratingValue)),
+		};
+		if (sentiment !== "neutral") {
+			patch.signalCounts[namespace][key][`${sentiment}Count`] =
+				admin.firestore.FieldValue.increment(1);
+		}
+	});
+};
+
+const updateCustomerPalateProfile = async ({
+	uid,
+	ratingDocId,
+	menuItemId,
+	restaurantId,
+	ratingValue,
+	reviewTags,
+	orderId,
+	origin,
+	verificationLevel,
+	palateSignals,
+}) => {
+	const sentiment = getRatingSentiment(ratingValue);
+	const timestamp = admin.firestore.FieldValue.serverTimestamp();
+	const profileRef = db.collection("customerPalateProfiles").doc(uid);
+	const eventRef = profileRef.collection("ratingEvents").doc(ratingDocId);
+	const profilePatch = {
+		customerId: uid,
+		totalDishRatings: admin.firestore.FieldValue.increment(1),
+		totalRatingValue: admin.firestore.FieldValue.increment(Number(ratingValue)),
+		lastRatingValue: Number(ratingValue),
+		lastRatingSentiment: sentiment,
+		lastMenuItemId: menuItemId,
+		lastRestaurantId: restaurantId,
+		lastRatedAt: timestamp,
+		updatedAt: timestamp,
+	};
+
+	if (orderId) {
+		profilePatch.scervOrderVerifiedRatings =
+			admin.firestore.FieldValue.increment(1);
+	}
+	if (sentiment !== "neutral") {
+		profilePatch[`${sentiment}DishRatings`] =
+			admin.firestore.FieldValue.increment(1);
+	}
+
+	addSignalCounters(
+		profilePatch,
+		"dishTypes",
+		palateSignals.dishTypes || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"categories",
+		palateSignals.categories || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"cuisines",
+		palateSignals.cuisines || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"ingredients",
+		palateSignals.ingredients || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"flavors",
+		palateSignals.flavors || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"dietary",
+		palateSignals.dietary || [],
+		ratingValue,
+		sentiment,
+	);
+	addSignalCounters(
+		profilePatch,
+		"reviewTags",
+		reviewTags || [],
+		ratingValue,
+		sentiment,
+	);
+
+	const batch = db.batch();
+	batch.set(profileRef, profilePatch, { merge: true });
+	// Each rating event keeps the source facts needed for future Scerv Intelligence matching.
+	batch.set(eventRef, {
+		customerId: uid,
+		menuItemId,
+		restaurantId,
+		ratingValue: Number(ratingValue),
+		sentiment,
+		reviewTags,
+		orderId,
+		origin,
+		verificationLevel,
+		palateSignals,
+		createdAt: timestamp,
+	});
+	await batch.commit();
+};
+
 // Store review photos/videos in a future-ready shape while upload moderation evolves separately.
 const normalizeReviewMediaList = (value) => {
 	if (!Array.isArray(value)) return [];
@@ -343,11 +532,24 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 	if (!restaurantSnap.exists) {
 		throw new functions.https.HttpsError("not-found", "Restaurant not found.");
 	}
+	const restaurantData = restaurantSnap.data() || {};
 	assertFeatureAllowed(
-		restaurantSnap.data() || {},
+		restaurantData,
 		"reviews",
 		"Reviews are not enabled for this restaurant plan.",
 	);
+	const menuItemSnap = await db.collection("menuItems").doc(menuItemId).get();
+	if (!menuItemSnap.exists) {
+		throw new functions.https.HttpsError("not-found", "Menu item not found.");
+	}
+	const menuItemData = menuItemSnap.data() || {};
+	if (menuItemData.restaurantId && menuItemData.restaurantId !== restaurantId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Menu item does not belong to this restaurant.",
+		);
+	}
+	const palateSignals = buildMenuItemPalateSignals(menuItemData, restaurantData);
 	const customerSnap = cleanClientName
 		? null
 		: await db.collection("customers").doc(uid).get();
@@ -406,9 +608,27 @@ exports.submitMenuItemRating = functions.https.onCall(async (data, context) => {
 				status: "published",
 				verificationLevel: cleanVerificationLevel,
 				wasOrderedThroughScerv: Boolean(orderId),
+				palateSignals,
 				timestamp: admin.firestore.FieldValue.serverTimestamp(),
 			});
 		});
+
+		try {
+			await updateCustomerPalateProfile({
+				uid,
+				ratingDocId,
+				menuItemId,
+				restaurantId,
+				ratingValue,
+				reviewTags: cleanReviewTags,
+				orderId,
+				origin: cleanOrigin || null,
+				verificationLevel: cleanVerificationLevel,
+				palateSignals,
+			});
+		} catch (profileError) {
+			console.warn("Palate profile update failed:", profileError);
+		}
 
 		return { success: true };
 	} catch (error) {
