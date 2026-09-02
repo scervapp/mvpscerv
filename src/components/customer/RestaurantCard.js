@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
+import { Alert, View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import colors from "../../utils/styles/appStyles";
@@ -42,6 +42,13 @@ const getListingStatus = (restaurant = {}) => {
 	}
 	if (["claimed", "verified"].includes(status)) return "claimed";
 	return "scerv_enabled";
+};
+
+const showScervScoreInfo = () => {
+	Alert.alert(
+		"Scerv Score",
+		"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+	);
 };
 
 const RestaurantCard = ({
@@ -160,9 +167,23 @@ const RestaurantCard = ({
 									{bestFoodRatingCount > 0 ? ` (${bestFoodRatingCount})` : ""}
 								</Text>
 								{bestFoodScervScore > 0 ? (
-									<Text style={styles.scervScoreText}>
-										Scerv {bestFoodScervScore}
-									</Text>
+									<TouchableOpacity
+										style={styles.scervScoreChip}
+										activeOpacity={0.75}
+										onPress={(event) => {
+											event?.stopPropagation?.();
+											showScervScoreInfo();
+										}}
+									>
+										<Text style={styles.scervScoreText}>
+											Scerv {bestFoodScervScore}
+										</Text>
+										<Ionicons
+											name="information-circle-outline"
+											size={13}
+											color={colors.primary}
+										/>
+									</TouchableOpacity>
 								) : null}
 							</View>
 						) : null}
@@ -297,8 +318,17 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: "#92400E",
 	},
-	scervScoreText: {
+	scervScoreChip: {
 		marginLeft: 6,
+		height: 22,
+		paddingHorizontal: 7,
+		borderRadius: 8,
+		backgroundColor: "#EAF5F5",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 3,
+	},
+	scervScoreText: {
 		fontSize: 11,
 		fontWeight: "900",
 		color: colors.primary,

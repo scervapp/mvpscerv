@@ -30,6 +30,7 @@ import Promotions from "./components/Promotions";
 import DataExplorer from "./components/DataExplorer";
 import DemoLeads from "./components/DemoLeads";
 import NewsletterSubscribers from "./components/NewsletterSubscribers";
+import DiscoveryHealth from "./components/DiscoveryHealth";
 import { selectedAdminEnvironment } from "./config/firebase";
 
 const ScrollToTop = () => {
@@ -140,6 +141,14 @@ function App() {
 							element={
 								<ProtectedRoute requiredRole="admin">
 									<Restaurants />
+								</ProtectedRoute>
+							}
+						/>
+						<Route
+							path="/discovery-health"
+							element={
+								<ProtectedRoute requiredRole="admin">
+									<DiscoveryHealth />
 								</ProtectedRoute>
 							}
 						/>

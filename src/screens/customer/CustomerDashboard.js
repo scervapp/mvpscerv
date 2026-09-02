@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
+	Alert,
 	Dimensions,
 	FlatList,
 	Image,
@@ -135,6 +136,13 @@ const getRatingCount = (menuItem = {}) => {
 	return Number.isFinite(count) ? count : 0;
 };
 
+const showScervScoreInfo = () => {
+	Alert.alert(
+		"Scerv Score",
+		"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+	);
+};
+
 const compareDiscoveryItems = (a, b) => {
 	const scoreDiff = getStoredScervScore(b) - getStoredScervScore(a);
 	if (scoreDiff !== 0) return scoreDiff;
@@ -265,6 +273,7 @@ const FeaturedCard = ({ item, onPress }) => {
 const TopFoodCard = ({ item, restaurant, onPress }) => {
 	const rating = getFoodRating(item);
 	const ratingCount = getRatingCount(item);
+	const scervScore = Math.round(getStoredScervScore(item));
 	const imageUri = item.imageUri || item.image || restaurant?.imageUri;
 
 	return (
@@ -294,6 +303,23 @@ const TopFoodCard = ({ item, restaurant, onPress }) => {
 							{rating.toFixed(1)}
 							{ratingCount > 0 ? ` (${ratingCount})` : ""}
 						</Text>
+						{scervScore > 0 ? (
+							<TouchableOpacity
+								style={styles.scoreInfoChip}
+								activeOpacity={0.75}
+								onPress={(event) => {
+									event?.stopPropagation?.();
+									showScervScoreInfo();
+								}}
+							>
+								<Text style={styles.scoreInfoText}>Scerv {scervScore}</Text>
+								<Ionicons
+									name="information-circle-outline"
+									size={14}
+									color={colors.primary}
+								/>
+							</TouchableOpacity>
+						) : null}
 					</View>
 				) : (
 					<Text style={styles.foodNoRating}>Newly listed</Text>
@@ -307,6 +333,7 @@ const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
 	const rating = getFoodRating(item);
 	const ratingCount = getRatingCount(item);
 	const reviewCount = Number(item.reviewCount || 0);
+	const scervScore = Math.round(getStoredScervScore(item));
 	const imageUri = item.imageUri || item.image || restaurant?.imageUri;
 	const area = getRestaurantArea(restaurant);
 
@@ -347,6 +374,25 @@ const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
 						<Text style={styles.discoveryResultSignalText}>
 							{reviewCount} review{reviewCount === 1 ? "" : "s"}
 						</Text>
+					) : null}
+					{scervScore > 0 ? (
+						<TouchableOpacity
+							style={styles.discoveryScoreInfoChip}
+							activeOpacity={0.75}
+							onPress={(event) => {
+								event?.stopPropagation?.();
+								showScervScoreInfo();
+							}}
+						>
+							<Text style={styles.discoveryScoreInfoText}>
+								Scerv {scervScore}
+							</Text>
+							<Ionicons
+								name="information-circle-outline"
+								size={13}
+								color={colors.primary}
+							/>
+						</TouchableOpacity>
 					) : null}
 				</View>
 			</View>
@@ -1340,6 +1386,21 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: "#92400E",
 	},
+	scoreInfoChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 3,
+		marginLeft: 4,
+		paddingHorizontal: 7,
+		height: 24,
+		borderRadius: 8,
+		backgroundColor: "#EAF5F5",
+	},
+	scoreInfoText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+	},
 	foodNoRating: {
 		fontSize: 12,
 		fontWeight: "800",
@@ -1490,6 +1551,20 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "900",
 		color: "#92400E",
+	},
+	discoveryScoreInfoChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 3,
+		paddingHorizontal: 7,
+		height: 22,
+		borderRadius: 8,
+		backgroundColor: "#EAF5F5",
+	},
+	discoveryScoreInfoText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	menuRatingLoading: {
 		marginHorizontal: 20,

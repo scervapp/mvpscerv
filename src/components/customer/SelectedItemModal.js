@@ -466,9 +466,48 @@ const SelectedItemModal = ({
 		);
 	}, [currentUserData?.uid, reviewHighlights]);
 
+	const reviewTrustSummary = useMemo(() => {
+		const summary = {
+			orderVerified: 0,
+			visitVerified: 0,
+			community: 0,
+			photo: 0,
+		};
+
+		reviewHighlights.forEach((review) => {
+			const level = String(review.verificationLevel || "").toLowerCase();
+			if (level === "scerv_order_verified") summary.orderVerified += 1;
+			if (level === "receipt_verified" || level === "location_verified") {
+				summary.visitVerified += 1;
+			}
+			if (level === "community_guest" || !level) summary.community += 1;
+			if (getReviewMedia(review).length > 0) summary.photo += 1;
+		});
+
+		const chips = [];
+		if (summary.orderVerified > 0) chips.push("Order verified");
+		if (summary.visitVerified > 0) chips.push("Visit verified");
+		if (summary.photo > 0) chips.push("Photo review");
+		if (summary.community > 0) chips.push("Community rating");
+		if (ratingSummary.ratingCount > 0 && ratingSummary.ratingCount < 5) {
+			chips.push("Needs more ratings");
+		}
+		return chips;
+	}, [ratingSummary.ratingCount, reviewHighlights]);
+
 	const canOpenDishReview = Boolean(
 		!isOrderingAvailable && selectedItem?.id && selectedItem?.restaurantId,
 	);
+
+	const showScervScoreInfo = () => {
+		Alert.alert(
+			t("scerv_score_title", "Scerv Score"),
+			t(
+				"scerv_score_explanation",
+				"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+			),
+		);
+	};
 
 	const getCustomerReviewName = () => {
 		const fullName = String(
@@ -964,7 +1003,11 @@ const SelectedItemModal = ({
 								</View>
 							)}
 							{ratingSummary.scervScore > 0 && (
-								<View style={styles.scervScorePill}>
+								<TouchableOpacity
+									style={styles.scervScorePill}
+									activeOpacity={0.75}
+									onPress={showScervScoreInfo}
+								>
 									<Ionicons
 										name="analytics-outline"
 										size={13}
@@ -973,7 +1016,12 @@ const SelectedItemModal = ({
 									<Text style={styles.scervScorePillText}>
 										Scerv {ratingSummary.scervScore}
 									</Text>
-								</View>
+									<Ionicons
+										name="information-circle-outline"
+										size={13}
+										color={colors.primary}
+									/>
+								</TouchableOpacity>
 							)}
 							{canOpenDishReview && (
 								<TouchableOpacity
@@ -1019,6 +1067,16 @@ const SelectedItemModal = ({
 									)}`
 								: ""}
 						</Text>
+					)}
+
+					{reviewTrustSummary.length > 0 && (
+						<View style={styles.reviewTrustChipRow}>
+							{reviewTrustSummary.map((label) => (
+								<View key={label} style={styles.reviewTrustChip}>
+									<Text style={styles.reviewTrustChipText}>{label}</Text>
+								</View>
+							))}
+						</View>
 					)}
 
 					{topReviewTags.length > 0 && (
@@ -1097,6 +1155,17 @@ const SelectedItemModal = ({
 			return t("community_guest_label", "Community guest");
 		}
 		return t("guest_rated_label", "Guest rated");
+	};
+
+	const getReviewTrustChips = (review = {}, reviewMedia = []) => {
+		const chips = [getReviewTrustLabel(review)];
+		if (reviewMedia.length > 0) {
+			chips.push(t("photo_review_label", "Photo review"));
+		}
+		if (review.wasOrderedThroughScerv === true) {
+			chips.push(t("ordered_through_scerv_label", "Ordered through Scerv"));
+		}
+		return [...new Set(chips)].slice(0, 3);
 	};
 
 	const renderMediaTile = (mediaItem, options = {}) => {
@@ -1187,6 +1256,13 @@ const SelectedItemModal = ({
 						{t("rating_only_review", "Rating only")}
 					</Text>
 				)}
+				<View style={styles.reviewCardTrustRow}>
+					{getReviewTrustChips(review, reviewMedia).map((label) => (
+						<View key={label} style={styles.reviewCardTrustChip}>
+							<Text style={styles.reviewCardTrustChipText}>{label}</Text>
+						</View>
+					))}
+				</View>
 				{reviewMedia.length > 0 && (
 					<ScrollView
 						horizontal
@@ -2192,6 +2268,7 @@ const styles = StyleSheet.create({
 	},
 	scervScorePillText: {
 		marginLeft: 4,
+		marginRight: 2,
 		fontSize: 12,
 		fontWeight: "900",
 		color: colors.primary,
@@ -2218,6 +2295,25 @@ const styles = StyleSheet.create({
 		marginRight: 6,
 		marginBottom: 6,
 		textTransform: "capitalize",
+	},
+	reviewTrustChipRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 6,
+		marginBottom: 8,
+	},
+	reviewTrustChip: {
+		borderRadius: 999,
+		backgroundColor: "#EAF5F5",
+		borderWidth: 1,
+		borderColor: "#D2E9EA",
+		paddingHorizontal: 9,
+		paddingVertical: 5,
+	},
+	reviewTrustChipText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	reviewCard: {
 		borderRadius: 8,
@@ -2256,6 +2352,26 @@ const styles = StyleSheet.create({
 		lineHeight: 18,
 		color: colors.textDark,
 		fontWeight: "600",
+	},
+	reviewCardTrustRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 5,
+		marginTop: 8,
+	},
+	reviewCardTrustChip: {
+		borderRadius: 999,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+	},
+	reviewCardTrustChipText: {
+		fontSize: 10,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
 	},
 	noReviewsBox: {
 		borderRadius: 8,

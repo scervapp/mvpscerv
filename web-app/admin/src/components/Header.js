@@ -102,6 +102,14 @@ const Header = () => {
 						</li>
 						<li>
 							<NavLink
+								to="/discovery-health"
+								className={({ isActive }) => (isActive ? "active" : "inactive")}
+							>
+								Discovery Health
+							</NavLink>
+						</li>
+						<li>
+							<NavLink
 								to="/customers"
 								className={({ isActive }) => (isActive ? "active" : "inactive")}
 							>
