@@ -303,6 +303,58 @@ const TopFoodCard = ({ item, restaurant, onPress }) => {
 	);
 };
 
+const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
+	const rating = getFoodRating(item);
+	const ratingCount = getRatingCount(item);
+	const reviewCount = Number(item.reviewCount || 0);
+	const imageUri = item.imageUri || item.image || restaurant?.imageUri;
+	const area = getRestaurantArea(restaurant);
+
+	return (
+		<TouchableOpacity
+			activeOpacity={0.82}
+			style={styles.discoveryResultRow}
+			onPress={onPress}
+		>
+			<View style={styles.discoveryResultRank}>
+				<Text style={styles.discoveryResultRankText}>{rank}</Text>
+			</View>
+			{imageUri ? (
+				<Image source={{ uri: imageUri }} style={styles.discoveryResultImage} />
+			) : (
+				<View style={styles.discoveryResultImagePlaceholder}>
+					<Ionicons name="restaurant-outline" size={22} color={colors.primary} />
+				</View>
+			)}
+			<View style={styles.discoveryResultInfo}>
+				<Text style={styles.discoveryResultDish} numberOfLines={1}>
+					{item.name || item.dishName || getDiscoveryDishLabel(item)}
+				</Text>
+				<Text style={styles.discoveryResultRestaurant} numberOfLines={1}>
+					{restaurant?.restaurantName || item.restaurantName || "Restaurant"}
+				</Text>
+				<Text style={styles.discoveryResultMeta} numberOfLines={1}>
+					{[restaurant?.cuisineType, area].filter(Boolean).join(" - ") ||
+						"Scerv discovery"}
+				</Text>
+				<View style={styles.discoveryResultSignalRow}>
+					<Ionicons name="star" size={13} color="#B45309" />
+					<Text style={styles.discoveryResultSignalText}>
+						{rating ? rating.toFixed(1) : "New"}
+						{ratingCount > 0 ? ` (${ratingCount})` : ""}
+					</Text>
+					{reviewCount > 0 ? (
+						<Text style={styles.discoveryResultSignalText}>
+							{reviewCount} review{reviewCount === 1 ? "" : "s"}
+						</Text>
+					) : null}
+				</View>
+			</View>
+			<Ionicons name="chevron-forward" size={20} color={colors.textLight} />
+		</TouchableOpacity>
+	);
+};
+
 const CustomerDashboard = ({ navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 
@@ -317,6 +369,7 @@ const CustomerDashboard = ({ navigation }) => {
 	const [forceGlobalView, setForceGlobalView] = useState(false);
 	const [showRegionModal, setShowRegionModal] = useState(false);
 	const [selectedRegion, setSelectedRegion] = useState(null);
+	const [selectedDiscoveryGroup, setSelectedDiscoveryGroup] = useState(null);
 	const [selectedDiscoveryDish, setSelectedDiscoveryDish] = useState(null);
 
 	const debouncedSearchText = useDebounce(searchText, 300);
@@ -464,7 +517,23 @@ const CustomerDashboard = ({ navigation }) => {
 	};
 
 	const handleTopFoodPress = (item) => {
+		const displayLabel = getDiscoveryDishLabel(item);
+		const groupKey = normalize(displayLabel);
+		// Open the full ranked set for this craving so discovery is about the best spots, not just one winning dish.
+		const groupItems = matchingMenuItems
+			.filter((candidate) => normalize(getDiscoveryDishLabel(candidate)) === groupKey)
+			.sort(compareDiscoveryItems)
+			.slice(0, 30);
+
+		setSelectedDiscoveryGroup({
+			label: displayLabel,
+			items: groupItems.length > 0 ? groupItems : [item],
+		});
+	};
+
+	const openDiscoveryDish = (item) => {
 		const restaurant = restaurantById.get(item.restaurantId);
+		setSelectedDiscoveryGroup(null);
 		setSelectedDiscoveryDish({
 			item: {
 				...item,
@@ -934,6 +1003,58 @@ const CustomerDashboard = ({ navigation }) => {
 				</View>
 			</Modal>
 
+			<Modal
+				visible={Boolean(selectedDiscoveryGroup)}
+				transparent={true}
+				animationType="slide"
+				onRequestClose={() => setSelectedDiscoveryGroup(null)}
+			>
+				<View style={styles.discoveryResultsOverlay}>
+					<TouchableOpacity
+						style={styles.discoveryResultsBackdrop}
+						activeOpacity={1}
+						onPress={() => setSelectedDiscoveryGroup(null)}
+					/>
+					<View style={styles.discoveryResultsSheet}>
+						<View style={styles.discoveryResultsHandle} />
+						<View style={styles.discoveryResultsHeader}>
+							<View style={styles.discoveryResultsTitleWrap}>
+								<Text style={styles.discoveryResultsEyebrow}>
+									Top spots
+								</Text>
+								<Text style={styles.discoveryResultsTitle} numberOfLines={1}>
+									{selectedDiscoveryGroup?.label || "Food"}
+								</Text>
+								<Text style={styles.discoveryResultsSubtitle}>
+									Ranked by dish ratings, reviews, and Scerv discovery signals.
+								</Text>
+							</View>
+							<TouchableOpacity
+								style={styles.discoveryResultsClose}
+								onPress={() => setSelectedDiscoveryGroup(null)}
+								activeOpacity={0.75}
+							>
+								<Ionicons name="close" size={22} color={colors.textDark} />
+							</TouchableOpacity>
+						</View>
+						<FlatList
+							data={selectedDiscoveryGroup?.items || []}
+							keyExtractor={(item, index) => `${item.id || "dish"}_${index}`}
+							renderItem={({ item, index }) => (
+								<TopFoodResultRow
+									item={item}
+									rank={index + 1}
+									restaurant={restaurantById.get(item.restaurantId)}
+									onPress={() => openDiscoveryDish(item)}
+								/>
+							)}
+							contentContainerStyle={styles.discoveryResultsList}
+							showsVerticalScrollIndicator={false}
+						/>
+					</View>
+				</View>
+			</Modal>
+
 			{isLoading ? (
 				<View style={styles.loadingContent}>
 					{ListHeader}
@@ -1224,6 +1345,151 @@ const styles = StyleSheet.create({
 		fontWeight: "800",
 		color: colors.textLight,
 		marginTop: 10,
+	},
+	discoveryResultsOverlay: {
+		flex: 1,
+		justifyContent: "flex-end",
+		backgroundColor: "rgba(4, 12, 24, 0.48)",
+	},
+	discoveryResultsBackdrop: {
+		...StyleSheet.absoluteFillObject,
+	},
+	discoveryResultsSheet: {
+		maxHeight: "82%",
+		backgroundColor: "#F3F6F7",
+		borderTopLeftRadius: 16,
+		borderTopRightRadius: 16,
+		paddingTop: 10,
+		overflow: "hidden",
+	},
+	discoveryResultsHandle: {
+		alignSelf: "center",
+		width: 42,
+		height: 4,
+		borderRadius: 999,
+		backgroundColor: "#C9D6DA",
+		marginBottom: 12,
+	},
+	discoveryResultsHeader: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		justifyContent: "space-between",
+		gap: 12,
+		paddingHorizontal: 20,
+		paddingBottom: 14,
+		borderBottomWidth: 1,
+		borderBottomColor: "#DDE7E9",
+	},
+	discoveryResultsTitleWrap: {
+		flex: 1,
+	},
+	discoveryResultsEyebrow: {
+		fontSize: 11,
+		fontWeight: "900",
+		letterSpacing: 0,
+		textTransform: "uppercase",
+		color: colors.primary,
+		marginBottom: 4,
+	},
+	discoveryResultsTitle: {
+		fontSize: 24,
+		lineHeight: 29,
+		fontWeight: "900",
+		color: colors.textDark,
+		letterSpacing: 0,
+	},
+	discoveryResultsSubtitle: {
+		fontSize: 13,
+		lineHeight: 19,
+		color: colors.textMedium,
+		marginTop: 5,
+	},
+	discoveryResultsClose: {
+		width: 38,
+		height: 38,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#DDE7E9",
+	},
+	discoveryResultsList: {
+		padding: 16,
+		paddingBottom: 28,
+	},
+	discoveryResultRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		padding: 10,
+		marginBottom: 10,
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#E0E8EB",
+	},
+	discoveryResultRank: {
+		width: 26,
+		height: 26,
+		borderRadius: 13,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#EAF5F5",
+	},
+	discoveryResultRankText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.primary,
+	},
+	discoveryResultImage: {
+		width: 64,
+		height: 64,
+		borderRadius: 8,
+		backgroundColor: "#EAF5F5",
+	},
+	discoveryResultImagePlaceholder: {
+		width: 64,
+		height: 64,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#EAF5F5",
+	},
+	discoveryResultInfo: {
+		flex: 1,
+		minWidth: 0,
+	},
+	discoveryResultDish: {
+		fontSize: 15,
+		lineHeight: 19,
+		fontWeight: "900",
+		color: colors.textDark,
+		letterSpacing: 0,
+	},
+	discoveryResultRestaurant: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textMedium,
+		marginTop: 3,
+	},
+	discoveryResultMeta: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textLight,
+		marginTop: 2,
+	},
+	discoveryResultSignalRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		flexWrap: "wrap",
+		gap: 6,
+		marginTop: 7,
+	},
+	discoveryResultSignalText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: "#92400E",
 	},
 	menuRatingLoading: {
 		marginHorizontal: 20,
