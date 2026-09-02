@@ -8,6 +8,7 @@ import {
 	ActivityIndicator,
 	Alert,
 	SafeAreaView,
+	Linking,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -173,6 +174,43 @@ const RestaurantDetailScreen = () => {
 		currentUserData?.activeCheckIn,
 		restaurant?.id,
 	]);
+
+	const handleClaimRestaurant = async () => {
+		const sourceRestaurant = liveRestaurantData || restaurant || {};
+		const restaurantName =
+			sourceRestaurant.restaurantName || sourceRestaurant.name || "this restaurant";
+		const subject = encodeURIComponent(`Claim ${restaurantName} on Scerv`);
+		const body = encodeURIComponent(
+			`Hi Scerv,\n\nI would like to claim ${restaurantName} on Scerv.\n\nRestaurant ID: ${
+				sourceRestaurant.id || restaurant?.id || ""
+			}\nRestaurant address: ${sourceRestaurant.address || ""}\n\nMy name:\nMy role:\nBest phone number:\n`,
+		);
+		const url = `mailto:admin@scerv.com?subject=${subject}&body=${body}`;
+
+		try {
+			const canOpen = await Linking.canOpenURL(url);
+			if (canOpen) {
+				await Linking.openURL(url);
+			} else {
+				Alert.alert(
+					t("claim_restaurant_title", "Claim this restaurant"),
+					t(
+						"claim_restaurant_email_fallback",
+						"Email admin@scerv.com and include the restaurant name so Scerv can verify ownership.",
+					),
+				);
+			}
+		} catch (error) {
+			console.error("Failed to open restaurant claim email:", error);
+			Alert.alert(
+				t("claim_restaurant_title", "Claim this restaurant"),
+				t(
+					"claim_restaurant_email_fallback",
+					"Email admin@scerv.com and include the restaurant name so Scerv can verify ownership.",
+				),
+			);
+		}
+	};
 
 	// --- NEW: dual session shape from PartyContext ---
 	const restaurantSessions = useMemo(() => {
@@ -840,6 +878,20 @@ const RestaurantDetailScreen = () => {
 								"This restaurant is listed for food discovery. Ordering, check-in, rewards, and reservations are not enabled yet.",
 							)}
 						</Text>
+						<TouchableOpacity
+							style={styles.claimRestaurantButton}
+							activeOpacity={0.78}
+							onPress={handleClaimRestaurant}
+						>
+							<Text style={styles.claimRestaurantButtonText}>
+								{t("claim_this_restaurant", "Own this restaurant? Claim it")}
+							</Text>
+							<MaterialCommunityIcons
+								name="arrow-right"
+								size={16}
+								color={colors.primary}
+							/>
+						</TouchableOpacity>
 					</View>
 				</View>
 			);
@@ -1439,6 +1491,22 @@ const styles = StyleSheet.create({
 		lineHeight: 17,
 		color: colors.textMedium,
 		marginTop: 3,
+	},
+	claimRestaurantButton: {
+		alignSelf: "flex-start",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		marginTop: 10,
+		paddingHorizontal: 11,
+		paddingVertical: 8,
+		borderRadius: 8,
+		backgroundColor: colors.primary + "12",
+	},
+	claimRestaurantButtonText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	splitActionsRow: {
 		flexDirection: "row",
