@@ -652,8 +652,28 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 			menuItem: {
 				id: menuItem.id,
 				name: menuItem.name || menuItem.dishName || "Menu item",
+				dishName: menuItem.dishName || menuItem.name || "Menu item",
+				description: menuItem.description || "",
+				price: menuItem.price || 0,
+				category: menuItem.category || "",
+				displayCategory: menuItem.displayCategory || "",
 				discoveryLabel: menuItem.discoveryLabel || menuItem.displayCategory || "",
+				restaurantId: restaurant.id,
+				restaurantName:
+					restaurant.restaurantName || restaurant.name || "Restaurant",
 				imageUri,
+				imageUrl: imageUri,
+				media: Array.isArray(menuItem.media) ? menuItem.media.slice(0, 6) : [],
+				averageRating: Number(menuItem.averageRating || menuItem.rating || 0),
+				ratingCount: Number(menuItem.ratingCount || 0),
+				reviewCount: Number(menuItem.reviewCount || 0),
+				scervScore: Number(menuItem.scervScore || menuItem.discoveryScore || 0),
+				discoveryScore: Number(
+					menuItem.discoveryScore || menuItem.scervScore || 0,
+				),
+				topReviewTags: Array.isArray(menuItem.topReviewTags)
+					? menuItem.topReviewTags.slice(0, 8)
+					: [],
 			},
 			restaurant: {
 				id: restaurant.id,

@@ -16,6 +16,7 @@ import { httpsCallable } from "@react-native-firebase/functions";
 
 import { functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
+import SelectedItemModal from "../../components/customer/SelectedItemModal";
 import colors from "../../utils/styles/appStyles";
 import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
 
@@ -56,7 +57,7 @@ const formatTimeAgo = (timestampMillis) => {
 	return "Recently";
 };
 
-const FeedCard = ({ item, onPressRestaurant }) => {
+const FeedCard = ({ item, onPressDish, onPressRestaurant }) => {
 	const typeColor = getFeedTypeColor(item.type);
 	const dishLabel =
 		getDiscoveryDishLabel(item.menuItem || {}) || item.menuItem?.name || "dish";
@@ -70,7 +71,7 @@ const FeedCard = ({ item, onPressRestaurant }) => {
 		<TouchableOpacity
 			style={styles.feedCard}
 			activeOpacity={0.86}
-			onPress={() => onPressRestaurant(restaurant)}
+			onPress={() => onPressDish(item)}
 		>
 			<View style={styles.cardHeader}>
 				<View style={[styles.typeIconWrap, { backgroundColor: `${typeColor}18` }]}>
@@ -133,6 +134,23 @@ const FeedCard = ({ item, onPressRestaurant }) => {
 					))}
 				</View>
 			) : null}
+
+			<View style={styles.cardActions}>
+				<TouchableOpacity
+					style={styles.cardPrimaryAction}
+					activeOpacity={0.78}
+					onPress={() => onPressDish(item)}
+				>
+					<Text style={styles.cardPrimaryActionText}>View dish</Text>
+				</TouchableOpacity>
+				<TouchableOpacity
+					style={styles.cardSecondaryAction}
+					activeOpacity={0.78}
+					onPress={() => onPressRestaurant(restaurant)}
+				>
+					<Text style={styles.cardSecondaryActionText}>Restaurant</Text>
+				</TouchableOpacity>
+			</View>
 		</TouchableOpacity>
 	);
 };
@@ -169,6 +187,7 @@ const CustomerFeedScreen = ({ navigation }) => {
 	const [tasteTwinCount, setTasteTwinCount] = useState(0);
 	const [hasPips, setHasPips] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
+	const [selectedFeedDish, setSelectedFeedDish] = useState(null);
 
 	const filteredItems = useMemo(() => {
 		if (activeFilter === "all") return feedItems;
@@ -231,6 +250,31 @@ const CustomerFeedScreen = ({ navigation }) => {
 		});
 	};
 
+	const openFeedDish = (item) => {
+		if (!item?.menuItem?.id) return;
+		setSelectedFeedDish({
+			item: {
+				...item.menuItem,
+				restaurantId: item.restaurant?.id || item.menuItem.restaurantId,
+				restaurantName:
+					item.restaurant?.name ||
+					item.menuItem.restaurantName ||
+					item.restaurant?.restaurantName,
+			},
+			restaurant: item.restaurant || null,
+		});
+	};
+
+	const viewSelectedDishRestaurant = () => {
+		const restaurant = selectedFeedDish?.restaurant;
+		setSelectedFeedDish(null);
+		if (restaurant) openRestaurant(restaurant);
+	};
+
+	const handleFeedReviewSubmitted = () => {
+		loadFeed({ refreshing: true });
+	};
+
 	if (isLoading) {
 		return (
 			<SafeAreaView style={styles.centered}>
@@ -246,7 +290,11 @@ const CustomerFeedScreen = ({ navigation }) => {
 				data={filteredItems}
 				keyExtractor={(item, index) => `${item.id || "feed"}_${index}`}
 				renderItem={({ item }) => (
-					<FeedCard item={item} onPressRestaurant={openRestaurant} />
+					<FeedCard
+						item={item}
+						onPressDish={openFeedDish}
+						onPressRestaurant={openRestaurant}
+					/>
 				)}
 				ListHeaderComponent={
 					<View style={styles.header}>
@@ -305,6 +353,23 @@ const CustomerFeedScreen = ({ navigation }) => {
 					/>
 				}
 			/>
+			{selectedFeedDish?.item ? (
+				<SelectedItemModal
+					visible={Boolean(selectedFeedDish?.item)}
+					selectedItem={selectedFeedDish.item}
+					pips={[]}
+					onClose={() => setSelectedFeedDish(null)}
+					onConfirm={() => {}}
+					isOrderingAvailable={false}
+					restaurantName={
+						selectedFeedDish.restaurant?.name ||
+						selectedFeedDish.item.restaurantName ||
+						""
+					}
+					onViewRestaurant={viewSelectedDishRestaurant}
+					onReviewSubmitted={handleFeedReviewSubmitted}
+				/>
+			) : null}
 		</SafeAreaView>
 	);
 };
@@ -518,6 +583,39 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: colors.textMedium,
 		textTransform: "capitalize",
+	},
+	cardActions: {
+		flexDirection: "row",
+		gap: 10,
+		marginTop: 14,
+	},
+	cardPrimaryAction: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingVertical: 10,
+		borderRadius: 8,
+		backgroundColor: colors.primary,
+	},
+	cardPrimaryActionText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textOnPrimaryBrand,
+	},
+	cardSecondaryAction: {
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: 14,
+		paddingVertical: 10,
+		borderRadius: 8,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.surfaceWhite,
+	},
+	cardSecondaryActionText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
 	},
 	emptyState: {
 		alignItems: "center",
