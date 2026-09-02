@@ -18,6 +18,7 @@ const dLocalFunctions = require("./dLocalFunctions");
 const rewardsFunctions = require("./rewardsFunctions");
 const reservationFunctions = require("./reservationFunctions");
 const adminFunctions = require("./adminFunctions");
+const recommendationFunctions = require("./recommendationFunctions");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -99,6 +100,8 @@ exports.submitServerRating = dishRatingFunction.submitServerRating;
 exports.aggregateMenuItemRating = dishRatingFunction.aggregateMenuItemRating;
 exports.aggregateMenuItemOrderStats =
 	dishRatingFunction.aggregateMenuItemOrderStats;
+exports.getScervTasteRecommendations =
+	recommendationFunctions.getScervTasteRecommendations;
 exports.awardRewardsForPaidOrder = rewardsFunctions.awardRewardsForPaidOrder;
 exports.saveRestaurantLoyaltyProgram =
 	rewardsFunctions.saveRestaurantLoyaltyProgram;

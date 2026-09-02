@@ -15,10 +15,11 @@ import {
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 import RestaurantCard from "../../components/customer/RestaurantCard";
 import SelectedItemModal from "../../components/customer/SelectedItemModal";
-import { db } from "../../config/firebase.native";
+import { db, functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
 import { useDebounce } from "../../hooks/useBounce";
 import colors from "../../utils/styles/appStyles";
@@ -401,6 +402,55 @@ const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
 	);
 };
 
+const TasteMatchCard = ({ item, onPress }) => {
+	const restaurant = item.restaurant || {};
+	const rating = getFoodRating(item);
+	const imageUri = item.imageUri || item.image || restaurant.imageUri;
+	const reasons = Array.isArray(item.matchReasons) ? item.matchReasons : [];
+
+	return (
+		<TouchableOpacity
+			activeOpacity={0.84}
+			style={styles.tasteMatchCard}
+			onPress={onPress}
+		>
+			{imageUri ? (
+				<Image source={{ uri: imageUri }} style={styles.tasteMatchImage} />
+			) : (
+				<View style={styles.tasteMatchImagePlaceholder}>
+					<Ionicons name="sparkles-outline" size={28} color={colors.primary} />
+				</View>
+			)}
+			<View style={styles.tasteMatchInfo}>
+				<View style={styles.tasteMatchBadge}>
+					<Ionicons name="sparkles" size={12} color={colors.primary} />
+					<Text style={styles.tasteMatchBadgeText}>Taste match</Text>
+				</View>
+				<Text style={styles.tasteMatchDish} numberOfLines={1}>
+					{item.name || item.dishName || getDiscoveryDishLabel(item)}
+				</Text>
+				<Text style={styles.tasteMatchRestaurant} numberOfLines={1}>
+					{restaurant.restaurantName || item.restaurantName || "Restaurant"}
+				</Text>
+				{rating ? (
+					<Text style={styles.tasteMatchRating}>
+						{rating.toFixed(1)} stars
+					</Text>
+				) : null}
+				{reasons.length > 0 ? (
+					<Text style={styles.tasteMatchReason} numberOfLines={1}>
+						Because you liked {reasons.join(", ")}
+					</Text>
+				) : (
+					<Text style={styles.tasteMatchReason} numberOfLines={1}>
+						Based on your dish ratings
+					</Text>
+				)}
+			</View>
+		</TouchableOpacity>
+	);
+};
+
 const CustomerDashboard = ({ navigation }) => {
 	const { currentUserData } = useContext(AuthContext);
 
@@ -415,6 +465,8 @@ const CustomerDashboard = ({ navigation }) => {
 	const [forceGlobalView, setForceGlobalView] = useState(false);
 	const [showRegionModal, setShowRegionModal] = useState(false);
 	const [selectedRegion, setSelectedRegion] = useState(null);
+	const [tasteRecommendations, setTasteRecommendations] = useState([]);
+	const [isTasteLoading, setIsTasteLoading] = useState(false);
 	const [selectedDiscoveryGroup, setSelectedDiscoveryGroup] = useState(null);
 	const [selectedDiscoveryDish, setSelectedDiscoveryDish] = useState(null);
 
@@ -545,6 +597,50 @@ const CustomerDashboard = ({ navigation }) => {
 		};
 	}, [allRestaurants]);
 
+	useEffect(() => {
+		let isActive = true;
+
+		const loadTasteRecommendations = async () => {
+			if (
+				!selectedRegion ||
+				currentUserData?.role !== "customer" ||
+				!currentUserData?.uid
+			) {
+				setTasteRecommendations([]);
+				return;
+			}
+
+			setIsTasteLoading(true);
+			try {
+				const getRecommendations = httpsCallable(
+					functions,
+					"getScervTasteRecommendations",
+				);
+				const response = await getRecommendations({
+					countryCode: selectedRegion,
+					limit: 8,
+				});
+
+				if (!isActive) return;
+				const recommendations = response.data?.recommendations || [];
+				setTasteRecommendations(
+					Array.isArray(recommendations) ? recommendations : [],
+				);
+			} catch (error) {
+				console.log("Error loading Scerv taste recommendations:", error);
+				if (isActive) setTasteRecommendations([]);
+			} finally {
+				if (isActive) setIsTasteLoading(false);
+			}
+		};
+
+		loadTasteRecommendations();
+
+		return () => {
+			isActive = false;
+		};
+	}, [currentUserData?.role, currentUserData?.uid, selectedRegion]);
+
 	const handleRestaurantPress = (restaurant) => {
 		if (restaurant.isComingSoon) return;
 		navigation.navigate("RestaurantDetail", { restaurant });
@@ -583,6 +679,20 @@ const CustomerDashboard = ({ navigation }) => {
 		setSelectedDiscoveryDish({
 			item: {
 				...item,
+				restaurantName:
+					item.restaurantName || restaurant?.restaurantName || restaurant?.name,
+			},
+			restaurant,
+		});
+	};
+
+	const openRecommendedDish = (item) => {
+		const restaurant =
+			item.restaurant || restaurantById.get(item.restaurantId) || null;
+		setSelectedDiscoveryDish({
+			item: {
+				...item,
+				restaurantId: item.restaurantId || restaurant?.id,
 				restaurantName:
 					item.restaurantName || restaurant?.restaurantName || restaurant?.name,
 			},
@@ -909,6 +1019,37 @@ const CustomerDashboard = ({ navigation }) => {
 					</View>
 				) : null}
 
+				{!isActivelySearching && tasteRecommendations.length > 0 ? (
+					<View style={styles.tasteMatchSection}>
+						<SectionHeader
+							title="Matched to your taste"
+							subtitle="Early Scerv Intelligence picks shaped by your dish ratings."
+						/>
+						<FlatList
+							data={tasteRecommendations}
+							renderItem={({ item }) => (
+								<TasteMatchCard
+									item={item}
+									onPress={() => openRecommendedDish(item)}
+								/>
+							)}
+							keyExtractor={(item, index) =>
+								`${item.id || "recommendation"}_${index}`
+							}
+							horizontal
+							showsHorizontalScrollIndicator={false}
+							contentContainerStyle={styles.horizontalList}
+						/>
+					</View>
+				) : !isActivelySearching && isTasteLoading ? (
+					<View style={styles.tasteMatchLoading}>
+						<ActivityIndicator size="small" color={colors.primary} />
+						<Text style={styles.tasteMatchLoadingText}>
+							Tuning recommendations...
+						</Text>
+					</View>
+				) : null}
+
 				{topFoodResults.length > 0 ? (
 					<View style={styles.topFoodSection}>
 						<SectionHeader
@@ -967,11 +1108,13 @@ const CustomerDashboard = ({ navigation }) => {
 			filteredRestaurants.length,
 			isActivelySearching,
 			isMenuLoading,
+			isTasteLoading,
 			resultTitle,
 			restaurantById,
 			searchText,
 			selectedArea,
 			selectedIntent,
+			tasteRecommendations,
 			topFoodResults,
 		],
 	);
@@ -1264,6 +1407,7 @@ const styles = StyleSheet.create({
 	searchContainer: { marginTop: 18 },
 	discoverySection: { paddingTop: 20 },
 	featuredSection: { paddingTop: 18 },
+	tasteMatchSection: { paddingTop: 18 },
 	topFoodSection: { paddingTop: 20 },
 	sectionHeader: { paddingHorizontal: 20, marginBottom: 12 },
 	sectionTitle: {
@@ -1406,6 +1550,91 @@ const styles = StyleSheet.create({
 		fontWeight: "800",
 		color: colors.textLight,
 		marginTop: 10,
+	},
+	tasteMatchCard: {
+		width: Math.min(screenWidth * 0.78, 318),
+		marginRight: 12,
+		borderRadius: 8,
+		overflow: "hidden",
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#DDE7E9",
+	},
+	tasteMatchImage: {
+		width: "100%",
+		height: 118,
+		backgroundColor: "#EAF5F5",
+	},
+	tasteMatchImagePlaceholder: {
+		width: "100%",
+		height: 118,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#EAF5F5",
+	},
+	tasteMatchInfo: {
+		padding: 12,
+		minHeight: 128,
+	},
+	tasteMatchBadge: {
+		alignSelf: "flex-start",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+		height: 24,
+		paddingHorizontal: 8,
+		borderRadius: 8,
+		backgroundColor: "#EAF5F5",
+		marginBottom: 8,
+	},
+	tasteMatchBadgeText: {
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.primary,
+		textTransform: "uppercase",
+	},
+	tasteMatchDish: {
+		fontSize: 16,
+		lineHeight: 20,
+		fontWeight: "900",
+		color: colors.textDark,
+		letterSpacing: 0,
+	},
+	tasteMatchRestaurant: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textMedium,
+		marginTop: 4,
+	},
+	tasteMatchRating: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: "#92400E",
+		marginTop: 7,
+	},
+	tasteMatchReason: {
+		fontSize: 12,
+		lineHeight: 17,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 5,
+	},
+	tasteMatchLoading: {
+		marginHorizontal: 20,
+		marginTop: 18,
+		padding: 12,
+		borderRadius: 8,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: "#E3EAEC",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	tasteMatchLoadingText: {
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textMedium,
 	},
 	discoveryResultsOverlay: {
 		flex: 1,
