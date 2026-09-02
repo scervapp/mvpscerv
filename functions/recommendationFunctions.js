@@ -90,7 +90,13 @@ const getSignalAffinity = (profile = {}, namespace, values = []) => {
 	return { score, strongestSignal, strongestAverage };
 };
 
-const serializeMenuItem = (doc, restaurant, matchScore, matchReasons) => {
+const serializeMenuItem = (
+	doc,
+	restaurant,
+	matchScore,
+	matchReasons,
+	matchConfidence,
+) => {
 	const data = doc.data() || {};
 	const scervScore = calculateScervDiscoveryScore(data);
 
@@ -120,6 +126,7 @@ const serializeMenuItem = (doc, restaurant, matchScore, matchReasons) => {
 			: [],
 		matchScore: Number(matchScore.toFixed(2)),
 		matchReasons,
+		matchConfidence,
 		restaurant: {
 			id: restaurant.id,
 			restaurantName: restaurant.restaurantName || restaurant.name || "Restaurant",
@@ -149,7 +156,8 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 			.slice(0, 8);
 		const limit = Math.min(Math.max(Number((data && data.limit) || 8), 1), 12);
 
-		const profileSnap = await db.collection("customerPalateProfiles").doc(uid).get();
+		const profileRef = db.collection("customerPalateProfiles").doc(uid);
+		const profileSnap = await profileRef.get();
 		if (!profileSnap.exists) {
 			return { recommendations: [], profileStatus: "not_enough_ratings" };
 		}
@@ -159,6 +167,20 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 		if (totalDishRatings < 1) {
 			return { recommendations: [], profileStatus: "not_enough_ratings" };
 		}
+
+		const recentRatingEventsSnap = await profileRef
+			.collection("ratingEvents")
+			.orderBy("createdAt", "desc")
+			.limit(100)
+			.get();
+		const ratedMenuItemIds = new Set(
+			recentRatingEventsSnap.docs
+				.map((doc) => {
+					const eventData = doc.data() || {};
+					return eventData.menuItemId;
+				})
+				.filter(Boolean),
+		);
 
 		const restaurantSnap = await db
 			.collection("restaurants")
@@ -190,6 +212,9 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 			const item = doc.data() || {};
 			const restaurant = restaurantsById.get(item.restaurantId);
 			if (!restaurant || item.isAvailable === false || item.isArchived === true) {
+				return;
+			}
+			if (ratedMenuItemIds.has(doc.id)) {
 				return;
 			}
 
@@ -229,9 +254,27 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 				.sort((a, b) => b.score * b.weight - a.score * a.weight)
 				.map((affinity) => affinity.strongestSignal)
 				.slice(0, 3);
+			const matchConfidence = Math.min(
+				98,
+				Math.max(
+					62,
+					Math.round(
+						64 +
+							Math.min(totalDishRatings, 12) * 1.6 +
+							matchReasons.length * 4 +
+							Math.min(reviewCount, 30) * 0.25,
+					),
+				),
+			);
 
 			scoredItems.push(
-				serializeMenuItem(doc, restaurant, matchScore, matchReasons),
+				serializeMenuItem(
+					doc,
+					restaurant,
+					matchScore,
+					matchReasons,
+					matchConfidence,
+				),
 			);
 		});
 

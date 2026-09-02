@@ -402,11 +402,21 @@ const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
 	);
 };
 
+const formatTasteSignal = (value) =>
+	String(value || "")
+		.replace(/_/g, " ")
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 const TasteMatchCard = ({ item, onPress }) => {
 	const restaurant = item.restaurant || {};
 	const rating = getFoodRating(item);
 	const imageUri = item.imageUri || item.image || restaurant.imageUri;
-	const reasons = Array.isArray(item.matchReasons) ? item.matchReasons : [];
+	const reasons = Array.isArray(item.matchReasons)
+		? item.matchReasons.map(formatTasteSignal).filter(Boolean).slice(0, 2)
+		: [];
+	const matchConfidence = Number(item.matchConfidence || 0);
 
 	return (
 		<TouchableOpacity
@@ -424,7 +434,9 @@ const TasteMatchCard = ({ item, onPress }) => {
 			<View style={styles.tasteMatchInfo}>
 				<View style={styles.tasteMatchBadge}>
 					<Ionicons name="sparkles" size={12} color={colors.primary} />
-					<Text style={styles.tasteMatchBadgeText}>Taste match</Text>
+					<Text style={styles.tasteMatchBadgeText}>
+						{matchConfidence ? `${matchConfidence}% match` : "Taste match"}
+					</Text>
 				</View>
 				<Text style={styles.tasteMatchDish} numberOfLines={1}>
 					{item.name || item.dishName || getDiscoveryDishLabel(item)}
@@ -439,7 +451,7 @@ const TasteMatchCard = ({ item, onPress }) => {
 				) : null}
 				{reasons.length > 0 ? (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
-						Because you liked {reasons.join(", ")}
+						Because you liked {reasons.join(" and ")}
 					</Text>
 				) : (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
