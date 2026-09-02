@@ -22,8 +22,8 @@ import { getDiscoveryDishLabel } from "../../utils/menuDisplay";
 const FEED_FILTERS = [
 	{ id: "all", label: "For You" },
 	{ id: "taste_twin", label: "Taste Twins" },
-	{ id: "pip", label: "PIPs" },
-	{ id: "influencer", label: "Approved" },
+	{ id: "pip", label: "Friends" },
+	{ id: "influencer", label: "Featured" },
 ];
 
 const getFeedTypeIcon = (type) => {
@@ -105,7 +105,7 @@ const FeedCard = ({ item, onPressRestaurant }) => {
 				<View style={styles.feedTextBlock}>
 					<Text style={styles.feedHeadline} numberOfLines={2}>
 						{item.type === "taste_twin"
-							? `A Taste Twin liked ${dishLabel}`
+							? `A Taste Twin loved ${dishLabel}`
 							: `${item.authorName || "A diner"} rated ${dishLabel}`}
 					</Text>
 					<Text style={styles.restaurantLine} numberOfLines={1}>
@@ -118,7 +118,7 @@ const FeedCard = ({ item, onPressRestaurant }) => {
 						</Text>
 					) : (
 						<Text style={styles.reviewText} numberOfLines={2}>
-							A useful signal for what diners are actually enjoying.
+							A fresh pick from the Scerv dining community.
 						</Text>
 					)}
 				</View>
@@ -148,7 +148,7 @@ const EmptyFeed = ({ activeFilter }) => (
 				: "No feed activity yet"}
 		</Text>
 		<Text style={styles.emptyText}>
-			Rate dishes, add PIPs, and follow Scerv-approved dining voices to shape this feed.
+			Rate dishes and add friends to make this feed feel more personal.
 		</Text>
 	</View>
 );
@@ -239,9 +239,9 @@ const CustomerFeedScreen = ({ navigation }) => {
 				ListHeaderComponent={
 					<View style={styles.header}>
 						<Text style={styles.eyebrow}>Scerv Feed</Text>
-						<Text style={styles.title}>What people with taste are ordering</Text>
+						<Text style={styles.title}>Where good taste is going</Text>
 						<Text style={styles.subtitle}>
-							PIPs, anonymous Taste Twins, and Scerv-approved voices shaping better dining discovery.
+							See favorites from friends, Taste Twins, and featured diners worth knowing.
 						</Text>
 						<View style={styles.signalRow}>
 							<View style={styles.signalCard}>
@@ -250,7 +250,7 @@ const CustomerFeedScreen = ({ navigation }) => {
 							</View>
 							<View style={styles.signalCard}>
 								<Text style={styles.signalValue}>{hasPips ? "On" : "Add"}</Text>
-								<Text style={styles.signalLabel}>PIP signals</Text>
+								<Text style={styles.signalLabel}>Friend activity</Text>
 							</View>
 						</View>
 						<FlatList

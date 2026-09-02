@@ -617,9 +617,9 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 			authorName,
 			authorLabel:
 				feedType === "influencer"
-					? "Scerv approved"
+					? "Featured Diner"
 					: feedType === "pip"
-						? "PIP"
+						? "Friend"
 						: feedType === "you"
 							? "You"
 							: "Taste Twin",

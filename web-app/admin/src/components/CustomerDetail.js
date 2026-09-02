@@ -88,7 +88,7 @@ const CustomerDetail = () => {
 
 	const setCreatorStatus = async (isApproved) => {
 		if (!creatorReason.trim()) {
-			setActionMessage("Add a reason before changing creator status.");
+			setActionMessage("Add a reason before changing featured diner status.");
 			return;
 		}
 		setActionLoading(true);
@@ -105,14 +105,14 @@ const CustomerDetail = () => {
 			});
 			setActionMessage(
 				isApproved
-					? "Customer approved as a public Scerv dining voice."
-					: "Customer removed from public creator visibility.",
+					? "Customer approved as a featured diner."
+					: "Customer removed from featured diner visibility.",
 			);
 			setCreatorReason("");
 			await loadProfile();
 		} catch (err) {
-			console.error("Failed to update creator status:", err);
-			setActionMessage(err.message || "Failed to update creator status.");
+			console.error("Failed to update featured diner status:", err);
+			setActionMessage(err.message || "Failed to update featured diner status.");
 		} finally {
 			setActionLoading(false);
 		}
@@ -254,24 +254,24 @@ const CustomerDetail = () => {
 				</section>
 
 				<section className="customer-detail-panel">
-					<h2>Public Dining Voice</h2>
+					<h2>Featured Diner</h2>
 					<div
 						className={`creator-status-pill ${
 							isApprovedCreator ? "approved" : "standard"
 						}`}
 					>
-						{isApprovedCreator ? "Scerv approved influencer" : "Standard customer"}
+						{isApprovedCreator ? "Featured in customer feeds" : "Standard customer"}
 					</div>
 					<p className="creator-status-help">
-						Approved dining voices can appear in every customer's feed. PIPs can
-						still see each other separately.
+						Featured diners can appear in every customer's feed. Friends still
+						appear separately through PIPs.
 					</p>
 					<label className="customer-action-label">
 						Reason
 						<input
 							value={creatorReason}
 							onChange={(event) => setCreatorReason(event.target.value)}
-							placeholder="Why this creator status is changing"
+							placeholder="Why this featured status is changing"
 						/>
 					</label>
 					<div className="customer-action-buttons">
@@ -282,7 +282,7 @@ const CustomerDetail = () => {
 								onClick={() => setCreatorStatus(false)}
 								disabled={actionLoading}
 							>
-								Remove approval
+								Remove featured
 							</button>
 						) : (
 							<button
@@ -290,7 +290,7 @@ const CustomerDetail = () => {
 								onClick={() => setCreatorStatus(true)}
 								disabled={actionLoading}
 							>
-								Approve creator
+								Make featured
 							</button>
 						)}
 					</div>
