@@ -102,6 +102,7 @@ exports.aggregateMenuItemOrderStats =
 	dishRatingFunction.aggregateMenuItemOrderStats;
 exports.getScervTasteRecommendations =
 	recommendationFunctions.getScervTasteRecommendations;
+exports.getScervFeed = recommendationFunctions.getScervFeed;
 exports.awardRewardsForPaidOrder = rewardsFunctions.awardRewardsForPaidOrder;
 exports.saveRestaurantLoyaltyProgram =
 	rewardsFunctions.saveRestaurantLoyaltyProgram;
@@ -155,6 +156,8 @@ exports.getScervCustomerProfile = adminFunctions.getScervCustomerProfile;
 exports.sendScervCustomerPasswordReset =
 	adminFunctions.sendScervCustomerPasswordReset;
 exports.setScervCustomerDisabled = adminFunctions.setScervCustomerDisabled;
+exports.setScervCustomerCreatorStatus =
+	adminFunctions.setScervCustomerCreatorStatus;
 exports.getScervRestaurantProfile = adminFunctions.getScervRestaurantProfile;
 exports.updateScervRestaurantProfile =
 	adminFunctions.updateScervRestaurantProfile;

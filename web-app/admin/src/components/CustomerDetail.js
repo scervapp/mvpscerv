@@ -15,6 +15,7 @@ const CustomerDetail = () => {
 	const [actionMessage, setActionMessage] = useState("");
 	const [resetLink, setResetLink] = useState("");
 	const [accountReason, setAccountReason] = useState("");
+	const [creatorReason, setCreatorReason] = useState("");
 
 	const loadProfile = async () => {
 		setLoading(true);
@@ -85,6 +86,38 @@ const CustomerDetail = () => {
 		}
 	};
 
+	const setCreatorStatus = async (isApproved) => {
+		if (!creatorReason.trim()) {
+			setActionMessage("Add a reason before changing creator status.");
+			return;
+		}
+		setActionLoading(true);
+		setActionMessage("");
+		try {
+			const updateCreator = httpsCallable(
+				functions,
+				"setScervCustomerCreatorStatus",
+			);
+			await updateCreator({
+				customerId: id,
+				isApproved,
+				reason: creatorReason,
+			});
+			setActionMessage(
+				isApproved
+					? "Customer approved as a public Scerv dining voice."
+					: "Customer removed from public creator visibility.",
+			);
+			setCreatorReason("");
+			await loadProfile();
+		} catch (err) {
+			console.error("Failed to update creator status:", err);
+			setActionMessage(err.message || "Failed to update creator status.");
+		} finally {
+			setActionLoading(false);
+		}
+	};
+
 	if (loading) {
 		return <div className="customer-detail-container">Loading...</div>;
 	}
@@ -99,6 +132,11 @@ const CustomerDetail = () => {
 
 	const customer = profile.customer || {};
 	const rewards = customer.rewardsSummary || {};
+	const isApprovedCreator =
+		customer.isScervApprovedInfluencer ||
+		customer.scervApprovedInfluencer ||
+		customer.publicInfluencer ||
+		customer.creatorStatus === "scerv_approved";
 
 	return (
 		<div className="customer-detail-container">
@@ -213,6 +251,49 @@ const CustomerDetail = () => {
 							)}
 						</dd>
 					</dl>
+				</section>
+
+				<section className="customer-detail-panel">
+					<h2>Public Dining Voice</h2>
+					<div
+						className={`creator-status-pill ${
+							isApprovedCreator ? "approved" : "standard"
+						}`}
+					>
+						{isApprovedCreator ? "Scerv approved influencer" : "Standard customer"}
+					</div>
+					<p className="creator-status-help">
+						Approved dining voices can appear in every customer's feed. PIPs can
+						still see each other separately.
+					</p>
+					<label className="customer-action-label">
+						Reason
+						<input
+							value={creatorReason}
+							onChange={(event) => setCreatorReason(event.target.value)}
+							placeholder="Why this creator status is changing"
+						/>
+					</label>
+					<div className="customer-action-buttons">
+						{isApprovedCreator ? (
+							<button
+								type="button"
+								className="danger"
+								onClick={() => setCreatorStatus(false)}
+								disabled={actionLoading}
+							>
+								Remove approval
+							</button>
+						) : (
+							<button
+								type="button"
+								onClick={() => setCreatorStatus(true)}
+								disabled={actionLoading}
+							>
+								Approve creator
+							</button>
+						)}
+					</div>
 				</section>
 			</div>
 

@@ -2180,6 +2180,53 @@ exports.setScervCustomerDisabled = functions.https.onCall(
 	},
 );
 
+exports.setScervCustomerCreatorStatus = functions.https.onCall(
+	async (data, context) => {
+		const actorUid = requireScervAdmin(context);
+		const customerId = sanitizeString(data && data.customerId, 128);
+		const isApproved = Boolean(data && data.isApproved);
+		const reason = sanitizeString(data && data.reason, 1000);
+
+		if (!customerId || !reason) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Customer ID and reason are required.",
+			);
+		}
+
+		const customerRef = db.collection("customers").doc(customerId);
+		const customerSnap = await customerRef.get();
+		if (!customerSnap.exists) {
+			throw new functions.https.HttpsError("not-found", "Customer not found.");
+		}
+
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		await customerRef.set(
+			{
+				isScervApprovedInfluencer: isApproved,
+				scervApprovedInfluencer: isApproved,
+				publicInfluencer: isApproved,
+				creatorStatus: isApproved ? "scerv_approved" : "standard",
+				creatorApprovedAt: isApproved ? now : null,
+				creatorApprovedBy: isApproved ? actorUid : null,
+				creatorRemovedAt: isApproved ? null : now,
+				creatorRemovedBy: isApproved ? null : actorUid,
+				creatorStatusReason: reason,
+				updatedAt: now,
+			},
+			{ merge: true },
+		);
+
+		await writeAdminAuditLog(actorUid, "set_customer_creator_status", {
+			customerId,
+			isApproved,
+			reason,
+		});
+
+		return { success: true, customerId, isApproved };
+	},
+);
+
 exports.getScervRestaurantProfile = functions.https.onCall(
 	async (data, context) => {
 		requireScervAdmin(context);

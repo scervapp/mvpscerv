@@ -28,6 +28,13 @@ const chunkArray = (items, size) => {
 	return chunks;
 };
 
+const timestampToMillis = (value) => {
+	if (!value) return 0;
+	if (typeof value.toMillis === "function") return value.toMillis();
+	if (value instanceof Date) return value.getTime();
+	return Number(value) || 0;
+};
+
 const buildMenuItemSignals = (menuItem = {}, restaurant = {}) => ({
 	dishTypes: normalizeSignalList([
 		menuItem.discoveryLabel,
@@ -162,6 +169,34 @@ const calculateProfileSimilarity = (basePositiveSignals, candidateProfile = {}) 
 	};
 };
 
+const getTasteTwinsForProfile = async (uid, profile) => {
+	const positiveSignals = getPositiveSignalMap(profile);
+	const profileCandidatesSnap = await db
+		.collection("customerPalateProfiles")
+		.limit(80)
+		.get();
+
+	return profileCandidatesSnap.docs
+		.filter((doc) => doc.id !== uid)
+		.map((doc) => {
+			const candidateProfile = doc.data() || {};
+			const similarity = calculateProfileSimilarity(
+				positiveSignals,
+				candidateProfile,
+			);
+			return {
+				uid: doc.id,
+				...similarity,
+			};
+		})
+		.filter(
+			(candidate) =>
+				candidate.score > 0 && candidate.sharedSignalCount >= 2,
+		)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 12);
+};
+
 const serializeMenuItem = (
 	doc,
 	restaurant,
@@ -259,31 +294,7 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 				})
 				.filter(Boolean),
 		);
-		const positiveSignals = getPositiveSignalMap(profile);
-
-		const profileCandidatesSnap = await db
-			.collection("customerPalateProfiles")
-			.limit(80)
-			.get();
-		const tasteTwins = profileCandidatesSnap.docs
-			.filter((doc) => doc.id !== uid)
-			.map((doc) => {
-				const candidateProfile = doc.data() || {};
-				const similarity = calculateProfileSimilarity(
-					positiveSignals,
-					candidateProfile,
-				);
-				return {
-					uid: doc.id,
-					...similarity,
-				};
-			})
-			.filter(
-				(candidate) =>
-					candidate.score > 0 && candidate.sharedSignalCount >= 2,
-			)
-			.sort((a, b) => b.score - a.score)
-			.slice(0, 12);
+		const tasteTwins = await getTasteTwinsForProfile(uid, profile);
 		const tasteTwinSignals = [
 			...new Set(tasteTwins.flatMap((candidate) => candidate.sharedSignals || [])),
 		].slice(0, 4);
@@ -459,3 +470,189 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 		};
 	},
 );
+
+const getCustomerDisplayName = (customer = {}, fallback = "Scerv guest") => {
+	const firstName = String(customer.firstName || "").trim();
+	const lastName = String(customer.lastName || "").trim();
+	const fullName = String(customer.fullName || customer.name || "").trim();
+
+	if (firstName && lastName) return `${firstName} ${lastName.charAt(0)}.`;
+	if (firstName) return firstName;
+	if (fullName) {
+		const parts = fullName.split(/\s+/).filter(Boolean);
+		return parts.length > 1 ? `${parts[0]} ${parts[1].charAt(0)}.` : parts[0];
+	}
+	return fallback;
+};
+
+const isApprovedInfluencer = (customer = {}) =>
+	customer.isScervApprovedInfluencer === true ||
+	customer.scervApprovedInfluencer === true ||
+	customer.publicInfluencer === true ||
+	customer.creatorStatus === "scerv_approved";
+
+exports.getScervFeed = functions.https.onCall(async (data, context) => {
+	const uid = context.auth && context.auth.uid;
+	if (!uid) {
+		throw new functions.https.HttpsError("unauthenticated", "Login required.");
+	}
+
+	const countryCode = String((data && data.countryCode) || "US")
+		.trim()
+		.toUpperCase()
+		.slice(0, 8);
+	const limit = Math.min(Math.max(Number((data && data.limit) || 30), 5), 50);
+
+	const [profileSnap, pipsSnap, recentRatingsSnap] = await Promise.all([
+		db.collection("customerPalateProfiles").doc(uid).get(),
+		db.collection("customers").doc(uid).collection("pips").get(),
+		db.collectionGroup("ratings")
+			.orderBy("timestamp", "desc")
+			.limit(160)
+			.get(),
+	]);
+
+	const profile = profileSnap.exists ? profileSnap.data() || {} : {};
+	const tasteTwins = profileSnap.exists
+		? await getTasteTwinsForProfile(uid, profile)
+		: [];
+	const tasteTwinUserIds = new Set(tasteTwins.map((candidate) => candidate.uid));
+	const pipNameByUserId = new Map();
+	pipsSnap.docs.forEach((doc) => {
+		const pip = doc.data() || {};
+		if (pip.isUser && pip.userId) {
+			pipNameByUserId.set(pip.userId, pip.name || "Your PIP");
+		}
+	});
+
+	const recentRatings = recentRatingsSnap.docs
+		.map((doc) => ({ id: doc.id, ref: doc.ref, ...doc.data() }))
+		.filter((rating) => {
+			if (rating.status && rating.status !== "published") return false;
+			return rating.menuItemId && rating.restaurantId && rating.ratingValue >= 4;
+		});
+	const menuItemIds = [...new Set(recentRatings.map((rating) => rating.menuItemId))];
+	const restaurantIds = [
+		...new Set(recentRatings.map((rating) => rating.restaurantId)),
+	];
+	const customerIds = [
+		...new Set(recentRatings.map((rating) => rating.customerId).filter(Boolean)),
+	];
+
+	const [menuItemDocs, restaurantDocs, customerDocs] = await Promise.all([
+		Promise.all(
+			menuItemIds.map((id) => db.collection("menuItems").doc(id).get()),
+		),
+		Promise.all(
+			restaurantIds.map((id) => db.collection("restaurants").doc(id).get()),
+		),
+		Promise.all(customerIds.map((id) => db.collection("customers").doc(id).get())),
+	]);
+	const menuItemsById = new Map(
+		menuItemDocs
+			.filter((doc) => doc.exists)
+			.map((doc) => [doc.id, { id: doc.id, ...doc.data() }]),
+	);
+	const restaurantsById = new Map(
+		restaurantDocs
+			.filter((doc) => doc.exists)
+			.map((doc) => [doc.id, { id: doc.id, ...doc.data() }]),
+	);
+	const customersById = new Map(
+		customerDocs
+			.filter((doc) => doc.exists)
+			.map((doc) => [doc.id, { id: doc.id, ...doc.data() }]),
+	);
+
+	const feedItems = [];
+	const seenKeys = new Set();
+
+	recentRatings.forEach((rating) => {
+		const menuItem = menuItemsById.get(rating.menuItemId);
+		const restaurant = restaurantsById.get(rating.restaurantId);
+		if (!menuItem || !restaurant || restaurant.isLive !== true) return;
+		if (restaurant.countryCode && restaurant.countryCode !== countryCode) return;
+
+		const customer = customersById.get(rating.customerId) || {};
+		const authorIsInfluencer = isApprovedInfluencer(customer);
+		const isPip = pipNameByUserId.has(rating.customerId);
+		const isTasteTwin = tasteTwinUserIds.has(rating.customerId);
+		const isOwnActivity = rating.customerId === uid;
+		const shouldInclude =
+			isOwnActivity || isPip || isTasteTwin || authorIsInfluencer;
+		if (!shouldInclude) return;
+
+		const key = `${rating.customerId || "guest"}_${rating.menuItemId}`;
+		if (seenKeys.has(key)) return;
+		seenKeys.add(key);
+
+		const feedType = authorIsInfluencer
+			? "influencer"
+			: isPip
+				? "pip"
+				: isOwnActivity
+					? "you"
+					: "taste_twin";
+		const anonymous = feedType === "taste_twin";
+		const authorName = anonymous
+			? "A Taste Twin"
+			: feedType === "pip"
+				? pipNameByUserId.get(rating.customerId)
+				: getCustomerDisplayName(customer, rating.customerDisplayName || "Scerv guest");
+		const media = Array.isArray(rating.media) ? rating.media.slice(0, 4) : [];
+		const primaryMedia = media[0] || {};
+		const imageUri =
+			primaryMedia.thumbnailUrl ||
+			primaryMedia.url ||
+			menuItem.imageUri ||
+			menuItem.imageUrl ||
+			restaurant.imageUri ||
+			restaurant.imageUrl ||
+			"";
+
+		feedItems.push({
+			id: rating.id,
+			type: feedType,
+			anonymous,
+			authorName,
+			authorLabel:
+				feedType === "influencer"
+					? "Scerv approved"
+					: feedType === "pip"
+						? "PIP"
+						: feedType === "you"
+							? "You"
+							: "Taste Twin",
+			ratingValue: Number(rating.ratingValue || 0),
+			reviewText: rating.reviewText || rating.comment || "",
+			reviewTags: Array.isArray(rating.reviewTags)
+				? rating.reviewTags.slice(0, 4)
+				: [],
+			verificationLevel: rating.verificationLevel || "",
+			timestampMillis: timestampToMillis(rating.timestamp),
+			menuItem: {
+				id: menuItem.id,
+				name: menuItem.name || menuItem.dishName || "Menu item",
+				discoveryLabel: menuItem.discoveryLabel || menuItem.displayCategory || "",
+				imageUri,
+			},
+			restaurant: {
+				id: restaurant.id,
+				name: restaurant.restaurantName || restaurant.name || "Restaurant",
+				area: restaurant.area || restaurant.neighborhood || "",
+				city: restaurant.city || "",
+				state: restaurant.state || "",
+				cuisineType: restaurant.cuisineType || restaurant.cuisine || "",
+			},
+			media,
+		});
+	});
+
+	return {
+		feedItems: feedItems
+			.sort((a, b) => b.timestampMillis - a.timestampMillis)
+			.slice(0, limit),
+		tasteTwinCount: tasteTwins.length,
+		hasPips: pipNameByUserId.size > 0,
+	};
+});
