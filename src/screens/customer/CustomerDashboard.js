@@ -417,7 +417,7 @@ const TasteMatchCard = ({ item, onPress }) => {
 		? item.matchReasons.map(formatTasteSignal).filter(Boolean).slice(0, 2)
 		: [];
 	const matchConfidence = Number(item.matchConfidence || 0);
-	const hasTasteTwinSignal = Number(item.tasteTwinCount || 0) > 0;
+	const hasCollaborativeSignal = Number(item.tasteTwinCount || 0) > 0;
 
 	return (
 		<TouchableOpacity
@@ -436,8 +436,8 @@ const TasteMatchCard = ({ item, onPress }) => {
 				<View style={styles.tasteMatchBadge}>
 					<Ionicons name="sparkles" size={12} color={colors.primary} />
 					<Text style={styles.tasteMatchBadgeText}>
-						{hasTasteTwinSignal
-							? "Taste Twin pick"
+						{hasCollaborativeSignal
+							? "Scerv pick"
 							: matchConfidence
 								? `${matchConfidence}% match`
 								: "Taste match"}
@@ -456,14 +456,14 @@ const TasteMatchCard = ({ item, onPress }) => {
 				) : null}
 				{reasons.length > 0 ? (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
-						{hasTasteTwinSignal
-							? `Similar palates liked ${reasons.join(" and ")}`
+						{hasCollaborativeSignal
+							? `Recommended for ${reasons.join(" and ")}`
 							: `Because you liked ${reasons.join(" and ")}`}
 					</Text>
 				) : (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
-						{hasTasteTwinSignal
-							? "Loved by diners with taste like yours"
+						{hasCollaborativeSignal
+							? "Recommended by Scerv Intelligence"
 							: "Based on your dish ratings"}
 					</Text>
 				)}
@@ -779,13 +779,10 @@ const CustomerDashboard = ({ navigation }) => {
 		}, 1600);
 	};
 
-	const tasteRecommendationTitle =
-		tasteTwinCount > 0 ? "Taste Twin picks" : "Matched to your taste";
+	const tasteRecommendationTitle = "Matched to your taste";
 	const tasteRecommendationSubtitle =
 		tasteTwinCount > 0
-			? `${tasteTwinCount} anonymous ${
-					tasteTwinCount === 1 ? "palate" : "palates"
-				} helped shape these picks.`
+			? "Scerv Intelligence is learning from trusted dish signals."
 			: tasteProfileCount > 0
 			? `Scerv Intelligence picks shaped by ${tasteProfileCount} dish ${
 					tasteProfileCount === 1 ? "rating" : "ratings"

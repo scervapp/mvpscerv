@@ -10,7 +10,6 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 // Import your screen components and stack navigator functions
 
 import CustomerDashboard from "../screens/customer/CustomerDashboard";
-import CustomerFeedScreen from "../screens/customer/CustomerFeedScreen";
 import CustomerProfile from "../screens/customer/CustomerProfile";
 import RestaurantDetail from "../components/customer/RestaurantDetail";
 import ReservationRequestScreen from "../screens/customer/ReservationRequestScreen";
@@ -386,24 +385,6 @@ const WalletStackScreen = () => {
 	);
 };
 
-const FeedStackScreen = () => {
-	const { t } = useTranslation();
-	return (
-		<Stack.Navigator screenOptions={defaultHeaderOptions}>
-			<Stack.Screen
-				name="CustomerFeed"
-				component={CustomerFeedScreen}
-				options={{ headerShown: false }}
-			/>
-			<Stack.Screen
-				name="RestaurantDetail"
-				component={RestaurantDetail}
-				options={{ headerTitle: t("restaurant_details_title") }}
-			/>
-		</Stack.Navigator>
-	);
-};
-
 const ActiveOrdersStack = () => {
 	const { t } = useTranslation();
 	return (
@@ -645,8 +626,6 @@ const CustomerBottomNavigation = () => {
 					let iconName;
 					if (route.name === "CustomerDashboard")
 						iconName = focused ? "home" : "home-outline";
-					else if (route.name === "FeedTab")
-						iconName = focused ? "sparkles" : "sparkles-outline";
 					else if (route.name === "WalletTab")
 						iconName = focused ? "wallet" : "wallet-outline";
 					else if (route.name === "AccountScreen") {
@@ -705,20 +684,6 @@ const CustomerBottomNavigation = () => {
 					),
 					tabBarBadge: currentPartyId ? "●" : undefined,
 					tabBarBadgeStyle: { backgroundColor: colors.success },
-				}}
-			/>
-			<Tab.Screen
-				name="FeedTab"
-				component={FeedStackScreen}
-				options={{
-					headerShown: false,
-					tabBarIcon: ({ focused }) => (
-						<Ionicons
-							name={focused ? "sparkles" : "sparkles-outline"}
-							size={32}
-							color={focused ? colors.primary : "black"}
-						/>
-					),
 				}}
 			/>
 			<Tab.Screen

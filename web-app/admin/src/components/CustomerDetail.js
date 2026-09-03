@@ -15,7 +15,6 @@ const CustomerDetail = () => {
 	const [actionMessage, setActionMessage] = useState("");
 	const [resetLink, setResetLink] = useState("");
 	const [accountReason, setAccountReason] = useState("");
-	const [creatorReason, setCreatorReason] = useState("");
 
 	const loadProfile = async () => {
 		setLoading(true);
@@ -86,38 +85,6 @@ const CustomerDetail = () => {
 		}
 	};
 
-	const setCreatorStatus = async (isApproved) => {
-		if (!creatorReason.trim()) {
-			setActionMessage("Add a reason before changing featured diner status.");
-			return;
-		}
-		setActionLoading(true);
-		setActionMessage("");
-		try {
-			const updateCreator = httpsCallable(
-				functions,
-				"setScervCustomerCreatorStatus",
-			);
-			await updateCreator({
-				customerId: id,
-				isApproved,
-				reason: creatorReason,
-			});
-			setActionMessage(
-				isApproved
-					? "Customer approved as a featured diner."
-					: "Customer removed from featured diner visibility.",
-			);
-			setCreatorReason("");
-			await loadProfile();
-		} catch (err) {
-			console.error("Failed to update featured diner status:", err);
-			setActionMessage(err.message || "Failed to update featured diner status.");
-		} finally {
-			setActionLoading(false);
-		}
-	};
-
 	if (loading) {
 		return <div className="customer-detail-container">Loading...</div>;
 	}
@@ -132,11 +99,6 @@ const CustomerDetail = () => {
 
 	const customer = profile.customer || {};
 	const rewards = customer.rewardsSummary || {};
-	const isApprovedCreator =
-		customer.isScervApprovedInfluencer ||
-		customer.scervApprovedInfluencer ||
-		customer.publicInfluencer ||
-		customer.creatorStatus === "scerv_approved";
 
 	return (
 		<div className="customer-detail-container">
@@ -253,48 +215,6 @@ const CustomerDetail = () => {
 					</dl>
 				</section>
 
-				<section className="customer-detail-panel">
-					<h2>Featured Diner</h2>
-					<div
-						className={`creator-status-pill ${
-							isApprovedCreator ? "approved" : "standard"
-						}`}
-					>
-						{isApprovedCreator ? "Featured in customer feeds" : "Standard customer"}
-					</div>
-					<p className="creator-status-help">
-						Featured diners can appear in every customer's feed. Friends still
-						appear separately through PIPs.
-					</p>
-					<label className="customer-action-label">
-						Reason
-						<input
-							value={creatorReason}
-							onChange={(event) => setCreatorReason(event.target.value)}
-							placeholder="Why this featured status is changing"
-						/>
-					</label>
-					<div className="customer-action-buttons">
-						{isApprovedCreator ? (
-							<button
-								type="button"
-								className="danger"
-								onClick={() => setCreatorStatus(false)}
-								disabled={actionLoading}
-							>
-								Remove featured
-							</button>
-						) : (
-							<button
-								type="button"
-								onClick={() => setCreatorStatus(true)}
-								disabled={actionLoading}
-							>
-								Make featured
-							</button>
-						)}
-					</div>
-				</section>
 			</div>
 
 			<section className="customer-detail-panel">
