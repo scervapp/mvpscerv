@@ -528,7 +528,7 @@ const MenuItemsList = ({
 							<Text style={styles.favoriteRailSubtitle}>
 								{t(
 									"guest_favorites_subtitle",
-									"Top dishes by ratings, reviews, and order signals.",
+									"Top dishes based on guest ratings and reviews.",
 								)}
 							</Text>
 						</View>

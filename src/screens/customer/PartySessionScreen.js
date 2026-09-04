@@ -784,7 +784,7 @@ const PartySessionScreen = () => {
 					? t("all_set", "All set")
 					: t("order_sent", "Order sent")
 		: pendingHostCheckInRequest
-			? t("we_will_connect_your_table", "We will connect your table")
+			? t("we_will_connect_your_table", "The host has your request")
 			: t("start_your_order", "Start your order");
 	const nextStepMessage = partyIsActive
 		? myItemCount === 0
@@ -810,7 +810,7 @@ const PartySessionScreen = () => {
 				)
 			: t(
 					"start_order_detail",
-					"Add items now, then scan your table or request host check-in when you arrive.",
+					"Add items now, then scan the table QR or ask the host to seat you.",
 				);
 
 	return (
@@ -1090,7 +1090,7 @@ const PartySessionScreen = () => {
 											style={{ marginRight: 7 }}
 										/>
 										<Text style={styles.pendingPrimaryText}>
-											{t("scan_table", "Scan table")}
+											{t("scan_table", "Scan QR")}
 										</Text>
 									</TouchableOpacity>
 								) : null}
@@ -1137,7 +1137,7 @@ const PartySessionScreen = () => {
 														"cancel_check_in_request",
 														"Cancel request",
 													)
-												: t("request_check_in", "Request check-in")}
+												: t("request_check_in", "Ask host")}
 										</Text>
 									</TouchableOpacity>
 								)}
@@ -1202,7 +1202,7 @@ const PartySessionScreen = () => {
 													{ color: colors.statusDanger },
 												]}
 											>
-												{t("leave_party", "Leave Party")}
+												{t("leave_party", "Leave party")}
 											</Text>
 										)}
 									</TouchableOpacity>
@@ -1448,7 +1448,7 @@ const PartySessionScreen = () => {
 				>
 					<TouchableOpacity style={styles.modalContent} activeOpacity={1}>
 						<Text style={styles.modalTitle}>
-							{t("party_members", "Party Members")}
+							{t("party_members", "Party guests")}
 						</Text>
 						<Text style={styles.partyPanelSubtitle}>
 							{isHost

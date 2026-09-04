@@ -45,7 +45,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 		if (hasActiveRequest) {
 			Alert.alert(
 				"Check-in request sent",
-				"The host already has your request and will seat you soon.",
+				"The host already has your request.",
 			);
 			return;
 		}
@@ -77,7 +77,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 
 			Alert.alert(
 				"Request sent",
-				"The host will review your arrival and seat your party.",
+				"The host will seat your party soon.",
 				[{ text: "OK", onPress: () => navigation.goBack() }],
 			);
 		} catch (error) {
@@ -98,7 +98,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 				keyboardDismissMode="interactive"
 				keyboardShouldPersistTaps="handled"
 			>
-				<Text style={styles.title}>Request check-in</Text>
+				<Text style={styles.title}>Ask to be seated</Text>
 				<Text style={styles.subtitle}>{restaurant?.restaurantName}</Text>
 				{hasActiveRequest ? (
 					<View style={styles.pendingBanner}>
@@ -108,7 +108,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 							color={colors.statusSuccess}
 						/>
 						<Text style={styles.pendingBannerText}>
-							Your check-in request is waiting for the host.
+							The host has your request.
 						</Text>
 					</View>
 				) : null}
@@ -162,7 +162,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 					onSubmitEditing={Keyboard.dismiss}
 				/>
 
-				<Text style={styles.label}>Notes for the host</Text>
+				<Text style={styles.label}>Notes</Text>
 				<TextInput
 					value={guestNotes}
 					onChangeText={setGuestNotes}
@@ -190,7 +190,7 @@ const HostCheckInRequestScreen = ({ route, navigation }) => {
 						<View style={styles.submitContent}>
 							<Ionicons name="person-add-outline" size={18} color="#fff" />
 							<Text style={styles.submitButtonText}>
-								{hasActiveRequest ? "Request sent" : "Request check-in"}
+								{hasActiveRequest ? "Request sent" : "Ask to be seated"}
 							</Text>
 						</View>
 					)}

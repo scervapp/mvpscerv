@@ -495,7 +495,7 @@ const SelectedItemModal = ({
 		if (summary.orderVerified > 0) chips.push("Order verified");
 		if (summary.visitVerified > 0) chips.push("Visit verified");
 		if (summary.photo > 0) chips.push("Photo review");
-		if (summary.community > 0) chips.push("Community rating");
+		if (summary.community > 0) chips.push("Guest rating");
 		if (ratingSummary.ratingCount > 0 && ratingSummary.ratingCount < 5) {
 			chips.push("Needs more ratings");
 		}
@@ -511,7 +511,7 @@ const SelectedItemModal = ({
 			t("scerv_score_title", "Scerv Score"),
 			t(
 				"scerv_score_explanation",
-				"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+				"A dish score based on guest ratings, reviews, photos, and confirmed Scerv orders when available.",
 			),
 		);
 	};
@@ -645,7 +645,7 @@ const SelectedItemModal = ({
 				t("thank_you", "Thank you"),
 				t(
 					"community_review_submitted_message",
-					"Your dish rating was added to Scerv discovery.",
+					"Your dish rating was added.",
 				),
 			);
 		} catch (error) {
@@ -1185,12 +1185,12 @@ const SelectedItemModal = ({
 			? t("you_label", "You")
 			: review.customerDisplayName ||
 				review.customerName ||
-				t("scerv_guest", "Scerv guest");
+				t("scerv_guest", "Guest");
 
 	const getReviewTrustLabel = (review = {}) => {
 		const level = String(review.verificationLevel || "").toLowerCase();
 		if (level === "scerv_order_verified") {
-			return t("scerv_order_verified_label", "Scerv order verified");
+			return t("scerv_order_verified_label", "Ordered on Scerv");
 		}
 		if (level === "receipt_verified") {
 			return t("receipt_verified_label", "Receipt verified");
@@ -1199,7 +1199,7 @@ const SelectedItemModal = ({
 			return t("location_verified_label", "Visit verified");
 		}
 		if (level === "community_guest") {
-			return t("community_guest_label", "Community guest");
+			return t("community_guest_label", "Guest rating");
 		}
 		return t("guest_rated_label", "Guest rated");
 	};
@@ -1490,7 +1490,7 @@ const SelectedItemModal = ({
 								<Text style={styles.discoveryOnlyNoticeText}>
 									{t(
 										"discovery_only_dish_notice",
-										"Ordering is not available here yet. You can still explore the dish and guest reviews.",
+										"This menu is for browsing. Ordering is not available yet.",
 									)}
 								</Text>
 							</View>
@@ -1627,7 +1627,7 @@ const SelectedItemModal = ({
 									style={styles.managePipsButton}
 									labelStyle={{ color: colors.primary, fontSize: 14 }}
 								>
-									{t("manage_pips_button", "Manage PIPs")}
+									{t("manage_pips_button", "Manage people")}
 								</Button>
 
 								{displayOptions.map((target) => {
@@ -1679,7 +1679,7 @@ const SelectedItemModal = ({
 									<Text style={styles.noPipsText}>
 										{t(
 											"no_pips_message",
-											"No PIPs available yet. Add one from your account screen.",
+											"No people added yet. Add them from your account screen.",
 										)}
 									</Text>
 								)}
@@ -1924,7 +1924,7 @@ const SelectedItemModal = ({
 							<Text style={styles.communityReviewTrustText}>
 								{t(
 									"community_review_trust_note",
-									"Community ratings help Scerv discovery. Verified visit and order signals can be added later.",
+									"Your rating helps other guests decide what to order.",
 								)}
 							</Text>
 						</ScrollView>

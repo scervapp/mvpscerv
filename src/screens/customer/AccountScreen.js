@@ -115,8 +115,7 @@ const AccountScreen = () => {
 					</Text>
 					<Text style={styles.userPhone}>{currentUserData?.phoneNumber}</Text>
 				</View>
-				{/* --- THIS IS THE FIX (PART 1) --- */}
-				{/* The main screen now has clearer sections */}
+				{/* Main customer account shortcuts */}
 				<SettingsCard>
 					<AccountRow
 						label={t("my_pips_people_in_party")}
@@ -137,7 +136,7 @@ const AccountScreen = () => {
 					/>
 					<View style={styles.divider} />
 					<AccountRow
-						label={t("scerv_wallet", "Scerv Wallet")}
+						label={t("scerv_wallet", "Rewards Wallet")}
 						iconName="wallet-outline"
 						onPress={() => navigation.navigate("CustomerRewardsScreen")}
 					/>
@@ -188,8 +187,6 @@ const AccountScreen = () => {
 						onPress={() => Linking.openURL("mailto:support@scerv.com")}
 					/>
 				</SettingsCard>
-				{/* --- END OF FIX --- */}
-				{/* --- END OF FIX --- */}
 				<TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
 					<Text style={styles.logoutButtonText}>{t("sign_out")}</Text>
 				</TouchableOpacity>

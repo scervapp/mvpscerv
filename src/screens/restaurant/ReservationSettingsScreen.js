@@ -520,7 +520,9 @@ const ReservationSettingsScreen = () => {
 					<View style={styles.panelHeader}>
 						<View style={styles.toggleCopy}>
 							<Text style={styles.panelTitle}>Reservation slots</Text>
-							<Text style={styles.panelSubtitle}>Manual approval is enabled.</Text>
+							<Text style={styles.panelSubtitle}>
+								Set when guests can request a reservation.
+							</Text>
 						</View>
 						<Switch
 							value={settingsState.enabled}
@@ -653,7 +655,7 @@ const ReservationSettingsScreen = () => {
 
 					<View style={styles.inputRow}>
 						<View style={styles.inputHalf}>
-							<Text style={styles.label}>Min party</Text>
+							<Text style={styles.label}>Min guests</Text>
 							<TextInput
 								value={settingsState.minPartySize}
 								onChangeText={(value) => updateSettings({ minPartySize: value })}
@@ -666,7 +668,7 @@ const ReservationSettingsScreen = () => {
 							/>
 						</View>
 						<View style={styles.inputHalf}>
-							<Text style={styles.label}>Max party</Text>
+							<Text style={styles.label}>Max guests</Text>
 							<TextInput
 								value={settingsState.maxPartySize}
 								onChangeText={(value) => updateSettings({ maxPartySize: value })}

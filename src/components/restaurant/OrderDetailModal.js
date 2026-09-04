@@ -22,20 +22,16 @@ import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionCont
 import DiscountModal from "./DiscountModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 
-// 🚨 THE FIX: Bulletproof normalizer to prevent silent crashes!
 const normalizePartyItem = (item) => {
-	// 1. Safely grab the user ID no matter what it was saved as
 	const rawUserId =
 		item.orderedByUserId || item.addedByUserId || item.userId || "0000";
 	const safeUserId = String(rawUserId);
 
 	return {
 		id: item.id || Math.random().toString(),
-		// 2. Safely grab the name (sometimes saved as 'name', sometimes 'dishName')
 		dishName: item.dishName || item.name || "Order Item",
 		quantity: item.quantity || 1,
 		specialInstructions: item.specialInstructions || "",
-		// 3. Safely grab the PIP name or fallback to the sliced ID
 		orderedFor:
 			item.orderedByPipName || item.pipName || `User ${safeUserId.slice(-4)}`,
 		price: item.price || 0,
@@ -94,7 +90,6 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 				const checkInData = checkInSnap.data();
 
 				setCheckInType(checkInData.type);
-				// Handle fallback if it's saved as partyId instead of associatedPartyId
 				const safePartyId =
 					checkInData.associatedPartyId || checkInData.partyId;
 
@@ -111,7 +106,6 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 						const items = basketSnap.exists()
 							? (basketSnap.data().items || [])
 									.map(normalizePartyItem)
-									// 🚨 THE FIX: Explicitly hide items that haven't been sent yet!
 									.filter((item) => item.status !== "new")
 							: [];
 						setOrderedItems(items);
@@ -125,7 +119,6 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 					unsubscribe = itemsQuery.onSnapshot((snapshot) => {
 						const items = snapshot.docs
 							.map(normalizeIndividualItem)
-							// 🚨 Filter individuals too
 							.filter((item) => item.status !== "new");
 
 						setOrderedItems(items);

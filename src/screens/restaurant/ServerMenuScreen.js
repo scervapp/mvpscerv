@@ -69,7 +69,6 @@ const ServerMenuScreen = () => {
 	const [isSeatModalVisible, setIsSeatModalVisible] = useState(false);
 	const [newSeatName, setNewSeatName] = useState("");
 
-	// ✅ NEW: selected category
 	const [selectedCategory, setSelectedCategory] = useState("All");
 	const selectedSeat =
 		seatOptions.find((seat) => seat.id === selectedSeatId) || seatOptions[0];
@@ -102,7 +101,6 @@ const ServerMenuScreen = () => {
 		loadMenu();
 	}, [restaurantId, navigation, t]);
 
-	// ✅ NEW: category list
 	const categories = useMemo(() => {
 		const uniqueCategories = Array.from(
 			new Set(
@@ -115,7 +113,6 @@ const ServerMenuScreen = () => {
 		return ["All", ...uniqueCategories];
 	}, [menuItems]);
 
-	// ✅ NEW: filtered list passed into MenuItemsList
 	const filteredMenuItems = useMemo(() => {
 		if (selectedCategory === "All") return menuItems || [];
 
@@ -134,7 +131,6 @@ const ServerMenuScreen = () => {
 		[menuItems],
 	);
 
-	// ✅ NEW: generic category styling helpers
 	const getCategoryVisual = useCallback((category) => {
 		const normalized = String(category || "")
 			.trim()
@@ -459,7 +455,7 @@ const ServerMenuScreen = () => {
 			<View style={styles.topNav}>
 				<View style={styles.orderContext}>
 					<Text style={styles.orderEyebrow}>
-						{t("server_ordering_title", "Server Ordering")}
+						{t("server_ordering_title", "Add to Table")}
 					</Text>
 					<Text style={styles.orderTableName} numberOfLines={1}>
 						{tableName}
@@ -474,7 +470,6 @@ const ServerMenuScreen = () => {
 				</TouchableOpacity>
 			</View>
 
-			{/* ✅ NEW: category cards */}
 			<View style={styles.categorySection}>
 				<ScrollView
 					horizontal
@@ -527,14 +522,14 @@ const ServerMenuScreen = () => {
 			<View style={styles.seatSection}>
 				<View style={styles.seatHeaderRow}>
 					<Text style={styles.seatHeaderText}>
-						{t("ordering_for", "Ordering For")}
+						{t("ordering_for", "Seat / Guest")}
 					</Text>
 					<TouchableOpacity
 						style={styles.addSeatButton}
 						onPress={() => setIsSeatModalVisible(true)}
 					>
 						<Ionicons name="add" size={16} color={colors.primary} />
-						<Text style={styles.addSeatText}>{t("seat", "Seat")}</Text>
+						<Text style={styles.addSeatText}>{t("add_guest", "Add Guest")}</Text>
 					</TouchableOpacity>
 				</View>
 				<ScrollView
@@ -585,7 +580,7 @@ const ServerMenuScreen = () => {
 						</View>
 					</View>
 				}
-				pips={[{ userId: currentUserData.uid, name: "Table Share" }]}
+				pips={[{ userId: currentUserData.uid, name: t("table", "Table") }]}
 				onConfirmAddItemToContext={handleServerAddItem}
 				orderingMode="party"
 				partyData={{
@@ -612,7 +607,7 @@ const ServerMenuScreen = () => {
 					>
 						<View>
 							<Text style={styles.pendingTrayTitle}>
-								{t("pending_items_title", "Pending Items")}
+								{t("pending_items_title", "Review Before Sending")}
 							</Text>
 							<Text style={styles.pendingTraySubtitle}>
 								{totalPendingCount} {t("items", "items")}
@@ -715,7 +710,7 @@ const ServerMenuScreen = () => {
 							<>
 								<MaterialCommunityIcons name="fire" size={24} color="#fff" />
 								<Text style={styles.bulkAddButtonText}>
-									{t("fire_to_kitchen", "Fire to Kitchen")} ({totalPendingCount}
+									{t("fire_to_kitchen", "Send to Kitchen")} ({totalPendingCount}
 									)
 								</Text>
 							</>
@@ -744,7 +739,7 @@ const ServerMenuScreen = () => {
 				>
 					<View style={styles.seatModalCard}>
 						<Text style={styles.seatModalTitle}>
-							{t("add_seat", "Add Seat")}
+							{t("add_seat", "Add Guest")}
 						</Text>
 						<TextInput
 							style={styles.seatModalInput}
@@ -838,7 +833,6 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 	},
 
-	// ✅ NEW category styles
 	categorySection: {
 		backgroundColor: colors.surfaceWhite,
 		paddingTop: 10,

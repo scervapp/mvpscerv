@@ -139,7 +139,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 
 			Alert.alert(
 				"Request sent",
-				"The restaurant will confirm your reservation shortly.",
+				"The restaurant will confirm your reservation soon.",
 				[{ text: "OK", onPress: () => navigation.goBack() }],
 			);
 		} catch (error) {
@@ -183,7 +183,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 
 			Alert.alert(
 				"You're on the waitlist",
-				"We'll offer you a spot if one opens for this date.",
+				"We'll let you know if a time opens for this date.",
 				[{ text: "OK", onPress: () => navigation.goBack() }],
 			);
 		} catch (error) {
@@ -201,7 +201,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 				keyboardDismissMode="interactive"
 				keyboardShouldPersistTaps="handled"
 			>
-				<Text style={styles.title}>Request a reservation</Text>
+				<Text style={styles.title}>Request reservation</Text>
 				<Text style={styles.subtitle}>{restaurant?.restaurantName}</Text>
 
 				<Text style={styles.label}>Date</Text>
@@ -264,7 +264,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					inputAccessoryViewID={keyboardAccessoryId}
 				/>
 
-				<Text style={styles.label}>Preferred waitlist time</Text>
+				<Text style={styles.label}>Preferred time if waitlisted</Text>
 				<TextInput
 					value={preferredTimeWindow}
 					onChangeText={setPreferredTimeWindow}
@@ -362,7 +362,7 @@ const ReservationRequestScreen = ({ route, navigation }) => {
 					value={guestNotes}
 					onChangeText={setGuestNotes}
 					style={styles.textArea}
-					placeholder="Anything that helps them host you better."
+					placeholder="Anything the restaurant should know."
 					placeholderTextColor={colors.textLight}
 					multiline
 					blurOnSubmit

@@ -1315,12 +1315,12 @@ const PartyCheckoutScreen = () => {
 
 	const manualButtonLabel = canAcceptPayments
 		? isPickupMode
-			? "" // ❌ no label, we won’t show this button
+			? ""
 			: party?.customerStatus === "ready_to_pay"
 				? t("server_notified", "Server Notified")
 				: t("pay_cash", "Pay Cash")
 		: isPickupMode
-			? "" // ❌ no label
+			? ""
 			: party?.customerStatus === "ready_to_pay"
 				? t("server_notified", "Server Notified")
 				: t("request_check", "Request Check");

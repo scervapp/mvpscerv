@@ -22,9 +22,9 @@ import PlatformSelect from "../global/PlatformSelect";
 const TableAndServerSelectionModal = ({
 	isVisible,
 	onClose,
-	onConfirm, // Callback: onConfirm({ table, server })
+	onConfirm,
 	currentRestaurantId,
-	numInParty, // Number of people in the check-in party
+	numInParty,
 	isProcessing,
 }) => {
 	const { t } = useTranslation();
@@ -36,14 +36,12 @@ const TableAndServerSelectionModal = ({
 	const [selectedTable, setSelectedTable] = useState(null);
 	const [selectedServer, setSelectedServer] = useState(null);
 
-	// Fetch both tables and servers when the modal becomes visible
 	useEffect(() => {
 		if (!isVisible || !currentRestaurantId) return;
 
 		setIsLoading(true);
 		setError(null);
 
-		// Fetch servers once when the modal opens.
 		const loadServers = async () => {
 			try {
 				const serverEmployees = await fetchEmployees(
@@ -57,27 +55,22 @@ const TableAndServerSelectionModal = ({
 			}
 		};
 
-		// Set up the real-time listener for tables.
 		const unsubscribeFromTables = fetchTables(
 			currentRestaurantId,
 			(allTables) => {
-				// This is the callback that receives the tables data.
 				try {
 					if (Array.isArray(allTables)) {
-						// Filter tables that are available and can fit the party
 						const suitableTables = allTables.filter(
 							(table) =>
 								table.status === "available" && table.isActive !== false
 						);
 						const sortedTables = suitableTables.sort((a, b) => {
-							// Use regex to extract numbers from the table names
 							const numA = parseInt((a.name || "").match(/\d+/)?.[0] || 0, 10);
 							const numB = parseInt((b.name || "").match(/\d+/)?.[0] || 0, 10);
 							return numA - numB;
 						});
 						setTables(sortedTables);
 					} else {
-						// Handle case where allTables is not an array
 						console.warn(
 							"fetchTables callback did not receive an array:",
 							allTables
@@ -88,7 +81,6 @@ const TableAndServerSelectionModal = ({
 					console.error("Error filtering tables:", err);
 					setError(t('could_not_process_table_data_error'));
 				} finally {
-					// Consider loading complete after the first data snapshot is processed
 					if (isLoading) setIsLoading(false);
 				}
 			}
@@ -96,7 +88,6 @@ const TableAndServerSelectionModal = ({
 
 		loadServers();
 
-		// Return the cleanup function for the real-time listener
 		return () => {
 			if (unsubscribeFromTables) {
 				unsubscribeFromTables();
@@ -255,7 +246,7 @@ const styles = StyleSheet.create({
 		margin: 15,
 		marginBottom: 5,
 	},
-	tableList: { flexGrow: 0 }, // Prevent FlatList from taking all space
+	tableList: { flexGrow: 0 },
 	pickerContainer: {
 		borderWidth: 1,
 		borderColor: colors.borderLight,
@@ -263,7 +254,7 @@ const styles = StyleSheet.create({
 		marginHorizontal: 15,
 		backgroundColor: colors.surfaceWhite,
 	},
-	picker: { height: 50, color: colors.textMedium }, // For Android consistency
+	picker: { height: 50, color: colors.textMedium },
 	pickerItem: { color: colors.textDark, fontSize: 16 },
 	selectButton: { borderWidth: 0, backgroundColor: colors.surfaceWhite },
 	errorText: {
@@ -280,7 +271,7 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 20,
 	},
 	disabledButton: {
-		backgroundColor: colors.textLight, // A muted gray color
+		backgroundColor: colors.textLight,
 		opacity: 0.7,
 	},
 });

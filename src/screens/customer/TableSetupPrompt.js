@@ -54,18 +54,18 @@ const TableSetupPrompt = ({ route, navigation }) => {
 			}
 
 			Alert.alert(
-				t("bring_party_title", "Bring your party?"),
+				t("bring_party_title", "Use your current table party?"),
 				t(
 					"bring_party_message",
-					"Do you want to check in your entire current party at this table?",
+					"Do you want to seat everyone already in your party at this table?",
 				),
 				[
 					{
-						text: t("start_new_party", "Start New Party"),
+						text: t("start_new_party", "Start new"),
 						onPress: () => resolve(false),
 					},
 					{
-						text: t("bring_party_button", "Bring Party"),
+						text: t("bring_party_button", "Use current"),
 						onPress: () => resolve(true),
 					},
 					{
@@ -229,14 +229,14 @@ const TableSetupPrompt = ({ route, navigation }) => {
 							<View style={styles.optionTextContainer}>
 								<Text style={styles.optionTitle}>
 									{canBringExistingParty
-										? t("group_or_current_party", "Group / Current Party")
-										: t("group_split_bill", "Group / Split Bill")}
+										? t("group_or_current_party", "Use current party")
+										: t("group_split_bill", "Dining with others")}
 								</Text>
 								<Text style={styles.optionDescription}>
 									{canBringExistingParty
 										? t(
 												"bring_existing_party_description",
-												"Seat your current party or start a new group",
+												"Seat your current guests or start fresh",
 											)
 										: t(
 												"order_together_pay_separately",

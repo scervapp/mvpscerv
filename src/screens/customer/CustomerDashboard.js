@@ -140,7 +140,7 @@ const getRatingCount = (menuItem = {}) => {
 const showScervScoreInfo = () => {
 	Alert.alert(
 		"Scerv Score",
-		"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+		"A dish score based on guest ratings, reviews, photos, and confirmed Scerv orders when available.",
 	);
 };
 
@@ -264,7 +264,7 @@ const FeaturedCard = ({ item, onPress }) => {
 					{item.restaurantName || item.name || "Restaurant"}
 				</Text>
 				<Text style={styles.featuredCuisine} numberOfLines={1}>
-					{meta || "Open for discovery"}
+					{meta || "Open to explore"}
 				</Text>
 			</View>
 		</TouchableOpacity>
@@ -323,7 +323,7 @@ const TopFoodCard = ({ item, restaurant, onPress }) => {
 						) : null}
 					</View>
 				) : (
-					<Text style={styles.foodNoRating}>Newly listed</Text>
+					<Text style={styles.foodNoRating}>No ratings yet</Text>
 				)}
 			</View>
 		</TouchableOpacity>
@@ -363,7 +363,7 @@ const TopFoodResultRow = ({ item, restaurant, rank, onPress }) => {
 				</Text>
 				<Text style={styles.discoveryResultMeta} numberOfLines={1}>
 					{[restaurant?.cuisineType, area].filter(Boolean).join(" - ") ||
-						"Scerv discovery"}
+						"Menu details"}
 				</Text>
 				<View style={styles.discoveryResultSignalRow}>
 					<Ionicons name="star" size={13} color="#B45309" />
@@ -457,13 +457,13 @@ const TasteMatchCard = ({ item, onPress }) => {
 				{reasons.length > 0 ? (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
 						{hasCollaborativeSignal
-							? `Recommended for ${reasons.join(" and ")}`
+							? `Picked for ${reasons.join(" and ")}`
 							: `Because you liked ${reasons.join(" and ")}`}
 					</Text>
 				) : (
 					<Text style={styles.tasteMatchReason} numberOfLines={1}>
 						{hasCollaborativeSignal
-							? "Recommended by Scerv Intelligence"
+							? "Picked for your taste"
 							: "Based on your dish ratings"}
 					</Text>
 				)}
@@ -480,7 +480,7 @@ const TasteProfilePrompt = ({ onStart }) => (
 		<View style={styles.tasteProfileTextWrap}>
 			<Text style={styles.tasteProfileTitle}>Shape your taste profile</Text>
 			<Text style={styles.tasteProfileText}>
-				Rate a few dishes and Scerv will start learning what belongs on your table.
+				Rate a few dishes to get better recommendations.
 			</Text>
 		</View>
 		<TouchableOpacity
@@ -782,12 +782,12 @@ const CustomerDashboard = ({ navigation }) => {
 	const tasteRecommendationTitle = "Matched to your taste";
 	const tasteRecommendationSubtitle =
 		tasteTwinCount > 0
-			? "Scerv Intelligence is learning from trusted dish signals."
+			? "Based on ratings from dishes and restaurants like these."
 			: tasteProfileCount > 0
-			? `Scerv Intelligence picks shaped by ${tasteProfileCount} dish ${
+			? `Based on ${tasteProfileCount} dish ${
 					tasteProfileCount === 1 ? "rating" : "ratings"
 				}.`
-			: "Early Scerv Intelligence picks shaped by your dish ratings.";
+			: "Rate dishes to improve your recommendations.";
 
 	const handleViewDiscoveryDishRestaurant = () => {
 		const restaurant = selectedDiscoveryDish?.restaurant;
@@ -1047,7 +1047,7 @@ const CustomerDashboard = ({ navigation }) => {
 				<View style={styles.discoverySection}>
 					<SectionHeader
 						title="What are you craving?"
-						subtitle="Jump straight to the kind of food you want."
+						subtitle="Search by food, restaurant, or neighborhood."
 					/>
 					<FlatList
 						data={discoveryOptions}
@@ -1090,7 +1090,7 @@ const CustomerDashboard = ({ navigation }) => {
 					<View style={styles.featuredSection}>
 						<SectionHeader
 							title="Featured for you"
-							subtitle="Restaurants selected by the market, not a service score."
+							subtitle="Restaurants to explore in your area."
 						/>
 						<FlatList
 							data={featuredRestaurants}
@@ -1318,7 +1318,7 @@ const CustomerDashboard = ({ navigation }) => {
 									{selectedDiscoveryGroup?.label || "Food"}
 								</Text>
 								<Text style={styles.discoveryResultsSubtitle}>
-									Ranked by dish ratings, reviews, and Scerv discovery signals.
+									Ranked by dish ratings, reviews, and confirmed orders when available.
 								</Text>
 							</View>
 							<TouchableOpacity
@@ -1392,7 +1392,7 @@ const CustomerDashboard = ({ navigation }) => {
 							/>
 							<Text style={styles.emptyTitle}>No restaurants found</Text>
 							<Text style={styles.emptyText}>
-								Try a different craving, search term, or area.
+								Try a different food, restaurant, or area.
 							</Text>
 							<TouchableOpacity
 								activeOpacity={0.75}

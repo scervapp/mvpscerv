@@ -104,9 +104,11 @@ const AddMembersModal = ({
 				onPressOut={onClose}
 			>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>{t('add_members_to_party_title')}</Text>
+					<Text style={styles.modalTitle}>
+						{t("add_members_to_party_title", "Add guests")}
+					</Text>
 
-					{/* PIPS List */}
+					{/* Saved guests list */}
 					{hostPips.length > 0 ? (
 						<FlatList
 							data={hostPips}
@@ -116,11 +118,14 @@ const AddMembersModal = ({
 						/>
 					) : (
 						<Text style={styles.noPipsText}>
-							{t('no_pips_added_yet_message')}
+							{t(
+								"no_pips_added_yet_message",
+								"No saved guests yet.",
+							)}
 						</Text>
 					)}
 
-					{/* Add New PIP Button */}
+					{/* Add saved guest button */}
 					<TouchableOpacity
 						style={styles.addNewPipButton}
 						onPress={() => {
@@ -138,7 +143,9 @@ const AddMembersModal = ({
 							size={26}
 							color={colors.primary}
 						/>
-						<Text style={styles.addNewPipText}>{t('add_new_pip_button')}</Text>
+						<Text style={styles.addNewPipText}>
+							{t("add_new_pip_button", "Add guest")}
+						</Text>
 					</TouchableOpacity>
 
 					{/* Bottom Buttons */}

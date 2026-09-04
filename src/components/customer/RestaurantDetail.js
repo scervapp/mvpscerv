@@ -91,7 +91,7 @@ const RestaurantDetailScreen = () => {
 				title: t("request_reservation", "Request Reservation"),
 				subtitle: t(
 					"reservation_manual_approval",
-					"Choose a restaurant-defined time and wait for confirmation.",
+					"Choose a time and wait for the restaurant to confirm.",
 				),
 				icon: "calendar-clock",
 				tone: "default",
@@ -115,7 +115,7 @@ const RestaurantDetailScreen = () => {
 		if (activeReservation.status === "arrival_requested") {
 			return {
 				title: t("arrival_sent", "Arrival Sent"),
-				subtitle: t("host_will_seat_you", "The host will assign your table."),
+				subtitle: t("host_will_seat_you", "The host will seat you soon."),
 				icon: "walk",
 				tone: "success",
 			};
@@ -893,7 +893,7 @@ const RestaurantDetailScreen = () => {
 						<Text style={styles.discoveryOnlySubtitle}>
 							{t(
 								"discovery_profile_subtitle",
-								"This restaurant is listed for food discovery. Ordering, check-in, rewards, and reservations are not enabled yet.",
+								"Browse the menu and reviews here. Ordering, check-in, rewards, and reservations are not available yet.",
 							)}
 						</Text>
 					</View>
@@ -1051,7 +1051,7 @@ const RestaurantDetailScreen = () => {
 												? "1 item saved for dine-in"
 												: dineInBasketCount > 1
 													? `${dineInBasketCount} items saved for dine-in`
-													: "Invite PIPs or build the basket before you arrive",
+													: "Invite people or start your order before you arrive",
 									})}
 								</Text>
 							</View>
@@ -1069,7 +1069,7 @@ const RestaurantDetailScreen = () => {
 									color="#fff"
 								/>
 								<Text style={styles.compactScanText} numberOfLines={1}>
-									{t("scan_table", "Scan Table")}
+									{t("scan_table", "Scan table QR")}
 								</Text>
 							</TouchableOpacity>
 						) : null}
@@ -1087,7 +1087,7 @@ const RestaurantDetailScreen = () => {
 								color={colors.primary}
 							/>
 							<Text style={styles.compactSecondaryText} numberOfLines={1}>
-								{t("party_room", "Party Room")}
+								{t("party_room", "View party")}
 							</Text>
 						</TouchableOpacity>
 
@@ -1169,7 +1169,7 @@ const RestaurantDetailScreen = () => {
 								color={colors.primary}
 							/>
 							<Text style={styles.compactSecondaryText} numberOfLines={1}>
-								{t("scan_table", "Scan Table")}
+								{t("scan_table", "Scan table QR")}
 							</Text>
 						</TouchableOpacity>
 					) : null}
@@ -1240,12 +1240,12 @@ const RestaurantDetailScreen = () => {
 							<View style={styles.actionPanel}>
 								<View style={styles.actionPanelHeader}>
 									<Text style={styles.actionPanelTitle}>
-										{t("visit_options", "Visit Options")}
+										{t("visit_options", "Plan your visit")}
 									</Text>
 									<Text style={styles.actionPanelHint}>
 										{experienceConfig.hospitalityStyle === "fine_dining"
 											? t("premium_hosted_visit", "Hosted arrival")
-											: t("choose_how_to_visit", "Choose your flow")}
+											: t("choose_how_to_visit", "Choose an option")}
 									</Text>
 								</View>
 								{reservationsEnabled ? (
@@ -1314,8 +1314,8 @@ const RestaurantDetailScreen = () => {
 										<View style={styles.reservationTextWrap}>
 											<Text style={styles.reservationButtonTitle}>
 												{hasActiveHostCheckInRequest
-													? t("check_in_request_sent", "Check-In Requested")
-													: t("request_check_in", "Request Check-In")}
+													? t("check_in_request_sent", "Request sent")
+													: t("request_check_in", "Ask to be seated")}
 											</Text>
 											<Text style={styles.reservationButtonSubtitle}>
 												{hasActiveHostCheckInRequest
@@ -1325,7 +1325,7 @@ const RestaurantDetailScreen = () => {
 														)
 													: t(
 															"host_check_in_request",
-															"Let the host assign your table and server.",
+															"Tell the host your party is here.",
 														)}
 											</Text>
 										</View>

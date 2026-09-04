@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { Ionicons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 
-// --- Reusable Check-In Card Component ---
 const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 	const { t } = useTranslation();
 	const formatTime = (timestamp) => {
@@ -46,12 +45,10 @@ const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 				)}
 			</View>
 
-			{/* --- THIS IS THE FIX (PART 2) --- */}
-			{/* The footer now contains both the Decline and Seat buttons. */}
 			<View style={styles.cardFooter}>
 				<TouchableOpacity
 					style={[styles.actionButton, styles.declineButton]}
-					onPress={onDecline} // Calls the new onDecline function
+					onPress={onDecline}
 				>
 					<Text style={styles.declineButtonText}>{t('decline_button')}</Text>
 				</TouchableOpacity>
@@ -67,7 +64,6 @@ const CheckInRequestCard = ({ item, onSelect, onDecline }) => {
 					/>
 				</TouchableOpacity>
 			</View>
-			{/* --- END OF FIX --- */}
 		</View>
 	);
 };
@@ -131,11 +127,10 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		fontSize: 12,
 	},
-	// --- THIS IS THE FIX (PART 3) ---
-	// Updated styles for the footer to accommodate two buttons.
+	// Two side-by-side actions let the host quickly seat or decline a request.
 	cardFooter: {
 		flexDirection: "row",
-		justifyContent: "flex-end", // Aligns buttons to the right
+		justifyContent: "flex-end",
 		alignItems: "center",
 	},
 	actionButton: {
@@ -144,7 +139,7 @@ const styles = StyleSheet.create({
 		paddingVertical: 10,
 		paddingHorizontal: 15,
 		borderRadius: 8,
-		marginLeft: 10, // Space between buttons
+		marginLeft: 10,
 	},
 	declineButton: {
 		backgroundColor: colors.surfaceWhite,
@@ -165,7 +160,6 @@ const styles = StyleSheet.create({
 		fontWeight: "bold",
 		marginRight: 8,
 	},
-	// --- END OF FIX ---
 });
 
 export default CheckInRequestCard;

@@ -22,7 +22,7 @@ import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience"
 const THRESHOLD_OPTIONS = [
 	{ key: "visits", label: "Visits" },
 	{ key: "spend", label: "Spend" },
-	{ key: "points", label: "Club points" },
+	{ key: "points", label: "Reward points" },
 ];
 
 const REWARD_OPTIONS = [
@@ -130,8 +130,8 @@ const buildTierPreview = (tier) => {
 	const reward = buildRewardLabel(tier);
 	const redemption =
 		tier.redemptionMode === "automatic"
-			? "Auto-applies at eligible checkout."
-			: "Staff redeems it for the guest.";
+			? "Applies automatically at eligible checkout."
+			: "Staff marks it redeemed for the guest.";
 	return `Unlocks after ${threshold}: ${reward}. ${redemption}`;
 };
 
@@ -406,11 +406,11 @@ const RestaurantRewardsScreen = () => {
 						/>
 					</View>
 					<View style={styles.heroText}>
-						<Text style={styles.eyebrow}>Scerv Hospitality</Text>
+						<Text style={styles.eyebrow}>Guest loyalty</Text>
 						<Text style={styles.title}>Rewards</Text>
 						<Text style={styles.subtitle}>
-							Scerv points grow everywhere. This restaurant club creates the
-							local perks guests come back for.
+							Set the rewards guests earn at this restaurant and decide what
+							applies automatically at checkout.
 						</Text>
 					</View>
 				</View>
@@ -431,8 +431,10 @@ const RestaurantRewardsScreen = () => {
 				<View style={styles.panel}>
 					<View style={styles.panelHeader}>
 						<View>
-							<Text style={styles.panelTitle}>Restaurant club</Text>
-							<Text style={styles.panelSubtitle}>Custom tiers and thresholds.</Text>
+							<Text style={styles.panelTitle}>Restaurant rewards</Text>
+							<Text style={styles.panelSubtitle}>
+								Build one clear loyalty ladder for this location.
+							</Text>
 						</View>
 						<Switch
 							value={isRewardsAllowed && program.enabled}
@@ -441,7 +443,7 @@ const RestaurantRewardsScreen = () => {
 						/>
 					</View>
 
-					<Text style={styles.label}>Club name</Text>
+					<Text style={styles.label}>Program name</Text>
 					<TextInput
 						style={styles.input}
 						value={program.name}
@@ -450,7 +452,7 @@ const RestaurantRewardsScreen = () => {
 						placeholderTextColor={colors.textMedium}
 					/>
 
-					<Text style={styles.label}>Club points per dollar</Text>
+					<Text style={styles.label}>Reward points per dollar</Text>
 					<TextInput
 						style={styles.input}
 						value={program.pointsPerDollar}
@@ -466,8 +468,7 @@ const RestaurantRewardsScreen = () => {
 						<View>
 							<Text style={styles.panelTitle}>Tiers</Text>
 							<Text style={styles.panelSubtitle}>
-								One progressive status ladder. The order below controls the
-								guest's membership level.
+								Guests hold one current status. Higher tiers replace lower tiers.
 							</Text>
 						</View>
 						<TouchableOpacity style={styles.iconButton} onPress={addTier}>
@@ -481,7 +482,7 @@ const RestaurantRewardsScreen = () => {
 								<View>
 									<Text style={styles.tierTitle}>Status {index + 1}</Text>
 									<Text style={styles.tierSubtitle}>
-										Guests can only hold one current status here.
+										This is part of one progressive ladder.
 									</Text>
 								</View>
 								<View style={styles.tierActionRow}>

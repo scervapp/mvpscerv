@@ -656,7 +656,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 					<Text style={styles.mainHeading}>{t("review_your_order")}</Text>
 					<Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
 
-					{/* PIP Breakdown & Gratuity Sections (Left intact) */}
+					{/* Item totals grouped by person */}
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>{t("items_by_person")}</Text>
 						{filteredBasketData.map((personData) => {
@@ -808,9 +808,7 @@ const CheckoutScreen = ({ route, navigation }) => {
 
 					{paymentError && <Text style={styles.errorText}>{paymentError}</Text>}
 
-					{/* ========================================== */}
-					{/* 🇵🇦 PANAMA CHECKOUT (dLocal Smart Fields) */}
-					{/* ========================================== */}
+					{/* Panama checkout uses dLocal Smart Fields. */}
 					{isPanama && (
 						<View style={styles.checkoutButtonsContainer}>
 							{/* --- PayPal Section (Untouched) --- */}

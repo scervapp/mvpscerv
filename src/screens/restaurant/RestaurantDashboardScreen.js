@@ -176,7 +176,9 @@ const RestaurantDashboardScreen = () => {
 						<ActivityIndicator color={statusColor} />
 					) : (
 						<Text style={[styles.statusToggleText, { color: statusColor }]}>
-							{isOpen ? t("Close Shop") : t("Open Shop")}
+							{isOpen
+								? t("close_day_confirm", "Close Day")
+								: t("start_service", "Start Service")}
 						</Text>
 					)}
 				</TouchableOpacity>
@@ -389,7 +391,10 @@ const RestaurantDashboardScreen = () => {
 							{permissions.canViewServiceRequests ? (
 								<DashboardCard
 									label={t("service_requests", "Service Requests")}
-									description={t("guest_needs_attention", "Guest needs attention")}
+									description={t(
+										"guest_needs_attention",
+										"Tables needing attention",
+									)}
 									iconName="bell-ring-outline"
 									color="#dc2626"
 									onPress={() =>
@@ -441,14 +446,20 @@ const RestaurantDashboardScreen = () => {
 						<View style={styles.navigationStack}>
 							<DashboardCard
 								label={t("back_office", "Back Office")}
-								description={t("menu_staff_reports", "Menu, staff, reports")}
+								description={t(
+									"menu_staff_reports",
+									"Menu, staff, reports",
+								)}
 								iconName="shield-check-outline"
 								color="#059669"
 								onPress={handleBackOfficePress}
 							/>
 							<DashboardCard
 								label={t("rewards", "Rewards")}
-								description={t("loyalty_tiers_guest_perks", "Loyalty tiers and guest perks")}
+								description={t(
+									"loyalty_tiers_guest_perks",
+									"Restaurant reward tiers",
+								)}
 								iconName="star-four-points-outline"
 								color="#2563eb"
 								onPress={() =>

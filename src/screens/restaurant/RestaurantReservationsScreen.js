@@ -454,7 +454,7 @@ const RestaurantReservationsScreen = () => {
 				{reservation.partyId ? (
 					<View style={styles.linkedPartyBadge}>
 						<Ionicons name="people-outline" size={15} color={colors.primary} />
-						<Text style={styles.linkedPartyText}>Scerv party linked</Text>
+						<Text style={styles.linkedPartyText}>Linked table order</Text>
 					</View>
 				) : null}
 
@@ -529,7 +529,7 @@ const RestaurantReservationsScreen = () => {
 			<ScrollView contentContainerStyle={styles.container}>
 				<Text style={styles.title}>Reservations</Text>
 				<Text style={styles.subtitle}>
-					Approve reservation requests and manage confirmed reservation guests.
+					Approve requests, seat arrivals, and watch waitlist demand.
 				</Text>
 
 				<View style={styles.statsRow}>

@@ -152,7 +152,7 @@ const RestaurantActiveTables = () => {
 		"markReadyKitchenItemsServed",
 	);
 
-	// 1. Listen for Active & Checked-Out Parties
+	// Listen for active and recently paid tables that still need cleaning.
 	useEffect(() => {
 		if (!restaurantId) {
 			setError(
@@ -165,7 +165,6 @@ const RestaurantActiveTables = () => {
 			return;
 		}
 
-		// 🚨 UPGRADED QUERY: Now fetches both "active" and "checkedOut" (Dirty) tables
 		const q = db
 			.collection("parties")
 			.where("restaurantId", "==", restaurantId)
@@ -298,7 +297,7 @@ const RestaurantActiveTables = () => {
 		return () => unsubscribe();
 	}, [restaurantId]);
 
-	// 2. Fetch Servers for Assignment Modal
+	// Fetch servers for assignment.
 	useEffect(() => {
 		const fetchServers = async () => {
 			if (!restaurantId) return;
@@ -326,11 +325,9 @@ const RestaurantActiveTables = () => {
 		setTimeout(() => setIsRefreshing(false), 1000);
 	}, []);
 
-	// 3. Table Tap
 	const handleTableTap = (party) => {
 		const isDirty = party.status === "checkedOut";
 
-		// If it's dirty, don't open the POS menu, prompt to clean it
 		if (isDirty) {
 			handleClearTableAction(party);
 			return;
@@ -360,7 +357,6 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
-	// 4. Assign Server
 	const executeServerAssignment = async (
 		selectedServer,
 		partyOverride = selectedPartyForAssignment,
@@ -389,7 +385,6 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
-	// 5. Acknowledge Service
 	const handleAcknowledge = async (partyId) => {
 		try {
 			await acknowledgePartyServiceRequestFunction({
@@ -441,7 +436,6 @@ const RestaurantActiveTables = () => {
 		}
 	};
 
-	// 6. Clear / Clean Table (Smart Handler)
 	const handleClearTableAction = (party) => {
 		const isDirty = party.status === "checkedOut";
 		const title = isDirty
@@ -466,7 +460,6 @@ const RestaurantActiveTables = () => {
 						const tableId = party.table?.id || party.tableId;
 						const customerId = party.hostUserId || party.currentCustomerId;
 
-						// 🚨 1. Use YOUR utility to free up the physical table on the floor plan
 						const staffName =
 							activeSession?.name ||
 							`${activeSession?.firstName || ""} ${
@@ -491,9 +484,6 @@ const RestaurantActiveTables = () => {
 							});
 						}
 
-						// 🚨 2. Mark the Party as "completed" so it disappears from this screen
-
-						// 🚨 3. Free the customer's app (if they aren't a walk-in)
 					} catch (error) {
 						console.error("Error clearing table:", error);
 						Alert.alert(
@@ -509,7 +499,6 @@ const RestaurantActiveTables = () => {
 	};
 
 	const renderPartyCard = ({ item }) => {
-		// 🚨 NEW: Core Logic for Dirty State
 		const isDirty = item.status === "checkedOut";
 
 		const partySize = item.guestPips ? item.guestPips.length : 1;
@@ -596,7 +585,7 @@ const RestaurantActiveTables = () => {
 					needsService && styles.cardNeedsService,
 					isCheckoutRequest && styles.cardNeedsCheckout,
 					hasFoodReady && styles.cardFoodReady,
-					isDirty && styles.cardNeedsCleaning, // 🚨 Apply Dirty Slate Style
+					isDirty && styles.cardNeedsCleaning,
 				]}
 				activeOpacity={0.9}
 				onPress={() => handleTableTap(item)}
@@ -726,7 +715,6 @@ const RestaurantActiveTables = () => {
 					</View>
 				)}
 
-				{/* 🚨 DYNAMIC FOOTER: Dirty vs Active */}
 				{hasFoodReady && (
 					<View style={styles.foodReadyBanner}>
 						<View style={styles.serviceBannerLeft}>
@@ -975,7 +963,9 @@ const RestaurantActiveTables = () => {
 						<Text style={[styles.pulseValue, { color: colors.textDark }]}>
 							{tablePulse.dirty}
 						</Text>
-						<Text style={styles.pulseLabel}>{t("dirty", "Dirty")}</Text>
+						<Text style={styles.pulseLabel}>
+							{t("needs_cleaning_status", "Needs Cleaning")}
+						</Text>
 					</View>
 				</View>
 
@@ -1112,7 +1102,6 @@ const styles = StyleSheet.create({
 		borderLeftColor: colors.statusSuccess,
 	},
 
-	// 🚨 NEW: Dirty Slate Styling
 	cardNeedsCleaning: {
 		backgroundColor: "#F8FAFC",
 		borderColor: "#CBD5E1",
@@ -1282,7 +1271,6 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 	},
 
-	// 🚨 NEW: Dirty Footer Styles
 	dirtyFooter: {
 		paddingTop: 10,
 		borderTopWidth: 1,

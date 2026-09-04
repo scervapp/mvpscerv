@@ -258,7 +258,7 @@ const CustomerReservationsScreen = () => {
 
 			Alert.alert(
 				"Arrival sent",
-				"The host has your arrival request and can assign a table.",
+				"The host knows you're here and can seat you.",
 			);
 		} catch (error) {
 			console.error("Error requesting reservation arrival:", error);
@@ -277,11 +277,11 @@ const CustomerReservationsScreen = () => {
 
 		Alert.alert(
 			"Bring your party?",
-			"Do you want the host to seat your full Scerv party for this reservation?",
+			"Do you want the host to seat everyone in your party?",
 			[
 				{ text: "Just me", onPress: () => submitArrivalRequest(reservation) },
 				{
-					text: "Bring party",
+					text: "Bring everyone",
 					onPress: () => submitArrivalRequest(reservation, partyContext),
 				},
 				{ text: "Cancel", style: "cancel" },
@@ -350,7 +350,7 @@ const CustomerReservationsScreen = () => {
 						<Text style={styles.queueNoticeText}>
 							{entry.queuePosition && entry.queueTotal
 								? `You're #${entry.queuePosition} of ${entry.queueTotal} on this waitlist.`
-								: "You're on the waitlist. We'll notify you if a matching reservation opens."}
+								: "You're on the waitlist. We'll let you know if a time opens."}
 						</Text>
 					</View>
 				)}
@@ -441,7 +441,7 @@ const CustomerReservationsScreen = () => {
 										? reservation.status === "seated"
 											? "Open table"
 											: "Open party"
-										: "Plan with party"}
+										: "Invite guests"}
 								</Text>
 							</>
 						)}
@@ -473,7 +473,7 @@ const CustomerReservationsScreen = () => {
 							color={colors.textMedium}
 						/>
 						<Text style={styles.waitingNoticeText}>
-							Waiting for the host to assign a table.
+							The host will seat you soon.
 						</Text>
 					</View>
 				) : null}
@@ -509,7 +509,7 @@ const CustomerReservationsScreen = () => {
 			<ScrollView contentContainerStyle={styles.container}>
 				<Text style={styles.title}>My Reservations</Text>
 				<Text style={styles.subtitle}>
-					View requests, confirmations, and cancel upcoming reservations.
+					View upcoming reservations, waitlist offers, and arrival status.
 				</Text>
 
 				{isLoading ? (

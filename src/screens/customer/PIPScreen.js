@@ -208,7 +208,7 @@ const PIPSListScreen = () => {
 					</Text>
 					<Text style={styles.pipType}>
 						{item.isUser
-							? t("scerv_friend", "Scerv friend")
+			? t("scerv_friend", "Scerv friend")
 							: t("guest_placeholder", "Guest placeholder")}
 					</Text>
 				</View>
@@ -226,7 +226,7 @@ const PIPSListScreen = () => {
 		<View>
 			<View style={styles.heroPanel}>
 				<Text style={styles.screenTitle}>
-					{t("pips_friends_title", "PIPs / Friends")}
+					{t("pips_friends_title", "People")}
 				</Text>
 				<Text style={styles.screenSubtitle}>
 					{t(
@@ -249,7 +249,7 @@ const PIPSListScreen = () => {
 					/>
 					<View style={styles.actionTextBlock}>
 						<Text style={styles.primaryFriendButtonText}>
-							{t("add_scerv_friend", "Add Scerv Friend")}
+							{t("add_scerv_friend", "Add person")}
 						</Text>
 						<Text style={styles.primaryFriendButtonSubtext}>
 							{t(
@@ -269,13 +269,13 @@ const PIPSListScreen = () => {
 						color={colors.primary}
 					/>
 					<Text style={styles.sectionHeaderText}>
-						{t("add_guest_placeholder", "Add Guest Placeholder")}
+						{t("add_guest_placeholder", "Add guest")}
 					</Text>
 				</View>
 				<Text style={styles.sectionHelperText}>
 					{t(
 						"guest_placeholder_help",
-						"Use this for someone who does not have Scerv yet.",
+							"Use this when you are ordering for someone else.",
 					)}
 				</Text>
 				<View style={styles.addPipContainer}>
@@ -293,7 +293,7 @@ const PIPSListScreen = () => {
 				</View>
 			</View>
 
-			<Text style={styles.listTitle}>{t("your_pips", "Your PIPs")}</Text>
+			<Text style={styles.listTitle}>{t("your_pips", "Your people")}</Text>
 		</View>
 	);
 
@@ -318,12 +318,12 @@ const PIPSListScreen = () => {
 								color={colors.textLight}
 							/>
 							<Text style={styles.emptyTitle}>
-								{t("no_pips_added_yet", "No PIPs added yet")}
+								{t("no_pips_added_yet", "No people added yet")}
 							</Text>
 							<Text style={styles.emptyText}>
 								{t(
 									"add_pips_empty_state",
-									"Add friends or guest placeholders so party planning feels instant.",
+									"Add people you dine with so inviting them is faster.",
 								)}
 							</Text>
 						</View>

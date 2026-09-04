@@ -92,8 +92,7 @@ const PosLockScreen = () => {
 	const onPinSuccess = (verifiedEmployeeFromBackend) => {
 		setIsPinModalVisible(false);
 		setEmployeeToVerify(null);
-		// 🚨 THE FIX: Merge the fully loaded local profile with the backend confirmation
-		// This guarantees activeSession has her 'jobTitle', 'firstName', 'lastName', etc.
+		// Merge the local employee profile with backend verification so the active session has role details.
 		startSession({
 			...employeeToVerify,
 			...verifiedEmployeeFromBackend,

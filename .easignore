@@ -10,6 +10,11 @@ web-build/
 
 # Local backups and debug artifacts
 backups/
+deliverables/
+generated/
+tmp/
+tools/
+docs/*.docx
 npm-debug.*
 yarn-debug.*
 yarn-error.*

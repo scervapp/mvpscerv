@@ -47,7 +47,7 @@ const getListingStatus = (restaurant = {}) => {
 const showScervScoreInfo = () => {
 	Alert.alert(
 		"Scerv Score",
-		"A refined dish ranking shaped by guest ratings, review depth, and trusted dining signals.",
+		"A dish score based on guest ratings, reviews, photos, and confirmed Scerv orders when available.",
 	);
 };
 
@@ -82,7 +82,7 @@ const RestaurantCard = ({
 	const statusLabel = isComingSoon
 		? t("coming_soon")
 		: listingStatus === "community"
-			? "Discovery"
+			? "Menu"
 			: listingStatus === "claimed"
 				? "Claimed"
 				: isOpen
@@ -154,7 +154,7 @@ const RestaurantCard = ({
 						}}
 					>
 						<Text style={styles.bestFoodLabel}>
-							{t("best_match_label", "Best match")}
+							{t("top_dish_label", "Top dish")}
 						</Text>
 						<Text style={styles.bestFoodName} numberOfLines={1}>
 							{bestFoodName}

@@ -16,7 +16,7 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 		item.tableType &&
 		t(`table_type_${item.tableType}`, item.tableType.replace(/([A-Z])/g, " $1"));
 
-	// --- Determine table status and corresponding Pastel/Deep styles ---
+	// Status colors are intentionally high-contrast so floor staff can scan tables quickly.
 	let statusText = isInactive ? t("inactive", "Inactive") : t("unknown_status");
 	let bgColor = colors.surfaceWhite;
 	let textColor = colors.textDark;
@@ -31,30 +31,29 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 		switch (item.status) {
 			case "available":
 				statusText = t("available_status");
-				bgColor = "#D1FAE5"; // Pastel Mint Green
-				textColor = "#065F46"; // Deep Emerald Text
+				bgColor = "#D1FAE5";
+				textColor = "#065F46";
 				borderColor = "#6EE7B7";
 				iconName = "checkmark-circle-outline";
 				break;
 			case "OCCUPIED":
 			case "occupied":
 				statusText = t("occupied_status");
-				bgColor = "#FEE2E2"; // Pastel Rose Red
-				textColor = "#991B1B"; // Deep Crimson Text
+				bgColor = "#FEE2E2";
+				textColor = "#991B1B";
 				borderColor = "#FCA5A5";
 				iconName = "people";
 				break;
 			case "checkedOut":
 				statusText = t("needs_cleaning_status");
-				bgColor = "#FEF3C7"; // Pastel Lemon Yellow
-				textColor = "#92400E"; // Deep Amber Text
+				bgColor = "#FEF3C7";
+				textColor = "#92400E";
 				borderColor = "#FCD34D";
 				iconName = "alert-circle-outline";
 				break;
 		}
 	}
 
-	// Dynamic styles to handle the pastel theme OR the selected state
 	const dynamicContainerStyle = {
 		backgroundColor: isSelected ? colors.primary : bgColor,
 		borderColor: isSelected ? colors.brandOrange : borderColor,
@@ -86,7 +85,6 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 					{section}
 					{tableType ? ` - ${tableType}` : ""}
 				</Text>
-				{/* Adding slight opacity to capacity so it visually separates from the bold status */}
 				<Text style={[styles.capacityText, dynamicTextStyle, { opacity: 0.8 }]}>
 					{t("seats_label")}: {item.capacity}
 				</Text>
@@ -99,17 +97,16 @@ const styles = StyleSheet.create({
 	cardContainer: {
 		flex: 1,
 		margin: 8,
-		height: 126, // Consistent height
+		height: 126,
 		borderRadius: 8,
-		justifyContent: "space-between", // Space out header and body
+		justifyContent: "space-between",
 		padding: 12,
-		// Professional shadow
 		shadowColor: "#000",
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.1,
 		shadowRadius: 3.84,
 		elevation: 4,
-		borderWidth: 2, // Border width is constant, color changes dynamically
+		borderWidth: 2,
 	},
 	header: {
 		flexDirection: "row",

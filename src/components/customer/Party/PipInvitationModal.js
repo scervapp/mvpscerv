@@ -89,18 +89,23 @@ const PipInvitationModal = ({
 		>
 			<View style={styles.modalOverlay}>
 				<View style={styles.modalContent}>
-					<Text style={styles.modalTitle}>{t('select_pip_to_invite_add_title')}</Text>
+					<Text style={styles.modalTitle}>
+						{t("select_pip_to_invite_add_title", "Add guests")}
+					</Text>
 					<Text style={styles.modalHelpText}>
 						{t(
 							"party_pip_invite_help",
-							"Invite platform PIPs so they can join and pay separately. Add local guests only when they are ordering on your bill.",
+							"Invite people with Scerv accounts so they can join and pay separately. Add guests only when you are ordering for them.",
 						)}
 					</Text>
 					{isLoadingPips ? (
 						<ActivityIndicator size="small" color={colors.primary} />
 					) : pips.length === 0 ? (
 						<Text style={styles.noPipsText}>
-							{t('no_pips_added_instructions')}
+							{t(
+								"no_pips_added_instructions",
+								"No saved guests yet. Add someone from your account screen.",
+							)}
 						</Text>
 					) : (
 						<FlatList
@@ -118,7 +123,7 @@ const PipInvitationModal = ({
 						>
 							<Ionicons name="search-outline" size={20} color={colors.primary} />
 							<Text style={styles.secondaryActionText}>
-								{t("find_platform_pips", "Find platform PIPs")}
+								{t("find_platform_pips", "Find people")}
 							</Text>
 						</TouchableOpacity>
 						<TouchableOpacity

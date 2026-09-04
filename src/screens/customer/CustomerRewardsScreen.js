@@ -14,29 +14,29 @@ import { db } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 
 const SCERV_LEVELS = [
-	{ name: "First Taste", threshold: 0 },
+	{ name: "Starter", threshold: 0 },
 	{ name: "Regular", threshold: 1000 },
 	{ name: "Insider", threshold: 5000 },
-	{ name: "Host Favorite", threshold: 15000 },
-	{ name: "Hospitality Elite", threshold: 50000 },
+	{ name: "Favorite Guest", threshold: 15000 },
+	{ name: "Premier Guest", threshold: 50000 },
 ];
 
 const WALLET_BADGES = [
 	{
 		id: "first_points",
-		label: "First Earn",
+		label: "First Points",
 		icon: "sparkles-outline",
 		isUnlocked: ({ lifetimePoints }) => lifetimePoints > 0,
 	},
 	{
 		id: "club_collector",
-		label: "Club Collector",
+		label: "Restaurant Regular",
 		icon: "storefront-outline",
 		isUnlocked: ({ clubs }) => clubs.length >= 3,
 	},
 	{
 		id: "perk_hunter",
-		label: "Perk Hunter",
+		label: "Rewards Ready",
 		icon: "ticket-outline",
 		isUnlocked: ({ unlockedCount }) => unlockedCount >= 3,
 	},
@@ -486,12 +486,12 @@ const CustomerRewardsScreen = () => {
 				<View style={styles.hero}>
 					<View style={styles.heroTopRow}>
 						<View>
-							<Text style={styles.eyebrow}>Scerv Wallet</Text>
+							<Text style={styles.eyebrow}>Rewards Wallet</Text>
 							<Text style={styles.heroTitle}>{level.currentLevel.name}</Text>
 						</View>
 						<View style={styles.levelBadge}>
 							<Text style={styles.levelBadgeText}>
-								LVL {SCERV_LEVELS.indexOf(level.currentLevel) + 1}
+								Level {SCERV_LEVELS.indexOf(level.currentLevel) + 1}
 							</Text>
 						</View>
 					</View>
@@ -501,13 +501,13 @@ const CustomerRewardsScreen = () => {
 					<Text style={styles.nextLevelText}>
 						{level.nextLevel
 							? `${level.pointsToNext.toLocaleString()} points to ${level.nextLevel.name}`
-							: "Top Scerv hospitality status unlocked"}
+							: "Highest level reached"}
 					</Text>
 				</View>
 
 				<View style={styles.statsGrid}>
-					<StatPill icon="star-four-points-outline" label="Lifetime" value={lifetimePoints.toLocaleString()} />
-					<StatPill icon="storefront-outline" label="Clubs" value={clubs.length.toString()} />
+					<StatPill icon="star-four-points-outline" label="Earned" value={lifetimePoints.toLocaleString()} />
+					<StatPill icon="storefront-outline" label="Restaurants" value={clubs.length.toString()} />
 					<StatPill
 						icon="ticket-confirmation-outline"
 						label="Perks"
@@ -553,7 +553,7 @@ const CustomerRewardsScreen = () => {
 
 				<View style={styles.rulesPanel}>
 					<View style={styles.panelHeaderRow}>
-						<Text style={styles.sectionTitleInline}>Possible Rewards</Text>
+						<Text style={styles.sectionTitleInline}>Rewards to earn</Text>
 						<Text style={styles.panelMeta}>
 							{possibleRewards.filter((rule) => rule.unlocked).length}/
 							{possibleRewards.length}
@@ -658,7 +658,7 @@ const CustomerRewardsScreen = () => {
 					</>
 				)}
 
-				<Text style={styles.sectionTitle}>Restaurant Status</Text>
+				<Text style={styles.sectionTitle}>Restaurant rewards</Text>
 				{clubs.length === 0 ? (
 					<View style={styles.emptyPanel}>
 						<MaterialCommunityIcons
@@ -666,9 +666,9 @@ const CustomerRewardsScreen = () => {
 							size={26}
 							color={colors.primary}
 						/>
-						<Text style={styles.emptyTitle}>No club progress yet</Text>
+						<Text style={styles.emptyTitle}>No restaurant rewards yet</Text>
 						<Text style={styles.emptyText}>
-							Order at participating restaurants to build status and unlock local perks.
+							Order at participating restaurants to earn points and unlock rewards.
 						</Text>
 					</View>
 				) : (
@@ -690,7 +690,7 @@ const CustomerRewardsScreen = () => {
 											{club.restaurantName || "Restaurant Club"}
 										</Text>
 										<Text style={styles.clubTier}>
-											Current status: {thresholdLabel(club)}
+											Status: {thresholdLabel(club)}
 										</Text>
 									</View>
 								</View>
@@ -752,7 +752,7 @@ const CustomerRewardsScreen = () => {
 									</View>
 								) : (
 									<Text style={styles.clubHint}>
-										Keep dining here to unlock this restaurant's first perk.
+										Keep dining here to unlock this restaurant's first reward.
 									</Text>
 								)}
 							</View>

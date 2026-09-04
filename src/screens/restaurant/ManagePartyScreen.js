@@ -1597,7 +1597,6 @@ const ManagePartyScreen = () => {
 					/>
 				)}
 
-				{/* NEW: Server Warning Message */}
 				{!hasServer && (
 					<Text style={styles.noServerWarning}>
 						{t(
@@ -1705,7 +1704,7 @@ const ManagePartyScreen = () => {
 						<View style={styles.modalTotalsBox}>
 							<View style={styles.closeoutSeatSelector}>
 								<Text style={styles.closeoutSeatTitle}>
-									{t("settle_seats", "Settle Seats")}
+									{t("settle_seats", "Seats to Close")}
 								</Text>
 								<ScrollView horizontal showsHorizontalScrollIndicator={false}>
 									{seatSummaries.map((seat) => {
@@ -1827,7 +1826,7 @@ const ManagePartyScreen = () => {
 										<Text style={styles.summarySubLabel}>
 											{t(
 												"customer_app_order_fee",
-												"Customer app order fee",
+												"Guest app fee included",
 											)}
 										</Text>
 									</View>
@@ -1839,7 +1838,7 @@ const ManagePartyScreen = () => {
 							<View style={styles.summaryDivider} />
 							<View style={styles.totalsRow}>
 								<Text style={styles.totalLabel}>
-									{t("selected_total", "Selected Total")}
+									{t("selected_total", "Total to Collect")}
 								</Text>
 								<Text style={styles.totalAmount}>
 									{formatCurrencyFromDollars(closeoutGrandTotal)}

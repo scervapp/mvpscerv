@@ -15,7 +15,7 @@ import {
 	ActivityIndicator,
 	Alert,
 	useWindowDimensions,
-	StatusBar, // 🚨 NEW: For hiding the OS clock/battery
+	StatusBar,
 } from "react-native";
 
 import moment from "moment";
@@ -119,7 +119,6 @@ const getSeatLabel = (item) =>
 	item?.orderedFor ||
 	"";
 
-// --- Enterprise Kitchen Ticket ---
 const KitchenTicket = React.memo(
 	({
 		order,
@@ -203,7 +202,6 @@ const KitchenTicket = React.memo(
 			itemStatusFallback,
 		);
 
-		// 🚨 1. Determine if this is a hotel order
 		const statusMeta = getStatusMeta(currentStatus);
 		const openCount = itemsToDisplay.filter(
 			(item) =>
@@ -285,7 +283,6 @@ const KitchenTicket = React.memo(
 							</View>
 						</View>
 
-						{/* 🚨 2. Render the high-visibility TO-GO badge */}
 						{isPickup && (
 							<View style={styles.togoBadge}>
 								<Ionicons name="bag-handle" size={12} color="#FFF" />
@@ -578,8 +575,6 @@ const UpcomingTicket = React.memo(
 	},
 );
 
-// --- Main KDS Screen ---
-// 🚨 NEW: Notice we destructured `navigation` from the props to control the header/tabs
 const ChefsQScreen = ({ navigation }) => {
 	const { width } = useWindowDimensions();
 	const { currentUserData } = useContext(AuthContext);
@@ -600,7 +595,6 @@ const ChefsQScreen = ({ navigation }) => {
 		"releaseKitchenOrderPacing",
 	);
 
-	// 🚨 NEW: Fullscreen State
 	const [isFullscreen, setIsFullscreen] = useState(false);
 
 	const { t } = useTranslation();
@@ -611,7 +605,7 @@ const ChefsQScreen = ({ navigation }) => {
 		[currentUserData?.restaurantId, currentUserData?.uid],
 	);
 
-	// 1. Force Landscape Layout
+	// Lock the kitchen display in landscape while the queue is active.
 	useFocusEffect(
 		React.useCallback(() => {
 			console.log("[KDS ORIENTATION] ChefQ focused; locking landscape");
@@ -639,7 +633,6 @@ const ChefsQScreen = ({ navigation }) => {
 						console.error("ChefsQ: Failed to restore portrait:", error);
 					});
 				}, 750);
-				// 🚨 Failsafe: Turn everything back on if they leave the screen
 				StatusBar.setHidden(false);
 				navigation.setOptions({ headerShown: true });
 				navigation
@@ -649,7 +642,6 @@ const ChefsQScreen = ({ navigation }) => {
 		}, [navigation, setKitchenQueueFocused]),
 	);
 
-	// 🚨 2. The Fullscreen Controller
 	useEffect(() => {
 		if (!isFocused) return;
 
@@ -684,13 +676,13 @@ const ChefsQScreen = ({ navigation }) => {
 		}
 	}, [isFullscreen, navigation]);
 
-	// 3. Live Timer Engine
+	// Keep ticket timers current without waiting for a Firestore update.
 	useEffect(() => {
 		const timerInterval = setInterval(() => setCurrentTime(Date.now()), 60000);
 		return () => clearInterval(timerInterval);
 	}, []);
 
-	// 4. Firestore Sync
+	// Live kitchen and bar ticket stream.
 	useEffect(() => {
 		if (!restaurantId) {
 			setOrders([]);
@@ -739,7 +731,7 @@ const ChefsQScreen = ({ navigation }) => {
 		};
 	}, [restaurantId, t]);
 
-	// 5. Split the queue: active tickets stay in the main KDS, paced tickets sit in Upcoming.
+	// Active tickets stay in the main queue; paced tickets sit in Upcoming.
 	const stationOrderBuckets = useMemo(() => {
 		const active = [];
 		const upcoming = [];
@@ -787,7 +779,7 @@ const ChefsQScreen = ({ navigation }) => {
 	const hasUpcomingRail = upcomingOrders.length > 0;
 	const upcomingRailWidth = hasUpcomingRail ? Math.min(280, Math.max(230, width * 0.24)) : 0;
 
-	// 6. Mathematical Grid
+	// Size ticket columns to the available landscape width.
 	const activeGridWidth = Math.max(320, width - upcomingRailWidth);
 	const numColumns = Math.max(1, Math.floor(activeGridWidth / 320));
 	const ticketWidth = activeGridWidth / numColumns - 16;
@@ -948,15 +940,14 @@ const ChefsQScreen = ({ navigation }) => {
 			</View>
 		);
 
-	return (
-		// 🚨 Note: Adjusted SafeAreaView padding so it looks right in fullscreen
+		return (
 		<SafeAreaView
 			style={[
 				styles.container,
 				isFullscreen && { paddingTop: 0, paddingBottom: 0 },
 			]}
 		>
-			{/* 🚨 2. The Floating Exit Button (Only shows in Fullscreen) */}
+			{/* Floating controls for fullscreen mode */}
 			{isFullscreen && (
 				<View style={styles.floatingControlStack}>
 					<TouchableOpacity
@@ -976,7 +967,7 @@ const ChefsQScreen = ({ navigation }) => {
 				</View>
 			)}
 
-			{/* 🚨 3. Hide Summary Bar when in Fullscreen */}
+			{/* Summary controls stay hidden in fullscreen mode */}
 			{!isFullscreen && (
 				<View style={styles.summaryBar}>
 					<View>
@@ -1154,7 +1145,6 @@ const styles = StyleSheet.create({
 		letterSpacing: 0,
 	},
 
-	// 🚨 NEW: Styling for the controls row
 	controlsRow: { flexDirection: "row", alignItems: "center" },
 	summaryLockBtn: {
 		marginRight: 8,
