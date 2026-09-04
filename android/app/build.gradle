@@ -107,7 +107,7 @@ android {
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk 35
+    compileSdk 36
 
     namespace 'com.scerv.eat'
     defaultConfig {
@@ -117,8 +117,8 @@ android {
             appScheme: androidScheme
         ]
         minSdkVersion 26
-        targetSdkVersion 35
-        versionCode 32
+        targetSdkVersion 36
+        versionCode 33
         versionName "0.0.41"
     }
     signingConfigs {
