@@ -58,6 +58,10 @@ exports.getStripePublishableKey = paymentFunctions.getStripePublishableKey;
 exports.discountOrderItem = restaurantFunctions.discountOrderItem;
 
 exports.preparePayment = paymentFunctions.preparePayment;
+exports.createBrowserCheckoutSession =
+	paymentFunctions.createBrowserCheckoutSession;
+exports.syncBrowserCheckoutSession =
+	paymentFunctions.syncBrowserCheckoutSession;
 exports.finalizeStripePayment = paymentFunctions.finalizeStripePayment;
 
 exports.stripeWebhookTest = paymentFunctions.stripeWebhookTest;
@@ -72,6 +76,7 @@ exports.createUserAccount = userFunctions.createUserAccount;
 
 exports.sendEmailOtp = userFunctions.sendEmailOtp;
 exports.verifyEmailOtp = userFunctions.verifyEmailOtp;
+exports.completeBrowserGuestIdentity = userFunctions.completeBrowserGuestIdentity;
 
 exports.createConnectedAccount =
 	stripeOnboardingFunctions.createConnectedAccount;
@@ -240,6 +245,21 @@ exports.emitDgiInvoice = restaurantFunctions.emitDgiInvoice;
 	(exports.addTable = restaurantFunctions.addTable));
 exports.deleteTable = restaurantFunctions.deleteTable;
 exports.updateTable = restaurantFunctions.updateTable;
+exports.regenerateTableQrToken = restaurantFunctions.regenerateTableQrToken;
+exports.setTableQrEnabled = restaurantFunctions.setTableQrEnabled;
+exports.ensureRestaurantTableQrTokens =
+	restaurantFunctions.ensureRestaurantTableQrTokens;
+exports.resolveBrowserTableToken = restaurantFunctions.resolveBrowserTableToken;
+exports.createBrowserTableSession =
+	restaurantFunctions.createBrowserTableSession;
+exports.addBrowserBasketItem = restaurantFunctions.addBrowserBasketItem;
+exports.updateBrowserBasketItem =
+	restaurantFunctions.updateBrowserBasketItem;
+exports.removeBrowserBasketItem =
+	restaurantFunctions.removeBrowserBasketItem;
+exports.submitBrowserBasketToKitchen =
+	restaurantFunctions.submitBrowserBasketToKitchen;
+exports.getBrowserOrderStatus = restaurantFunctions.getBrowserOrderStatus;
 
 exports.autoTranslateMenuItem = restaurantFunctions.autoTranslateMenuItem;
 

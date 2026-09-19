@@ -18,9 +18,10 @@
     "styled-components": "^6.1.15",
     "web-vitals": "^2.1.4"
   },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build && node scripts/generate-static-resource-pages.js",
+	"scripts": {
+		"start": "react-scripts start",
+		"start:dev": "set REACT_APP_SCERV_ENV=development&& react-scripts start",
+		"build": "react-scripts build && node scripts/generate-static-resource-pages.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

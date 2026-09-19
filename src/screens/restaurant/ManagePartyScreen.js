@@ -131,8 +131,11 @@ const getCustomerServiceFeePercentage = (restaurantDetails, pricingTiers) => {
 
 const isCustomerAppInitiatedItem = (item = {}) =>
 	item.source === "customer_app" ||
+	item.source === "browser_qr" ||
 	item.orderEntryMode === "customer" ||
+	item.orderEntryMode === "browser_guest" ||
 	item.paymentResponsibility === "customer_app" ||
+	item.paymentResponsibility === "customer_browser" ||
 	!(
 		item.source === "restaurant_pos" ||
 		item.orderEntryMode === "staff" ||
@@ -299,6 +302,7 @@ const ManagePartyScreen = () => {
 	const [redeemingPromotionId, setRedeemingPromotionId] = useState(null);
 
 	const hasServer = !!partyData?.server && !!partyData?.server?.name;
+	const isTableCheckedOut = partyData?.status === "checkedOut";
 	const goToActiveTables = () => {
 		navigation.dispatch(
 			CommonActions.reset({
@@ -597,6 +601,18 @@ const ManagePartyScreen = () => {
 
 	// 3. Handlers
 	const handleCloseTable = () => {
+		if (isTableCheckedOut) {
+			Alert.alert(
+				t("table_already_settled", "Table Already Settled"),
+				t(
+					"table_ready_for_cleaning",
+					"This table has been paid. Mark it clean from Active Tables when the table is ready for the next guests.",
+				),
+				[{ text: t("go_to_active_tables", "Active Tables"), onPress: goToActiveTables }],
+			);
+			return;
+		}
+
 		if (unpaidOrderedItems.length === 0) {
 			Alert.alert(
 				t("nothing_to_close", "Nothing to close"),
@@ -1453,6 +1469,37 @@ const ManagePartyScreen = () => {
 
 			{/* FOOTER ACTION BAR */}
 			<View style={styles.footer}>
+				{isTableCheckedOut ? (
+					<View style={styles.settledPanel}>
+						<View style={styles.settledIcon}>
+							<Ionicons
+								name="checkmark-circle"
+								size={22}
+								color={colors.statusSuccess}
+							/>
+						</View>
+						<View style={styles.settledCopy}>
+							<Text style={styles.settledTitle}>
+								{t("table_settled", "Table Settled")}
+							</Text>
+							<Text style={styles.settledText}>
+								{t(
+									"table_needs_cleaning_message",
+									"Payment is complete. Clean and release this table from Active Tables.",
+								)}
+							</Text>
+						</View>
+						<TouchableOpacity
+							style={styles.settledAction}
+							onPress={goToActiveTables}
+						>
+							<Text style={styles.settledActionText}>
+								{t("active_tables", "Active Tables")}
+							</Text>
+						</TouchableOpacity>
+					</View>
+				) : (
+					<>
 				<TouchableOpacity
 					style={styles.footerCompactHeader}
 					onPress={() =>
@@ -1627,6 +1674,8 @@ const ManagePartyScreen = () => {
 						)}
 					</TouchableOpacity>
 				</View>
+					</>
+				)}
 			</View>
 
 			<Modal
@@ -2363,6 +2412,45 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "700",
 		color: colors.statusSuccess,
+	},
+	settledPanel: {
+		flexDirection: "row",
+		alignItems: "center",
+		borderWidth: 1,
+		borderColor: colors.statusSuccess + "30",
+		backgroundColor: colors.statusSuccess + "10",
+		borderRadius: 12,
+		padding: 12,
+	},
+	settledIcon: {
+		marginRight: 10,
+	},
+	settledCopy: {
+		flex: 1,
+		paddingRight: 10,
+	},
+	settledTitle: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	settledText: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: colors.textMedium,
+		marginTop: 2,
+		lineHeight: 17,
+	},
+	settledAction: {
+		backgroundColor: colors.primary,
+		borderRadius: 8,
+		paddingHorizontal: 12,
+		paddingVertical: 9,
+	},
+	settledActionText: {
+		color: colors.surfaceWhite,
+		fontSize: 12,
+		fontWeight: "900",
 	},
 	seatSummaryChip: {
 		borderWidth: 1,

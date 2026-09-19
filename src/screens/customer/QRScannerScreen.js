@@ -65,6 +65,11 @@ const QRScannerScreen = () => {
 	const extractTableData = (qrString) => {
 		try {
 			const url = new URL(qrString);
+			const dineTokenMatch = url.pathname.match(/\/dine\/([^/?#]+)/);
+			if (dineTokenMatch?.[1]) {
+				return { qrToken: decodeURIComponent(dineTokenMatch[1]) };
+			}
+
 			const tableId = url.searchParams.get("t");
 			const tableName = url.searchParams.get("n")?.replace("+", " ");
 			if (!tableId) throw new Error("Invalid Scerv QR Code");
@@ -75,7 +80,7 @@ const QRScannerScreen = () => {
 	};
 
 	// 🚨 THE FIX: Helper function to safely dismiss the iOS modal BEFORE routing
-	const navigateToParty = (targetPartyId) => {
+	const navigateToParty = (targetPartyId, targetRestaurantId = restaurantId) => {
 		// 1. Dismiss the scanner modal explicitly
 		navigation.goBack();
 
@@ -85,7 +90,7 @@ const QRScannerScreen = () => {
 				screen: "PartySession",
 				params: {
 					partyId: targetPartyId,
-					restaurantId: restaurantId,
+					restaurantId: targetRestaurantId,
 				},
 			});
 		}, 100);
@@ -109,11 +114,34 @@ const QRScannerScreen = () => {
 		}
 
 		try {
+			let resolvedRestaurantId = restaurantId;
+			let resolvedTableData = tableData;
+
+			if (tableData.qrToken) {
+				const resolveBrowserTableToken = httpsCallable(
+					functions,
+					"resolveBrowserTableToken",
+				);
+				const resolved = await resolveBrowserTableToken({
+					token: tableData.qrToken,
+				});
+
+				if (!resolved.data?.restaurantId || !resolved.data?.table?.id) {
+					throw new Error("Invalid Scerv QR Code");
+				}
+
+				resolvedRestaurantId = resolved.data.restaurantId;
+				resolvedTableData = {
+					tableId: resolved.data.table.id,
+					tableName: resolved.data.table.name,
+				};
+			}
+
 			// 1. Ask the backend what state this table is in
 			const handleQRScan = httpsCallable(functions, "handleQRScan");
 			const scanResult = await handleQRScan({
-				restaurantId: restaurantId,
-				tableId: tableData.tableId,
+				restaurantId: resolvedRestaurantId,
+				tableId: resolvedTableData.tableId,
 			});
 
 			const { action, hostName, inviteCode, partyId } = scanResult.data;
@@ -135,14 +163,17 @@ const QRScannerScreen = () => {
 					);
 
 					const result = await createPartySession({
-						restaurantId: restaurantId,
-						tableId: tableData.tableId,
+						restaurantId: resolvedRestaurantId,
+						tableId: resolvedTableData.tableId,
 						existingPartyId: existingPartyId || null,
 					});
 
 					if (result.data.success) {
 						// Use our new helper function
-						navigateToParty(existingPartyId || result.data.partyId);
+						navigateToParty(
+							existingPartyId || result.data.partyId,
+							resolvedRestaurantId,
+						);
 					}
 				} catch (error) {
 					console.error("Create/Link Session Error:", error);
@@ -172,7 +203,7 @@ const QRScannerScreen = () => {
 
 									if (joined) {
 										// Use our new helper function
-										navigateToParty(partyId);
+										navigateToParty(partyId, resolvedRestaurantId);
 									} else {
 										Alert.alert("Error", "Could not join the table.");
 										resetScanner();
@@ -194,7 +225,7 @@ const QRScannerScreen = () => {
 			else if (action === "already_joined") {
 				setStatusText("Loading Your Table...");
 				// Use our new helper function
-				navigateToParty(partyId);
+				navigateToParty(partyId, resolvedRestaurantId);
 			}
 		} catch (error) {
 			console.error("QR Scan Flow Error:", error);

@@ -3,6 +3,7 @@ const functions = require("firebase-functions");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const stripe = require("stripe");
+const crypto = require("crypto");
 const { onCall } = require("firebase-functions/v1/https");
 const db = admin.firestore();
 const { updateDoc } = require("firebase-admin/firestore");
@@ -882,6 +883,837 @@ const toPreparePaymentHttpsError = (error) => {
 		`Payment preparation failed: ${message || "unknown server error"}`,
 	);
 };
+
+const normalizeBrowserCheckoutReturnUrl = (value, fallbackPath) => {
+	const defaultUrl = `https://www.scerv.com${fallbackPath}`;
+	try {
+		const url = new URL(String(value || defaultUrl));
+		const hostname = url.hostname.toLowerCase();
+		const isLocalHost =
+			hostname === "localhost" ||
+			hostname === "127.0.0.1" ||
+			hostname.startsWith("192.168.") ||
+			hostname.startsWith("10.") ||
+			/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+		const isScervHost =
+			hostname === "scerv.com" ||
+			hostname === "www.scerv.com" ||
+			hostname.endsWith(".scerv.com");
+
+		if (!["http:", "https:"].includes(url.protocol)) return defaultUrl;
+		if (!isLocalHost && !isScervHost) return defaultUrl;
+
+		return `${url.origin}${fallbackPath}`;
+	} catch (error) {
+		return defaultUrl;
+	}
+};
+
+const normalizeBrowserCheckoutGratuityCents = (value) => {
+	const parsed = Number(value || 0);
+	if (!Number.isFinite(parsed) || parsed < 0) return 0;
+	return Math.min(100000, Math.round(parsed));
+};
+
+const getBrowserCheckoutFingerprint = ({ sessionId, items, gratuityCents }) => {
+	const fingerprint = items
+		.map((item) => `${item.id}:${item.priceCents}:${item.quantity}`)
+		.sort()
+		.join("|");
+	return crypto
+		.createHash("sha256")
+		.update(`${sessionId}:${fingerprint}:${gratuityCents}`)
+		.digest("hex");
+};
+
+const getBrowserCheckoutSentItems = async (sessionRef) => {
+	const snapshot = await sessionRef
+		.collection("basketItems")
+		.where("status", "==", "sent")
+		.get();
+
+	return snapshot.docs
+		.map((docSnap) => {
+			const item = docSnap.data() || {};
+			const quantity = Math.max(
+				1,
+				Math.min(10, Math.round(Number(item.quantity || 1))),
+			);
+			const priceCents = Math.max(
+				0,
+				Math.round(Number(item.priceCents || item.price * 100 || 0)),
+			);
+			return {
+				id: docSnap.id,
+				menuItemId: item.menuItemId || null,
+				name: sanitizeString(item.name || item.dishName, 120) || "Menu item",
+				description: sanitizeString(item.description, 180),
+				category: sanitizeString(item.category, 120),
+				priceCents,
+				price: Number((priceCents / 100).toFixed(2)),
+				quantity,
+				lineSubtotal: priceCents * quantity,
+				lineTotalCents: priceCents * quantity,
+				notes: sanitizeString(item.notes, 180),
+				ticketId: item.ticketId || null,
+				destination: item.destination || null,
+				source: "browser_qr",
+				orderEntryMode: "browser_guest",
+				paymentResponsibility: "customer_app",
+			};
+		})
+		.filter((item) => item.priceCents > 0 && item.quantity > 0);
+};
+
+const buildStripeCheckoutLineItems = ({
+	items,
+	taxAmount,
+	gratuity,
+	platformFee,
+}) => {
+	const lineItems = items.map((item) => ({
+		price_data: {
+			currency: "usd",
+			product_data: {
+				name: item.name,
+				...(item.notes && { description: `Note: ${item.notes}` }),
+			},
+			unit_amount: item.priceCents,
+		},
+		quantity: item.quantity,
+	}));
+
+	if (taxAmount > 0) {
+		lineItems.push({
+			price_data: {
+				currency: "usd",
+				product_data: { name: "Sales tax" },
+				unit_amount: taxAmount,
+			},
+			quantity: 1,
+		});
+	}
+
+	if (gratuity > 0) {
+		lineItems.push({
+			price_data: {
+				currency: "usd",
+				product_data: { name: "Tip" },
+				unit_amount: gratuity,
+			},
+			quantity: 1,
+		});
+	}
+
+	if (platformFee > 0) {
+		lineItems.push({
+			price_data: {
+				currency: "usd",
+				product_data: { name: "Scerv service fee" },
+				unit_amount: platformFee,
+			},
+			quantity: 1,
+		});
+	}
+
+	return lineItems;
+};
+
+exports.syncBrowserCheckoutSession = functions
+	.runWith({
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"Guest verification is required before confirming checkout.",
+			);
+		}
+
+		const userId = context.auth.uid;
+		const orderId = sanitizeString(data && data.orderId, 180);
+		const browserSessionId = sanitizeString(
+			(data && (data.sessionId || data.browserSessionId)) || "",
+			180,
+		);
+		const checkoutSessionId = sanitizeString(data && data.checkoutSessionId, 180);
+
+		if (!orderId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A checkout order is required.",
+			);
+		}
+
+		try {
+			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
+			const pendingOrderSnap = await pendingOrderRef.get();
+			if (!pendingOrderSnap.exists) {
+				return {
+					success: true,
+					status: "paid",
+					orderId,
+					basket: {
+						items: [],
+						subtotalCents: 0,
+						itemCount: 0,
+						status: "empty",
+					},
+				};
+			}
+
+			const pendingOrderData = pendingOrderSnap.data() || {};
+			if (pendingOrderData.customerId !== userId) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"This checkout belongs to another guest.",
+				);
+			}
+
+			if (pendingOrderData.paymentType !== "browser_table") {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This checkout is not a browser table order.",
+				);
+			}
+
+			if (
+				browserSessionId &&
+				pendingOrderData.browserSessionId &&
+				browserSessionId !== pendingOrderData.browserSessionId
+			) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"This checkout does not match the active table session.",
+				);
+			}
+
+			if (
+				pendingOrderData.status === "fulfilled" ||
+				pendingOrderData.fulfilledOrderId
+			) {
+				return {
+					success: true,
+					status: "paid",
+					orderId,
+					fulfilledOrderId: pendingOrderData.fulfilledOrderId || orderId,
+					basket: {
+						items: [],
+						subtotalCents: 0,
+						itemCount: 0,
+						status: "empty",
+					},
+				};
+			}
+
+			const savedCheckoutSessionId =
+				pendingOrderData.checkoutSessionId ||
+				pendingOrderData.stripeCheckoutSessionId ||
+				null;
+			const sessionIdToVerify = checkoutSessionId || savedCheckoutSessionId;
+			if (!sessionIdToVerify) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This checkout has not been opened with Stripe yet.",
+				);
+			}
+
+			if (
+				savedCheckoutSessionId &&
+				checkoutSessionId &&
+				checkoutSessionId !== savedCheckoutSessionId
+			) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"Stripe checkout session mismatch.",
+				);
+			}
+
+			const keys = await getStripeKeys(pendingOrderData.restaurantId);
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+			const checkoutSession =
+				await stripeInstance.checkout.sessions.retrieve(sessionIdToVerify, {
+					expand: ["payment_intent", "payment_intent.payment_method"],
+				});
+			const paymentIntent =
+				checkoutSession.payment_intent &&
+				typeof checkoutSession.payment_intent === "object"
+					? checkoutSession.payment_intent
+					: checkoutSession.payment_intent
+						? await stripeInstance.paymentIntents.retrieve(
+								checkoutSession.payment_intent,
+								{ expand: ["payment_method"] },
+							)
+						: null;
+
+			const sessionIsPaid = checkoutSession.payment_status === "paid";
+			const paymentIntentSucceeded =
+				paymentIntent && paymentIntent.status === "succeeded";
+			if (!sessionIsPaid || !paymentIntentSucceeded) {
+				return {
+					success: true,
+					status:
+						checkoutSession.status === "expired"
+							? "expired"
+							: sessionIsPaid
+								? "processing"
+								: "open",
+					orderId,
+					checkoutSessionId: checkoutSession.id,
+					paymentStatus: checkoutSession.payment_status || null,
+				};
+			}
+
+			let stripeFeeActual = 0;
+			let stripeApplicationFeeAmount = Number(
+				pendingOrderData.stripeApplicationFeeAmount ||
+					pendingOrderData.applicationFeeAmount ||
+					0,
+			);
+			let stripeDestinationTransferId = null;
+			const latestChargeId = getStripeObjectId(paymentIntent.latest_charge);
+			try {
+				if (latestChargeId) {
+					const charge = await stripeInstance.charges.retrieve(latestChargeId, {
+						expand: ["balance_transaction"],
+					});
+					if (charge.balance_transaction) {
+						stripeFeeActual = charge.balance_transaction.fee;
+					}
+					if (charge.application_fee_amount) {
+						stripeApplicationFeeAmount = charge.application_fee_amount;
+					}
+					stripeDestinationTransferId = getStripeObjectId(charge.transfer);
+				}
+			} catch (feeError) {
+				console.warn(
+					`[Browser Checkout Sync] Could not retrieve exact fee for PI ${paymentIntent.id}.`,
+					feeError,
+				);
+			}
+
+			const amountReceived =
+				Number(paymentIntent.amount_received || 0) ||
+				Number(checkoutSession.amount_total || 0) ||
+				Number(pendingOrderData.totalPrice || pendingOrderData.total || 0);
+			if (stripeFeeActual === 0 && amountReceived > 0) {
+				stripeFeeActual = Math.round(amountReceived * 0.029) + 30;
+			}
+
+			const stripePaymentMethodId = getStripeObjectId(
+				paymentIntent.payment_method,
+			);
+			const stripePaymentMethodSummary = await saveStripePaymentMethodSummary({
+				stripeInstance,
+				paymentIntent,
+				userId,
+			});
+
+			await db.collection("payment_events").doc(`sync_${checkoutSession.id}`).set(
+				{
+					eventId: `sync_${checkoutSession.id}`,
+					eventType: "checkout.session.sync",
+					processor: "stripe",
+					processorObjectId: paymentIntent.id,
+					orderId,
+					restaurantId: pendingOrderData.restaurantId || null,
+					customerId: userId,
+					amount: amountReceived,
+					currency: paymentIntent.currency || "usd",
+					liveMode: checkoutSession.livemode === true,
+					stripeCheckoutSessionId: checkoutSession.id,
+					stripePaymentMethodId,
+					paymentMethodSummary: stripePaymentMethodSummary,
+					stripeApplicationFeeAmount,
+					stripeDestinationTransferId,
+					receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			await pendingOrderRef.set(
+				{
+					status: "processing",
+					paymentStatus: "paid",
+					paymentIntentId: paymentIntent.id,
+					stripePaymentIntentId: paymentIntent.id,
+					stripeLatestChargeId: latestChargeId,
+					stripePaymentMethodId,
+					paymentMethodSummary: stripePaymentMethodSummary,
+					stripeApplicationFeeAmount,
+					stripeDestinationTransferId,
+					amountReceived,
+					checkoutSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			await fulfillOrder({
+				orderId,
+				paymentType: "browser_table",
+				userId,
+				customerEmail: pendingOrderData.customerEmail || null,
+				customerName: pendingOrderData.customerName || null,
+				restaurantId: pendingOrderData.restaurantId,
+				processor: "stripe",
+				processorTransactionId: paymentIntent.id,
+				totalPrice: amountReceived,
+				processorFeeActual: stripeFeeActual,
+				platformFeeActual: Number(pendingOrderData.platformFee || 0),
+				applicationFeeActual: stripeApplicationFeeAmount,
+				stripeInstance,
+				latestChargeId,
+				stripeDestinationTransferId,
+				stripePaymentMethodId,
+				paymentMethodSummary: stripePaymentMethodSummary,
+			});
+
+			return {
+				success: true,
+				status: "paid",
+				orderId,
+				checkoutSessionId: checkoutSession.id,
+				paymentIntentId: paymentIntent.id,
+				basket: {
+					items: [],
+					subtotalCents: 0,
+					itemCount: 0,
+					status: "empty",
+				},
+			};
+		} catch (error) {
+			console.error("Error syncing browser checkout session:", error);
+			throw toPreparePaymentHttpsError(error);
+		}
+	});
+
+exports.createBrowserCheckoutSession = functions
+	.runWith({
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"Guest verification is required before checkout.",
+			);
+		}
+
+		const userId = context.auth.uid;
+		const sessionId = sanitizeString(data && data.sessionId, 180);
+		if (!sessionId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A browser table session is required.",
+			);
+		}
+
+		try {
+			const sessionRef = db.collection("browserTableSessions").doc(sessionId);
+			const sessionDoc = await sessionRef.get();
+			if (!sessionDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"This browser table session was not found.",
+				);
+			}
+
+			const sessionData = sessionDoc.data() || {};
+			if (sessionData.customerId !== userId) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"This browser table session belongs to another guest.",
+				);
+			}
+
+			if (
+				sessionData.expiresAt &&
+				typeof sessionData.expiresAt.toMillis === "function" &&
+				sessionData.expiresAt.toMillis() < Date.now()
+			) {
+				throw new functions.https.HttpsError(
+					"deadline-exceeded",
+					"This table session has expired. Please scan the table again.",
+				);
+			}
+
+			const restaurantId = sessionData.restaurantId;
+			const restaurantDoc = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			if (!restaurantDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Restaurant not found.",
+				);
+			}
+
+			const restaurantData = restaurantDoc.data() || {};
+			if (!isFeatureAllowed(restaurantData, "qrSelfCheckIn")) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Browser table checkout is not enabled for this restaurant.",
+				);
+			}
+
+			const restaurantCountry =
+				restaurantData.countryCode || restaurantData.country || null;
+			if (!isUsRestaurantCountry(restaurantCountry)) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Browser card checkout is only enabled for US restaurants right now.",
+				);
+			}
+
+			const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
+			const restaurantStripeReady =
+				restaurantStripeAccountId &&
+				(restaurantData.stripeAccountStatus === "verified" ||
+					restaurantData.stripeChargesEnabled === true);
+			if (!restaurantStripeReady) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This restaurant has not completed Stripe payout onboarding yet.",
+				);
+			}
+
+			const customerDoc = await db.collection("customers").doc(userId).get();
+			if (!customerDoc.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Customer profile not found.",
+				);
+			}
+
+			const customerData = customerDoc.data() || {};
+			const sentItems = await getBrowserCheckoutSentItems(sessionRef);
+			if (sentItems.length === 0) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"There are no sent items ready for checkout.",
+				);
+			}
+
+			const gratuity = normalizeBrowserCheckoutGratuityCents(
+				data && data.gratuity,
+			);
+			const checkoutFingerprint = getBrowserCheckoutFingerprint({
+				sessionId,
+				items: sentItems,
+				gratuityCents: gratuity,
+			});
+			const pendingOrderId = `browser_${checkoutFingerprint.slice(0, 32)}`;
+			const pendingOrderRef = db.collection("pending_orders").doc(pendingOrderId);
+			const existingPendingOrder = await pendingOrderRef.get();
+			if (existingPendingOrder.exists) {
+				const pendingData = existingPendingOrder.data() || {};
+				if (
+					pendingData.status === "fulfilled" ||
+					pendingData.fulfilledOrderId ||
+					pendingData.paymentStatus === "paid" ||
+					pendingData.status === "processing"
+				) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"These items are already paid or being finalized.",
+					);
+				}
+
+				if (
+					pendingData.paymentStatus === "pending" &&
+					pendingData.checkoutSessionUrl
+				) {
+					return {
+						success: true,
+						orderId: pendingOrderId,
+						checkoutUrl: pendingData.checkoutSessionUrl,
+						checkoutSessionId: pendingData.checkoutSessionId || null,
+						total: pendingData.totalPrice || pendingData.total || null,
+						subtotal: pendingData.subtotal || null,
+						taxAmount: pendingData.taxAmount || null,
+						gratuity: pendingData.gratuity || 0,
+						platformFee: pendingData.platformFee || 0,
+					};
+				}
+			}
+
+			const keys = await getStripeKeys(restaurantId);
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+			const stripeCustomerId = await createStripeCustomerHelper(
+				userId,
+				restaurantId,
+				stripeInstance,
+			);
+
+			const restaurantTierInfo = await getRestaurantTier(restaurantId);
+			const paymentPolicy = resolvePaymentPolicy({
+				restaurantData,
+				customerData,
+				restaurantTierInfo,
+			});
+			const restaurantTaxRate = normalizePercentage(restaurantData.taxRate, 0);
+			const subtotal = sentItems.reduce(
+				(total, item) => total + item.lineTotalCents,
+				0,
+			);
+			const taxAmount = Math.round(subtotal * restaurantTaxRate);
+			const restaurantSalesAndTaxAmount = subtotal + taxAmount;
+			const restaurantGrossAmount = restaurantSalesAndTaxAmount + gratuity;
+			const platformFee = calculatePercentageFee(
+				restaurantSalesAndTaxAmount,
+				paymentPolicy.scervFeePercentage,
+			);
+			const restaurantPaysStripeFee =
+				paymentPolicy.stripeFeeResponsibility === "restaurant";
+			const restaurantProcessingFeeBasisAmount =
+				paymentPolicy.restaurantProcessingFeeBasis === "subtotal"
+					? subtotal
+					: paymentPolicy.restaurantProcessingFeeBasis === "salesAndTax"
+						? restaurantSalesAndTaxAmount
+						: restaurantGrossAmount;
+			const processorFeeRecoveryAmount = restaurantPaysStripeFee
+				? calculatePercentageFee(
+						restaurantProcessingFeeBasisAmount,
+						paymentPolicy.restaurantProcessingFeePercentage,
+						paymentPolicy.restaurantProcessingFeeFixedCents,
+					)
+				: 0;
+			const total = restaurantGrossAmount + platformFee;
+			const applicationFeeAmount = Math.min(
+				total,
+				platformFee + processorFeeRecoveryAmount,
+			);
+			const restaurantTransferAmount = Math.max(
+				0,
+				total - applicationFeeAmount,
+			);
+
+			if (total <= 0) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"Cannot process a zero dollar checkout.",
+				);
+			}
+
+			const fallbackPath = `/dine/${encodeURIComponent(
+				String(data && data.token ? data.token : ""),
+			)}`;
+			const returnBaseUrl = normalizeBrowserCheckoutReturnUrl(
+				data && data.returnUrl,
+				fallbackPath,
+			);
+			const successUrl = `${returnBaseUrl}?payment=success&orderId=${pendingOrderId}&checkout_session_id={CHECKOUT_SESSION_ID}`;
+			const cancelUrl = `${returnBaseUrl}?payment=cancelled&orderId=${pendingOrderId}`;
+			const customerEmail =
+				customerData.email || sessionData.customerEmail || context.auth.token.email || null;
+			const customerName =
+				customerData.fullName ||
+				`${customerData.firstName || ""} ${customerData.lastName || ""}`.trim() ||
+				sessionData.customerName ||
+				"Scerv Guest";
+
+			const pendingOrderData = {
+				restaurantId,
+				customerId: userId,
+				customerEmail,
+				customerName,
+				stripeCustomerId,
+				browserSessionId: sessionId,
+				browserTableSessionId: sessionId,
+				partyId: sessionData.partyId || null,
+				browserPartyId: sessionData.partyId || null,
+				browserBasketItemIds: sentItems.map((item) => item.id),
+				browserKitchenOrderIds: [
+					...new Set(sentItems.map((item) => item.ticketId).filter(Boolean)),
+				],
+				checkInId: sessionData.checkInId || null,
+				paymentType: "browser_table",
+				paymentProcessor: "stripe",
+				paymentProvider: "stripe",
+				currency: "usd",
+				restaurantCountry,
+				connectedAccountId: restaurantStripeAccountId,
+				payoutRouting: restaurantData.payoutMethod || "stripe_connect",
+				restaurantStripeAccountStatus:
+					restaurantData.stripeAccountStatus || null,
+				pricingTier: paymentPolicy.pricingTier,
+				payoutPercentage: restaurantTierInfo.payoutPercentage,
+				scervFeePercentage: paymentPolicy.scervFeePercentage,
+				baseScervFeePercentage: paymentPolicy.baseScervFeePercentage,
+				scervFeeBasis: paymentPolicy.scervFeeBasis,
+				scervFeeBasisAmount: restaurantSalesAndTaxAmount,
+				scervFeeWaived: paymentPolicy.scervFeeWaived,
+				feeWaiverReason: paymentPolicy.feeWaiverReason,
+				stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
+				savePaymentMethod: true,
+				savedPaymentMethodBehavior: "stripe_checkout",
+				payerUserId: userId,
+				paidForUserIds: [userId],
+				paymentPolicy: sanitizeFirestoreValue(paymentPolicy),
+				restaurantTaxRate,
+				items: sanitizeFirestoreValue(sentItems),
+				subtotal,
+				promotionDiscount: 0,
+				activePromotionDiscount: null,
+				taxAmount,
+				gratuity,
+				gratuityPassthroughAmount: gratuity,
+				restaurantSalesAndTaxAmount,
+				restaurantGrossAmount,
+				platformFee,
+				scervFee: platformFee,
+				processorFeeRecoveryAmount,
+				restaurantProcessingFeeAmount: processorFeeRecoveryAmount,
+				restaurantProcessingFeePercentage:
+					paymentPolicy.restaurantProcessingFeePercentage,
+				restaurantProcessingFeeFixedCents:
+					paymentPolicy.restaurantProcessingFeeFixedCents,
+				restaurantProcessingFeeBasis:
+					paymentPolicy.restaurantProcessingFeeBasis,
+				restaurantProcessingFeeBasisAmount,
+				applicationFeeAmount,
+				stripeApplicationFeeAmount: applicationFeeAmount,
+				stripeConnectChargeType: "destination_charge",
+				restaurantTransferAmount,
+				total,
+				totalPrice: total,
+				status: "pending_payment",
+				paymentStatus: "pending",
+				table: sanitizeFirestoreValue(sessionData.table || {
+					id: sessionData.tableId || null,
+					name: sessionData.tableName || "Table",
+				}),
+				server: sessionData.server || null,
+				orderMode: "dineIn",
+				fulfillmentType: "browser_table",
+				type: "browser_table",
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				paymentTrace: sanitizeFirestoreValue({
+					initiatedBy: userId,
+					initiatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					source: "browser_table_checkout",
+					processor: "stripe",
+					mode: keys.isTestMode ? "test" : "live",
+					pricingTier: paymentPolicy.pricingTier,
+					itemIds: sentItems.map((item) => item.id),
+					browserSessionId: sessionId,
+					stripeApplicationFeeAmount: applicationFeeAmount,
+					stripeConnectChargeType: "destination_charge",
+					restaurantTransferAmount,
+				}),
+			};
+
+			await pendingOrderRef.set(pendingOrderData, { merge: true });
+
+			const metadata = {
+				orderId: pendingOrderId,
+				userId,
+				payerUserId: userId,
+				paidForUserIds: userId,
+				restaurantId,
+				type: "browser_table",
+				browserSessionId: sessionId,
+				orderMode: "dineIn",
+				fulfillmentType: "browser_table",
+				subtotal: String(subtotal),
+				taxAmount: String(taxAmount),
+				gratuity: String(gratuity),
+				gratuityPassthroughAmount: String(gratuity),
+				restaurantSalesAndTaxAmount: String(restaurantSalesAndTaxAmount),
+				restaurantGrossAmount: String(restaurantGrossAmount),
+				platformFee: String(platformFee),
+				processorFeeRecoveryAmount: String(processorFeeRecoveryAmount),
+				restaurantProcessingFeeAmount: String(processorFeeRecoveryAmount),
+				stripeApplicationFeeAmount: String(applicationFeeAmount),
+				stripeConnectChargeType: "destination_charge",
+				restaurantTransferAmount: String(restaurantTransferAmount),
+				pricingTier: paymentPolicy.pricingTier,
+				scervFeeBasis: paymentPolicy.scervFeeBasis,
+				scervFeePercentage: String(paymentPolicy.scervFeePercentage),
+				scervFeeWaived: String(paymentPolicy.scervFeeWaived),
+				stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
+				savePaymentMethod: "true",
+				setupFutureUsage: "off_session",
+				total: String(total),
+			};
+
+			const checkoutSession = await stripeInstance.checkout.sessions.create(
+				{
+					mode: "payment",
+					customer: stripeCustomerId,
+					client_reference_id: pendingOrderId,
+					line_items: buildStripeCheckoutLineItems({
+						items: sentItems,
+						taxAmount,
+						gratuity,
+						platformFee,
+					}),
+					success_url: successUrl,
+					cancel_url: cancelUrl,
+					payment_intent_data: {
+						receipt_email: customerEmail || undefined,
+						description: `Scerv browser table order ${pendingOrderId}`,
+						setup_future_usage: "off_session",
+						...(applicationFeeAmount > 0 && {
+							application_fee_amount: applicationFeeAmount,
+						}),
+						transfer_data: {
+							destination: restaurantStripeAccountId,
+						},
+						on_behalf_of: restaurantStripeAccountId,
+						metadata,
+					},
+					metadata,
+				},
+				{
+					idempotencyKey: `browserCheckout:${pendingOrderId}`,
+				},
+			);
+
+			await pendingOrderRef.set(
+				{
+					checkoutSessionId: checkoutSession.id,
+					checkoutSessionUrl: checkoutSession.url || null,
+					stripeCheckoutSessionId: checkoutSession.id,
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+			return {
+				success: true,
+				orderId: pendingOrderId,
+				checkoutUrl: checkoutSession.url,
+				checkoutSessionId: checkoutSession.id,
+				total,
+				subtotal,
+				taxAmount,
+				gratuity,
+				platformFee,
+			};
+		} catch (error) {
+			console.error("Error creating browser checkout session:", error);
+			throw toPreparePaymentHttpsError(error);
+		}
+	});
 
 /**
  * A shared helper function to process verified Stripe webhook events.
@@ -2627,6 +3459,8 @@ const fulfillOrder = async ({
 			let partySnap = null;
 			let basketSnap = null;
 			let kitchenOrdersSnap = null;
+			let browserSessionRef = null;
+			let browserSessionSnap = null;
 
 			if (
 				transactionalPendingOrderData.partyId &&
@@ -2646,6 +3480,37 @@ const fulfillOrder = async ({
 					.collection("kitchen_orders")
 					.where("partyId", "==", transactionalPendingOrderData.partyId);
 				kitchenOrdersSnap = await t.get(kitchenQuery);
+			}
+
+			if (
+				paymentType === "browser_table" &&
+				transactionalPendingOrderData.browserSessionId
+			) {
+				browserSessionRef = db
+					.collection("browserTableSessions")
+					.doc(transactionalPendingOrderData.browserSessionId);
+				browserSessionSnap = await t.get(browserSessionRef);
+				const browserSessionData = browserSessionSnap.exists
+					? browserSessionSnap.data() || {}
+					: {};
+				const browserPartyId =
+					transactionalPendingOrderData.partyId ||
+					transactionalPendingOrderData.browserPartyId ||
+					browserSessionData.partyId ||
+					null;
+
+				if (browserPartyId) {
+					const partyRef = db.collection("parties").doc(browserPartyId);
+					partySnap = await t.get(partyRef);
+
+					const basketRef = db.collection("shared_baskets").doc(browserPartyId);
+					basketSnap = await t.get(basketRef);
+
+					const kitchenQuery = db
+						.collection("kitchen_orders")
+						.where("partyId", "==", browserPartyId);
+					kitchenOrdersSnap = await t.get(kitchenQuery);
+				}
 			}
 
 			// Create final order
@@ -3060,6 +3925,176 @@ const fulfillOrder = async ({
 							{ merge: true },
 						);
 					});
+				}
+			}
+
+			// Browser Table Clean
+			else if (
+				paymentType === "browser_table" &&
+				transactionalPendingOrderData.browserSessionId
+			) {
+				const activeBrowserSessionRef =
+					browserSessionRef ||
+					db
+						.collection("browserTableSessions")
+						.doc(transactionalPendingOrderData.browserSessionId);
+				const browserBasketItemIds = Array.isArray(
+					transactionalPendingOrderData.browserBasketItemIds,
+				)
+					? transactionalPendingOrderData.browserBasketItemIds.filter(Boolean)
+					: [];
+				const paidBrowserItemIdSet = new Set(browserBasketItemIds);
+				const browserKitchenOrderIds = Array.isArray(
+					transactionalPendingOrderData.browserKitchenOrderIds,
+				)
+					? transactionalPendingOrderData.browserKitchenOrderIds.filter(Boolean)
+					: [];
+				const browserSessionData = browserSessionSnap && browserSessionSnap.exists
+					? browserSessionSnap.data() || {}
+					: {};
+				const browserPartyId =
+					transactionalPendingOrderData.partyId ||
+					transactionalPendingOrderData.browserPartyId ||
+					browserSessionData.partyId ||
+					null;
+
+				t.set(
+					activeBrowserSessionRef,
+					{
+						status: "paid",
+						paymentStatus: "paid",
+						lastPaymentStatus: "paid",
+						lastPaidOrderId: orderId,
+						paidOrderIds: admin.firestore.FieldValue.arrayUnion(orderId),
+						lastPaidAt: admin.firestore.FieldValue.serverTimestamp(),
+						lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+
+				browserBasketItemIds.forEach((itemId) => {
+					t.delete(activeBrowserSessionRef.collection("basketItems").doc(itemId));
+				});
+
+				browserKitchenOrderIds.forEach((kitchenOrderId) => {
+					t.set(
+						db.collection("kitchen_orders").doc(kitchenOrderId),
+						{
+							paymentStatus: "paid",
+							paidOrderId: orderId,
+							paidAt: admin.firestore.FieldValue.serverTimestamp(),
+							updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					);
+				});
+
+				if (basketSnap && basketSnap.exists) {
+					const currentSharedItems = (basketSnap.data() || {}).items || [];
+					const remainingSharedItems = currentSharedItems.filter(
+						(item) => !paidBrowserItemIdSet.has(item.id),
+					);
+					const remainingPayableItems = remainingSharedItems.filter(
+						(item) =>
+							item &&
+							item.status &&
+							item.status !== "new" &&
+							item.paymentResponsibility !== "restaurant_pos",
+					);
+
+					t.set(
+						basketSnap.ref,
+						{
+							items: remainingSharedItems,
+							remainingPayableItemCount: remainingPayableItems.length,
+							lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+							...(remainingSharedItems.length === 0
+								? {
+										status: "archived_paid",
+										archivedForAudit: true,
+										archivedAt:
+											admin.firestore.FieldValue.serverTimestamp(),
+										archivedOrderId: orderId,
+									}
+								: {}),
+						},
+						{ merge: true },
+					);
+
+					if (remainingPayableItems.length === 0 && partySnap && partySnap.exists) {
+						const browserPartyData = partySnap.data() || {};
+						const browserTableId =
+							(browserPartyData.table && browserPartyData.table.id) ||
+							(transactionalPendingOrderData.table &&
+								transactionalPendingOrderData.table.id) ||
+							browserSessionData.tableId ||
+							null;
+						const browserCheckInId =
+							browserPartyData.checkInId ||
+							transactionalPendingOrderData.checkInId ||
+							browserSessionData.checkInId ||
+							null;
+
+						t.set(
+							partySnap.ref,
+							{
+								status: "checkedOut",
+								paymentStatus: "paid",
+								hasCustomerAppOrder: false,
+								customerServiceFeeEligible: false,
+								closedAt: admin.firestore.FieldValue.serverTimestamp(),
+								closedByUserId: "system_browser_checkout",
+								lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						);
+
+						if (browserTableId) {
+							t.set(
+								db
+									.collection("restaurants")
+									.doc(normalizedRestaurantId)
+									.collection("tables")
+									.doc(browserTableId),
+								{
+									status: "checkedOut",
+									currentPartyId: browserPartyId,
+									currentCheckInId: browserCheckInId,
+									checkedOutAt:
+										admin.firestore.FieldValue.serverTimestamp(),
+									updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+								},
+								{ merge: true },
+							);
+						}
+
+						if (browserCheckInId) {
+							t.set(
+								db.collection("checkIns").doc(browserCheckInId),
+								{
+									status: "COMPLETED",
+									paymentStatus: "paid",
+									completedAt:
+										admin.firestore.FieldValue.serverTimestamp(),
+									completedBy: "system_browser_checkout",
+									archivedForAudit: true,
+									archivedOrderId: orderId,
+								},
+								{ merge: true },
+							);
+						}
+					} else if (partySnap && partySnap.exists) {
+						t.set(
+							partySnap.ref,
+							{
+								hasCustomerAppOrder: true,
+								customerServiceFeeEligible: true,
+								lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						);
+					}
 				}
 			}
 

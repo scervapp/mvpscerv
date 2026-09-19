@@ -16,6 +16,7 @@ import {
 	Alert,
 	Modal,
 	ScrollView,
+	Share,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
@@ -25,6 +26,7 @@ import { Button, Divider, Switch, TextInput } from "react-native-paper";
 import colors from "../../utils/styles/appStyles";
 import { fetchTables } from "../../utils/firebaseUtils";
 import TableItem from "../../components/restaurant/TableItem";
+import * as Clipboard from "expo-clipboard";
 
 import { db, functions } from "../../config/firebase";
 import {
@@ -37,7 +39,6 @@ import * as Yup from "yup";
 import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 import { httpsCallable } from "@react-native-firebase/functions";
-import firestore from "@react-native-firebase/firestore";
 import { useTranslation } from "react-i18next";
 
 const TABLE_TYPE_OPTIONS = [
@@ -57,6 +58,15 @@ const normalizeTableId = (name) =>
 
 const getTableNumber = (name = "") =>
 	parseInt(String(name).match(/\d+/)?.[0] || 0, 10);
+
+const getTableQrPath = (table) =>
+	table?.qrPath || (table?.qrToken ? `/dine/${table.qrToken}` : "");
+
+const getTableQrUrl = (table) => {
+	if (table?.qrUrl) return table.qrUrl;
+	const qrPath = getTableQrPath(table);
+	return qrPath ? `https://www.scerv.com${qrPath}` : "";
+};
 
 const AddEditTableModal = ({
 	isVisible,
@@ -453,6 +463,18 @@ const TableManagementScreen = () => {
 	const addTableFunction = httpsCallable(functions, "addTable");
 	const updateTableFunction = httpsCallable(functions, "updateTable");
 	const deleteTableFunction = httpsCallable(functions, "deleteTable");
+	const regenerateTableQrTokenFunction = httpsCallable(
+		functions,
+		"regenerateTableQrToken",
+	);
+	const setTableQrEnabledFunction = httpsCallable(
+		functions,
+		"setTableQrEnabled",
+	);
+	const ensureRestaurantTableQrTokensFunction = httpsCallable(
+		functions,
+		"ensureRestaurantTableQrTokens",
+	);
 	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
 	const markPartyTableCleanFunction = httpsCallable(
 		functions,
@@ -536,7 +558,6 @@ const TableManagementScreen = () => {
 		setIsActionLoading(true);
 		try {
 			const restaurantId = currentUserData?.uid;
-			const batch = db.batch();
 			const startNumber = Number(values.startNumber);
 			const count = Number(values.count);
 			const capacity = Number(values.capacity);
@@ -549,34 +570,23 @@ const TableManagementScreen = () => {
 				const alreadyExists = tables.some((table) => table.id === tableId);
 
 				if (!alreadyExists) {
-					const tableRef = db
-						.collection("restaurants")
-						.doc(restaurantId)
-						.collection("tables")
-						.doc(tableId);
-
-					// These metadata fields power host seating, QR labels, and future
-					// floor-plan reporting without needing a heavy editor for MVP.
-					batch.set(tableRef, {
-						id: tableId,
+					// Route bulk-created tables through the callable so each one receives
+					// a server-generated QR token instead of a predictable client value.
+					await addTableFunction({
+						restaurantId,
 						name,
-						tableNumber,
 						capacity,
 						section: values.section?.trim() || "Main Dining",
 						tableType: values.tableType || "dining",
 						isActive: true,
-						status: "available",
-						restaurantId,
 						setupSource: "quick_setup",
-						createdAt: firestore.FieldValue.serverTimestamp(),
-						updatedAt: firestore.FieldValue.serverTimestamp(),
+						employeeId: activeSession?.id || null,
 					});
 					tablesAdded++;
 				}
 			}
 
 			if (tablesAdded > 0) {
-				await batch.commit();
 				Alert.alert(
 					t("success", "Success"),
 					`${tablesAdded} ${t("tables_generated_successfully", "tables generated successfully.")}`,
@@ -593,6 +603,40 @@ const TableManagementScreen = () => {
 			Alert.alert(
 				t("error", "Error"),
 				t("could_not_auto_populate_tables", "Could not create tables."),
+			);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
+	const handlePrepareAllQrCodes = async () => {
+		setIsActionLoading(true);
+		try {
+			const result = await ensureRestaurantTableQrTokensFunction({
+				restaurantId: currentUserData.uid,
+				employeeId: activeSession?.id || null,
+			});
+			const updatedCount = result.data?.updatedCount || 0;
+			const totalTables = result.data?.totalTables || 0;
+			Alert.alert(
+				t("success", "Success"),
+				updatedCount > 0
+					? t(
+							"table_qr_bulk_prepared",
+							"Prepared {{count}} table QR links across {{total}} tables.",
+							{ count: updatedCount, total: totalTables },
+						)
+					: t(
+							"table_qr_bulk_already_ready",
+							"All {{total}} table QR links are already ready.",
+							{ total: totalTables },
+						),
+			);
+		} catch (error) {
+			console.error("Prepare table QRs failed:", error);
+			Alert.alert(
+				t("error", "Error"),
+				error.message || t("could_not_prepare_qrs", "Could not prepare table QR links."),
 			);
 		} finally {
 			setIsActionLoading(false);
@@ -716,6 +760,118 @@ const TableManagementScreen = () => {
 		}
 	};
 
+	const handleCopyQrUrl = async () => {
+		const qrUrl = getTableQrUrl(selectedTable);
+		if (!qrUrl) {
+			Alert.alert(
+				t("qr_not_ready", "QR not ready"),
+				t("generate_qr_before_copying", "Generate this table's QR code first."),
+			);
+			return;
+		}
+
+		await Clipboard.setStringAsync(qrUrl);
+		Alert.alert(t("copied", "Copied"), t("table_qr_url_copied", "Table QR link copied."));
+	};
+
+	const handleShareQrUrl = async () => {
+		const qrUrl = getTableQrUrl(selectedTable);
+		if (!qrUrl) {
+			Alert.alert(
+				t("qr_not_ready", "QR not ready"),
+				t("generate_qr_before_sharing", "Generate this table's QR code first."),
+			);
+			return;
+		}
+
+		try {
+			await Share.share({
+				message: `${selectedTable.name} Scerv QR\n${qrUrl}`,
+			});
+		} catch (error) {
+			console.error("Share table QR failed:", error);
+			Alert.alert(t("share_failed", "Share Failed"), t("could_not_share_qr", "Could not share this QR link."));
+		}
+	};
+
+	const handleRegenerateQr = () => {
+		if (!selectedTable?.id) return;
+
+		Alert.alert(
+			t("regenerate_qr_code", "Regenerate QR Code"),
+			t(
+				"regenerate_qr_code_warning",
+				"This will replace the current QR link. Printed codes using the old link will stop working.",
+			),
+			[
+				{ text: t("cancel", "Cancel"), style: "cancel" },
+				{
+					text: t("regenerate", "Regenerate"),
+					style: "destructive",
+					onPress: async () => {
+						setIsActionLoading(true);
+						try {
+							const result = await regenerateTableQrTokenFunction({
+								restaurantId: currentUserData.uid,
+								tableId: selectedTable.id,
+								employeeId: activeSession?.id || null,
+							});
+							setSelectedTable((prev) => ({
+								...prev,
+								...(result.data || {}),
+							}));
+							Alert.alert(
+								t("success", "Success"),
+								t("table_qr_regenerated", "This table has a fresh QR link."),
+							);
+						} catch (error) {
+							console.error("Regenerate table QR failed:", error);
+							Alert.alert(
+								t("error", "Error"),
+								error.message || t("could_not_regenerate_qr", "Could not regenerate this QR code."),
+							);
+						} finally {
+							setIsActionLoading(false);
+						}
+					},
+				},
+			],
+		);
+	};
+
+	const handleToggleQrEnabled = async () => {
+		if (!selectedTable?.id) return;
+		const nextEnabled = selectedTable.qrEnabled === false;
+
+		setIsActionLoading(true);
+		try {
+			const result = await setTableQrEnabledFunction({
+				restaurantId: currentUserData.uid,
+				tableId: selectedTable.id,
+				enabled: nextEnabled,
+				employeeId: activeSession?.id || null,
+			});
+			setSelectedTable((prev) => ({
+				...prev,
+				...(result.data || {}),
+			}));
+			Alert.alert(
+				t("success", "Success"),
+				nextEnabled
+					? t("table_qr_enabled", "This table QR is active again.")
+					: t("table_qr_disabled", "This table QR has been disabled."),
+			);
+		} catch (error) {
+			console.error("Toggle table QR failed:", error);
+			Alert.alert(
+				t("error", "Error"),
+				error.message || t("could_not_update_qr", "Could not update this QR code."),
+			);
+		} finally {
+			setIsActionLoading(false);
+		}
+	};
+
 	const handleAddEditSubmit = async (values) => {
 		setIsActionLoading(true);
 		const restaurantId = currentUserData.uid;
@@ -732,10 +888,15 @@ const TableManagementScreen = () => {
 					restaurantId,
 					tableId: selectedTable.id,
 					...payload,
+					employeeId: activeSession?.id || null,
 				});
 				Alert.alert(t("success"), t("table_updated_successfully"));
 			} else {
-				await addTableFunction({ restaurantId, ...payload });
+				await addTableFunction({
+					restaurantId,
+					...payload,
+					employeeId: activeSession?.id || null,
+				});
 				Alert.alert(t("success"), t("new_table_added_successfully"));
 			}
 		} catch (error) {
@@ -778,6 +939,7 @@ const TableManagementScreen = () => {
 							await deleteTableFunction({
 								restaurantId: currentUserData.uid,
 								tableId: selectedTable.id,
+								employeeId: activeSession?.id || null,
 							});
 						} catch (error) {
 							Alert.alert(
@@ -868,32 +1030,55 @@ const TableManagementScreen = () => {
 
 					{/* 🚨 NEW: Auto Populate Button visible only in Edit Mode */}
 					{isEditMode && (
-						<TouchableOpacity
-							style={[
-								styles.autoPopulateButton,
-								{
-									backgroundColor: colors.textDark,
-									opacity: isActionLoading ? 0.7 : 1,
-								},
-							]}
-							onPress={handleQuickSetupOpen}
-							disabled={isActionLoading}
-						>
-							{isActionLoading ? (
-								<ActivityIndicator size="small" color={colors.surfaceWhite} />
-							) : (
-								<>
-									<Ionicons
-										name="flash-outline"
-										size={18}
+						<View style={styles.editActionRow}>
+							<TouchableOpacity
+								style={[
+									styles.editActionButton,
+									{
+										backgroundColor: colors.textDark,
+										opacity: isActionLoading ? 0.7 : 1,
+									},
+								]}
+								onPress={handleQuickSetupOpen}
+								disabled={isActionLoading}
+							>
+								{isActionLoading ? (
+									<ActivityIndicator
+										size="small"
 										color={colors.surfaceWhite}
 									/>
-									<Text style={styles.autoPopulateText}>
-										{t("quick_setup", "Quick Setup")}
-									</Text>
-								</>
-							)}
-						</TouchableOpacity>
+								) : (
+									<>
+										<Ionicons
+											name="flash-outline"
+											size={18}
+											color={colors.surfaceWhite}
+										/>
+										<Text style={styles.autoPopulateText}>
+											{t("quick_setup", "Quick Setup")}
+										</Text>
+									</>
+								)}
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={[
+									styles.editActionButton,
+									styles.qrPrepareButton,
+									{ opacity: isActionLoading ? 0.7 : 1 },
+								]}
+								onPress={handlePrepareAllQrCodes}
+								disabled={isActionLoading}
+							>
+								<Ionicons
+									name="qr-code-outline"
+									size={18}
+									color={colors.primary}
+								/>
+								<Text style={styles.qrPrepareText}>
+									{t("prepare_qrs", "Prepare QRs")}
+								</Text>
+							</TouchableOpacity>
+						</View>
 					)}
 				</View>
 
@@ -966,65 +1151,178 @@ const TableManagementScreen = () => {
 									style={styles.statusModalContent}
 									activeOpacity={1}
 								>
-									<Text style={styles.modalTitle}>{selectedTable.name}</Text>
-									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>{t("status")}:</Text>
-										<Text
-											style={[
-												styles.modalDetailValue,
-												{ color: getStatusColor(selectedTable.status) },
-											]}
-										>
-											{(selectedTable.status || "UNKNOWN").toUpperCase()}
-										</Text>
-									</View>
-									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>
-											{t("capacity")}:
-										</Text>
-										<Text style={styles.modalDetailValue}>
-											{selectedTable.capacity} {t("guests")}
-										</Text>
-									</View>
-									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>
-											{t("section", "Section")}:
-										</Text>
-										<Text style={styles.modalDetailValue}>
-											{selectedTable.section ||
-												selectedTable.area ||
-												t("main_dining", "Main Dining")}
-										</Text>
-									</View>
-									<View style={styles.modalDetailRow}>
-										<Text style={styles.modalDetailLabel}>
-											{t("qr_ready", "QR ready")}:
-										</Text>
-										<Text style={styles.modalDetailValue}>
-											{selectedTable.id ? t("yes", "Yes") : t("no", "No")}
-										</Text>
-									</View>
-									<View style={styles.modalActions}>
-										{selectedTable.status === "checkedOut" && (
+									<ScrollView showsVerticalScrollIndicator={false}>
+										<Text style={styles.modalTitle}>{selectedTable.name}</Text>
+										<View style={styles.modalDetailRow}>
+											<Text style={styles.modalDetailLabel}>
+												{t("status")}:
+											</Text>
+											<Text
+												style={[
+													styles.modalDetailValue,
+													{ color: getStatusColor(selectedTable.status) },
+												]}
+											>
+												{(selectedTable.status || "UNKNOWN").toUpperCase()}
+											</Text>
+										</View>
+										<View style={styles.modalDetailRow}>
+											<Text style={styles.modalDetailLabel}>
+												{t("capacity")}:
+											</Text>
+											<Text style={styles.modalDetailValue}>
+												{selectedTable.capacity} {t("guests")}
+											</Text>
+										</View>
+										<View style={styles.modalDetailRow}>
+											<Text style={styles.modalDetailLabel}>
+												{t("section", "Section")}:
+											</Text>
+											<Text style={styles.modalDetailValue}>
+												{selectedTable.section ||
+													selectedTable.area ||
+													t("main_dining", "Main Dining")}
+											</Text>
+										</View>
+										<View style={styles.modalDetailRow}>
+											<Text style={styles.modalDetailLabel}>
+												{t("qr_ready", "QR ready")}:
+											</Text>
+											<Text style={styles.modalDetailValue}>
+												{selectedTable.qrToken
+													? selectedTable.qrEnabled === false
+														? t("disabled", "Disabled")
+														: t("active", "Active")
+													: t("not_generated", "Not generated")}
+											</Text>
+										</View>
+										<View style={styles.qrPanel}>
+										<View style={styles.qrPanelHeader}>
+											<View>
+												<Text style={styles.qrPanelTitle}>
+													{t("browser_table_qr", "Browser table QR")}
+												</Text>
+												<Text style={styles.qrPanelHint}>
+													{selectedTable.qrToken
+														? t(
+																"table_qr_print_hint",
+																"Use this link for printed table cards or browser check-in testing.",
+															)
+														: t(
+																"table_qr_generate_hint",
+																"Generate a secure link before printing table cards.",
+															)}
+												</Text>
+											</View>
+											<Ionicons
+												name={
+													selectedTable.qrEnabled === false
+														? "lock-closed-outline"
+														: "qr-code-outline"
+												}
+												size={26}
+												color={
+													selectedTable.qrEnabled === false
+														? colors.statusDanger
+														: colors.primary
+												}
+											/>
+										</View>
+										{selectedTable.qrToken ? (
+											<>
+												<Text style={styles.qrUrl} numberOfLines={2}>
+													{getTableQrUrl(selectedTable)}
+												</Text>
+												<Text style={styles.qrMeta}>
+													{t("version", "Version")}{" "}
+													{selectedTable.qrTokenVersion || 1}
+												</Text>
+											</>
+										) : null}
+										<View style={styles.qrActionGrid}>
 											<Button
-												icon="broom"
+												icon="content-copy"
+												mode="outlined"
+												onPress={handleCopyQrUrl}
+												disabled={isActionLoading || !selectedTable.qrToken}
+												style={styles.qrActionButton}
+											>
+												{t("copy", "Copy")}
+											</Button>
+											<Button
+												icon="share-variant"
+												mode="outlined"
+												onPress={handleShareQrUrl}
+												disabled={isActionLoading || !selectedTable.qrToken}
+												style={styles.qrActionButton}
+											>
+												{t("share", "Share")}
+											</Button>
+										</View>
+										<View style={styles.qrActionGrid}>
+											<Button
+												icon="refresh"
 												mode="contained"
-												onPress={handleClearTable}
+												onPress={handleRegenerateQr}
 												loading={isActionLoading}
 												disabled={isActionLoading}
-												style={{ backgroundColor: colors.primary }}
+												style={[
+													styles.qrActionButton,
+													{ backgroundColor: colors.textDark },
+												]}
 											>
-												{t("clear_make_available")}
+												{selectedTable.qrToken
+													? t("rotate", "Rotate")
+													: t("generate", "Generate")}
 											</Button>
-										)}
-										<Button
-											onPress={closeModal}
-											mode="outlined"
-											style={{ marginTop: 10 }}
-										>
-											{t("close")}
-										</Button>
-									</View>
+											<Button
+												icon={
+													selectedTable.qrEnabled === false
+														? "lock-open-outline"
+														: "lock-outline"
+												}
+												mode="contained"
+												onPress={handleToggleQrEnabled}
+												loading={isActionLoading}
+												disabled={isActionLoading}
+												style={[
+													styles.qrActionButton,
+													{
+														backgroundColor:
+															selectedTable.qrEnabled === false
+																? colors.primary
+																: colors.statusDanger,
+													},
+												]}
+											>
+												{selectedTable.qrEnabled === false
+													? t("enable", "Enable")
+													: t("disable", "Disable")}
+											</Button>
+										</View>
+										</View>
+										<View style={styles.modalActions}>
+											{selectedTable.status === "checkedOut" && (
+												<Button
+													icon="broom"
+													mode="contained"
+													onPress={handleClearTable}
+													loading={isActionLoading}
+													disabled={isActionLoading}
+													style={{ backgroundColor: colors.primary }}
+												>
+													{t("clear_make_available")}
+												</Button>
+											)}
+											<Button
+												onPress={closeModal}
+												mode="outlined"
+												style={{ marginTop: 10 }}
+											>
+												{t("close")}
+											</Button>
+										</View>
+									</ScrollView>
 								</TouchableOpacity>
 							</TouchableOpacity>
 						</Modal>
@@ -1102,17 +1400,32 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		fontWeight: "500",
 	},
-	autoPopulateButton: {
+	editActionRow: {
+		flexDirection: "row",
+		gap: 10,
+		marginTop: 15,
+	},
+	editActionButton: {
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "center",
-		marginTop: 15,
+		flex: 1,
 		paddingVertical: 10,
 		borderRadius: 8,
 		gap: 8,
 	},
+	qrPrepareButton: {
+		backgroundColor: colors.surfaceWhite,
+		borderColor: colors.primary,
+		borderWidth: 1,
+	},
 	autoPopulateText: {
 		color: colors.surfaceWhite,
+		fontWeight: "bold",
+		fontSize: 14,
+	},
+	qrPrepareText: {
+		color: colors.primary,
 		fontWeight: "bold",
 		fontSize: 14,
 	},
@@ -1251,6 +1564,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		width: "95%",
 		maxWidth: 400,
+		maxHeight: "90%",
 	},
 	modalDetailRow: {
 		flexDirection: "row",
@@ -1268,6 +1582,61 @@ const styles = StyleSheet.create({
 		fontSize: 16,
 		fontWeight: "bold",
 		color: colors.textDark,
+	},
+	qrPanel: {
+		backgroundColor: colors.backgroundLight,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		borderWidth: 1,
+		marginTop: 16,
+		padding: 14,
+	},
+	qrPanelHeader: {
+		alignItems: "flex-start",
+		flexDirection: "row",
+		gap: 12,
+		justifyContent: "space-between",
+	},
+	qrPanelTitle: {
+		color: colors.textDark,
+		fontSize: 15,
+		fontWeight: "900",
+	},
+	qrPanelHint: {
+		color: colors.textMedium,
+		fontSize: 12,
+		fontWeight: "600",
+		lineHeight: 17,
+		marginTop: 4,
+		maxWidth: 285,
+	},
+	qrUrl: {
+		backgroundColor: colors.surfaceWhite,
+		borderColor: colors.borderLight,
+		borderRadius: 8,
+		borderWidth: 1,
+		color: colors.textDark,
+		fontSize: 12,
+		fontWeight: "700",
+		lineHeight: 17,
+		marginTop: 12,
+		padding: 10,
+	},
+	qrMeta: {
+		color: colors.textMedium,
+		fontSize: 11,
+		fontWeight: "800",
+		marginTop: 8,
+		textTransform: "uppercase",
+	},
+	qrActionGrid: {
+		flexDirection: "row",
+		gap: 8,
+		marginTop: 10,
+	},
+	qrActionButton: {
+		borderRadius: 8,
+		flex: 1,
 	},
 });
 

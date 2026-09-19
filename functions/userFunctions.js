@@ -505,9 +505,27 @@ exports.sendEmailOtp = functions
 	).toString();
 
 	try {
+		const otpRef = admin.firestore().collection("otp_codes").doc(email);
+		const existingOtp = await otpRef.get();
+		const existingData = existingOtp.exists ? existingOtp.data() || {} : {};
+		const createdAtMillis =
+			existingData.createdAt &&
+			typeof existingData.createdAt.toMillis === "function"
+				? existingData.createdAt.toMillis()
+				: 0;
+
+		if (createdAtMillis && createdAtMillis > Date.now() - 45 * 1000) {
+			throw new functions.https.HttpsError(
+				"resource-exhausted",
+				"Please wait a moment before requesting another code.",
+			);
+		}
+
 		// Save it to Firestore (Use this collection to verify it on the next step)
-		await admin.firestore().collection("otp_codes").doc(email).set({
+		await otpRef.set({
 			code: verificationCode,
+			failedAttempts: 0,
+			purpose: sanitizeString(data && data.purpose).slice(0, 60) || "login",
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
 
@@ -532,6 +550,7 @@ exports.sendEmailOtp = functions
 		return { success: true, message: "Email sent successfully" };
 	} catch (error) {
 		console.error("Email OTP Error:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
 		throw new functions.https.HttpsError("internal", "Could not send email.");
 	}
 });
@@ -580,6 +599,23 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 
 		// 2. Check if the code matches
 		if (storedData.code !== cleanCode) {
+			const failedAttempts = Number(storedData.failedAttempts || 0) + 1;
+			if (failedAttempts >= 5) {
+				await admin.firestore().collection("otp_codes").doc(cleanEmail).delete();
+				throw new functions.https.HttpsError(
+					"resource-exhausted",
+					"Too many incorrect attempts. Please request a new code.",
+				);
+			}
+
+			await admin.firestore().collection("otp_codes").doc(cleanEmail).set(
+				{
+					failedAttempts,
+					lastFailedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
 			throw new functions.https.HttpsError(
 				"unauthenticated",
 				"Invalid verification code.",
@@ -615,6 +651,99 @@ exports.verifyEmailOtp = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("internal", error.message);
 	}
 });
+
+exports.completeBrowserGuestIdentity = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"Guest verification is required.",
+			);
+		}
+
+		const email =
+			normalizeSearchValue(data && data.email) ||
+			normalizeSearchValue(context.auth.token && context.auth.token.email);
+		const firstName = sanitizeString(data && data.firstName).slice(0, 60);
+		const lastName = sanitizeString(data && data.lastName).slice(0, 60);
+		const source = sanitizeString(data && data.source).slice(0, 80) || "browser";
+		const marketingConsent = data && data.marketingConsent === true;
+
+		if (!email || !firstName) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"First name and verified email are required.",
+			);
+		}
+
+		try {
+			const user = await admin.auth().getUser(context.auth.uid);
+			if (normalizeSearchValue(user.email) !== email) {
+				throw new functions.https.HttpsError(
+					"permission-denied",
+					"Verified email does not match this guest session.",
+				);
+			}
+
+			const customerRef = admin
+				.firestore()
+				.collection("customers")
+				.doc(context.auth.uid);
+			const customerDoc = await customerRef.get();
+			const existingCustomer = customerDoc.exists ? customerDoc.data() || {} : {};
+			const now = admin.firestore.FieldValue.serverTimestamp();
+			const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
+			const profilePatch = {
+				email,
+				emailLower: email,
+				firstName,
+				...(lastName ? { lastName } : {}),
+				fullName,
+				displayName: fullName,
+				role: "customer",
+				isEmailVerified: true,
+				browserIdentity: {
+					verified: true,
+					source,
+					updatedAt: now,
+				},
+				marketingConsent,
+				updatedAt: now,
+			};
+
+			if (!existingCustomer.createdAt) {
+				profilePatch.createdAt = now;
+			}
+
+			if (marketingConsent) {
+				profilePatch.marketingConsentUpdatedAt = now;
+			}
+
+			await customerRef.set(profilePatch, { merge: true });
+
+			return {
+				success: true,
+				customer: {
+					uid: context.auth.uid,
+					email,
+					firstName,
+					lastName,
+					fullName,
+					marketingConsent,
+				},
+			};
+		} catch (error) {
+			console.error("Browser guest identity completion failed:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not complete guest identity.",
+				error.message,
+			);
+		}
+	},
+);
 
 /**
  * An internal helper function to generate a new, unique, sequential restaurant number.

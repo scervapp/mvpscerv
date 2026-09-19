@@ -515,6 +515,8 @@ const RestaurantActiveTables = () => {
 			(item.hasCustomerAppOrder === true ||
 				item.customerServiceFeeEligible === true) &&
 			!isDirty;
+		const hasBrowserOrder =
+			item.source === "browser_qr" || item.hasBrowserOrder === true;
 		const isRunningFood = runningFoodPartyId === item.id;
 
 		const seatedTime = item.createdAt?.toDate
@@ -656,7 +658,9 @@ const RestaurantActiveTables = () => {
 							color={colors.primary}
 						/>
 						<Text style={styles.appOrderFeeText}>
-							{t("app_order_service_fee_applies", "App order fee applies")}
+							{hasBrowserOrder
+								? t("browser_order", "Browser order")
+								: t("app_order_service_fee_applies", "App order fee applies")}
 						</Text>
 					</View>
 				)}

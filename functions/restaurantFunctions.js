@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const db = admin.firestore();
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const { Translate } = require("@google-cloud/translate").v2;
 const { assertRestaurantPermission } = require("./restaurantAccess");
 const { generateOrderId } = require("./orderFunctions");
@@ -32,6 +33,775 @@ const normalizeTableMetadata = (data = {}) => {
 const extractTableNumber = (name) => {
 	const match = String(name || "").match(/\d+/);
 	return Number(match ? match[0] : 0);
+};
+
+const normalizePublicBaseUrl = (value) => {
+	const cleanValue = String(value || "").trim().replace(/\/+$/, "");
+	return cleanValue || "https://www.scerv.com";
+};
+
+const getScervPublicBaseUrl = () => {
+	return normalizePublicBaseUrl(
+		process.env.SCERV_PUBLIC_BASE_URL ||
+			(functions.config().scerv && functions.config().scerv.public_base_url),
+	);
+};
+
+const generateTableQrToken = () =>
+	crypto
+		.randomBytes(24)
+		.toString("base64")
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/g, "");
+
+const generateBrowserInviteCode = () => {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+	let code = "";
+	for (let i = 0; i < 6; i++) {
+		code += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return code;
+};
+
+const buildTableQrPayload = (token, version = 1) => {
+	const qrPath = `/dine/${token}`;
+	return {
+		qrToken: token,
+		secureToken: token,
+		qrPath,
+		qrUrl: `${getScervPublicBaseUrl()}${qrPath}`,
+		qrEnabled: true,
+		qrTokenVersion: version,
+		qrUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+	};
+};
+
+const tableQrLookupRef = (token) =>
+	db.collection("tableQrTokens").doc(String(token || "").trim());
+
+const setTableQrLookup = async ({
+	token,
+	restaurantId,
+	tableId,
+	enabled = true,
+	version = 1,
+}) => {
+	if (!token || !restaurantId || !tableId) return;
+	await tableQrLookupRef(token).set(
+		{
+			token,
+			restaurantId,
+			tableId,
+			enabled,
+			version,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
+};
+
+const disableTableQrLookup = async (token) => {
+	if (!token) return;
+	await tableQrLookupRef(token).set(
+		{
+			enabled: false,
+			disabledAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
+};
+
+const createUniqueTableQrToken = async () => {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const token = generateTableQrToken();
+		const existing = await tableQrLookupRef(token).get();
+		if (!existing.exists) return token;
+	}
+
+	throw new functions.https.HttpsError(
+		"internal",
+		"Could not create a unique table QR token.",
+	);
+};
+
+const assertTableQrManager = async ({
+	context,
+	restaurantId,
+	employeeId,
+	action,
+}) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	const tokenRestaurantId =
+		context.auth.token && context.auth.token.restaurantId;
+	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+		if (!employeeId || context.auth.uid === restaurantId) return null;
+
+		return assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: ["owner", "manager", "general manager"],
+			action,
+		});
+	}
+
+	throw new functions.https.HttpsError(
+		"permission-denied",
+		"User is not authorized for this restaurant.",
+	);
+};
+
+const resolveBrowserTableTokenRecord = async (token) => {
+	const cleanToken = String(token || "").trim();
+	if (!cleanToken || cleanToken.length < 20 || cleanToken.length > 160) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A valid table token is required.",
+		);
+	}
+
+	const lookupDoc = await tableQrLookupRef(cleanToken).get();
+
+	if (!lookupDoc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"This table QR code is no longer active.",
+		);
+	}
+
+	const lookup = lookupDoc.data() || {};
+	if (lookup.enabled === false) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This table QR code is currently disabled.",
+		);
+	}
+
+	const restaurantId = lookup.restaurantId;
+	const tableId = lookup.tableId;
+	if (!restaurantId || !tableId) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This table QR code is missing restaurant context.",
+		);
+	}
+
+	const tableDoc = await db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("tables")
+		.doc(tableId)
+		.get();
+	if (!tableDoc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"Table for this QR code was not found.",
+		);
+	}
+
+	const table = tableDoc.data() || {};
+	const currentToken = table.qrToken || table.secureToken;
+	if (currentToken !== cleanToken) {
+		await disableTableQrLookup(cleanToken);
+		throw new functions.https.HttpsError(
+			"not-found",
+			"This table QR code has been replaced.",
+		);
+	}
+
+	if (table.qrEnabled === false || table.isActive === false) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This table QR code is currently disabled.",
+		);
+	}
+
+	const restaurantDoc = await db.collection("restaurants").doc(restaurantId).get();
+	if (!restaurantDoc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"Restaurant for this QR code was not found.",
+		);
+	}
+
+	const restaurant = restaurantDoc.data() || {};
+	return {
+		token: cleanToken,
+		lookup,
+		restaurantId,
+		tableId,
+		tableDoc,
+		table,
+		restaurantDoc,
+		restaurant,
+	};
+};
+
+const compactBrowserTableContext = (record) => ({
+	success: true,
+	restaurantId: record.restaurantDoc.id,
+	restaurant: {
+		id: record.restaurantDoc.id,
+		name: record.restaurant.restaurantName || record.restaurant.name || "Restaurant",
+		imageUrl: record.restaurant.imageUrl || record.restaurant.imageUri || null,
+		cuisine: record.restaurant.cuisine || record.restaurant.cuisineType || null,
+		city: record.restaurant.city || null,
+		state: record.restaurant.state || null,
+		taxRate: record.restaurant.taxRate || 0,
+		features: record.restaurant.features || {},
+	},
+	table: {
+		id: record.tableDoc.id,
+		name: record.table.name || record.table.tableName || "Table",
+		capacity: Number(record.table.capacity || 0),
+		section: record.table.section || record.table.area || null,
+		status: record.table.status || "available",
+		qrEnabled: record.table.qrEnabled !== false,
+	},
+	tokenVersion: Number(record.table.qrTokenVersion || record.lookup.version || 1),
+});
+
+const normalizeBrowserQuantity = (value) => {
+	const quantity = parseInt(value || 1, 10);
+	if (!Number.isFinite(quantity)) return 1;
+	return Math.max(1, Math.min(10, quantity));
+};
+
+const normalizeBrowserNotes = (value) =>
+	String(value || "")
+		.trim()
+		.replace(/\s+/g, " ")
+		.slice(0, 180);
+
+const normalizeMenuItemPriceCents = (item = {}) => {
+	const explicitCents = Number(item.priceCents);
+	if (Number.isFinite(explicitCents) && explicitCents > 0) {
+		return Math.round(explicitCents);
+	}
+
+	const priceDollars = Number(item.price || 0);
+	if (!Number.isFinite(priceDollars) || priceDollars <= 0) return 0;
+	return Math.round(priceDollars * 100);
+};
+
+const getBrowserBasketItemId = ({ sessionId, menuItemId, notes }) => {
+	const hash = crypto
+		.createHash("sha256")
+		.update(`${sessionId}:${menuItemId}:${notes}`)
+		.digest("hex")
+		.slice(0, 28);
+	return `bbi_${hash}`;
+};
+
+const assertBrowserBasketSession = async (context, sessionId) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Guest verification is required before editing this basket.",
+		);
+	}
+
+	const cleanSessionId = String(sessionId || "").trim();
+	if (!cleanSessionId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A browser table session is required.",
+		);
+	}
+
+	const sessionRef = db.collection("browserTableSessions").doc(cleanSessionId);
+	const sessionDoc = await sessionRef.get();
+	if (!sessionDoc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"This browser table session was not found.",
+		);
+	}
+
+	const session = sessionDoc.data() || {};
+	if (session.customerId !== context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"This basket belongs to another verified guest.",
+		);
+	}
+
+	if (!["ready", "draft"].includes(session.status || "ready")) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This browser table session is no longer accepting basket changes.",
+		);
+	}
+
+	if (
+		session.expiresAt &&
+		typeof session.expiresAt.toMillis === "function" &&
+		session.expiresAt.toMillis() < Date.now()
+	) {
+		throw new functions.https.HttpsError(
+			"deadline-exceeded",
+			"This browser table session has expired. Please scan the table again.",
+		);
+	}
+
+	return { sessionRef, sessionId: cleanSessionId, session };
+};
+
+const getBrowserBasketItems = async (sessionRef) => {
+	const snapshot = await sessionRef
+		.collection("basketItems")
+		.orderBy("createdAt", "asc")
+		.get();
+
+	return snapshot.docs.map((docSnap) => {
+		const item = docSnap.data() || {};
+		const quantity = normalizeBrowserQuantity(item.quantity);
+		const priceCents = Math.max(0, Math.round(Number(item.priceCents || 0)));
+		return {
+			id: docSnap.id,
+			menuItemId: item.menuItemId || null,
+			name: item.name || "Menu item",
+			description: item.description || "",
+			category: item.category || "",
+			imageUrl: item.imageUrl || "",
+			priceCents,
+			quantity,
+			notes: item.notes || "",
+			lineTotalCents: priceCents * quantity,
+			status: item.status || "draft",
+			ticketId: item.ticketId || null,
+			pacingStatus: item.pacingStatus || null,
+			addedByName: item.addedByName || "Guest",
+		};
+	});
+};
+
+const buildBrowserBasketSummary = (items = []) => {
+	const subtotalCents = items.reduce(
+		(total, item) => total + item.lineTotalCents,
+		0,
+	);
+	const itemCount = items.reduce((total, item) => total + item.quantity, 0);
+	const draftItems = items.filter((item) => (item.status || "draft") === "draft");
+	const sentItems = items.filter((item) => item.status === "sent");
+	const draftSubtotalCents = draftItems.reduce(
+		(total, item) => total + item.lineTotalCents,
+		0,
+	);
+	const draftItemCount = draftItems.reduce(
+		(total, item) => total + item.quantity,
+		0,
+	);
+	const sentItemCount = sentItems.reduce(
+		(total, item) => total + item.quantity,
+		0,
+	);
+	const basketStatus =
+		draftItemCount > 0 ? "draft" : sentItemCount > 0 ? "sent" : "empty";
+
+	return {
+		items,
+		subtotalCents,
+		itemCount,
+		draftSubtotalCents,
+		draftItemCount,
+		sentItemCount,
+		status: basketStatus,
+	};
+};
+
+const summarizeBrowserBasket = async (sessionRef) => {
+	const items = await getBrowserBasketItems(sessionRef);
+	const basket = buildBrowserBasketSummary(items);
+	const now = admin.firestore.FieldValue.serverTimestamp();
+
+	await sessionRef.set(
+		{
+			basketStatus: basket.status,
+			basketSubtotalCents: basket.subtotalCents,
+			basketItemCount: basket.itemCount,
+			draftBasketSubtotalCents: basket.draftSubtotalCents,
+			draftBasketItemCount: basket.draftItemCount,
+			sentBasketItemCount: basket.sentItemCount,
+			lastBasketUpdatedAt: now,
+			lastSeenAt: now,
+			updatedAt: now,
+		},
+		{ merge: true },
+	);
+
+	return basket;
+};
+
+const assertBrowserMenuItem = async ({ restaurantId, menuItemId }) => {
+	const cleanMenuItemId = String(menuItemId || "").trim();
+	if (!cleanMenuItemId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"A menu item is required.",
+		);
+	}
+
+	const menuItemDoc = await db.collection("menuItems").doc(cleanMenuItemId).get();
+	if (!menuItemDoc.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"This menu item is no longer available.",
+		);
+	}
+
+	const menuItem = menuItemDoc.data() || {};
+	if (menuItem.restaurantId !== restaurantId) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"This menu item does not belong to this restaurant.",
+		);
+	}
+
+	if (menuItem.isActive === false || menuItem.isAvailable === false) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This menu item is not currently available.",
+		);
+	}
+
+	const priceCents = normalizeMenuItemPriceCents(menuItem);
+	if (priceCents <= 0) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This menu item is missing a valid price.",
+		);
+	}
+
+	return { id: menuItemDoc.id, data: menuItem, priceCents };
+};
+
+const BROWSER_DRINK_CATEGORIES = [
+	"beer",
+	"wine",
+	"cocktails",
+	"spirits",
+	"sodas",
+	"drinks",
+	"juices",
+	"non-alcoholic drinks",
+	"alcoholic drinks",
+	"beverages",
+	"coffee",
+	"tea",
+];
+
+const isBrowserBarCategory = (category) => {
+	const normalized = String(category || "").trim().toLowerCase();
+	return BROWSER_DRINK_CATEGORIES.includes(normalized);
+};
+
+const detectBrowserOrderCourse = (item = {}) => {
+	const explicitCourse = String(item.course || item.menuCourse || "")
+		.trim()
+		.toLowerCase();
+	if (explicitCourse) return explicitCourse;
+
+	const category = String(item.category || "").trim().toLowerCase();
+	if (isBrowserBarCategory(category)) return "drinks";
+	if (["dessert", "desserts", "sweet", "sweets"].some((value) => category.includes(value))) {
+		return "desserts";
+	}
+	if (
+		[
+			"appetizer",
+			"appetizers",
+			"starter",
+			"starters",
+			"soup",
+			"soups",
+			"salad",
+			"salads",
+			"side",
+			"sides",
+			"small plate",
+			"small plates",
+		].some((value) => category.includes(value))
+	) {
+		return "appetizers";
+	}
+
+	return "entrees";
+};
+
+const getBrowserStationStatusesForItems = (items = []) => {
+	let hasKitchen = false;
+	let hasBar = false;
+
+	items.forEach((item) => {
+		if (item.destination === "kitchen") hasKitchen = true;
+		if (item.destination === "bar") hasBar = true;
+	});
+
+	const stationStatuses = {};
+	if (hasKitchen) stationStatuses.kitchen = "new";
+	if (hasBar) stationStatuses.bar = "new";
+	return stationStatuses;
+};
+
+const buildBrowserPacingDecision = ({ items, settings = {}, actorType = "browser_guest" }) => {
+	const enabled = settings.enabled !== false;
+	if (!enabled) {
+		return {
+			status: "fired",
+			fireAt: null,
+			delayMinutes: 0,
+			reason: "disabled",
+			mode: "off",
+		};
+	}
+
+	const hasOnlyBar = items.every((item) => item.destination === "bar");
+	const hasOnlyDesserts = items.every((item) => item.course === "desserts");
+	const hasAppetizers = items.some((item) => item.course === "appetizers");
+	const hasEntrees = items.some((item) => item.course === "entrees");
+
+	if (hasOnlyBar) {
+		return {
+			status: "fired",
+			fireAt: null,
+			delayMinutes: 0,
+			reason: "bar_immediate",
+			mode: "hybrid_auto",
+		};
+	}
+
+	if (hasOnlyDesserts) {
+		return {
+			status: "held",
+			fireAt: null,
+			delayMinutes: null,
+			reason: "dessert_manual_fire",
+			mode: "hybrid_auto",
+		};
+	}
+
+	if (hasAppetizers && hasEntrees) {
+		const delayMinutes = Math.max(
+			5,
+			Math.min(45, Number(settings.entreeDelayMinutes || 12)),
+		);
+		return {
+			status: "scheduled",
+			fireAt: admin.firestore.Timestamp.fromDate(
+				new Date(Date.now() + delayMinutes * 60 * 1000),
+			),
+			delayMinutes,
+			reason: `${actorType}_apps_before_entrees`,
+			mode: "hybrid_auto",
+		};
+	}
+
+	return {
+		status: "fired",
+		fireAt: null,
+		delayMinutes: 0,
+		reason: "immediate",
+		mode: "hybrid_auto",
+	};
+};
+
+const buildBrowserPacedTicketGroups = ({ items, settings = {} }) => {
+	const immediateItems = [];
+	const scheduledItems = [];
+	const heldItems = [];
+	const enabled = settings.enabled !== false;
+	const hasAppetizers = items.some((item) => item.course === "appetizers");
+	const delayMinutes = Math.max(
+		5,
+		Math.min(45, Number(settings.entreeDelayMinutes || 12)),
+	);
+
+	items.forEach((item) => {
+		if (!enabled) {
+			immediateItems.push(item);
+			return;
+		}
+
+		if (item.course === "desserts") {
+			heldItems.push(item);
+			return;
+		}
+
+		if (item.course === "entrees" && hasAppetizers) {
+			scheduledItems.push(item);
+			return;
+		}
+
+		immediateItems.push(item);
+	});
+
+	const groups = [];
+	if (immediateItems.length > 0) {
+		groups.push({
+			items: immediateItems,
+			pacingDecision: buildBrowserPacingDecision({
+				items: immediateItems,
+				settings,
+			}),
+		});
+	}
+	if (scheduledItems.length > 0) {
+		groups.push({
+			items: scheduledItems,
+			pacingDecision: {
+				status: "scheduled",
+				fireAt: admin.firestore.Timestamp.fromDate(
+					new Date(Date.now() + delayMinutes * 60 * 1000),
+				),
+				delayMinutes,
+				reason: "browser_guest_apps_before_entrees",
+				mode: "hybrid_auto",
+			},
+		});
+	}
+	if (heldItems.length > 0) {
+		groups.push({
+			items: heldItems,
+			pacingDecision: {
+				status: "held",
+				fireAt: null,
+				delayMinutes: null,
+				reason: "dessert_manual_fire",
+				mode: "hybrid_auto",
+			},
+		});
+	}
+
+	return groups;
+};
+
+const applyBrowserPacingToKitchenOrder = ({ kitchenOrderData, pacingDecision }) => ({
+	...kitchenOrderData,
+	pacingStatus: pacingDecision.status,
+	pacingMode: pacingDecision.mode,
+	pacingReason: pacingDecision.reason,
+	pacingDelayMinutes: pacingDecision.delayMinutes,
+	fireAt: pacingDecision.fireAt,
+	firedAt:
+		pacingDecision.status === "fired"
+			? admin.firestore.FieldValue.serverTimestamp()
+			: null,
+	status: pacingDecision.status === "fired" ? "new" : pacingDecision.status,
+});
+
+const compactBrowserTicket = (ticket) => ({
+	orderId: ticket.orderId,
+	pacingStatus: ticket.pacingDecision.status,
+	fireAt: ticket.pacingDecision.fireAt
+		? ticket.pacingDecision.fireAt.toMillis()
+		: null,
+	itemCount: ticket.items.reduce((total, item) => total + Number(item.quantity || 0), 0),
+});
+
+const normalizeBrowserIdempotencyKey = ({ sessionId, data = {}, items = [] }) => {
+	const provided = String(data.idempotencyKey || "")
+		.trim()
+		.replace(/[^a-zA-Z0-9_-]/g, "")
+		.slice(0, 80);
+	if (provided) return provided;
+
+	const fingerprint = items
+		.map((item) => `${item.id}:${item.menuItemId}:${item.quantity}:${item.notes}`)
+		.sort()
+		.join("|");
+	return crypto
+		.createHash("sha256")
+		.update(`${sessionId}:${fingerprint}`)
+		.digest("hex")
+		.slice(0, 48);
+};
+
+const getBrowserRestaurantPacingSettings = async (restaurantId) => {
+	if (!restaurantId) return {};
+
+	try {
+		const restaurantDoc = await db.collection("restaurants").doc(restaurantId).get();
+		const restaurant = restaurantDoc.exists ? restaurantDoc.data() || {} : {};
+		return restaurant.orderPacingSettings || restaurant.pacingSettings || {};
+	} catch (error) {
+		console.warn(
+			`Unable to load browser pacing settings for restaurant ${restaurantId}.`,
+			error,
+		);
+		return {};
+	}
+};
+
+const getBrowserItemGuestStatus = ({ basketItem = {}, ticket = {} }) => {
+	const ticketItems = Array.isArray(ticket.items) ? ticket.items : [];
+	const ticketItem =
+		ticketItems.find((item) => item.id === basketItem.id) ||
+		ticketItems.find((item) => item.menuItemId === basketItem.menuItemId) ||
+		{};
+	const destination =
+		ticketItem.destination || basketItem.destination || "kitchen";
+	const itemStationStatuses = ticketItem.stationStatuses || {};
+	const ticketStationStatuses = ticket.stationStatuses || {};
+	const stationStatus =
+		itemStationStatuses[destination] ||
+		ticketStationStatuses[destination] ||
+		ticket.status ||
+		"new";
+	const pacingStatus = ticket.pacingStatus || basketItem.pacingStatus || "fired";
+
+	if (pacingStatus === "scheduled") {
+		return {
+			code: "scheduled",
+			label: "Scheduled",
+			tone: "waiting",
+			station: destination,
+		};
+	}
+
+	if (pacingStatus === "held") {
+		return {
+			code: "held",
+			label: "Waiting to fire",
+			tone: "waiting",
+			station: destination,
+		};
+	}
+
+	if (stationStatus === "ready" || stationStatus === "served") {
+		return {
+			code: stationStatus,
+			label: stationStatus === "served" ? "Served" : "Ready / on the way",
+			tone: "ready",
+			station: destination,
+		};
+	}
+
+	if (stationStatus === "preparing") {
+		return {
+			code: "preparing",
+			label: "Being prepared",
+			tone: "active",
+			station: destination,
+		};
+	}
+
+	return {
+		code: "sent",
+		label: destination === "bar" ? "Bar received" : "Kitchen received",
+		tone: "sent",
+		station: destination,
+	};
 };
 
 const getRestaurantSeatIdForItem = (item = {}) => {
@@ -98,8 +868,11 @@ const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
 
 const isCustomerAppInitiatedItem = (item = {}) =>
 	item.source === "customer_app" ||
+	item.source === "browser_qr" ||
 	item.orderEntryMode === "customer" ||
+	item.orderEntryMode === "browser_guest" ||
 	item.paymentResponsibility === "customer_app" ||
+	item.paymentResponsibility === "customer_browser" ||
 	!(
 		item.source === "restaurant_pos" ||
 		item.orderEntryMode === "staff" ||
@@ -863,7 +1636,7 @@ Your receipt is attached and available through the official DGI link below.
 					html: `
 <div style="font-family: Arial, sans-serif; background: #f6f7f9; padding: 24px;">
   <div style="max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e8eaed;">
-    
+
     <div style="background: #111; color: #fff; padding: 24px 28px;">
       <h1 style="margin: 0; font-size: 22px;">${restaurantDisplayName}</h1>
       <p style="margin: 8px 0 0; color: #d1d5db; font-size: 14px;">
@@ -1462,9 +2235,16 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		await assertTableQrManager({
+			context,
+			restaurantId,
+			employeeId: data.employeeId || data.staffId,
+			action: "manage table setup",
+		});
 		const tableMetadata = normalizeTableMetadata(data);
 		// Generate the custom ID using the helper function
 		const customTableId = generateTableId(name);
+		const qrToken = await createUniqueTableQrToken();
 
 		const newTableRef = db
 			.collection("restaurants")
@@ -1489,8 +2269,16 @@ exports.addTable = functions.https.onCall(async (data, context) => {
 			...tableMetadata,
 			status: "available",
 			restaurantId: restaurantId,
+			...buildTableQrPayload(qrToken, 1),
+			qrCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+		await setTableQrLookup({
+			token: qrToken,
+			restaurantId,
+			tableId: customTableId,
+			version: 1,
 		});
 
 		return { success: true, tableId: customTableId };
@@ -1525,6 +2313,12 @@ exports.updateTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		await assertTableQrManager({
+			context,
+			restaurantId,
+			employeeId: data.employeeId || data.staffId,
+			action: "manage table setup",
+		});
 		const tableMetadata = normalizeTableMetadata(data);
 		const tablesCollection = db
 			.collection("restaurants")
@@ -1614,6 +2408,12 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 	}
 
 	try {
+		await assertTableQrManager({
+			context,
+			restaurantId,
+			employeeId: data.employeeId || data.staffId,
+			action: "manage table setup",
+		});
 		const tableRef = db
 			.collection("restaurants")
 			.doc(restaurantId)
@@ -1639,6 +2439,1175 @@ exports.deleteTable = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError(
 			"internal",
 			"Could not delete table.",
+			error.message,
+		);
+	}
+});
+
+exports.regenerateTableQrToken = functions.https.onCall(async (data, context) => {
+	const { restaurantId, tableId } = data || {};
+	if (!restaurantId || !tableId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID and table ID are required.",
+		);
+	}
+
+	try {
+		await assertTableQrManager({
+			context,
+			restaurantId,
+			employeeId: data.employeeId || data.staffId,
+			action: "regenerate table QR codes",
+		});
+
+		const tableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(tableId);
+		const tableDoc = await tableRef.get();
+		if (!tableDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Table not found.");
+		}
+
+		const tableData = tableDoc.data() || {};
+		const previousToken = tableData.qrToken || tableData.secureToken || null;
+		const nextVersion = Number(tableData.qrTokenVersion || 0) + 1;
+		const qrToken = await createUniqueTableQrToken();
+		const qrPayload = buildTableQrPayload(qrToken, nextVersion);
+
+		await tableRef.update({
+			...qrPayload,
+			qrLastRotatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		});
+		await Promise.all([
+			disableTableQrLookup(previousToken),
+			setTableQrLookup({
+				token: qrToken,
+				restaurantId,
+				tableId,
+				enabled: true,
+				version: nextVersion,
+			}),
+		]);
+
+		return {
+			success: true,
+			tableId,
+			qrToken,
+			qrPath: qrPayload.qrPath,
+			qrUrl: qrPayload.qrUrl,
+			qrEnabled: true,
+			qrTokenVersion: nextVersion,
+		};
+	} catch (error) {
+		console.error("Error regenerating table QR token:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not regenerate table QR code.",
+			error.message,
+		);
+	}
+});
+
+exports.setTableQrEnabled = functions.https.onCall(async (data, context) => {
+	const { restaurantId, tableId, enabled } = data || {};
+	if (!restaurantId || !tableId || typeof enabled !== "boolean") {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID, table ID, and enabled status are required.",
+		);
+	}
+
+	try {
+		await assertTableQrManager({
+			context,
+			restaurantId,
+			employeeId: data.employeeId || data.staffId,
+			action: "enable or disable table QR codes",
+		});
+
+		const tableRef = db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.collection("tables")
+			.doc(tableId);
+		const tableDoc = await tableRef.get();
+		if (!tableDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Table not found.");
+		}
+
+		const tableData = tableDoc.data() || {};
+		const patch = {
+			qrEnabled: enabled,
+			qrUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		};
+
+		if (enabled && !tableData.qrToken) {
+			const qrToken = await createUniqueTableQrToken();
+			Object.assign(
+				patch,
+				buildTableQrPayload(qrToken, Number(tableData.qrTokenVersion || 0) + 1),
+				{ qrCreatedAt: admin.firestore.FieldValue.serverTimestamp() },
+			);
+		}
+
+		await tableRef.update(patch);
+		const lookupToken = patch.qrToken || tableData.qrToken || tableData.secureToken;
+		await setTableQrLookup({
+			token: lookupToken,
+			restaurantId,
+			tableId,
+			enabled,
+			version:
+				patch.qrTokenVersion ||
+				Number(tableData.qrTokenVersion || (lookupToken ? 1 : 0)),
+		});
+
+		const effectiveToken = patch.qrToken || tableData.qrToken || null;
+		const effectivePath =
+			patch.qrPath || tableData.qrPath || (effectiveToken ? `/dine/${effectiveToken}` : null);
+
+		return {
+			success: true,
+			tableId,
+			qrEnabled: enabled,
+			qrToken: effectiveToken,
+			qrPath: effectivePath,
+			qrUrl:
+				patch.qrUrl ||
+				tableData.qrUrl ||
+				(effectivePath ? `${getScervPublicBaseUrl()}${effectivePath}` : null),
+		};
+	} catch (error) {
+		console.error("Error updating table QR status:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not update table QR status.",
+			error.message,
+		);
+	}
+});
+
+exports.ensureRestaurantTableQrTokens = functions.https.onCall(
+	async (data, context) => {
+		const { restaurantId } = data || {};
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		try {
+			await assertTableQrManager({
+				context,
+				restaurantId,
+				employeeId: data.employeeId || data.staffId,
+				action: "prepare table QR codes",
+			});
+
+			const tablesSnapshot = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.collection("tables")
+				.get();
+
+			if (tablesSnapshot.empty) {
+				return { success: true, updatedCount: 0, totalTables: 0 };
+			}
+
+			const batch = db.batch();
+			const lookupWrites = [];
+			let updatedCount = 0;
+
+			for (const tableDoc of tablesSnapshot.docs) {
+				const table = tableDoc.data() || {};
+				const currentToken = table.qrToken || table.secureToken;
+				let patch = null;
+				let lookupToken = currentToken;
+				let lookupVersion = Number(table.qrTokenVersion || 1);
+				let lookupEnabled = table.qrEnabled !== false;
+
+				if (!currentToken) {
+					const token = await createUniqueTableQrToken();
+					lookupToken = token;
+					lookupVersion = Number(table.qrTokenVersion || 0) + 1;
+					lookupEnabled = true;
+					patch = {
+						...buildTableQrPayload(token, lookupVersion),
+						qrCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					};
+				} else if (!table.qrPath || !table.qrUrl || table.qrEnabled === undefined) {
+					const qrPath = table.qrPath || `/dine/${currentToken}`;
+					patch = {
+						qrToken: currentToken,
+						secureToken: currentToken,
+						qrPath,
+						qrUrl: table.qrUrl || `${getScervPublicBaseUrl()}${qrPath}`,
+						qrEnabled: table.qrEnabled !== false,
+						qrTokenVersion: Number(table.qrTokenVersion || 1),
+						qrUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					};
+				}
+
+				if (lookupToken) {
+					lookupWrites.push(
+						setTableQrLookup({
+							token: lookupToken,
+							restaurantId,
+							tableId: tableDoc.id,
+							enabled: lookupEnabled,
+							version: lookupVersion,
+						}),
+					);
+				}
+
+				if (patch) {
+					batch.update(tableDoc.ref, {
+						...patch,
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					});
+					updatedCount++;
+				}
+			}
+
+			if (updatedCount > 0) await batch.commit();
+			await Promise.all(lookupWrites);
+
+			return {
+				success: true,
+				updatedCount,
+				totalTables: tablesSnapshot.size,
+			};
+		} catch (error) {
+			console.error("Error preparing table QR tokens:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not prepare table QR codes.",
+				error.message,
+			);
+		}
+	},
+);
+
+exports.resolveBrowserTableToken = functions.https.onCall(async (data) => {
+	try {
+		const record = await resolveBrowserTableTokenRecord(data && data.token);
+		return compactBrowserTableContext(record);
+	} catch (error) {
+		console.error("Error resolving browser table token:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not resolve this table QR code.",
+			error.message,
+		);
+	}
+});
+
+exports.createBrowserTableSession = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Guest verification is required before joining a table.",
+		);
+	}
+
+	try {
+		const record = await resolveBrowserTableTokenRecord(data && data.token);
+		const features = record.restaurant.features || {};
+		if (features.qrSelfCheckIn !== true) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Browser table access is not enabled for this restaurant.",
+			);
+		}
+
+		const customerId = context.auth.uid;
+		const customerDoc = await db.collection("customers").doc(customerId).get();
+		if (!customerDoc.exists) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Guest profile is not ready yet.",
+			);
+		}
+
+		const customer = customerDoc.data() || {};
+		const customerEmail =
+			String(customer.email || context.auth.token.email || "").trim().toLowerCase();
+		const customerName =
+			customer.fullName ||
+			`${customer.firstName || ""} ${customer.lastName || ""}`.trim() ||
+			customer.firstName ||
+			"Guest";
+
+		const tokenVersion = Number(
+			record.table.qrTokenVersion || record.lookup.version || 1,
+		);
+		const sessionHash = crypto
+			.createHash("sha256")
+			.update(`${record.token}:${customerId}:${tokenVersion}`)
+			.digest("hex")
+			.slice(0, 32);
+		const sessionId = `bts_${sessionHash}`;
+		const sessionRef = db.collection("browserTableSessions").doc(sessionId);
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		const expiresAt = admin.firestore.Timestamp.fromMillis(
+			Date.now() + 6 * 60 * 60 * 1000,
+		);
+
+		const restaurantRef = db.collection("restaurants").doc(record.restaurantId);
+		const tableRef = restaurantRef.collection("tables").doc(record.tableId);
+		const fallbackPartyRef = db.collection("parties").doc();
+		const fallbackCheckInRef = db.collection("checkIns").doc();
+		const newInviteCode = generateBrowserInviteCode();
+		let sessionPatch = null;
+
+		await db.runTransaction(async (transaction) => {
+			const [freshTableDoc, freshRestaurantDoc, existingSessionDoc] =
+				await Promise.all([
+					transaction.get(tableRef),
+					transaction.get(restaurantRef),
+					transaction.get(sessionRef),
+				]);
+
+			if (!freshTableDoc.exists) {
+				throw new functions.https.HttpsError("not-found", "Table not found.");
+			}
+
+			const freshTable = freshTableDoc.data() || {};
+			const freshRestaurant = freshRestaurantDoc.exists
+				? freshRestaurantDoc.data() || {}
+				: record.restaurant;
+			const existingSessionData = existingSessionDoc.exists
+				? existingSessionDoc.data() || {}
+				: {};
+			const tableStatus = String(freshTable.status || "available").toLowerCase();
+			const tableName = freshTable.name || freshTable.tableName || "Table";
+			const restaurantName =
+				freshRestaurant.restaurantName ||
+				freshRestaurant.name ||
+				record.restaurant.restaurantName ||
+				record.restaurant.name ||
+				"Restaurant";
+			const existingPartyId =
+				existingSessionData.partyId || freshTable.currentPartyId || null;
+			let partyRef = existingPartyId
+				? db.collection("parties").doc(existingPartyId)
+				: fallbackPartyRef;
+			let partyDoc = existingPartyId ? await transaction.get(partyRef) : null;
+			let partyData = partyDoc && partyDoc.exists ? partyDoc.data() || {} : null;
+			const partyIsUsable =
+				partyData &&
+				partyData.restaurantId === record.restaurantId &&
+				((partyData.table && partyData.table.id === record.tableId) ||
+					partyData.tableId === record.tableId) &&
+				partyData.status === "active";
+
+			if (["checkedout", "completed", "dirty"].includes(tableStatus)) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This table is waiting to be cleaned before a new session can begin.",
+				);
+			}
+
+			if (tableStatus !== "available" && !partyIsUsable) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					"This table is already in use. Please ask the restaurant team for help.",
+				);
+			}
+
+			let partyId = partyIsUsable ? partyRef.id : fallbackPartyRef.id;
+			let checkInId = partyIsUsable
+				? partyData.checkInId || freshTable.currentCheckInId || null
+				: fallbackCheckInRef.id;
+			let assignedServer = partyIsUsable
+				? partyData.server || { id: "unassigned", name: "Unassigned" }
+				: { id: "unassigned", name: "Browser QR" };
+
+			const guestPip = {
+				userId: customerId,
+				name: customerName,
+				email: customerEmail || null,
+				joinedAt: admin.firestore.Timestamp.now(),
+				paymentStatus: "pending",
+				source: "browser_qr",
+			};
+
+			if (partyIsUsable) {
+				const currentGuestPips = Array.isArray(partyData.guestPips)
+					? partyData.guestPips
+					: [];
+				const guestAlreadyJoined = currentGuestPips.some(
+					(pip) => pip && pip.userId === customerId,
+				);
+				transaction.set(
+					partyRef,
+					{
+						guestUserIds: admin.firestore.FieldValue.arrayUnion(customerId),
+						...(guestAlreadyJoined
+							? {}
+							: {
+									guestPips:
+										admin.firestore.FieldValue.arrayUnion(guestPip),
+								}),
+						lastUpdated: now,
+					},
+					{ merge: true },
+				);
+			} else {
+				transaction.set(fallbackCheckInRef, {
+					id: fallbackCheckInRef.id,
+					restaurantId: record.restaurantId,
+					customerId,
+					customerName,
+					numberOfPeople: 1,
+					status: "ACCEPTED",
+					type: "browser_table",
+					partyId,
+					table: { id: record.tableId, name: tableName },
+					server: assignedServer,
+					source: "browser_qr",
+					createdAt: now,
+					acceptedAt: now,
+				});
+
+				transaction.set(db.collection("shared_baskets").doc(partyId), {
+					partyId,
+					restaurantId: record.restaurantId,
+					items: [],
+					source: "browser_qr",
+					lastUpdated: now,
+				});
+
+				transaction.set(partyRef, {
+					id: partyId,
+					restaurantId: record.restaurantId,
+					restaurantName,
+					partyName: tableName,
+					table: { id: record.tableId, name: tableName },
+					tableId: record.tableId,
+					checkInId,
+					sharedBasketId: partyId,
+					hostId: customerId,
+					hostUserId: customerId,
+					hostName: customerName,
+					customerId,
+					status: "active",
+					source: "browser_qr",
+					fulfillmentType: "browser_table",
+					inviteCode: newInviteCode,
+					createdAt: now,
+					lastUpdated: now,
+					guestUserIds: [customerId],
+					guestPips: [guestPip],
+					server: assignedServer,
+				});
+			}
+
+			transaction.set(
+				tableRef,
+				{
+					status: "OCCUPIED",
+					currentPartyId: partyId,
+					currentCheckInId: checkInId,
+					currentCustomerId: customerId,
+					seatedAt: freshTable.seatedAt || now,
+					updatedAt: now,
+				},
+				{ merge: true },
+			);
+
+			transaction.set(
+				db.collection("customers").doc(customerId),
+				{
+					activePartyId: partyId,
+					activeRestaurantId: record.restaurantId,
+					activeCheckIn: {
+						checkInId,
+						partyId,
+						restaurantId: record.restaurantId,
+						status: "ACCEPTED",
+						table: { id: record.tableId, name: tableName },
+					},
+					partyIds: admin.firestore.FieldValue.arrayUnion(partyId),
+					updatedAt: now,
+				},
+				{ merge: true },
+			);
+
+			sessionPatch = {
+				id: sessionId,
+				status: "ready",
+				source: "browser_qr",
+				restaurantId: record.restaurantId,
+				restaurantName,
+				tableId: record.tableId,
+				tableName,
+				table: {
+					id: record.tableId,
+					name: tableName,
+					capacity: Number(freshTable.capacity || 0),
+					section: freshTable.section || freshTable.area || null,
+				},
+				partyId,
+				checkInId,
+				server: assignedServer,
+				customerId,
+				customerName,
+				customerEmail,
+				qrTokenVersion: tokenVersion,
+				qrTokenHash: crypto
+					.createHash("sha256")
+					.update(record.token)
+					.digest("hex"),
+				capabilities: {
+					menuBrowsing: true,
+					browserBasket: true,
+					browserOrdering: true,
+					payments: true,
+					rewards: false,
+				},
+				expiresAt,
+				lastSeenAt: now,
+				updatedAt: now,
+				...(existingSessionDoc.exists ? {} : { createdAt: now }),
+			};
+
+			transaction.set(sessionRef, sessionPatch, { merge: true });
+		});
+
+		const basket = await summarizeBrowserBasket(sessionRef);
+
+		return {
+			success: true,
+			basket,
+			session: {
+				id: sessionId,
+				status: "ready",
+				restaurantId: record.restaurantId,
+				restaurantName: sessionPatch.restaurantName,
+				tableId: record.tableId,
+				tableName: sessionPatch.tableName,
+				partyId: sessionPatch.partyId,
+				checkInId: sessionPatch.checkInId,
+				customerId,
+				customerName,
+				capabilities: sessionPatch.capabilities,
+			},
+		};
+	} catch (error) {
+		console.error("Error creating browser table session:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not start this browser table session.",
+			error.message,
+		);
+	}
+});
+
+exports.addBrowserBasketItem = functions.https.onCall(async (data, context) => {
+	try {
+		const { sessionRef, sessionId, session } = await assertBrowserBasketSession(
+			context,
+			data && data.sessionId,
+		);
+		const quantity = normalizeBrowserQuantity(data && data.quantity);
+		const notes = normalizeBrowserNotes(data && data.notes);
+		const menuItem = await assertBrowserMenuItem({
+			restaurantId: session.restaurantId,
+			menuItemId: data && data.menuItemId,
+		});
+
+		const itemId = getBrowserBasketItemId({
+			sessionId,
+			menuItemId: menuItem.id,
+			notes,
+		});
+		const itemRef = sessionRef.collection("basketItems").doc(itemId);
+		const itemDoc = await itemRef.get();
+		const existingQuantity = itemDoc.exists
+			? normalizeBrowserQuantity((itemDoc.data() || {}).quantity)
+			: 0;
+		const nextQuantity = Math.min(10, existingQuantity + quantity);
+		const now = admin.firestore.FieldValue.serverTimestamp();
+		const menuData = menuItem.data;
+
+		await itemRef.set(
+			{
+				id: itemId,
+				menuItemId: menuItem.id,
+				restaurantId: session.restaurantId,
+				sessionId,
+				partyId: session.partyId || null,
+				checkInId: session.checkInId || null,
+				tableId: session.tableId,
+				name: menuData.name || menuData.itemName || "Menu item",
+				description: menuData.description || "",
+				category: menuData.category || menuData.menuCategory || "",
+				course: menuData.course || menuData.menuCourse || "",
+				destination:
+					menuData.destination ||
+					menuData.station ||
+					(menuData.isDrink ? "bar" : "kitchen"),
+				imageUrl: menuData.imageUrl || menuData.imageUri || "",
+				priceCents: menuItem.priceCents,
+				price: Number((menuItem.priceCents / 100).toFixed(2)),
+				quantity: nextQuantity,
+				notes,
+				status: "draft",
+				source: "browser_qr",
+				addedByCustomerId: session.customerId,
+				addedByName: session.customerName || "Guest",
+				updatedAt: now,
+				createdAt: itemDoc.exists
+					? (itemDoc.data() || {}).createdAt || now
+					: now,
+			},
+			{ merge: true },
+		);
+
+		const basket = await summarizeBrowserBasket(sessionRef);
+		return { success: true, basket };
+	} catch (error) {
+		console.error("Error adding browser basket item:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not add this item to the browser basket.",
+			error.message,
+		);
+	}
+});
+
+exports.updateBrowserBasketItem = functions.https.onCall(async (data, context) => {
+	try {
+		const { sessionRef } = await assertBrowserBasketSession(
+			context,
+			data && data.sessionId,
+		);
+		const itemId = String((data && data.itemId) || "").trim();
+		if (!itemId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A basket item is required.",
+			);
+		}
+
+		const itemRef = sessionRef.collection("basketItems").doc(itemId);
+		const itemDoc = await itemRef.get();
+		if (!itemDoc.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"This basket item was not found.",
+			);
+		}
+		if ((itemDoc.data() || {}).status === "sent") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This item has already been sent to the restaurant.",
+			);
+		}
+
+		const quantity = parseInt((data && data.quantity) || 0, 10);
+		if (!Number.isFinite(quantity) || quantity < 1) {
+			await itemRef.delete();
+		} else {
+			await itemRef.set(
+				{
+					quantity: normalizeBrowserQuantity(quantity),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+
+		const basket = await summarizeBrowserBasket(sessionRef);
+		return { success: true, basket };
+	} catch (error) {
+		console.error("Error updating browser basket item:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not update this browser basket item.",
+			error.message,
+		);
+	}
+});
+
+exports.removeBrowserBasketItem = functions.https.onCall(async (data, context) => {
+	try {
+		const { sessionRef } = await assertBrowserBasketSession(
+			context,
+			data && data.sessionId,
+		);
+		const itemId = String((data && data.itemId) || "").trim();
+		if (!itemId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A basket item is required.",
+			);
+		}
+
+		const itemRef = sessionRef.collection("basketItems").doc(itemId);
+		const itemDoc = await itemRef.get();
+		if (itemDoc.exists && (itemDoc.data() || {}).status === "sent") {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This item has already been sent to the restaurant.",
+			);
+		}
+
+		await itemRef.delete();
+		const basket = await summarizeBrowserBasket(sessionRef);
+		return { success: true, basket };
+	} catch (error) {
+		console.error("Error removing browser basket item:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not remove this browser basket item.",
+			error.message,
+		);
+	}
+});
+
+exports.submitBrowserBasketToKitchen = functions.https.onCall(
+	async (data, context) => {
+		try {
+			const { sessionRef, sessionId, session } =
+				await assertBrowserBasketSession(context, data && data.sessionId);
+			const currentBasketItems = await getBrowserBasketItems(sessionRef);
+			const draftItems = currentBasketItems.filter(
+				(item) => (item.status || "draft") === "draft",
+			);
+
+			if (draftItems.length === 0) {
+				const basket = await summarizeBrowserBasket(sessionRef);
+				return {
+					success: true,
+					message: "No new basket items to send.",
+					itemsSent: 0,
+					orderIds: [],
+					basket,
+				};
+			}
+
+			const kitchenItems = [];
+			for (const item of draftItems) {
+				const menuItem = await assertBrowserMenuItem({
+					restaurantId: session.restaurantId,
+					menuItemId: item.menuItemId,
+				});
+				const menuData = menuItem.data;
+				const category = menuData.category || item.category || "Menu";
+				const destination = isBrowserBarCategory(category) ? "bar" : "kitchen";
+				const quantity = normalizeBrowserQuantity(item.quantity);
+
+				kitchenItems.push({
+					id: item.id,
+					menuItemId: item.menuItemId,
+					dishName: menuData.name || item.name || "Menu item",
+					quantity,
+					price: Number((menuItem.priceCents / 100).toFixed(2)),
+					priceCents: menuItem.priceCents,
+					specialInstructions: normalizeBrowserNotes(item.notes),
+					orderedFor: session.customerName || "Guest",
+					orderedByUserId: session.customerId,
+					orderedByPipName: session.customerName || "Guest",
+					customerName: session.customerName || "Guest",
+					source: "browser_qr",
+					orderEntryMode: "browser_guest",
+					paymentResponsibility: "customer_browser",
+					enteredByStaffId: null,
+					enteredByStaffName: null,
+					destination,
+					category,
+					course: detectBrowserOrderCourse({ ...item, category }),
+					selectedModifiers: [],
+					kitchenModifiers: [],
+					barModifiers: [],
+					stationStatuses: getBrowserStationStatusesForItems([{ destination }]),
+				});
+			}
+
+			const pacingSettings = await getBrowserRestaurantPacingSettings(
+				session.restaurantId,
+			);
+			const ticketGroups = buildBrowserPacedTicketGroups({
+				items: kitchenItems,
+				settings: pacingSettings,
+			});
+			const createdTickets = ticketGroups.map((group) => {
+				const kitchenOrderRef = db.collection("kitchen_orders").doc();
+				const orderId = kitchenOrderRef.id;
+				return {
+					kitchenOrderRef,
+					orderId,
+					stationStatuses: getBrowserStationStatusesForItems(group.items),
+					...group,
+				};
+			});
+			const ticketByItemId = new Map();
+			createdTickets.forEach((ticket) => {
+				ticket.items.forEach((item) => {
+					ticketByItemId.set(item.id, {
+						orderId: ticket.orderId,
+						pacingDecision: ticket.pacingDecision,
+					});
+				});
+			});
+
+			const idempotencyKey = normalizeBrowserIdempotencyKey({
+				sessionId,
+				data,
+				items: draftItems,
+			});
+			const submissionRef = db
+				.collection("browserOrderSubmissions")
+				.doc(`${sessionId}_${idempotencyKey}`);
+			let existingResult = null;
+
+			await db.runTransaction(async (transaction) => {
+				const existingSubmission = await transaction.get(submissionRef);
+				if (existingSubmission.exists) {
+					existingResult = existingSubmission.data() || {};
+					return;
+				}
+
+				const sessionDoc = await transaction.get(sessionRef);
+				if (!sessionDoc.exists) {
+					throw new functions.https.HttpsError(
+						"not-found",
+						"This browser table session was not found.",
+					);
+				}
+
+				const freshSession = sessionDoc.data() || {};
+				if (freshSession.customerId !== context.auth.uid) {
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"This browser table session belongs to another guest.",
+					);
+				}
+
+				const now = admin.firestore.FieldValue.serverTimestamp();
+				const activePartyId = freshSession.partyId || session.partyId || null;
+				const activeCheckInId =
+					freshSession.checkInId || session.checkInId || null;
+				const activeTable = freshSession.table ||
+					session.table || {
+						id: freshSession.tableId || session.tableId,
+						name: freshSession.tableName || session.tableName || "Table",
+					};
+				const activeServer =
+					freshSession.server ||
+					session.server ||
+					{ id: "unassigned", name: "Unassigned" };
+				const sharedBasketRef = activePartyId
+					? db.collection("shared_baskets").doc(activePartyId)
+					: null;
+				const sharedBasketDoc = sharedBasketRef
+					? await transaction.get(sharedBasketRef)
+					: null;
+				const existingSharedItems =
+					sharedBasketDoc && sharedBasketDoc.exists
+						? (sharedBasketDoc.data() || {}).items || []
+						: [];
+				const sharedItemsById = new Map(
+					existingSharedItems.map((item) => [item.id, item]),
+				);
+
+				createdTickets.forEach((ticket) => {
+					transaction.set(
+						ticket.kitchenOrderRef,
+						applyBrowserPacingToKitchenOrder({
+							pacingDecision: ticket.pacingDecision,
+							kitchenOrderData: {
+								restaurantId: session.restaurantId,
+								orderId: ticket.orderId,
+								partyId: activePartyId,
+								checkInId: activeCheckInId,
+								browserSessionId: sessionId,
+								fulfillmentType: "browser_table",
+								table: activeTable,
+								server: activeServer,
+								orderEntryMode: "browser_guest",
+								source: "browser_qr",
+								items: ticket.items,
+								stationStatuses: ticket.stationStatuses,
+								overallStatus: "active",
+								createdAt: now,
+							},
+						}),
+					);
+				});
+
+				draftItems.forEach((item) => {
+					const ticket = ticketByItemId.get(item.id) || {};
+					const pacingDecision = ticket.pacingDecision || {
+						status: "fired",
+						fireAt: null,
+					};
+					const sharedItem = {
+						id: item.id,
+						menuItemId: item.menuItemId,
+						dishName: item.name || "Menu item",
+						name: item.name || "Menu item",
+						quantity: normalizeBrowserQuantity(item.quantity),
+						price: Number((Number(item.priceCents || 0) / 100).toFixed(2)),
+						priceCents: Number(item.priceCents || 0),
+						specialInstructions: normalizeBrowserNotes(item.notes),
+						notes: normalizeBrowserNotes(item.notes),
+						orderedFor: session.customerName || "Guest",
+						orderedByUserId: session.customerId,
+						orderedByPipName: session.customerName || "Guest",
+						customerName: session.customerName || "Guest",
+						source: "browser_qr",
+						orderEntryMode: "browser_guest",
+						paymentResponsibility: "customer_browser",
+						enteredByStaffId: null,
+						enteredByStaffName: null,
+						destination: item.destination || "kitchen",
+						category: item.category || "Menu",
+						course: item.course || null,
+						selectedModifiers: [],
+						kitchenModifiers: [],
+						barModifiers: [],
+						status: "sent",
+						ticketId: ticket.orderId || null,
+						sentAt: new Date(),
+						pacingStatus: pacingDecision.status,
+						fireAt: pacingDecision.fireAt
+							? pacingDecision.fireAt.toDate()
+							: null,
+						firedAt: pacingDecision.status === "fired" ? new Date() : null,
+					};
+					sharedItemsById.set(item.id, sharedItem);
+
+					transaction.set(
+						sessionRef.collection("basketItems").doc(item.id),
+						{
+							status: "sent",
+							ticketId: ticket.orderId || null,
+							sentAt: now,
+							pacingStatus: pacingDecision.status,
+							fireAt: pacingDecision.fireAt || null,
+							firedAt:
+								pacingDecision.status === "fired" ? now : null,
+							updatedAt: now,
+						},
+						{ merge: true },
+					);
+				});
+
+				if (sharedBasketRef) {
+					transaction.set(
+						sharedBasketRef,
+						{
+							partyId: activePartyId,
+							restaurantId: session.restaurantId,
+							items: Array.from(sharedItemsById.values()),
+							lastUpdated: now,
+						},
+						{ merge: true },
+					);
+				}
+
+				if (activePartyId) {
+					transaction.set(
+						db.collection("parties").doc(activePartyId),
+						{
+							hasBrowserOrder: true,
+							hasCustomerAppOrder: true,
+							customerServiceFeeEligible: true,
+							lastCustomerOrderAt: now,
+							lastUpdated: now,
+						},
+						{ merge: true },
+					);
+				}
+
+				const result = {
+					success: true,
+					itemsSent: kitchenItems.reduce(
+						(total, item) => total + Number(item.quantity || 0),
+						0,
+					),
+					orderId:
+						(createdTickets[0] && createdTickets[0].orderId) || null,
+					orderIds: createdTickets.map((ticket) => ticket.orderId),
+					tickets: createdTickets.map(compactBrowserTicket),
+				};
+
+				transaction.set(submissionRef, {
+					...result,
+					idempotencyKey,
+					sessionId,
+					restaurantId: session.restaurantId,
+					tableId: session.tableId,
+					customerId: session.customerId,
+					partyId: activePartyId,
+					checkInId: activeCheckInId,
+					source: "browser_qr",
+					createdAt: now,
+				});
+				transaction.set(
+					sessionRef,
+					{
+						status: "ready",
+						lastSubmissionId: submissionRef.id,
+						lastSubmittedAt: now,
+						submittedOrderIds: admin.firestore.FieldValue.arrayUnion(
+							...result.orderIds,
+						),
+						basketStatus: "sent",
+						lastSeenAt: now,
+						updatedAt: now,
+					},
+					{ merge: true },
+				);
+				existingResult = result;
+			});
+
+			const basket = await summarizeBrowserBasket(sessionRef);
+			const statusItems = (basket.items || [])
+				.filter((item) => item.status === "sent" && item.ticketId)
+				.map((item) => {
+					const ticket = createdTickets.find((candidate) =>
+						candidate.items.some((ticketItem) => ticketItem.id === item.id),
+					);
+					const status = getBrowserItemGuestStatus({
+						basketItem: item,
+						ticket: ticket
+							? {
+									id: ticket.orderId,
+									items: ticket.items,
+									pacingStatus: ticket.pacingDecision.status,
+									status:
+										ticket.pacingDecision.status === "fired"
+											? "new"
+											: ticket.pacingDecision.status,
+									stationStatuses: ticket.stationStatuses,
+								}
+							: {},
+					});
+					return {
+						id: item.id,
+						menuItemId: item.menuItemId,
+						name: item.name,
+						quantity: item.quantity,
+						ticketId: item.ticketId,
+						...status,
+					};
+				});
+
+			return {
+				...(existingResult || {}),
+				success: true,
+				basket,
+				items: statusItems,
+			};
+		} catch (error) {
+			console.error("Error submitting browser basket to kitchen:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not send this browser basket to the kitchen.",
+				error.message,
+			);
+		}
+	},
+);
+
+exports.getBrowserOrderStatus = functions.https.onCall(async (data, context) => {
+	try {
+		const { sessionRef, sessionId, session } = await assertBrowserBasketSession(
+			context,
+			data && data.sessionId,
+		);
+		const basket = buildBrowserBasketSummary(
+			await getBrowserBasketItems(sessionRef),
+		);
+		const sentItems = (basket.items || []).filter(
+			(item) => item.status === "sent" && item.ticketId,
+		);
+		const ticketIds = [
+			...new Set(sentItems.map((item) => item.ticketId).filter(Boolean)),
+		].slice(0, 30);
+
+		if (ticketIds.length === 0) {
+			return {
+				success: true,
+				basket,
+				items: [],
+				tickets: [],
+			};
+		}
+
+		const ticketDocs = await Promise.all(
+			ticketIds.map((ticketId) => db.collection("kitchen_orders").doc(ticketId).get()),
+		);
+		const ticketsById = new Map();
+		ticketDocs.forEach((ticketDoc) => {
+			if (!ticketDoc.exists) return;
+			const ticket = ticketDoc.data() || {};
+			if (
+				ticket.restaurantId !== session.restaurantId ||
+				ticket.browserSessionId !== sessionId
+			) {
+				return;
+			}
+			ticketsById.set(ticketDoc.id, { id: ticketDoc.id, ...ticket });
+		});
+
+		const statusItems = sentItems.map((item) => {
+			const ticket = ticketsById.get(item.ticketId) || {};
+			const status = getBrowserItemGuestStatus({ basketItem: item, ticket });
+			return {
+				id: item.id,
+				menuItemId: item.menuItemId,
+				name: item.name,
+				quantity: item.quantity,
+				ticketId: item.ticketId,
+				...status,
+			};
+		});
+
+		const tickets = [...ticketsById.values()].map((ticket) => ({
+			orderId: ticket.id,
+			pacingStatus: ticket.pacingStatus || "fired",
+			status: ticket.status || "new",
+			stationStatuses: ticket.stationStatuses || {},
+			itemCount: Array.isArray(ticket.items)
+				? ticket.items.reduce(
+						(total, item) => total + Number(item.quantity || 0),
+						0,
+					)
+				: 0,
+		}));
+
+		return {
+			success: true,
+			basket,
+			items: statusItems,
+			tickets,
+		};
+	} catch (error) {
+		console.error("Error loading browser order status:", error);
+		if (error instanceof functions.https.HttpsError) throw error;
+		throw new functions.https.HttpsError(
+			"internal",
+			"Could not load browser order status.",
 			error.message,
 		);
 	}
@@ -2780,15 +4749,46 @@ exports.assignPartyServer = functions.https.onCall(async (data, context) => {
 			jobTitle: assignedBy.jobTitle || null,
 		};
 
-		await partyRef.set(
-			{
-				server: assignment,
-				serverAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
-				serverAssignedBy: assignedByAudit,
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-			},
-			{ merge: true },
-		);
+		const serverPatch = {
+			server: assignment,
+			serverAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
+			serverAssignedBy: assignedByAudit,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		};
+		const batch = db.batch();
+		batch.set(partyRef, serverPatch, { merge: true });
+
+		const [browserSessionsSnapshot, kitchenOrdersSnapshot] = await Promise.all([
+			db
+				.collection("browserTableSessions")
+				.where("partyId", "==", partyId)
+				.where("status", "in", ["ready", "draft"])
+				.get(),
+			db
+				.collection("kitchen_orders")
+				.where("partyId", "==", partyId)
+				.where("overallStatus", "==", "active")
+				.get(),
+		]);
+
+		browserSessionsSnapshot.docs.forEach((docSnap) => {
+			batch.set(docSnap.ref, serverPatch, { merge: true });
+		});
+
+		kitchenOrdersSnapshot.docs.forEach((docSnap) => {
+			batch.set(
+				docSnap.ref,
+				{
+					server: assignment,
+					serverAssignedAt: admin.firestore.FieldValue.serverTimestamp(),
+					serverAssignedBy: assignedByAudit,
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		});
+
+		await batch.commit();
 
 		return { success: true, server: assignment };
 	} catch (error) {

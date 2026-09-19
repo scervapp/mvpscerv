@@ -29,6 +29,7 @@ import { PaymentCancel, PaymentSuccess } from "./components/PayRedirects";
 import ScanRedirect from "./components/ScanRedirect";
 import AboutUs from "./components/AboutUs";
 import RestaurantLanding from "./components/RestaurantLanding";
+import RestaurantReservationHub from "./components/RestaurantReservationHub";
 import { ResourceArticle, ResourceHub } from "./components/RestaurantResources";
 import PrivacyPolicy from "./components/PrivacyPolicy";
 import TermsOfService from "./components/TermsOfService";
@@ -103,6 +104,14 @@ const App = () => {
 								<Route path="/privacy-policy" element={<PrivacyPolicy />} />
 								<Route path="/terms-of-service" element={<TermsOfService />} />
 								<Route
+									path="/r/:slug"
+									element={<RestaurantLanding />}
+								/>
+								<Route
+									path="/r/:slug/reserve"
+									element={<RestaurantReservationHub />}
+								/>
+								<Route
 									path="/restaurants/:slug"
 									element={<RestaurantLanding />}
 								/>
@@ -112,6 +121,7 @@ const App = () => {
 							<Route path="/payment-success" element={<PaymentSuccess />} />
 							<Route path="/payment-cancel" element={<PaymentCancel />} />
 							<Route path="/scan" element={<ScanRedirect />} />
+							<Route path="/dine/:token" element={<ScanRedirect />} />
 						</Routes>
 					</Router>
 				</Suspense>

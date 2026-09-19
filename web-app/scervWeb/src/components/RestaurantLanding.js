@@ -1,162 +1,575 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import styled from "styled-components";
+import {
+	getMenuForRestaurant,
+	getRestaurantBySlug,
+	getTopRatingsForMenuItems,
+	slugify,
+} from "../utils/browserOrderingData";
+import { buildSeoUrl } from "./SEO";
 
-// --- Styled Components ---
-const LandingContainer = styled.div`
-    padding: 4rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    font-family: ${({ theme }) => theme.fonts?.main || "sans-serif"};
+const Page = styled.div`
+	background: #f7f8f8;
+	color: ${({ theme }) => theme.colors.text};
+	min-height: 100vh;
 `;
 
-const HeroSection = styled.div`
-    text-align: center;
-    margin-bottom: 3rem;
+const Hero = styled.section`
+	background:
+		linear-gradient(90deg, rgba(8, 47, 58, 0.92), rgba(8, 47, 58, 0.58)),
+		url("${({ $image }) => $image}");
+	background-position: center;
+	background-size: cover;
+	color: #ffffff;
+	padding: 76px 20px 54px;
 `;
 
-const RestaurantName = styled.h1`
-    font-size: 3rem;
-    color: ${({ theme }) => theme.colors?.primary || "#E55B13"};
-    margin-bottom: 0.5rem;
+const HeroInner = styled.div`
+	margin: 0 auto;
+	max-width: 1120px;
+`;
+
+const Eyebrow = styled.p`
+	color: #f4b26b;
+	font-size: 0.78rem;
+	font-weight: 900;
+	letter-spacing: 0.08em;
+	margin-bottom: 14px;
+	text-transform: uppercase;
+`;
+
+const Title = styled.h1`
+	color: #ffffff;
+	font-size: clamp(2.3rem, 7vw, 4.9rem);
+	line-height: 0.98;
+	margin: 0 0 18px;
+	max-width: 850px;
 `;
 
 const Description = styled.p`
-    font-size: 1.2rem;
-    color: ${({ theme }) => theme.colors?.textMedium || "#555"};
-    max-width: 600px;
-    margin: 0 auto;
+	color: rgba(255, 255, 255, 0.9);
+	font-size: 1.1rem;
+	line-height: 1.7;
+	max-width: 680px;
 `;
 
-const ActionCard = styled.div`
-    background: ${({ theme }) => theme.colors?.surface || "#fff"};
-    padding: 2.5rem;
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    text-align: center;
-    width: 100%;
-    max-width: 500px;
-    margin-bottom: 3rem;
-    border: 1px solid #eaeaea;
+const HeroMeta = styled.div`
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-top: 24px;
 `;
 
-const OrderButton = styled.a`
-    display: inline-block;
-    background-color: ${({ theme }) => theme.colors?.primary || "#E55B13"};
-    color: white;
-    font-size: 1.2rem;
-    font-weight: bold;
-    padding: 1rem 2rem;
-    border-radius: 8px;
-    text-decoration: none;
-    margin-bottom: 1rem;
-    transition: opacity 0.2s;
-    
-    &:hover {
-        opacity: 0.9;
-    }
+const Pill = styled.span`
+	background: rgba(255, 255, 255, 0.12);
+	border: 1px solid rgba(255, 255, 255, 0.22);
+	border-radius: 999px;
+	color: #ffffff;
+	font-size: 0.9rem;
+	font-weight: 800;
+	padding: 8px 12px;
 `;
 
-const ComplianceGrid = styled.div`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 2rem;
-    width: 100%;
-    margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 1px solid #eaeaea;
-    color: #444;
+const Main = styled.main`
+	display: grid;
+	gap: 24px;
+	grid-template-columns: minmax(0, 1fr) 340px;
+	margin: 0 auto;
+	max-width: 1120px;
+	padding: 32px 20px 70px;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
+		grid-template-columns: 1fr;
+	}
 `;
 
-const InfoBlock = styled.div`
-    h3 {
-        font-size: 1.1rem;
-        color: #222;
-        margin-bottom: 0.8rem;
-    }
-    p {
-        margin: 0.3rem 0;
-        font-size: 0.95rem;
-        line-height: 1.5;
-    }
+const Section = styled.section`
+	background: #ffffff;
+	border: 1px solid #dfe5e7;
+	border-radius: 8px;
+	padding: 22px;
 `;
 
-const PaymentLogos = styled.div`
-    display: flex;
-    gap: 1rem;
-    margin-top: 1rem;
-    align-items: center;
-    flex-wrap: wrap;
+const SectionHeader = styled.div`
+	align-items: flex-end;
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 18px;
 
-    span {
-        background: #f0f0f0;
-        padding: 0.4rem 0.8rem;
-        border-radius: 4px;
-        font-size: 0.85rem;
-        font-weight: bold;
-        color: #333;
-    }
+	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+		align-items: flex-start;
+		flex-direction: column;
+	}
 `;
+
+const SectionTitle = styled.h2`
+	font-size: 1.35rem;
+	margin: 0;
+`;
+
+const Muted = styled.p`
+	color: ${({ theme }) => theme.colors.textLight};
+	font-size: 0.95rem;
+	margin: 0;
+`;
+
+const MenuGroup = styled.div`
+	& + & {
+		border-top: 1px solid #edf1f2;
+		margin-top: 22px;
+		padding-top: 22px;
+	}
+`;
+
+const CategoryTitle = styled.h3`
+	font-size: 1.02rem;
+	letter-spacing: 0.04em;
+	margin: 0 0 12px;
+	text-transform: uppercase;
+`;
+
+const MenuGrid = styled.div`
+	display: grid;
+	gap: 14px;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+		grid-template-columns: 1fr;
+	}
+`;
+
+const MenuItem = styled.article`
+	border: 1px solid #edf1f2;
+	border-radius: 8px;
+	display: grid;
+	grid-template-columns: 104px 1fr;
+	min-height: 116px;
+	overflow: hidden;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+		grid-template-columns: 88px 1fr;
+	}
+`;
+
+const ItemImage = styled.div`
+	background:
+		linear-gradient(135deg, rgba(14, 111, 127, 0.14), rgba(241, 130, 32, 0.14)),
+		url("${({ $image }) => $image}");
+	background-position: center;
+	background-size: cover;
+`;
+
+const ItemBody = styled.div`
+	padding: 12px;
+`;
+
+const ItemTop = styled.div`
+	align-items: flex-start;
+	display: flex;
+	gap: 10px;
+	justify-content: space-between;
+`;
+
+const ItemName = styled.h4`
+	font-size: 1rem;
+	margin: 0 0 6px;
+`;
+
+const Price = styled.span`
+	color: ${({ theme }) => theme.colors.primary};
+	font-weight: 900;
+	white-space: nowrap;
+`;
+
+const ItemDescription = styled.p`
+	color: ${({ theme }) => theme.colors.textLight};
+	font-size: 0.9rem;
+	line-height: 1.45;
+	margin: 0 0 10px;
+`;
+
+const RatingLine = styled.div`
+	align-items: center;
+	color: #61400f;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.86rem;
+	font-weight: 800;
+	gap: 6px;
+`;
+
+const ReviewQuote = styled.p`
+	color: ${({ theme }) => theme.colors.text};
+	font-size: 0.86rem;
+	line-height: 1.45;
+	margin: 8px 0 0;
+`;
+
+const Sidebar = styled.aside`
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+`;
+
+const ActionPanel = styled(Section)`
+	position: sticky;
+	top: 92px;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.lg}) {
+		position: static;
+	}
+`;
+
+const ButtonStack = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 18px;
+`;
+
+const PrimaryAction = styled(Link)`
+	background: ${({ theme }) => theme.colors.secondary};
+	border-radius: 8px;
+	color: #ffffff;
+	display: block;
+	font-weight: 900;
+	padding: 13px 16px;
+	text-align: center;
+
+	&:hover {
+		background: ${({ theme }) => theme.colors.secondaryDark};
+		color: #ffffff;
+	}
+`;
+
+const SecondaryAction = styled(Link)`
+	border: 1px solid #cbd5d8;
+	border-radius: 8px;
+	color: ${({ theme }) => theme.colors.text};
+	display: block;
+	font-weight: 900;
+	padding: 12px 16px;
+	text-align: center;
+
+	&:hover {
+		border-color: ${({ theme }) => theme.colors.primary};
+	}
+`;
+
+const StatusList = styled.div`
+	display: grid;
+	gap: 10px;
+	margin-top: 12px;
+`;
+
+const StatusRow = styled.div`
+	align-items: center;
+	display: flex;
+	gap: 10px;
+	font-size: 0.92rem;
+	font-weight: 700;
+`;
+
+const Dot = styled.span`
+	background: ${({ $enabled, theme }) =>
+		$enabled ? theme.colors.success : "#9aa7ad"};
+	border-radius: 50%;
+	height: 9px;
+	width: 9px;
+`;
+
+const EmptyState = styled.div`
+	background: #ffffff;
+	border: 1px solid #dfe5e7;
+	border-radius: 8px;
+	margin: 50px auto;
+	max-width: 720px;
+	padding: 32px 22px;
+	text-align: center;
+`;
+
+const formatPrice = (value) => {
+	const numeric = Number(value || 0);
+	if (!Number.isFinite(numeric) || numeric <= 0) return "";
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+	}).format(numeric);
+};
+
+const groupMenuItems = (items = []) =>
+	items.reduce((groups, item) => {
+		const category = item.category || "Menu";
+		if (!groups[category]) groups[category] = [];
+		groups[category].push(item);
+		return groups;
+	}, {});
+
+const isFeatureEnabled = (restaurant, featureKey) =>
+	restaurant?.features?.[featureKey] === true ||
+	restaurant?.featureEntitlements?.[featureKey] === true ||
+	restaurant?.subscriptionFeatures?.[featureKey] === true;
 
 const RestaurantLanding = () => {
-    // In the future, you can fetch this data from Firestore based on the slug.
-    // Placeholder restaurant details for a public landing preview.
-    const restaurant = {
-        name: "Brooklyn Table",
-        legalName: "Brooklyn Table LLC",
-        description: "Craft cocktails, neighborhood energy, and a polished Scerv dining experience.",
-        address: "Brooklyn, NY",
-        phone: "Contact through Scerv",
-        email: "support@scerv.com",
-        currency: "USD",
-    };
+	const { slug } = useParams();
+	const [restaurant, setRestaurant] = useState(null);
+	const [menuItems, setMenuItems] = useState([]);
+	const [ratingsByItem, setRatingsByItem] = useState({});
+	const [status, setStatus] = useState("loading");
 
-    return (
-        <LandingContainer>
-            <HeroSection>
-                <RestaurantName>{restaurant.name}</RestaurantName>
-                <Description>{restaurant.description}</Description>
-            </HeroSection>
+	useEffect(() => {
+		let isMounted = true;
 
-            <ActionCard>
-                <h2 style={{ marginBottom: "1.5rem", color: "#222" }}>Ready to Order?</h2>
-                <OrderButton href="https://scerv.com/download"> {/* Or link to PWA */}
-                    Open Menu in Scerv App
-                </OrderButton>
-                <p style={{ fontSize: "0.9rem", color: "#666" }}>
-                    Scan the QR code at your table to order directly.
-                </p>
-            </ActionCard>
+		const loadRestaurant = async () => {
+			setStatus("loading");
+			try {
+				const foundRestaurant = await getRestaurantBySlug(slug);
+				if (!isMounted) return;
 
-            {/* Payment compliance details */}
-            <ComplianceGrid>
-                <InfoBlock>
-                    <h3>Business Information</h3>
-                    <p><strong>Legal Entity:</strong> {restaurant.legalName}</p>
-                    <p><strong>Address:</strong> {restaurant.address}</p>
-                    <p><strong>Phone:</strong> {restaurant.phone}</p>
-                    <p><strong>Support Email:</strong> {restaurant.email}</p>
-                </InfoBlock>
+				if (!foundRestaurant) {
+					setStatus("not_found");
+					return;
+				}
 
-                <InfoBlock>
-                    <h3>Payments & Currency</h3>
-                    <p>All prices are listed in <strong>{restaurant.currency}</strong>.</p>
-                    <p>Taxes and service fees are calculated at checkout before payment.</p>
-                    
-                    <h3 style={{ marginTop: "1rem" }}>Accepted Payment Methods</h3>
-                    {/* Displaying these clearly is a hard requirement for approval */}
-                    <PaymentLogos>
-                        <span>Visa</span>
-                        <span>Mastercard</span>
-                        <span>Clave</span>
-                        <span>Yappy</span>
-                    </PaymentLogos>
-                </InfoBlock>
-            </ComplianceGrid>
-        </LandingContainer>
-    );
+				const menu = await getMenuForRestaurant(foundRestaurant.id);
+				const ratings = await getTopRatingsForMenuItems(menu);
+				if (!isMounted) return;
+
+				setRestaurant(foundRestaurant);
+				setMenuItems(menu);
+				setRatingsByItem(ratings);
+				setStatus("ready");
+			} catch (error) {
+				console.error("RestaurantLanding load failed:", error);
+				if (isMounted) setStatus("error");
+			}
+		};
+
+		loadRestaurant();
+		return () => {
+			isMounted = false;
+		};
+	}, [slug]);
+
+	const menuGroups = useMemo(() => groupMenuItems(menuItems), [menuItems]);
+	const canonicalSlug = restaurant?.slug || slugify(restaurant?.displayName || slug);
+	const title = restaurant
+		? `${restaurant.displayName} Menu, Reviews and Reservations | Scerv`
+		: "Restaurant on Scerv";
+	const description = restaurant
+		? `${restaurant.displayName} on Scerv. Browse the menu, view dish ratings, and plan your visit.`
+		: "Browse restaurants on Scerv.";
+
+	if (status === "loading") {
+		return (
+			<Page>
+				<EmptyState>
+					<h1>Loading restaurant</h1>
+					<Muted>Opening the Scerv dining page.</Muted>
+				</EmptyState>
+			</Page>
+		);
+	}
+
+	if (status === "not_found" || status === "error") {
+		return (
+			<Page>
+				<Helmet>
+					<title>Restaurant Not Found | Scerv</title>
+					<meta
+						name="description"
+						content="This Scerv restaurant page could not be found."
+					/>
+				</Helmet>
+				<EmptyState>
+					<h1>Restaurant not found</h1>
+					<Muted>
+						This dining page is not available yet. Check the link or return to
+						Scerv.
+					</Muted>
+					<ButtonStack>
+						<PrimaryAction to="/">Go to Scerv</PrimaryAction>
+					</ButtonStack>
+				</EmptyState>
+			</Page>
+		);
+	}
+
+	return (
+		<Page>
+			<Helmet>
+				<title>{title}</title>
+				<link rel="canonical" href={buildSeoUrl(`/r/${canonicalSlug}`)} />
+				<meta name="description" content={description} />
+				<meta property="og:title" content={title} />
+				<meta property="og:description" content={description} />
+				<meta property="og:type" content="restaurant.restaurant" />
+				<meta property="og:url" content={buildSeoUrl(`/r/${canonicalSlug}`)} />
+			</Helmet>
+
+			<Hero $image={restaurant.imageUrl || "/logo512.png"}>
+				<HeroInner>
+					<Eyebrow>Scerv restaurant page</Eyebrow>
+					<Title>{restaurant.displayName}</Title>
+					<Description>
+						{restaurant.description ||
+							"Browse the menu, see what guests recommend, and plan your visit."}
+					</Description>
+					<HeroMeta>
+						{restaurant.cuisine || restaurant.cuisineType ? (
+							<Pill>{restaurant.cuisine || restaurant.cuisineType}</Pill>
+						) : null}
+						{restaurant.area || restaurant.city ? (
+							<Pill>
+								{[restaurant.area, restaurant.city, restaurant.state]
+									.filter(Boolean)
+									.join(", ")}
+							</Pill>
+						) : null}
+						{Number(restaurant.averageRating || restaurant.rating || 0) > 0 ? (
+							<Pill>
+								{Number(
+									restaurant.averageRating || restaurant.rating,
+								).toFixed(1)}{" "}
+								guest rating
+							</Pill>
+						) : (
+							<Pill>New on Scerv</Pill>
+						)}
+					</HeroMeta>
+				</HeroInner>
+			</Hero>
+
+			<Main>
+				<Section>
+					<SectionHeader>
+						<div>
+							<SectionTitle>Menu</SectionTitle>
+							<Muted>
+								Dish details, guest ratings, and reviews appear here before the
+								table ordering flow opens.
+							</Muted>
+						</div>
+						<Muted>{menuItems.length} items</Muted>
+					</SectionHeader>
+
+					{Object.entries(menuGroups).length > 0 ? (
+						Object.entries(menuGroups).map(([category, items]) => (
+							<MenuGroup key={category}>
+								<CategoryTitle>{category}</CategoryTitle>
+								<MenuGrid>
+									{items.map((item) => {
+										const rating = Number(item.averageRating || item.rating || 0);
+										const reviewCount = Number(
+											item.reviewCount || item.ratingCount || 0,
+										);
+										const reviews = ratingsByItem[item.id] || [];
+										const image =
+											item.imageUrl ||
+											item.imageUri ||
+											item.media?.[0]?.url ||
+											restaurant.imageUrl ||
+											"/logo512.png";
+
+										return (
+											<MenuItem key={item.id}>
+												<ItemImage $image={image} />
+												<ItemBody>
+													<ItemTop>
+														<ItemName>{item.name || "Menu item"}</ItemName>
+														<Price>{formatPrice(item.price)}</Price>
+													</ItemTop>
+													<ItemDescription>
+														{item.description ||
+															"Details will appear as the restaurant updates this item."}
+													</ItemDescription>
+													{rating > 0 ? (
+														<RatingLine>
+															<span>{rating.toFixed(1)}</span>
+															<span>Scerv Score</span>
+															<span>
+																{reviewCount}{" "}
+																{reviewCount === 1 ? "rating" : "ratings"}
+															</span>
+														</RatingLine>
+													) : null}
+													{reviews[0]?.reviewText || reviews[0]?.comment ? (
+														<ReviewQuote>
+															"{reviews[0].reviewText || reviews[0].comment}"
+														</ReviewQuote>
+													) : item.reviewHighlight ? (
+														<ReviewQuote>"{item.reviewHighlight}"</ReviewQuote>
+													) : null}
+												</ItemBody>
+											</MenuItem>
+										);
+									})}
+								</MenuGrid>
+							</MenuGroup>
+						))
+					) : (
+						<Muted>This restaurant has not published menu items yet.</Muted>
+					)}
+				</Section>
+
+				<Sidebar>
+					<ActionPanel>
+						<SectionTitle>Plan your visit</SectionTitle>
+						<Muted>
+							Browse freely. Ordering opens from a secure table QR code when the
+							restaurant enables browser dining.
+						</Muted>
+						<ButtonStack>
+							{isFeatureEnabled(restaurant, "reservations") ? (
+								<PrimaryAction to={`/r/${canonicalSlug}/reserve`}>
+									Request reservation
+								</PrimaryAction>
+							) : (
+								<PrimaryAction to="/request-demo">
+									Bring Scerv here
+								</PrimaryAction>
+							)}
+							<SecondaryAction to="/scan">Open from table QR</SecondaryAction>
+						</ButtonStack>
+					</ActionPanel>
+
+					<Section>
+						<SectionTitle>Available on Scerv</SectionTitle>
+						<StatusList>
+							<StatusRow>
+								<Dot $enabled={isFeatureEnabled(restaurant, "reviews")} />
+								Dish reviews
+							</StatusRow>
+							<StatusRow>
+								<Dot $enabled={isFeatureEnabled(restaurant, "reservations")} />
+								Reservations
+							</StatusRow>
+							<StatusRow>
+								<Dot $enabled={isFeatureEnabled(restaurant, "qrSelfCheckIn")} />
+								Table QR ordering
+							</StatusRow>
+							<StatusRow>
+								<Dot $enabled={isFeatureEnabled(restaurant, "loyaltyClub")} />
+								Rewards
+							</StatusRow>
+						</StatusList>
+					</Section>
+
+					<Section>
+						<SectionTitle>Restaurant details</SectionTitle>
+						<StatusList>
+							{restaurant.address ? <Muted>{restaurant.address}</Muted> : null}
+							{restaurant.phoneNumber ? <Muted>{restaurant.phoneNumber}</Muted> : null}
+							{restaurant.priceLevel ? <Muted>{restaurant.priceLevel}</Muted> : null}
+						</StatusList>
+					</Section>
+				</Sidebar>
+			</Main>
+		</Page>
+	);
 };
 
 export default RestaurantLanding;

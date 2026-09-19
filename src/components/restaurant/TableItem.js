@@ -11,6 +11,8 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 	}
 
 	const isInactive = item.isActive === false;
+	const hasQrToken = Boolean(item.qrToken || item.secureToken);
+	const qrEnabled = hasQrToken && item.qrEnabled !== false;
 	const section = item.section || item.area || t("main_dining", "Main Dining");
 	const tableType =
 		item.tableType &&
@@ -88,6 +90,34 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 				<Text style={[styles.capacityText, dynamicTextStyle, { opacity: 0.8 }]}>
 					{t("seats_label")}: {item.capacity}
 				</Text>
+				<View
+					style={[
+						styles.qrBadge,
+						qrEnabled
+							? styles.qrBadgeActive
+							: hasQrToken
+								? styles.qrBadgeDisabled
+								: styles.qrBadgeMissing,
+					]}
+				>
+					<Ionicons
+						name={qrEnabled ? "qr-code-outline" : "lock-closed-outline"}
+						size={12}
+						color={qrEnabled ? "#065F46" : "#6B7280"}
+					/>
+					<Text
+						style={[
+							styles.qrBadgeText,
+							qrEnabled ? styles.qrBadgeTextActive : null,
+						]}
+					>
+						{qrEnabled
+							? t("qr_active", "QR active")
+							: hasQrToken
+								? t("qr_disabled", "QR off")
+								: t("qr_missing", "No QR")}
+					</Text>
+				</View>
 			</View>
 		</TouchableOpacity>
 	);
@@ -97,7 +127,7 @@ const styles = StyleSheet.create({
 	cardContainer: {
 		flex: 1,
 		margin: 8,
-		height: 126,
+		height: 146,
 		borderRadius: 8,
 		justifyContent: "space-between",
 		padding: 12,
@@ -133,6 +163,33 @@ const styles = StyleSheet.create({
 	capacityText: {
 		fontSize: 14,
 		fontWeight: "500",
+	},
+	qrBadge: {
+		alignItems: "center",
+		alignSelf: "flex-start",
+		borderRadius: 6,
+		flexDirection: "row",
+		gap: 4,
+		marginTop: 6,
+		paddingHorizontal: 7,
+		paddingVertical: 3,
+	},
+	qrBadgeActive: {
+		backgroundColor: "#A7F3D0",
+	},
+	qrBadgeDisabled: {
+		backgroundColor: "#E5E7EB",
+	},
+	qrBadgeMissing: {
+		backgroundColor: "#F3F4F6",
+	},
+	qrBadgeText: {
+		color: "#6B7280",
+		fontSize: 10,
+		fontWeight: "900",
+	},
+	qrBadgeTextActive: {
+		color: "#065F46",
 	},
 });
 
