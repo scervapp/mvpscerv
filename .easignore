@@ -12,9 +12,12 @@ web-build/
 backups/
 deliverables/
 generated/
+output/
 tmp/
 tools/
+video-production/
 docs/*.docx
+scripts/seed-dev-screenshot-data.js
 npm-debug.*
 yarn-debug.*
 yarn-error.*
