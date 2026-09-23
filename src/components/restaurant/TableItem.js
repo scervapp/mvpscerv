@@ -13,6 +13,7 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 	const isInactive = item.isActive === false;
 	const hasQrToken = Boolean(item.qrToken || item.secureToken);
 	const qrEnabled = hasQrToken && item.qrEnabled !== false;
+	const readyItemCount = Number(item.readyItemCount || 0);
 	const section = item.section || item.area || t("main_dining", "Main Dining");
 	const tableType =
 		item.tableType &&
@@ -90,6 +91,18 @@ const TableItem = ({ item, onPress, isSelected, onLongPress }) => {
 				<Text style={[styles.capacityText, dynamicTextStyle, { opacity: 0.8 }]}>
 					{t("seats_label")}: {item.capacity}
 				</Text>
+				{readyItemCount > 0 && (
+					<View style={styles.readyBadge}>
+						<Ionicons
+							name="notifications-circle-outline"
+							size={12}
+							color="#166534"
+						/>
+						<Text style={styles.readyBadgeText}>
+							{readyItemCount} {t("ready", "ready")}
+						</Text>
+					</View>
+				)}
 				<View
 					style={[
 						styles.qrBadge,
@@ -127,7 +140,7 @@ const styles = StyleSheet.create({
 	cardContainer: {
 		flex: 1,
 		margin: 8,
-		height: 146,
+		minHeight: 156,
 		borderRadius: 8,
 		justifyContent: "space-between",
 		padding: 12,
@@ -163,6 +176,23 @@ const styles = StyleSheet.create({
 	capacityText: {
 		fontSize: 14,
 		fontWeight: "500",
+	},
+	readyBadge: {
+		alignItems: "center",
+		alignSelf: "flex-start",
+		backgroundColor: "#BBF7D0",
+		borderRadius: 6,
+		flexDirection: "row",
+		gap: 4,
+		marginTop: 6,
+		paddingHorizontal: 7,
+		paddingVertical: 3,
+	},
+	readyBadgeText: {
+		color: "#166534",
+		fontSize: 10,
+		fontWeight: "900",
+		textTransform: "uppercase",
 	},
 	qrBadge: {
 		alignItems: "center",

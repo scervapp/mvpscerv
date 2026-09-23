@@ -27,6 +27,7 @@ import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 import { formatCurrencyFromDollars } from "../../utils/currencyFormatter";
+import { getPrepItemStatus } from "../../utils/restaurantStationStatus";
 
 const getItemEffectivePriceCents = (item = {}) => {
 	const activePrice =
@@ -476,14 +477,7 @@ const ManagePartyScreen = () => {
 	const isItemPaid = (item = {}) =>
 		item.paymentStatus === "paid" || item.closeoutStatus === "paid";
 
-	const getKitchenItemStatus = (item = {}) => {
-		const status = item.stationStatuses?.kitchen || item.status || "new";
-		if (status === "served" || item.foodRunStatus === "served") return "served";
-		if (status === "ready") return "ready";
-		if (status === "preparing") return "preparing";
-		if (status === "sent") return "sent";
-		return item.status || "new";
-	};
+	const getKitchenItemStatus = getPrepItemStatus;
 
 	const unpaidOrderedItems = useMemo(
 		() => officiallyOrderedItems.filter((item) => !isItemPaid(item)),

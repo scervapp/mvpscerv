@@ -331,7 +331,7 @@ const RestaurantBottomNavigation = () => {
 							label = t("dashboard_tab");
 							break;
 						case "ChefsQ":
-							label = t("chefs_q_tab");
+							label = t("kitchen_bar_tab", "Kitchen/Bar");
 							break;
 						// 🚨 NEW: Added the Pickups Label
 						case "Pickups":

@@ -41,6 +41,7 @@ import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import { useNavigation } from "@react-navigation/native";
+import { buildReadyStationInfo } from "../../utils/restaurantStationStatus";
 
 const TABLE_TYPE_OPTIONS = [
 	{ label: "Dining", value: "dining" },
@@ -483,6 +484,7 @@ const TableManagementScreen = () => {
 		"markPartyTableClean",
 	);
 	const [activePartyMap, setActivePartyMap] = useState({});
+	const [kitchenTicketsByParty, setKitchenTicketsByParty] = useState({});
 
 	useEffect(() => {
 		if (!currentUserData?.uid) {
@@ -523,7 +525,7 @@ const TableManagementScreen = () => {
 
 				if (tId) {
 					occupiedIds.add(tId);
-					partyMapping[tId] = doc.id;
+					partyMapping[tId] = { id: doc.id, ...data };
 				}
 			});
 
@@ -536,6 +538,58 @@ const TableManagementScreen = () => {
 			unsubscribeParties();
 		};
 	}, [currentUserData?.uid]);
+
+	useEffect(() => {
+		const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+		if (!restaurantId) {
+			setKitchenTicketsByParty({});
+			return undefined;
+		}
+
+		const unsubscribe = db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
+			.onSnapshot(
+				(snapshot) => {
+					const nextTicketsByParty = {};
+
+					snapshot.docs.forEach((doc) => {
+						const ticket = { id: doc.id, ...doc.data() };
+						if (!ticket.partyId || ticket.fulfillmentType === "hotel_pickup") {
+							return;
+						}
+						if (!nextTicketsByParty[ticket.partyId]) {
+							nextTicketsByParty[ticket.partyId] = [];
+						}
+						nextTicketsByParty[ticket.partyId].push(ticket);
+					});
+
+					setKitchenTicketsByParty(nextTicketsByParty);
+				},
+				(error) => {
+					console.error("TableManagementScreen: Kitchen snapshot error:", error);
+					setKitchenTicketsByParty({});
+				},
+			);
+
+		return () => unsubscribe();
+	}, [currentUserData?.restaurantId, currentUserData?.uid]);
+
+	const enrichedTables = useMemo(
+		() =>
+			tables.map((table) => {
+				const activeParty = activePartyMap[table.id] || null;
+				if (!activeParty?.id) return table;
+
+				return {
+					...table,
+					currentPartyId: table.currentPartyId || activeParty.id,
+					...buildReadyStationInfo(kitchenTicketsByParty[activeParty.id] || []),
+				};
+			}),
+		[activePartyMap, kitchenTicketsByParty, tables],
+	);
 
 	const handleQuickSetupOpen = () => {
 		const hasUnavailableTables = tables.some(
@@ -647,7 +701,8 @@ const TableManagementScreen = () => {
 
 	const handleTablePress = (table) => {
 		const activePartyId =
-			table?.currentPartyId || (table?.id ? activePartyMap[table.id] : null);
+			table?.currentPartyId ||
+			(table?.id ? activePartyMap[table.id]?.id : null);
 		setSelectedTable(
 			table
 				? {
@@ -673,7 +728,9 @@ const TableManagementScreen = () => {
 		setIsActionLoading(true);
 		try {
 			const targetPartyId =
-				tableToClear.currentPartyId || activePartyMap[tableToClear.id] || null;
+				tableToClear.currentPartyId ||
+				activePartyMap[tableToClear.id]?.id ||
+				null;
 
 			await forceClearTableFunction({
 				restaurantId: currentUserData.uid,
@@ -733,7 +790,9 @@ const TableManagementScreen = () => {
 		setIsActionLoading(true);
 		try {
 			const targetPartyId =
-				selectedTable.currentPartyId || activePartyMap[selectedTable.id] || null;
+				selectedTable.currentPartyId ||
+				activePartyMap[selectedTable.id]?.id ||
+				null;
 			const staffName =
 				activeSession?.name ||
 				`${activeSession?.firstName || ""} ${
@@ -1102,7 +1161,7 @@ const TableManagementScreen = () => {
 					)}
 				</View>
 
-				{tables.length === 0 ? (
+				{enrichedTables.length === 0 ? (
 					<View style={styles.centeredContainer}>
 						<Ionicons name="grid-outline" size={60} color={colors.textLight} />
 						<Text style={styles.noDataText}>
@@ -1111,7 +1170,7 @@ const TableManagementScreen = () => {
 					</View>
 				) : (
 					<FlatList
-						data={tables}
+						data={enrichedTables}
 						renderItem={({ item }) => (
 							<TableItem
 								item={item}

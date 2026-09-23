@@ -11,11 +11,13 @@ import { db } from "../../config/firebase";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useEmployeeSession } from "./EmployeeSessionContext";
 import { isPickupEnabledForRestaurant } from "../../config/featureFlags";
+import { buildReadyStationInfo } from "../../utils/restaurantStationStatus";
 
 export const RestaurantDataContext = createContext({
 	newCheckInCount: 0,
 	newKitchenOrderCount: 0,
 	serviceRequestCount: 0, //
+	readyItemAlertCount: 0,
 	pickupOrderCount: 0,
 	setKitchenQueueFocused: () => {},
 });
@@ -29,6 +31,7 @@ export const RestaurantDataProvider = ({ children }) => {
 	const isKitchenInitialLoad = useRef(true);
 	const isServiceInitialLoad = useRef(true); // 🚨 NEW: Initial load tracker
 	const isKitchenQueueFocused = useRef(false);
+	const readyCountsByTicket = useRef({});
 
 	/* ──────────────────────────────
      1.  State & refs
@@ -36,6 +39,7 @@ export const RestaurantDataProvider = ({ children }) => {
 	const [newCheckInCount, setNewCheckInCount] = useState(0);
 	const [newKitchenOrderCount, setNewKitchenOrderCount] = useState(0);
 	const [serviceRequestCount, setServiceRequestCount] = useState(0);
+	const [readyItemAlertCount, setReadyItemAlertCount] = useState(0);
 	const [pickupOrderCount, setPickupOrderCount] = useState(0); // 🚨 NEW: Badge state
 
 	const checkInPlayer = useRef(null);
@@ -43,6 +47,14 @@ export const RestaurantDataProvider = ({ children }) => {
 	const servicePlayer = useRef(null); // 🚨 NEW: Audio player ref
 
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const activeJobTitle = String(activeSession?.jobTitle || "").toLowerCase();
+	const isBackOfHouseDevice = ["chef", "kitchen", "bartender", "bar"].includes(
+		activeJobTitle,
+	);
+	const canReceiveReadyItemAlerts =
+		!isBackOfHouseDevice &&
+		(activeSession?.role !== "worker" ||
+			["server", "runner", "support", "host"].includes(activeJobTitle));
 
 	/* ──────────────────────────────
      2.  Configure audio + preload
@@ -132,6 +144,8 @@ export const RestaurantDataProvider = ({ children }) => {
 	useEffect(() => {
 		if (!restaurantId) {
 			setNewKitchenOrderCount(0);
+			setReadyItemAlertCount(0);
+			readyCountsByTicket.current = {};
 			return;
 		}
 
@@ -141,9 +155,13 @@ export const RestaurantDataProvider = ({ children }) => {
 			.where("overallStatus", "==", "active") // Ignores voided/archived tickets
 			.onSnapshot((snap) => {
 				let newTicketsCount = 0;
+				let readyTicketCount = 0;
+				let shouldPlayReadyItemBell = false;
+				const nextReadyCountsByTicket = {};
 
 				snap.docs.forEach((doc) => {
 					const ticket = doc.data();
+					const ticketWithId = { id: doc.id, ...ticket };
 					const isPacingHeld =
 						ticket.pacingStatus === "scheduled" || ticket.pacingStatus === "held";
 
@@ -166,6 +184,31 @@ export const RestaurantDataProvider = ({ children }) => {
 					if (isNewTicket) {
 						newTicketsCount++;
 					}
+
+					if (ticket.fulfillmentType !== "hotel_pickup") {
+						const readyInfo = buildReadyStationInfo([ticketWithId]);
+						nextReadyCountsByTicket[doc.id] = readyInfo.readyItemCount;
+						if (readyInfo.readyItemCount > 0) {
+							readyTicketCount++;
+						}
+
+						const previousReadyCount = readyCountsByTicket.current[doc.id] || 0;
+						const ticketServerId =
+							ticket.server?.id || ticket.serverId || ticket.assignedServerId;
+						const belongsToThisServer =
+							activeJobTitle !== "server" ||
+							!activeSession?.id ||
+							ticketServerId === activeSession.id;
+
+						if (
+							!isKitchenInitialLoad.current &&
+							canReceiveReadyItemAlerts &&
+							belongsToThisServer &&
+							readyInfo.readyItemCount > previousReadyCount
+						) {
+							shouldPlayReadyItemBell = true;
+						}
+					}
 				});
 
 				if (!isKitchenInitialLoad.current) {
@@ -186,9 +229,10 @@ export const RestaurantDataProvider = ({ children }) => {
 							isNewTicket = ticket.status === "new";
 						}
 
-						// Play the bell ONLY if a fresh ticket drops into the queue
+						// Production tablets only ring for brand-new fired tickets, never
+						// when staff mark tickets started or ready.
 						if (
-							(change.type === "added" || change.type === "modified") &&
+							change.type === "added" &&
 							isNewTicket &&
 							isKitchenQueueFocused.current
 						) {
@@ -199,17 +243,32 @@ export const RestaurantDataProvider = ({ children }) => {
 					});
 				}
 
+				if (shouldPlayReadyItemBell) {
+					console.log("Kitchen/bar item ready for service. Playing server bell.");
+					servicePlayer.current?.seekTo(0);
+					servicePlayer.current?.play();
+				}
+
 				isKitchenInitialLoad.current = false;
+				readyCountsByTicket.current = nextReadyCountsByTicket;
 
 				// 🚨 Update the badge with the true count of unstarted tickets
 				setNewKitchenOrderCount(newTicketsCount);
+				setReadyItemAlertCount(readyTicketCount);
 			});
 
 		return () => {
 			isKitchenInitialLoad.current = true;
+			readyCountsByTicket.current = {};
 			unsub();
 		};
-	}, [restaurantId]);
+	}, [
+		activeJobTitle,
+		activeSession?.id,
+		activeSession?.role,
+		canReceiveReadyItemAlerts,
+		restaurantId,
+	]);
 
 	// --- 🚨 NEW: SERVICE REQUEST LISTENER ---
 	useEffect(() => {
@@ -307,6 +366,7 @@ export const RestaurantDataProvider = ({ children }) => {
 		newCheckInCount,
 		newKitchenOrderCount,
 		serviceRequestCount,
+		readyItemAlertCount,
 		pickupOrderCount,
 		setKitchenQueueFocused: (isFocused) => {
 			isKitchenQueueFocused.current = isFocused === true;

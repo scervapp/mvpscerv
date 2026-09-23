@@ -5466,8 +5466,8 @@ exports.markReadyKitchenItemsServed = functions.https.onCall(
 				restaurantId: firstTicketData.restaurantId,
 				employeeId: staffId,
 				allowedRoles: ["owner", "manager"],
-				allowedJobTitles: ["server", "runner", "host", "chef"],
-				action: "run ready food",
+				allowedJobTitles: ["server", "runner", "host", "support", "chef", "kitchen", "bartender", "bar"],
+				action: "serve ready kitchen or bar items",
 			});
 
 			const result = await db.runTransaction(async (transaction) => {
@@ -5494,7 +5494,7 @@ exports.markReadyKitchenItemsServed = functions.https.onCall(
 					role: staffMember.role || null,
 					jobTitle: staffMember.jobTitle || null,
 				};
-				const servedItemIds = new Set();
+				const servedItemStations = new Map();
 				let servedItemCount = 0;
 
 				for (const ticketDoc of ticketDocs) {
@@ -5514,79 +5514,105 @@ exports.markReadyKitchenItemsServed = functions.https.onCall(
 						);
 					}
 
-					const fallbackStatus =
-						(ticketData.stationStatuses &&
-							ticketData.stationStatuses.kitchen) ||
-						"new";
+					const stationFallbacks = {
+						kitchen:
+							(ticketData.stationStatuses &&
+								ticketData.stationStatuses.kitchen) ||
+							"new",
+						bar:
+							(ticketData.stationStatuses && ticketData.stationStatuses.bar) ||
+							"new",
+					};
 					const currentItems = Array.isArray(ticketData.items)
 						? ticketData.items
 						: [];
-					let ticketServedCount = 0;
+					const touchedStations = new Set();
 					const updatedItems = currentItems.map((item) => {
-						const isReadyKitchenItem =
-							kitchenOrderItemBelongsToStation(item, "kitchen") &&
-							getKitchenOrderItemStationStatus(
-								item,
-								"kitchen",
-								fallbackStatus,
-							) === "ready";
+						let nextItem = item;
 
-						if (!isReadyKitchenItem) return item;
+						["kitchen", "bar"].forEach((station) => {
+							const isReadyStationItem =
+								kitchenOrderItemBelongsToStation(item, station) &&
+								getKitchenOrderItemStationStatus(
+									item,
+									station,
+									stationFallbacks[station],
+								) === "ready";
 
-						ticketServedCount += 1;
-						servedItemCount += 1;
-						if (item.id) servedItemIds.add(item.id);
+							if (!isReadyStationItem) return;
 
-						return {
-							...item,
-							stationStatuses: {
-								...(item.stationStatuses || {}),
-								kitchen: "served",
-							},
-							foodRunStatus: "served",
-							servedAtIso,
-							servedBy,
-						};
+							servedItemCount += 1;
+							touchedStations.add(station);
+							if (item.id) {
+								const currentStations =
+									servedItemStations.get(item.id) || new Set();
+								currentStations.add(station);
+								servedItemStations.set(item.id, currentStations);
+							}
+
+							nextItem = {
+								...nextItem,
+								stationStatuses: {
+									...(nextItem.stationStatuses || {}),
+									[station]: "served",
+								},
+								foodRunStatus: "served",
+								servedAtIso,
+								servedBy,
+							};
+						});
+
+						return nextItem;
 					});
 
-					if (ticketServedCount === 0) continue;
+					if (touchedStations.size === 0) continue;
 
-					const nextKitchenStatus = deriveKitchenOrderStationStatus(
-						updatedItems,
-						"kitchen",
-						fallbackStatus,
-					);
-
-					transaction.update(ticketDoc.ref, {
+					const ticketUpdatePayload = {
 						items: updatedItems,
-						...(nextKitchenStatus && {
-							"stationStatuses.kitchen": nextKitchenStatus,
-						}),
-						"stationUpdatedAt.kitchen": servedAt,
-						"stationUpdatedBy.kitchen": servedBy,
 						lastFoodRunAt: servedAt,
 						lastFoodRunBy: servedBy,
+					};
+
+					touchedStations.forEach((station) => {
+						const nextStationStatus = deriveKitchenOrderStationStatus(
+							updatedItems,
+							station,
+							stationFallbacks[station],
+						);
+						if (nextStationStatus) {
+							ticketUpdatePayload[`stationStatuses.${station}`] =
+								nextStationStatus;
+						}
+						ticketUpdatePayload[`stationUpdatedAt.${station}`] = servedAt;
+						ticketUpdatePayload[`stationUpdatedBy.${station}`] = servedBy;
 					});
+
+					transaction.update(ticketDoc.ref, ticketUpdatePayload);
 				}
 
 				if (servedItemCount === 0) {
 					return { servedItemCount: 0 };
 				}
 
-				if (basketDoc.exists && servedItemIds.size > 0) {
+				if (basketDoc.exists && servedItemStations.size > 0) {
 					const basketData = basketDoc.data() || {};
 					const basketItems = Array.isArray(basketData.items)
 						? basketData.items
 						: [];
 					const updatedBasketItems = basketItems.map((item) => {
-						if (!servedItemIds.has(item.id)) return item;
+						const stationsForItem = servedItemStations.get(item.id);
+						if (!stationsForItem) return item;
+
+						const nextStationStatuses = {
+							...(item.stationStatuses || {}),
+						};
+						stationsForItem.forEach((station) => {
+							nextStationStatuses[station] = "served";
+						});
 
 						return {
 							...item,
-							stationStatuses: {
-								...(item.stationStatuses || {}),
-								kitchen: "served",
-							},
+							stationStatuses: nextStationStatuses,
 							foodRunStatus: "served",
 							servedAtIso,
 							servedBy,

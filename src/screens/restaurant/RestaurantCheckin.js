@@ -35,6 +35,7 @@ import { useNavigation } from "@react-navigation/native";
 
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import { buildReadyStationInfo } from "../../utils/restaurantStationStatus";
 
 const getPartyPriority = (party) => {
 	const isDirty = party.status === "checkedOut";
@@ -42,74 +43,14 @@ const getPartyPriority = (party) => {
 		(!party.server || party.server.id === "unassigned") && !isDirty;
 	const needsService = party.serviceRequested === true && !isDirty;
 	const isCheckoutRequest = party.customerStatus === "ready_to_pay" && !isDirty;
-	const hasFoodReady = Number(party.foodReadyCount || 0) > 0 && !isDirty;
+	const hasItemsReady = Number(party.readyItemCount || 0) > 0 && !isDirty;
 
 	if (needsService) return 0;
 	if (isCheckoutRequest) return 1;
 	if (needsServer) return 2;
-	if (hasFoodReady) return 3;
+	if (hasItemsReady) return 3;
 	if (!isDirty) return 4;
 	return 5;
-};
-
-const ticketHasKitchenItems = (ticket) => {
-	if (ticket?.stationStatuses?.kitchen) return true;
-	if (!Array.isArray(ticket?.items)) return false;
-	return ticket.items.some((item) => kitchenItemBelongsToKitchen(item));
-};
-
-const kitchenItemBelongsToKitchen = (item) => {
-	if (!item) return false;
-	if (item.destination === "kitchen") return true;
-	return (
-		Array.isArray(item.kitchenModifiers) && item.kitchenModifiers.length > 0
-	);
-};
-
-const ticketKitchenStatus = (ticket) => {
-	if (ticket?.stationStatuses?.kitchen) return ticket.stationStatuses.kitchen;
-	if (ticketHasKitchenItems(ticket)) return ticket.status || "new";
-	return null;
-};
-
-const getTicketKitchenItemStatus = (ticket, item) => {
-	const ticketFallback = ticketKitchenStatus(ticket) || "new";
-	return item?.stationStatuses?.kitchen || ticketFallback;
-};
-
-const buildKitchenReadyInfo = (tickets = []) => {
-	let foodReadyCount = 0;
-	let foodServedCount = 0;
-	let foodItemCount = 0;
-	const readyTicketIds = new Set();
-
-	tickets.filter(ticketHasKitchenItems).forEach((ticket) => {
-		const ticketItems = Array.isArray(ticket.items) ? ticket.items : [];
-		ticketItems.forEach((item) => {
-			if (!kitchenItemBelongsToKitchen(item)) return;
-
-			const status = getTicketKitchenItemStatus(ticket, item);
-			if (status === "served") {
-				foodServedCount += 1;
-				return;
-			}
-
-			foodItemCount += 1;
-			if (status === "ready") {
-				foodReadyCount += 1;
-				readyTicketIds.add(ticket.id);
-			}
-		});
-	});
-
-	return {
-		foodReadyCount,
-		foodServedCount,
-		foodItemCount,
-		readyTicketIds: [...readyTicketIds],
-		hasFoodReady: foodReadyCount > 0,
-		allFoodReady: foodItemCount > 0 && foodReadyCount === foodItemCount,
-	};
 };
 
 const RestaurantActiveTables = () => {
@@ -228,7 +169,7 @@ const RestaurantActiveTables = () => {
 			rawActiveParties
 				.map((party) => ({
 					...party,
-					...buildKitchenReadyInfo(kitchenTicketsByParty[party.id] || []),
+					...buildReadyStationInfo(kitchenTicketsByParty[party.id] || []),
 				}))
 				.sort((a, b) => {
 					const priorityDifference = getPartyPriority(a) - getPartyPriority(b);
@@ -253,8 +194,9 @@ const RestaurantActiveTables = () => {
 					party.status !== "checkedOut" &&
 					(!party.server || party.server.id === "unassigned"),
 			).length,
-			food: activeParties.filter((party) => Number(party.foodReadyCount || 0) > 0)
-				.length,
+			ready: activeParties.filter(
+				(party) => Number(party.readyItemCount || 0) > 0,
+			).length,
 			dirty: activeParties.filter((party) => party.status === "checkedOut")
 				.length,
 		}),
@@ -510,7 +452,7 @@ const RestaurantActiveTables = () => {
 		const needsService = item.serviceRequested === true && !isDirty;
 		const isCheckoutRequest =
 			item.customerStatus === "ready_to_pay" && !isDirty;
-		const hasFoodReady = item.hasFoodReady === true && !isDirty;
+		const hasItemsReady = item.hasItemsReady === true && !isDirty;
 		const hasCustomerAppOrder =
 			(item.hasCustomerAppOrder === true ||
 				item.customerServiceFeeEligible === true) &&
@@ -561,9 +503,9 @@ const RestaurantActiveTables = () => {
 									? t("claim", "Claim")
 									: t("assign", "Assign"),
 							}
-						: hasFoodReady
+					: hasItemsReady
 							? {
-									label: t("food_ready", "Food Ready"),
+									label: t("items_ready", "Items Ready"),
 									icon: "food-takeout-box-outline",
 									color: colors.statusSuccess,
 									actionLabel: t("open", "Open"),
@@ -586,7 +528,7 @@ const RestaurantActiveTables = () => {
 					needsServer && styles.cardNeedsAttention,
 					needsService && styles.cardNeedsService,
 					isCheckoutRequest && styles.cardNeedsCheckout,
-					hasFoodReady && styles.cardFoodReady,
+					hasItemsReady && styles.cardItemsReady,
 					isDirty && styles.cardNeedsCleaning,
 				]}
 				activeOpacity={0.9}
@@ -719,7 +661,7 @@ const RestaurantActiveTables = () => {
 					</View>
 				)}
 
-				{hasFoodReady && (
+				{hasItemsReady && (
 					<View style={styles.foodReadyBanner}>
 						<View style={styles.serviceBannerLeft}>
 							<MaterialCommunityIcons
@@ -729,17 +671,17 @@ const RestaurantActiveTables = () => {
 							/>
 							<View style={{ marginLeft: 8 }}>
 								<Text style={styles.foodReadyTitle}>
-									{t("food_ready", "Food Ready")}
+									{t("items_ready", "Items Ready")}
 								</Text>
 								<Text style={styles.serviceBannerTime}>
-									{item.allFoodReady
-										? t("all_kitchen_items_ready", "All kitchen items are ready")
+									{item.allItemsReady
+										? t("all_prep_items_ready", "All kitchen and bar items are ready")
 										: t(
-												"kitchen_items_ready_count",
-												"{{ready}} of {{total}} kitchen items ready",
+												"prep_items_ready_count",
+												"{{ready}} of {{total}} kitchen/bar items ready",
 												{
-													ready: item.foodReadyCount,
-													total: item.foodItemCount,
+													ready: item.readyItemCount,
+													total: item.prepItemCount,
 												},
 											)}
 								</Text>
@@ -757,7 +699,7 @@ const RestaurantActiveTables = () => {
 								<ActivityIndicator size="small" color={colors.surfaceWhite} />
 							) : (
 								<Text style={styles.readyBadgeText}>
-									{t("run_food", "Run Food")}
+									{t("mark_served", "Mark Served")}
 								</Text>
 							)}
 						</TouchableOpacity>
@@ -959,9 +901,9 @@ const RestaurantActiveTables = () => {
 					</View>
 					<View style={styles.pulseTile}>
 						<Text style={[styles.pulseValue, { color: colors.statusSuccess }]}>
-							{tablePulse.food}
+							{tablePulse.ready}
 						</Text>
-						<Text style={styles.pulseLabel}>{t("food", "Food")}</Text>
+						<Text style={styles.pulseLabel}>{t("ready", "Ready")}</Text>
 					</View>
 					<View style={styles.pulseTile}>
 						<Text style={[styles.pulseValue, { color: colors.textDark }]}>
@@ -1101,7 +1043,7 @@ const styles = StyleSheet.create({
 	cardNeedsCheckout: {
 		borderLeftColor: colors.statusSuccess,
 	},
-	cardFoodReady: {
+	cardItemsReady: {
 		borderColor: "#BBF7D0",
 		borderLeftColor: colors.statusSuccess,
 	},

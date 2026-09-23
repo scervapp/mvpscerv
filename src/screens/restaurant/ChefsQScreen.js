@@ -604,6 +604,8 @@ const ChefsQScreen = ({ navigation }) => {
 		() => currentUserData?.restaurantId || currentUserData?.uid || null,
 		[currentUserData?.restaurantId, currentUserData?.uid],
 	);
+	const stationTitle =
+		viewMode === "bar" ? t("bar_q", "Bar Q") : t("kitchen_q", "Kitchen Q");
 
 	// Lock the kitchen display in landscape while the queue is active.
 	useFocusEffect(
@@ -634,12 +636,12 @@ const ChefsQScreen = ({ navigation }) => {
 					});
 				}, 750);
 				StatusBar.setHidden(false);
-				navigation.setOptions({ headerShown: true });
+				navigation.setOptions({ headerShown: true, title: stationTitle });
 				navigation
 					.getParent()
-					?.setOptions({ tabBarStyle: { display: "flex" } });
+					?.setOptions({ tabBarStyle: undefined });
 			};
-		}, [navigation, setKitchenQueueFocused]),
+		}, [navigation, setKitchenQueueFocused, stationTitle]),
 	);
 
 	useEffect(() => {
@@ -660,21 +662,20 @@ const ChefsQScreen = ({ navigation }) => {
 		// Hide OS Status Bar
 		StatusBar.setHidden(isFullscreen);
 
-		// Hide React Navigation Header & Bottom Tabs
-		// Note: Depending on your React Navigation version, tabBarStyle goes directly on setOptions
+		// Re-assert fullscreen navigation options whenever live orders redraw the KDS.
 		navigation.setOptions({
+			title: stationTitle,
+			headerTitle: stationTitle,
 			headerShown: !isFullscreen,
-			tabBarStyle: { display: isFullscreen ? "none" : "flex" },
 		});
 
-		// Failsafe for nested navigators
 		const parentNav = navigation.getParent();
 		if (parentNav) {
 			parentNav.setOptions({
-				tabBarStyle: { display: isFullscreen ? "none" : "flex" },
+				tabBarStyle: isFullscreen ? { display: "none" } : undefined,
 			});
 		}
-	}, [isFullscreen, navigation]);
+	}, [isFullscreen, navigation, orders.length, stationTitle]);
 
 	// Keep ticket timers current without waiting for a Firestore update.
 	useEffect(() => {
@@ -748,7 +749,9 @@ const ChefsQScreen = ({ navigation }) => {
 			);
 			const hasOpenItems = stationItems.some(
 				(item) =>
-					getStationItemStatus(item, viewMode, itemStatusFallback) !== "ready",
+					!["ready", "served"].includes(
+						getStationItemStatus(item, viewMode, itemStatusFallback),
+					),
 			);
 			if (stationItems.length === 0 || !hasOpenItems) return;
 
@@ -972,9 +975,7 @@ const ChefsQScreen = ({ navigation }) => {
 				<View style={styles.summaryBar}>
 					<View>
 						<Text style={styles.statLabel}>
-							{viewMode === "kitchen"
-								? t("Kitchen Q", "Kitchen Q")
-								: t("Bar Q", "Bar Q")}
+							{stationTitle}
 						</Text>
 						<Text style={styles.statValue}>
 							{filteredOrders.length} {t("Active")}
