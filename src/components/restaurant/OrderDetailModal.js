@@ -56,7 +56,17 @@ const normalizeIndividualItem = (docSnap) => {
 	};
 };
 
-const OrderDetailsModal = ({ isVisible, onClose, table }) => {
+const isPartyBackedCheckIn = (type) =>
+	["party", "browser_table", "reservation_party"].includes(String(type || ""));
+
+const snapshotExists = (snapshot) => {
+	if (!snapshot) return false;
+	return typeof snapshot.exists === "function"
+		? snapshot.exists()
+		: snapshot.exists === true;
+};
+
+const OrderDetailsModal = ({ isVisible, onClose, table, onOpenTable }) => {
 	const { t } = useTranslation();
 	const { activeSession } = useEmployeeSession();
 	const [orderedItems, setOrderedItems] = useState([]);
@@ -67,9 +77,10 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 	const [isDiscounting, setIsDiscounting] = useState(false);
 	const [checkInType, setCheckInType] = useState(null);
 	const [associatedPartyId, setAssociatedPartyId] = useState(null);
+	const livePartyId = associatedPartyId || table?.currentPartyId || null;
 
 	const fetchOrders = useCallback(() => {
-		if (!table?.currentCheckInId) {
+		if (!table?.currentCheckInId && !table?.currentPartyId) {
 			setIsLoading(false);
 			return () => {};
 		}
@@ -77,33 +88,40 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 		setIsLoading(true);
 		setError(null);
 
-		const checkInRef = db.collection("checkIns").doc(table.currentCheckInId);
+		const fallbackPartyId = table.currentPartyId || null;
+		const checkInRef = table.currentCheckInId
+			? db.collection("checkIns").doc(table.currentCheckInId)
+			: null;
 		let unsubscribe = () => {};
 
 		const setupSubscription = async () => {
 			try {
-				const checkInSnap = await checkInRef.get();
-				if (!checkInSnap.exists()) {
+				const checkInSnap = checkInRef ? await checkInRef.get() : null;
+				// Browser QR tables can be recovered from the party pointer even if the
+				// companion check-in document is missing or delayed.
+				if (checkInRef && !snapshotExists(checkInSnap) && !fallbackPartyId) {
 					throw new Error(t("associated_check_in_document_not_found_error"));
 				}
 
-				const checkInData = checkInSnap.data();
+				const checkInData = snapshotExists(checkInSnap) ? checkInSnap.data() : {};
+				const checkInTypeValue =
+					checkInData.type || (fallbackPartyId ? "browser_table" : null);
 
-				setCheckInType(checkInData.type);
+				setCheckInType(checkInTypeValue);
 				const safePartyId =
-					checkInData.associatedPartyId || checkInData.partyId;
+					checkInData.associatedPartyId || checkInData.partyId || fallbackPartyId;
 
-				if (checkInData.type === "party") {
+				if (isPartyBackedCheckIn(checkInTypeValue)) {
 					setAssociatedPartyId(safePartyId);
 				}
 
-				if (checkInData.type === "party" && safePartyId) {
+				if (isPartyBackedCheckIn(checkInTypeValue) && safePartyId) {
 					const sharedBasketRef = db
 						.collection("shared_baskets")
 						.doc(safePartyId);
 
 					unsubscribe = sharedBasketRef.onSnapshot((basketSnap) => {
-						const items = basketSnap.exists()
+						const items = snapshotExists(basketSnap)
 							? (basketSnap.data().items || [])
 									.map(normalizePartyItem)
 									.filter((item) => item.status !== "new")
@@ -134,7 +152,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 
 		setupSubscription();
 		return unsubscribe;
-	}, [table?.currentCheckInId, t]);
+	}, [table?.currentCheckInId, table?.currentPartyId, t]);
 
 	useEffect(() => {
 		let unsubscribe;
@@ -173,7 +191,7 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 			const discountFunction = httpsCallable(functions, "discountOrderItem");
 
 			const payload = {
-				partyId: checkInType === "party" ? associatedPartyId : null,
+				partyId: isPartyBackedCheckIn(checkInType) ? associatedPartyId : null,
 				checkInId: checkInType === "individual" ? table.currentCheckInId : null,
 				itemId: item.id,
 				discountAmount,
@@ -276,6 +294,15 @@ const OrderDetailsModal = ({ isVisible, onClose, table }) => {
 					</View>
 
 					<View style={styles.footer}>
+						{livePartyId && onOpenTable ? (
+							<Button
+								onPress={() => onOpenTable(livePartyId)}
+								mode="outlined"
+								style={styles.footerButton}
+							>
+								{t("open_live_table", "Open Live Table")}
+							</Button>
+						) : null}
 						<Button onPress={onClose} mode="contained">
 							{t("close_button")}
 						</Button>
@@ -336,6 +363,10 @@ const styles = StyleSheet.create({
 		padding: 15,
 		borderTopWidth: 1,
 		borderTopColor: colors.borderLight,
+		gap: 10,
+	},
+	footerButton: {
+		borderColor: colors.primary,
 	},
 	errorText: {
 		textAlign: "center",

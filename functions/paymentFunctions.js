@@ -105,6 +105,71 @@ const sanitizeString = (value, maxLength = 240) =>
 		.replace(/\s+/g, " ")
 		.slice(0, maxLength);
 
+const compactBrowserOrderConfirmation = (orderId, orderData = {}) => ({
+	orderId,
+	restaurantId: orderData.restaurantId || null,
+	restaurantName: orderData.restaurantName || null,
+	customerName: orderData.customerName || null,
+	partyId: orderData.partyId || orderData.browserPartyId || null,
+	checkInId: orderData.checkInId || null,
+	table: orderData.table || null,
+	server: orderData.server || null,
+	subtotal: Number(orderData.subtotal || 0),
+	taxAmount: Number(orderData.taxAmount || orderData.tax || 0),
+	gratuity: Number(orderData.gratuity || 0),
+	platformFee: Number(orderData.platformFee || orderData.scervFee || 0),
+	total: Number(orderData.totalPrice || orderData.total || 0),
+	items: (Array.isArray(orderData.items) ? orderData.items : [])
+		.map((item) => ({
+			id: item.id || item.menuItemId || item.dishId || null,
+			menuItemId: item.menuItemId || item.dishId || item.id || null,
+			name: item.name || item.dishName || "Menu item",
+			quantity: Number(item.quantity || 1),
+			priceCents: Number(
+				item.priceCents ||
+					(Math.round(Number(item.price || 0) * 100) || 0),
+			),
+			lineTotalCents: Number(
+				item.lineTotalCents ||
+					(item.priceCents
+						? Number(item.priceCents) * Number(item.quantity || 1)
+						: Math.round(Number(item.price || 0) * 100) *
+							Number(item.quantity || 1)),
+			),
+			ticketId: item.ticketId || null,
+			category: item.category || null,
+		}))
+		.filter((item) => item.menuItemId),
+});
+
+const getBrowserOrderConfirmationFromOrder = async ({ orderId, userId }) => {
+	if (!orderId || !userId) return null;
+
+	const orderSnap = await db.collection("orders").doc(orderId).get();
+	if (!orderSnap.exists) return null;
+
+	const orderData = orderSnap.data() || {};
+	const paidForUserIds = Array.isArray(orderData.paidForUserIds)
+		? orderData.paidForUserIds
+		: [];
+	const isGuestOrder =
+		orderData.customerId === userId ||
+		orderData.payerUserId === userId ||
+		paidForUserIds.includes(userId);
+
+	if (!isGuestOrder) return null;
+
+	const isBrowserOrder =
+		orderData.paymentType === "browser_table" ||
+		orderData.type === "browser_table" ||
+		orderData.fulfillmentType === "browser_table" ||
+		orderData.sourcePendingOrderId === orderId;
+
+	if (!isBrowserOrder) return null;
+
+	return compactBrowserOrderConfirmation(orderId, orderData);
+};
+
 const normalizeStringArray = (value, maxLength = 120) =>
 	Array.isArray(value)
 		? [
@@ -926,42 +991,77 @@ const getBrowserCheckoutFingerprint = ({ sessionId, items, gratuityCents }) => {
 		.digest("hex");
 };
 
-const getBrowserCheckoutSentItems = async (sessionRef) => {
+const normalizeBrowserCheckoutItem = ({ id, item = {} }) => {
+	const quantity = Math.max(
+		1,
+		Math.min(10, Math.round(Number(item.quantity || 1))),
+	);
+	const priceCents = Math.max(
+		0,
+		Math.round(Number(item.priceCents || Number(item.price || 0) * 100 || 0)),
+	);
+
+	return {
+		id,
+		menuItemId: item.menuItemId || null,
+		name: sanitizeString(item.name || item.dishName, 120) || "Menu item",
+		description: sanitizeString(item.description, 180),
+		category: sanitizeString(item.category, 120),
+		priceCents,
+		price: Number((priceCents / 100).toFixed(2)),
+		quantity,
+		lineSubtotal: priceCents * quantity,
+		lineTotalCents: priceCents * quantity,
+		notes: sanitizeString(item.notes || item.specialInstructions, 180),
+		ticketId: item.ticketId || item.orderId || null,
+		destination: item.destination || null,
+		source: "browser_qr",
+		orderEntryMode: "browser_guest",
+		paymentResponsibility: item.paymentResponsibility || "customer_app",
+	};
+};
+
+const getBrowserCheckoutSentItems = async ({ sessionRef, sessionData = {} }) => {
+	const partyId = sessionData.partyId || sessionData.browserPartyId || null;
+	if (partyId) {
+		const sharedBasketDoc = await db
+			.collection("shared_baskets")
+			.doc(partyId)
+			.get();
+		if (sharedBasketDoc.exists) {
+			const sharedItems = ((sharedBasketDoc.data() || {}).items || [])
+				.filter(
+					(item) =>
+						item &&
+						item.status === "sent" &&
+						item.paymentResponsibility !== "restaurant_pos",
+				)
+				.map((item) =>
+					normalizeBrowserCheckoutItem({
+						id: item.id || item.browserBasketItemId || item.menuItemId || "",
+						item,
+					}),
+				)
+				.filter((item) => item.id && item.priceCents > 0 && item.quantity > 0);
+
+			if (sharedItems.length > 0) {
+				return sharedItems;
+			}
+		}
+	}
+
 	const snapshot = await sessionRef
 		.collection("basketItems")
 		.where("status", "==", "sent")
 		.get();
 
 	return snapshot.docs
-		.map((docSnap) => {
-			const item = docSnap.data() || {};
-			const quantity = Math.max(
-				1,
-				Math.min(10, Math.round(Number(item.quantity || 1))),
-			);
-			const priceCents = Math.max(
-				0,
-				Math.round(Number(item.priceCents || item.price * 100 || 0)),
-			);
-			return {
+		.map((docSnap) =>
+			normalizeBrowserCheckoutItem({
 				id: docSnap.id,
-				menuItemId: item.menuItemId || null,
-				name: sanitizeString(item.name || item.dishName, 120) || "Menu item",
-				description: sanitizeString(item.description, 180),
-				category: sanitizeString(item.category, 120),
-				priceCents,
-				price: Number((priceCents / 100).toFixed(2)),
-				quantity,
-				lineSubtotal: priceCents * quantity,
-				lineTotalCents: priceCents * quantity,
-				notes: sanitizeString(item.notes, 180),
-				ticketId: item.ticketId || null,
-				destination: item.destination || null,
-				source: "browser_qr",
-				orderEntryMode: "browser_guest",
-				paymentResponsibility: "customer_app",
-			};
-		})
+				item: docSnap.data() || {},
+			}),
+		)
 		.filter((item) => item.priceCents > 0 && item.quantity > 0);
 };
 
@@ -1055,10 +1155,15 @@ exports.syncBrowserCheckoutSession = functions
 			const pendingOrderRef = db.collection("pending_orders").doc(orderId);
 			const pendingOrderSnap = await pendingOrderRef.get();
 			if (!pendingOrderSnap.exists) {
+				const confirmation = await getBrowserOrderConfirmationFromOrder({
+					orderId,
+					userId,
+				});
 				return {
 					success: true,
 					status: "paid",
 					orderId,
+					confirmation,
 					basket: {
 						items: [],
 						subtotalCents: 0,
@@ -1098,11 +1203,19 @@ exports.syncBrowserCheckoutSession = functions
 				pendingOrderData.status === "fulfilled" ||
 				pendingOrderData.fulfilledOrderId
 			) {
+				const fulfilledOrderId = pendingOrderData.fulfilledOrderId || orderId;
+				const confirmation =
+					(await getBrowserOrderConfirmationFromOrder({
+						orderId: fulfilledOrderId,
+						userId,
+					})) ||
+					compactBrowserOrderConfirmation(fulfilledOrderId, pendingOrderData);
 				return {
 					success: true,
 					status: "paid",
 					orderId,
-					fulfilledOrderId: pendingOrderData.fulfilledOrderId || orderId,
+					fulfilledOrderId,
+					confirmation,
 					basket: {
 						items: [],
 						subtotalCents: 0,
@@ -1277,12 +1390,20 @@ exports.syncBrowserCheckoutSession = functions
 				paymentMethodSummary: stripePaymentMethodSummary,
 			});
 
+			const confirmation =
+				(await getBrowserOrderConfirmationFromOrder({
+					orderId,
+					userId,
+				})) || compactBrowserOrderConfirmation(orderId, pendingOrderData);
+
 			return {
 				success: true,
 				status: "paid",
 				orderId,
+				fulfilledOrderId: orderId,
 				checkoutSessionId: checkoutSession.id,
 				paymentIntentId: paymentIntent.id,
+				confirmation,
 				basket: {
 					items: [],
 					subtotalCents: 0,
@@ -1401,7 +1522,10 @@ exports.createBrowserCheckoutSession = functions
 			}
 
 			const customerData = customerDoc.data() || {};
-			const sentItems = await getBrowserCheckoutSentItems(sessionRef);
+			const sentItems = await getBrowserCheckoutSentItems({
+				sessionRef,
+				sessionData,
+			});
 			if (sentItems.length === 0) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
@@ -1412,8 +1536,9 @@ exports.createBrowserCheckoutSession = functions
 			const gratuity = normalizeBrowserCheckoutGratuityCents(
 				data && data.gratuity,
 			);
+			const checkoutScopeId = sessionData.partyId || sessionId;
 			const checkoutFingerprint = getBrowserCheckoutFingerprint({
-				sessionId,
+				sessionId: checkoutScopeId,
 				items: sentItems,
 				gratuityCents: gratuity,
 			});
@@ -1422,6 +1547,12 @@ exports.createBrowserCheckoutSession = functions
 			const existingPendingOrder = await pendingOrderRef.get();
 			if (existingPendingOrder.exists) {
 				const pendingData = existingPendingOrder.data() || {};
+				if (pendingData.customerId && pendingData.customerId !== userId) {
+					throw new functions.https.HttpsError(
+						"failed-precondition",
+						"Another guest at this table already started checkout for these items.",
+					);
+				}
 				if (
 					pendingData.status === "fulfilled" ||
 					pendingData.fulfilledOrderId ||

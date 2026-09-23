@@ -9,6 +9,11 @@ import {
 	slugify,
 } from "../utils/browserOrderingData";
 import { buildSeoUrl } from "./SEO";
+import BrowserGuestIdentity, {
+	readStoredBrowserGuest,
+} from "./BrowserGuestIdentity";
+
+export const PUBLIC_RESTAURANT_CART_PREFIX = "scerv_public_restaurant_cart:";
 
 const Page = styled.div`
 	background: #f7f8f8;
@@ -134,7 +139,7 @@ const CategoryTitle = styled.h3`
 const MenuGrid = styled.div`
 	display: grid;
 	gap: 14px;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: 1fr;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.md}) {
 		grid-template-columns: 1fr;
@@ -145,8 +150,8 @@ const MenuItem = styled.article`
 	border: 1px solid #edf1f2;
 	border-radius: 8px;
 	display: grid;
-	grid-template-columns: 104px 1fr;
-	min-height: 116px;
+	grid-template-columns: 112px 1fr;
+	min-height: 128px;
 	overflow: hidden;
 
 	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
@@ -163,6 +168,8 @@ const ItemImage = styled.div`
 `;
 
 const ItemBody = styled.div`
+	display: grid;
+	gap: 8px;
 	padding: 12px;
 `;
 
@@ -208,6 +215,50 @@ const ReviewQuote = styled.p`
 	margin: 8px 0 0;
 `;
 
+const ItemActionRow = styled.div`
+	align-items: center;
+	display: grid;
+	gap: 8px;
+	grid-template-columns: minmax(0, 1fr) auto;
+
+	@media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+		grid-template-columns: 1fr;
+	}
+`;
+
+const NoteInput = styled.input`
+	border: 1px solid #d8e1e4;
+	border-radius: 8px;
+	font: inherit;
+	font-size: 0.86rem;
+	min-height: 38px;
+	padding: 0 10px;
+`;
+
+const AddButton = styled.button`
+	background: ${({ theme }) => theme.colors.primary};
+	border: 0;
+	border-radius: 8px;
+	color: #ffffff;
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.86rem;
+	font-weight: 900;
+	min-height: 38px;
+	padding: 0 14px;
+`;
+
+const AddedChip = styled.span`
+	background: #ecfdf3;
+	border-radius: 999px;
+	color: #146c43;
+	display: inline-flex;
+	font-size: 0.78rem;
+	font-weight: 900;
+	padding: 4px 8px;
+	width: fit-content;
+`;
+
 const Sidebar = styled.aside`
 	display: flex;
 	flex-direction: column;
@@ -228,6 +279,84 @@ const ButtonStack = styled.div`
 	flex-direction: column;
 	gap: 10px;
 	margin-top: 18px;
+`;
+
+const BasketPanel = styled(Section)`
+	display: grid;
+	gap: 12px;
+`;
+
+const BasketRow = styled.div`
+	border-bottom: 1px solid #edf1f2;
+	display: grid;
+	gap: 8px;
+	padding-bottom: 12px;
+
+	&:last-of-type {
+		border-bottom: 0;
+		padding-bottom: 0;
+	}
+`;
+
+const BasketTop = styled.div`
+	align-items: flex-start;
+	display: flex;
+	gap: 10px;
+	justify-content: space-between;
+`;
+
+const BasketName = styled.div`
+	font-weight: 900;
+`;
+
+const BasketMeta = styled.div`
+	color: ${({ theme }) => theme.colors.textLight};
+	font-size: 0.84rem;
+`;
+
+const QuantityControls = styled.div`
+	align-items: center;
+	display: flex;
+	gap: 8px;
+`;
+
+const QuantityButton = styled.button`
+	background: #ffffff;
+	border: 1px solid #d8e1e4;
+	border-radius: 8px;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 900;
+	height: 32px;
+	width: 32px;
+`;
+
+const SendButton = styled.button`
+	background: ${({ theme }) => theme.colors.secondary};
+	border: 0;
+	border-radius: 8px;
+	color: #ffffff;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 900;
+	min-height: 44px;
+	padding: 0 14px;
+
+	&:disabled {
+		background: #cbd5d8;
+		cursor: not-allowed;
+	}
+`;
+
+const NoticePanel = styled.div`
+	background: ${({ $tone }) => ($tone === "success" ? "#ecfdf3" : "#fff7ed")};
+	border: 1px solid ${({ $tone }) => ($tone === "success" ? "#bbf7d0" : "#fed7aa")};
+	border-radius: 8px;
+	color: ${({ $tone }) => ($tone === "success" ? "#146c43" : "#9a3412")};
+	font-size: 0.9rem;
+	font-weight: 800;
+	line-height: 1.45;
+	padding: 12px;
 `;
 
 const PrimaryAction = styled(Link)`
@@ -300,6 +429,12 @@ const formatPrice = (value) => {
 	}).format(numeric);
 };
 
+const formatCents = (value) =>
+	new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+	}).format(Number(value || 0) / 100);
+
 const groupMenuItems = (items = []) =>
 	items.reduce((groups, item) => {
 		const category = item.category || "Menu";
@@ -319,6 +454,11 @@ const RestaurantLanding = () => {
 	const [menuItems, setMenuItems] = useState([]);
 	const [ratingsByItem, setRatingsByItem] = useState({});
 	const [status, setStatus] = useState("loading");
+	const [guest, setGuest] = useState(() => readStoredBrowserGuest());
+	const [draftCart, setDraftCart] = useState([]);
+	const [itemNotes, setItemNotes] = useState({});
+	const [checkoutIntent, setCheckoutIntent] = useState(false);
+	const [cartNotice, setCartNotice] = useState("");
 
 	useEffect(() => {
 		let isMounted = true;
@@ -355,6 +495,23 @@ const RestaurantLanding = () => {
 	}, [slug]);
 
 	const menuGroups = useMemo(() => groupMenuItems(menuItems), [menuItems]);
+	const draftCartQuantityByMenuItem = useMemo(
+		() =>
+			draftCart.reduce((totals, item) => {
+				totals[item.menuItemId] =
+					Number(totals[item.menuItemId] || 0) + Number(item.quantity || 0);
+				return totals;
+			}, {}),
+		[draftCart],
+	);
+	const cartSubtotalCents = draftCart.reduce(
+		(total, item) => total + Number(item.lineTotalCents || 0),
+		0,
+	);
+	const cartItemCount = draftCart.reduce(
+		(total, item) => total + Number(item.quantity || 0),
+		0,
+	);
 	const canonicalSlug = restaurant?.slug || slugify(restaurant?.displayName || slug);
 	const title = restaurant
 		? `${restaurant.displayName} Menu, Reviews and Reservations | Scerv`
@@ -362,6 +519,92 @@ const RestaurantLanding = () => {
 	const description = restaurant
 		? `${restaurant.displayName} on Scerv. Browse the menu, view dish ratings, and plan your visit.`
 		: "Browse restaurants on Scerv.";
+
+	const savePublicCart = (nextCart = draftCart) => {
+		if (!restaurant?.id || nextCart.length === 0) return;
+		window.localStorage.setItem(
+			`${PUBLIC_RESTAURANT_CART_PREFIX}${restaurant.id}`,
+			JSON.stringify({
+				restaurantId: restaurant.id,
+				restaurantName: restaurant.displayName,
+				createdAt: Date.now(),
+				items: nextCart.map((item) => ({
+					menuItemId: item.menuItemId,
+					name: item.name,
+					quantity: item.quantity,
+					notes: item.notes || "",
+				})),
+			}),
+		);
+	};
+
+	const addPreviewItem = (item) => {
+		const notes = itemNotes[item.id] || "";
+		const priceCents = Math.round(Number(item.price || 0) * 100);
+		const cartId = `${item.id}:${notes}`;
+		const nextCart = (() => {
+			const existing = draftCart.find((entry) => entry.id === cartId);
+			if (existing) {
+				return draftCart.map((entry) =>
+					entry.id === cartId
+						? {
+								...entry,
+								quantity: entry.quantity + 1,
+								lineTotalCents: priceCents * (entry.quantity + 1),
+							}
+						: entry,
+				);
+			}
+			return [
+				...draftCart,
+				{
+					id: cartId,
+					menuItemId: item.id,
+					name: item.name || "Menu item",
+					quantity: 1,
+					notes,
+					priceCents,
+					lineTotalCents: priceCents,
+				},
+			];
+		})();
+		setDraftCart(nextCart);
+		savePublicCart(nextCart);
+		setItemNotes((current) => ({ ...current, [item.id]: "" }));
+		setCartNotice("");
+	};
+
+	const updatePreviewQuantity = (cartItem, nextQuantity) => {
+		const nextCart =
+			nextQuantity <= 0
+				? draftCart.filter((item) => item.id !== cartItem.id)
+				: draftCart.map((item) =>
+						item.id === cartItem.id
+							? {
+									...item,
+									quantity: nextQuantity,
+									lineTotalCents: item.priceCents * nextQuantity,
+								}
+							: item,
+					);
+		setDraftCart(nextCart);
+		if (nextCart.length > 0) {
+			savePublicCart(nextCart);
+		} else if (restaurant?.id) {
+			window.localStorage.removeItem(`${PUBLIC_RESTAURANT_CART_PREFIX}${restaurant.id}`);
+		}
+	};
+
+	const handleSendPreviewCart = () => {
+		if (draftCart.length === 0) return;
+		savePublicCart(draftCart);
+		setCheckoutIntent(true);
+		if (guest?.uid) {
+			setCartNotice(
+				"Saved. Scan your table QR code at the restaurant and we will bring this basket into the ordering session.",
+			);
+		}
+	};
 
 	if (status === "loading") {
 		return (
@@ -482,6 +725,11 @@ const RestaurantLanding = () => {
 														<ItemName>{item.name || "Menu item"}</ItemName>
 														<Price>{formatPrice(item.price)}</Price>
 													</ItemTop>
+													{draftCartQuantityByMenuItem[item.id] ? (
+														<AddedChip>
+															{draftCartQuantityByMenuItem[item.id]} added
+														</AddedChip>
+													) : null}
 													<ItemDescription>
 														{item.description ||
 															"Details will appear as the restaurant updates this item."}
@@ -503,6 +751,25 @@ const RestaurantLanding = () => {
 													) : item.reviewHighlight ? (
 														<ReviewQuote>"{item.reviewHighlight}"</ReviewQuote>
 													) : null}
+													<ItemActionRow>
+														<NoteInput
+															aria-label={`Notes for ${item.name || "menu item"}`}
+															onChange={(event) =>
+																setItemNotes((current) => ({
+																	...current,
+																	[item.id]: event.target.value,
+																}))
+															}
+															placeholder="Notes"
+															value={itemNotes[item.id] || ""}
+														/>
+														<AddButton
+															onClick={() => addPreviewItem(item)}
+															type="button"
+														>
+															Add
+														</AddButton>
+													</ItemActionRow>
 												</ItemBody>
 											</MenuItem>
 										);
@@ -516,6 +783,83 @@ const RestaurantLanding = () => {
 				</Section>
 
 				<Sidebar>
+					<BasketPanel>
+						<SectionHeader>
+							<div>
+								<SectionTitle>Your basket</SectionTitle>
+								<Muted>
+									Build now. Verify and connect to a table before anything reaches
+									the kitchen.
+								</Muted>
+							</div>
+						</SectionHeader>
+						{draftCart.length === 0 ? (
+							<Muted>Add menu items while you browse.</Muted>
+						) : (
+							draftCart.map((item) => (
+								<BasketRow key={item.id}>
+									<BasketTop>
+										<div>
+											<BasketName>{item.name}</BasketName>
+											<BasketMeta>
+												Qty {item.quantity}
+												{item.notes ? ` - ${item.notes}` : ""}
+											</BasketMeta>
+										</div>
+										<strong>{formatCents(item.lineTotalCents)}</strong>
+									</BasketTop>
+									<QuantityControls>
+										<QuantityButton
+											onClick={() => updatePreviewQuantity(item, item.quantity - 1)}
+											type="button"
+										>
+											-
+										</QuantityButton>
+										<strong>{item.quantity}</strong>
+										<QuantityButton
+											onClick={() => updatePreviewQuantity(item, item.quantity + 1)}
+											type="button"
+										>
+											+
+										</QuantityButton>
+									</QuantityControls>
+								</BasketRow>
+							))
+						)}
+						<BasketTop>
+							<BasketName>{cartItemCount} items</BasketName>
+							<strong>{formatCents(cartSubtotalCents)}</strong>
+						</BasketTop>
+						<SendButton
+							disabled={draftCart.length === 0}
+							onClick={handleSendPreviewCart}
+							type="button"
+						>
+							Send to kitchen
+						</SendButton>
+						{checkoutIntent && !guest?.uid ? (
+							<BrowserGuestIdentity
+								onVerified={(verifiedGuest) => {
+									setGuest(verifiedGuest);
+									savePublicCart(draftCart);
+									setCartNotice(
+										"Saved. Scan your table QR code at the restaurant and we will bring this basket into the ordering session.",
+									);
+								}}
+								restaurantId={restaurant.id}
+								tableId="public_menu"
+							/>
+						) : null}
+						{cartNotice ? (
+							<NoticePanel $tone="success">{cartNotice}</NoticePanel>
+						) : checkoutIntent ? (
+							<NoticePanel>
+								To send this order, scan the table QR code when you are seated.
+								That connects the basket to the restaurant table.
+							</NoticePanel>
+						) : null}
+					</BasketPanel>
+
 					<ActionPanel>
 						<SectionTitle>Plan your visit</SectionTitle>
 						<Muted>

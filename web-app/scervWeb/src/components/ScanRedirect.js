@@ -15,6 +15,8 @@ import {
 	removeBrowserBasketItem,
 	resolveTableToken,
 	slugify,
+	submitBrowserMenuItemRating,
+	submitBrowserServerRating,
 	submitBrowserBasketToKitchen,
 	syncBrowserCheckoutSession,
 	updateBrowserBasketItem,
@@ -282,6 +284,12 @@ const InfoButton = styled.button`
 	width: 30px;
 `;
 
+const ShareTableButton = styled(InfoButton)`
+	gap: 6px;
+	padding: 0 10px;
+	width: auto;
+`;
+
 const SessionDetails = styled.div`
 	background: #ffffff;
 	border: 1px solid #e4eaec;
@@ -293,6 +301,27 @@ const SessionDetails = styled.div`
 	line-height: 1.35;
 	margin-top: 8px;
 	padding: 10px 12px;
+`;
+
+const PartyMemberRail = styled.div`
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+	margin-top: 8px;
+`;
+
+const PartyMemberChip = styled.span`
+	align-items: center;
+	background: #eef7f9;
+	border: 1px solid rgba(14, 111, 127, 0.16);
+	border-radius: 999px;
+	color: ${({ theme }) => theme.colors.primaryDark};
+	display: inline-flex;
+	font-size: 0.78rem;
+	font-weight: 900;
+	gap: 6px;
+	min-height: 30px;
+	padding: 0 10px;
 `;
 
 const BasketShell = styled.div`
@@ -772,6 +801,249 @@ const DisabledCheckout = styled.button`
 	min-height: 44px;
 `;
 
+const ConfirmationPanel = styled.section`
+	background: #f7fbfb;
+	border: 1px solid rgba(14, 111, 127, 0.16);
+	border-radius: 8px;
+	display: grid;
+	gap: 14px;
+	margin-top: 18px;
+	padding: 16px;
+`;
+
+const ConfirmationHeader = styled.div`
+	display: grid;
+	gap: 5px;
+`;
+
+const ConfirmationTitle = styled.h2`
+	color: ${({ theme }) => theme.colors.text};
+	font-size: 1.2rem;
+	margin: 0;
+`;
+
+const ReceiptPanel = styled.section`
+	background: #ffffff;
+	border: 1px solid #e4eaec;
+	border-radius: 8px;
+	display: grid;
+	gap: 12px;
+	padding: 14px;
+`;
+
+const ReceiptStatus = styled.div`
+	align-items: center;
+	background: #ecfdf5;
+	border: 1px solid rgba(40, 167, 69, 0.25);
+	border-radius: 8px;
+	color: ${({ theme }) => theme.colors.success};
+	display: flex;
+	font-size: 0.84rem;
+	font-weight: 900;
+	justify-content: space-between;
+	padding: 10px 12px;
+`;
+
+const ReceiptOrderValue = styled.span`
+	color: ${({ theme }) => theme.colors.text};
+	font-size: 0.78rem;
+	font-weight: 900;
+	overflow-wrap: anywhere;
+	text-align: right;
+`;
+
+const ReceiptItems = styled.div`
+	display: grid;
+	gap: 9px;
+`;
+
+const ReceiptItemRow = styled.div`
+	align-items: flex-start;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+`;
+
+const ReceiptItemMeta = styled.div`
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+`;
+
+const ReceiptItemName = styled.strong`
+	color: ${({ theme }) => theme.colors.text};
+	font-size: 0.9rem;
+	line-height: 1.25;
+`;
+
+const ReceiptItemDetail = styled.span`
+	color: ${({ theme }) => theme.colors.textLight};
+	font-size: 0.78rem;
+	font-weight: 800;
+`;
+
+const ReceiptItemAmount = styled.span`
+	color: ${({ theme }) => theme.colors.text};
+	flex: 0 0 auto;
+	font-size: 0.88rem;
+	font-weight: 900;
+`;
+
+const ReceiptTotals = styled.div`
+	border-top: 1px solid #edf1f2;
+	display: grid;
+	gap: 8px;
+	padding-top: 12px;
+`;
+
+const PaidPageHeader = styled.div`
+	background: linear-gradient(135deg, #082f3a, #0e6f7f);
+	border-radius: 8px;
+	color: #ffffff;
+	display: grid;
+	gap: 8px;
+	padding: 18px;
+`;
+
+const PaidPageTitle = styled.h1`
+	font-size: clamp(1.75rem, 7vw, 2.4rem);
+	line-height: 1.05;
+	margin: 0;
+`;
+
+const PaidPageText = styled.p`
+	color: rgba(255, 255, 255, 0.86);
+	font-size: 0.98rem;
+	line-height: 1.5;
+	margin: 0;
+`;
+
+const AppDownloadPanel = styled.section`
+	background: #fff7ed;
+	border: 1px solid #fed7aa;
+	border-radius: 8px;
+	display: grid;
+	gap: 12px;
+	margin-top: 14px;
+	padding: 14px;
+`;
+
+const AppDownloadActions = styled.div`
+	display: grid;
+	gap: 8px;
+	grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+`;
+
+const StoreLinkButton = styled.a`
+	align-items: center;
+	background: ${({ theme }) => theme.colors.text};
+	border-radius: 8px;
+	color: #ffffff;
+	display: inline-flex;
+	font-size: 0.86rem;
+	font-weight: 900;
+	justify-content: center;
+	min-height: 42px;
+	text-decoration: none;
+`;
+
+const ConfirmationActions = styled.div`
+	display: grid;
+	gap: 9px;
+	margin-top: 14px;
+`;
+
+const CloseWindowButton = styled.button`
+	background: ${({ theme }) => theme.colors.primary};
+	border: 0;
+	border-radius: 8px;
+	color: #ffffff;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 900;
+	min-height: 44px;
+`;
+
+const RatingList = styled.div`
+	display: grid;
+	gap: 10px;
+`;
+
+const RatingCard = styled.article`
+	background: #ffffff;
+	border: 1px solid #e4eaec;
+	border-radius: 8px;
+	display: grid;
+	gap: 10px;
+	padding: 12px;
+`;
+
+const RatingCardTop = styled.div`
+	align-items: flex-start;
+	display: flex;
+	gap: 10px;
+	justify-content: space-between;
+`;
+
+const StarRow = styled.div`
+	display: flex;
+	gap: 5px;
+`;
+
+const StarButton = styled.button`
+	background: transparent;
+	border: 0;
+	color: ${({ $active }) => ($active ? "#f59e0b" : "#cbd5d8")};
+	cursor: pointer;
+	font-size: 1.6rem;
+	line-height: 1;
+	padding: 0;
+`;
+
+const TagRow = styled.div`
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+`;
+
+const ReviewTagButton = styled.button`
+	background: ${({ $active, theme }) => ($active ? theme.colors.accent : "#ffffff")};
+	border: 1px solid
+		${({ $active, theme }) => ($active ? theme.colors.primary : "#d8e1e4")};
+	border-radius: 999px;
+	color: ${({ theme }) => theme.colors.primaryDark};
+	cursor: pointer;
+	font: inherit;
+	font-size: 0.78rem;
+	font-weight: 900;
+	min-height: 30px;
+	padding: 0 10px;
+`;
+
+const ReviewInput = styled.textarea`
+	border: 1px solid #d8e1e4;
+	border-radius: 8px;
+	color: ${({ theme }) => theme.colors.text};
+	font: inherit;
+	font-size: 0.88rem;
+	min-height: 70px;
+	padding: 10px;
+	resize: vertical;
+	width: 100%;
+`;
+
+const RatingSubmitButton = styled.button`
+	background: ${({ disabled, theme }) =>
+		disabled ? "#cbd5d8" : theme.colors.primary};
+	border: 0;
+	border-radius: 8px;
+	color: #ffffff;
+	cursor: ${({ disabled }) => (disabled ? "not-allowed" : "pointer")};
+	font: inherit;
+	font-weight: 900;
+	min-height: 40px;
+`;
+
 const normalizeRestaurant = (restaurantId, data = {}) => {
 	return {
 		id: restaurantId,
@@ -827,8 +1099,23 @@ const getFallbackSentStatus = (item = {}) => {
 	return { label: "Kitchen received", tone: "sent" };
 };
 
+const FOOD_REVIEW_TAGS = ["Standout", "Great flavor", "Fresh", "Would reorder"];
+const SERVER_REVIEW_TAGS = ["Attentive", "Warm", "Fast", "Helpful"];
+const SCERV_IOS_APP_URL = "https://apps.apple.com/app/id1591335061";
+const SCERV_ANDROID_APP_URL =
+	"https://play.google.com/store/apps/details?id=com.scerv.eat";
+const PUBLIC_RESTAURANT_CART_PREFIX = "scerv_public_restaurant_cart:";
+
+const makeRatingKey = (item = {}) => item.menuItemId || item.id || "";
+
+const toggleListValue = (values = [], value) =>
+	values.includes(value)
+		? values.filter((entry) => entry !== value)
+		: [...values, value];
+
 const TABLE_CACHE_PREFIX = "scerv_browser_table:";
 const TABLE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const SESSION_JOIN_TIMEOUT_MS = 12000;
 
 const getTableCacheKey = (token) => `${TABLE_CACHE_PREFIX}${String(token || "").trim()}`;
 
@@ -877,6 +1164,28 @@ const readCachedTableExperience = (token) => {
 	return isFreshCache(cached) ? cached : null;
 };
 
+const withTimeout = (promise, timeoutMs, message) =>
+	Promise.race([
+		promise,
+		new Promise((_, reject) => {
+			window.setTimeout(() => reject(new Error(message)), timeoutMs);
+		}),
+	]);
+
+const getFriendlySessionError = (error) => {
+	const message = String(error?.message || "");
+	if (/already in use/i.test(message)) {
+		return "This table is already open. Ask the restaurant team to clean and release it, then scan again.";
+	}
+	if (/no longer accepting|expired|voided|closed/i.test(message)) {
+		return "This table session was closed by the restaurant. Scan the table again to start a new order.";
+	}
+	if (/timed out/i.test(message)) {
+		return message;
+	}
+	return message || "We could not connect this browser to the table.";
+};
+
 const getCachedSessionForGuest = (cachedExperience, guestId) => {
 	if (!cachedExperience || !guestId) return null;
 	const sessionByGuest = cachedExperience.sessionByGuest || {};
@@ -910,12 +1219,30 @@ const cacheBrowserSession = ({ token, guestId, session, basket }) => {
 	});
 };
 
+const StarRatingControl = ({ value = 0, onChange, disabled = false, label }) => (
+	<StarRow aria-label={label || "Rating"}>
+		{[1, 2, 3, 4, 5].map((star) => (
+			<StarButton
+				$active={star <= Number(value || 0)}
+				aria-label={`${star} star${star === 1 ? "" : "s"}`}
+				disabled={disabled}
+				key={star}
+				onClick={() => onChange?.(star)}
+				type="button"
+			>
+				★
+			</StarButton>
+		))}
+	</StarRow>
+);
+
 const ScanRedirect = () => {
 	const { token } = useParams();
 	const location = useLocation();
 	const basketPanelRef = useRef(null);
 	const sessionSyncAttemptedRef = useRef(false);
 	const checkoutSyncAttemptedRef = useRef("");
+	const importedPublicCartRef = useRef(false);
 	const cachedExperience = useMemo(() => readCachedTableExperience(token), [token]);
 	const initialGuest = useMemo(() => readStoredBrowserGuest(), []);
 	const cachedGuestSession = useMemo(
@@ -954,6 +1281,7 @@ const ScanRedirect = () => {
 	const [showSentItems, setShowSentItems] = useState(false);
 	const [sessionLoading, setSessionLoading] = useState(false);
 	const [sessionError, setSessionError] = useState("");
+	const [shareNotice, setShareNotice] = useState("");
 	const [syncStatus, setSyncStatus] = useState(
 		cachedExperience ? "syncing" : "synced",
 	);
@@ -975,6 +1303,17 @@ const ScanRedirect = () => {
 	const [checkoutStatus, setCheckoutStatus] = useState(
 		paymentNotice === "success" ? "processing" : "",
 	);
+	const [paidConfirmation, setPaidConfirmation] = useState(null);
+	const [itemRatings, setItemRatings] = useState({});
+	const [serverRating, setServerRating] = useState({
+		ratingValue: 0,
+		feedbackText: "",
+		feedbackTags: [],
+		submitted: false,
+	});
+	const [ratingBusy, setRatingBusy] = useState("");
+	const [ratingNotice, setRatingNotice] = useState("");
+	const [closeWindowNotice, setCloseWindowNotice] = useState("");
 	const menuGroups = useMemo(
 		() => groupMenuItems(state.menuItems),
 		[state.menuItems],
@@ -1039,12 +1378,30 @@ const ScanRedirect = () => {
 				.join("|"),
 		[draftBasketItems],
 	);
-	const hasSentItems = sentItemCount > 0;
 	const isSessionReady = Boolean(browserSession?.id && !browserSession.isPending);
 	const checkoutFinalizing =
 		paymentNotice === "success" &&
 		checkoutStatus !== "needs_attention" &&
 		checkoutStatus !== "expired";
+	const paidConfirmationItems = paidConfirmation?.items || [];
+	const canRateServer = Boolean(
+		paidConfirmation?.server?.id &&
+			paidConfirmation.server.id !== "unassigned" &&
+			paidConfirmation.server.id !== "browser_qr",
+	);
+	const tablePartyMembers = useMemo(
+		() =>
+			(Array.isArray(browserSession?.partyMembers)
+				? browserSession.partyMembers
+				: []
+			).filter((member) => member?.userId),
+		[browserSession?.partyMembers],
+	);
+	const tableGuestCount = Math.max(
+		Number(browserSession?.guestCount || 0),
+		tablePartyMembers.length,
+		browserSession ? 1 : 0,
+	);
 	const showCheckoutControls = sentItemCount > 0 && !checkoutFinalizing;
 	const showStickyBasket = Boolean(
 		browserSession &&
@@ -1059,6 +1416,30 @@ const ScanRedirect = () => {
 			behavior: "smooth",
 			block: "start",
 		});
+	};
+
+	const handleShareTableLink = async () => {
+		const tableUrl = `${window.location.origin}${window.location.pathname}`;
+		setShareNotice("");
+
+		try {
+			if (navigator.share) {
+				await navigator.share({
+					title: `${state.restaurant?.displayName || "Scerv"} table`,
+					text: `Join me at ${state.restaurant?.displayName || "this table"} on Scerv.`,
+					url: tableUrl,
+				});
+				setShareNotice("Table link ready to share.");
+				return;
+			}
+
+			await navigator.clipboard.writeText(tableUrl);
+			setShareNotice("Table link copied.");
+		} catch (error) {
+			if (error && error.name === "AbortError") return;
+			console.error("Share browser table link failed:", error);
+			setShareNotice("Could not share automatically. Copy the page link instead.");
+		}
 	};
 
 	const applyBasket = (nextBasket) => {
@@ -1195,7 +1576,11 @@ const ScanRedirect = () => {
 			});
 		}
 		try {
-			const result = await createBrowserTableSession(token);
+			const result = await withTimeout(
+				createBrowserTableSession(token),
+				SESSION_JOIN_TIMEOUT_MS,
+				"Connecting to this table timed out. Check the connection and try again.",
+			);
 			if (!result?.session) {
 				throw new Error("We could not connect this browser to the table.");
 			}
@@ -1204,9 +1589,7 @@ const ScanRedirect = () => {
 			console.error("Create browser table session failed:", error);
 			if (appliedPendingSession) setBrowserSession(null);
 			setSyncStatus("synced");
-			setSessionError(
-				error.message || "We could not connect this browser to the table.",
-			);
+			setSessionError(getFriendlySessionError(error));
 		} finally {
 			setSessionLoading(false);
 		}
@@ -1219,6 +1602,7 @@ const ScanRedirect = () => {
 			!authUserId ||
 			!token ||
 			!orderingEnabled ||
+			paymentNotice === "success" ||
 			sessionLoading
 		) {
 			return;
@@ -1242,6 +1626,7 @@ const ScanRedirect = () => {
 		authUserId,
 		token,
 		orderingEnabled,
+		paymentNotice,
 		browserSession?.id,
 		browserSession?.isPending,
 		syncStatus,
@@ -1270,6 +1655,68 @@ const ScanRedirect = () => {
 			setBasketBusy("");
 		}
 	};
+
+	useEffect(() => {
+		if (
+			importedPublicCartRef.current ||
+			!isSessionReady ||
+			!state.restaurant?.id ||
+			!guest?.uid
+		) {
+			return;
+		}
+
+		const storageKey = `${PUBLIC_RESTAURANT_CART_PREFIX}${state.restaurant.id}`;
+		const pendingCart = readJsonCache(storageKey);
+		const pendingItems = Array.isArray(pendingCart?.items)
+			? pendingCart.items.filter((item) => item?.menuItemId)
+			: [];
+
+		if (pendingItems.length === 0) return;
+
+		importedPublicCartRef.current = true;
+
+		const importPendingCart = async () => {
+			setBasketBusy("import");
+			setSessionError("");
+			try {
+				let latestBasket = null;
+				for (const item of pendingItems) {
+					const result = await addBrowserBasketItem({
+						sessionId: browserSession.id,
+						menuItemId: item.menuItemId,
+						quantity: Math.max(1, Number(item.quantity || 1)),
+						notes: item.notes || "",
+					});
+					if (result?.basket) {
+						latestBasket = result.basket;
+					}
+				}
+				if (latestBasket) applyBasket(latestBasket);
+				removeJsonCache(storageKey);
+				setSubmissionResult({
+					itemsImported: pendingItems.reduce(
+						(total, item) => total + Math.max(1, Number(item.quantity || 1)),
+						0,
+					),
+				});
+				window.setTimeout(() => scrollToBasket(), 150);
+			} catch (error) {
+				console.error("Import public restaurant cart failed:", error);
+				importedPublicCartRef.current = false;
+				setSessionError(
+					error.message ||
+						"We could not bring over the basket you built on the restaurant page.",
+				);
+			} finally {
+				setBasketBusy("");
+			}
+		};
+
+		importPendingCart();
+		// This should only run once after the table session is ready.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isSessionReady, state.restaurant?.id, guest?.uid, browserSession?.id]);
 
 	const handleUpdateBasketItem = async (item, nextQuantity) => {
 		if (!isSessionReady || !item?.id || basketBusy) return;
@@ -1315,13 +1762,32 @@ const ScanRedirect = () => {
 	};
 
 	const refreshBrowserOrderStatus = async () => {
-		if (!isSessionReady || !hasSentItems) return;
+		if (!isSessionReady || paymentNotice === "success") return;
 
 		try {
 			const result = await getBrowserOrderStatus({
 				sessionId: browserSession.id,
 			});
 			if (result?.basket) applyBasket(result.basket);
+			if (result?.party) {
+				setBrowserSession((current) => {
+					if (!current) return current;
+					const nextSession = {
+						...current,
+						guestCount: result.party.guestCount,
+						partyMembers: result.party.partyMembers || [],
+					};
+					if (guest?.uid) {
+						cacheBrowserSession({
+							token,
+							guestId: guest.uid,
+							session: nextSession,
+							basket: result?.basket || basket,
+						});
+					}
+					return nextSession;
+				});
+			}
 			const nextStatusMap = (result?.items || []).reduce((map, item) => {
 				return {
 					...map,
@@ -1331,6 +1797,17 @@ const ScanRedirect = () => {
 			setOrderStatusByItemId(nextStatusMap);
 		} catch (error) {
 			console.error("Refresh browser order status failed:", error);
+			if (/no longer accepting|expired|voided|closed/i.test(error?.message || "")) {
+				applyBasket({
+					items: [],
+					subtotalCents: 0,
+					itemCount: 0,
+					status: "closed",
+				});
+				setOrderStatusByItemId({});
+				setSubmissionResult(null);
+				setSessionError(getFriendlySessionError(error));
+			}
 		}
 	};
 
@@ -1341,7 +1818,7 @@ const ScanRedirect = () => {
 	useEffect(() => {
 		if (
 			paymentNotice !== "success" ||
-			!isSessionReady ||
+			!authUserId ||
 			!paymentQuery.orderId
 		) {
 			return undefined;
@@ -1352,7 +1829,7 @@ const ScanRedirect = () => {
 		checkoutSyncAttemptedRef.current = syncKey;
 
 		let isMounted = true;
-		const markCheckoutPaid = (nextBasket) => {
+		const markCheckoutPaid = (nextBasket, confirmation = null) => {
 			const emptyBasket =
 				nextBasket || {
 					items: [],
@@ -1365,6 +1842,7 @@ const ScanRedirect = () => {
 			setSubmissionResult(null);
 			setShowSentItems(false);
 			setIsCheckoutDrawerOpen(false);
+			if (confirmation) setPaidConfirmation(confirmation);
 			setCheckoutStatus("paid");
 		};
 
@@ -1375,16 +1853,22 @@ const ScanRedirect = () => {
 				const result = await syncBrowserCheckoutSession({
 					orderId: paymentQuery.orderId,
 					checkoutSessionId: paymentQuery.checkoutSessionId,
-					sessionId: browserSession.id,
+					sessionId: browserSession?.id || "",
 				});
 				if (!isMounted) return;
 
 				if (result?.status === "paid") {
-					markCheckoutPaid(result.basket);
+					markCheckoutPaid(result.basket, result.confirmation || null);
 					return;
 				}
 
 				setCheckoutStatus(result?.status || "processing");
+				if (!browserSession?.id) {
+					if (attempt < 6) {
+						window.setTimeout(() => syncCheckout(attempt + 1), 2000);
+					}
+					return;
+				}
 				const statusResult = await getBrowserOrderStatus({
 					sessionId: browserSession.id,
 				});
@@ -1396,7 +1880,7 @@ const ScanRedirect = () => {
 						Number(statusResult.basket.sentItemCount || 0) === 0 &&
 						Number(statusResult.basket.itemCount || 0) === 0
 					) {
-						markCheckoutPaid(statusResult.basket);
+						markCheckoutPaid(statusResult.basket, result?.confirmation || null);
 						return;
 					}
 				}
@@ -1425,9 +1909,82 @@ const ScanRedirect = () => {
 		paymentNotice,
 		paymentQuery.orderId,
 		paymentQuery.checkoutSessionId,
-		isSessionReady,
+		authUserId,
 		browserSession?.id,
 	]);
+
+	const updateItemRating = (item, patch) => {
+		const key = makeRatingKey(item);
+		if (!key) return;
+		setItemRatings((current) => ({
+			...current,
+			[key]: {
+				ratingValue: 0,
+				reviewText: "",
+				reviewTags: [],
+				submitted: false,
+				...(current[key] || {}),
+				...patch,
+			},
+		}));
+	};
+
+	const handleSubmitItemRating = async (item) => {
+		const key = makeRatingKey(item);
+		const ratingState = itemRatings[key] || {};
+		if (!paidConfirmation?.restaurantId || !item?.menuItemId || !ratingState.ratingValue) {
+			return;
+		}
+
+		setRatingBusy(`item:${key}`);
+		setRatingNotice("");
+		try {
+			await submitBrowserMenuItemRating({
+				menuItemId: item.menuItemId,
+				restaurantId: paidConfirmation.restaurantId,
+				ratingValue: Number(ratingState.ratingValue),
+				reviewText: ratingState.reviewText || "",
+				reviewTags: ratingState.reviewTags || [],
+				orderId: paidConfirmation.orderId || paymentQuery.orderId,
+				customerName: guest?.firstName || paidConfirmation.customerName || "",
+			});
+			updateItemRating(item, { submitted: true });
+			setRatingNotice("Thanks. Your food rating was saved.");
+		} catch (error) {
+			console.error("Submit browser food rating failed:", error);
+			setRatingNotice(error.message || "We could not save that rating.");
+		} finally {
+			setRatingBusy("");
+		}
+	};
+
+	const handleSubmitServerRating = async () => {
+		if (!canRateServer || !serverRating.ratingValue) return;
+
+		setRatingBusy("server");
+		setRatingNotice("");
+		try {
+			await submitBrowserServerRating({
+				restaurantId: paidConfirmation.restaurantId,
+				serverId: paidConfirmation.server.id,
+				serverName: paidConfirmation.server.name || "Server",
+				ratingValue: Number(serverRating.ratingValue),
+				feedbackText: serverRating.feedbackText || "",
+				feedbackTags: serverRating.feedbackTags || [],
+				orderId: paidConfirmation.orderId || paymentQuery.orderId,
+				partyId: paidConfirmation.partyId || browserSession?.partyId || null,
+				checkInId: paidConfirmation.checkInId || browserSession?.checkInId || null,
+				customerName: guest?.firstName || paidConfirmation.customerName || "",
+			});
+			setServerRating((current) => ({ ...current, submitted: true }));
+			setRatingNotice("Thanks. Your service rating was saved.");
+		} catch (error) {
+			console.error("Submit browser server rating failed:", error);
+			setRatingNotice(error.message || "We could not save that service rating.");
+		} finally {
+			setRatingBusy("");
+		}
+	};
 
 	const handleSubmitBasket = async () => {
 		if (!isSessionReady || draftItemCount === 0 || basketBusy) return;
@@ -1488,14 +2045,280 @@ const ScanRedirect = () => {
 	};
 
 	useEffect(() => {
-		if (!browserSession?.id || !hasSentItems) return undefined;
+		if (!browserSession?.id || paymentNotice === "success") return undefined;
 
 		refreshBrowserOrderStatus();
 		const intervalId = window.setInterval(refreshBrowserOrderStatus, 6000);
 		return () => window.clearInterval(intervalId);
 		// Polling should restart when the session or sent count changes.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [browserSession?.id, hasSentItems, sentItemCount]);
+	}, [browserSession?.id, paymentNotice, sentItemCount]);
+
+	const handleClosePaidWindow = () => {
+		setCloseWindowNotice("");
+		window.close();
+		window.setTimeout(() => {
+			setCloseWindowNotice("You can safely close this browser window.");
+		}, 250);
+	};
+
+	const renderPaidReceipt = () => {
+		if (!paidConfirmation) return null;
+
+		const subtotalCents = Number(paidConfirmation.subtotal || 0);
+		const taxCents = Number(paidConfirmation.taxAmount || 0);
+		const gratuityCents = Number(paidConfirmation.gratuity || 0);
+		const serviceFeeCents = Number(paidConfirmation.platformFee || 0);
+		const totalCents = Number(paidConfirmation.total || 0);
+
+		return (
+			<ReceiptPanel aria-label="Order receipt">
+				<ReceiptStatus>
+					<span>Card payment complete</span>
+					<span>{formatCents(totalCents)}</span>
+				</ReceiptStatus>
+				<TotalsLine>
+					<span>Order</span>
+					<ReceiptOrderValue>{paidConfirmation.orderId}</ReceiptOrderValue>
+				</TotalsLine>
+				{paidConfirmationItems.length > 0 ? (
+					<ReceiptItems>
+						{paidConfirmationItems.map((item, index) => {
+							const itemKey = `${item.menuItemId || item.name || "item"}-${index}`;
+							const quantity = Math.max(1, Number(item.quantity || 1));
+							const unitPriceCents = Number(item.priceCents || 0);
+							const lineTotalCents =
+								Number(item.lineTotalCents || 0) || unitPriceCents * quantity;
+
+							return (
+								<ReceiptItemRow key={itemKey}>
+									<ReceiptItemMeta>
+										<ReceiptItemName>{item.name || "Menu item"}</ReceiptItemName>
+										<ReceiptItemDetail>
+											Qty {quantity}
+											{unitPriceCents > 0
+												? ` at ${formatCents(unitPriceCents)}`
+												: ""}
+										</ReceiptItemDetail>
+									</ReceiptItemMeta>
+									<ReceiptItemAmount>
+										{formatCents(lineTotalCents)}
+									</ReceiptItemAmount>
+								</ReceiptItemRow>
+							);
+						})}
+					</ReceiptItems>
+				) : (
+					<EmptyBasket>
+						Item details are being finalized. Your payment is complete.
+					</EmptyBasket>
+				)}
+				<ReceiptTotals>
+					<TotalsLine>
+						<span>Subtotal</span>
+						<span>{formatCents(subtotalCents)}</span>
+					</TotalsLine>
+					{taxCents > 0 ? (
+						<TotalsLine>
+							<span>Tax</span>
+							<span>{formatCents(taxCents)}</span>
+						</TotalsLine>
+					) : null}
+					{gratuityCents > 0 ? (
+						<TotalsLine>
+							<span>Tip</span>
+							<span>{formatCents(gratuityCents)}</span>
+						</TotalsLine>
+					) : null}
+					{serviceFeeCents > 0 ? (
+						<TotalsLine>
+							<span>Service fee</span>
+							<span>{formatCents(serviceFeeCents)}</span>
+						</TotalsLine>
+					) : null}
+					<TotalsLineStrong>
+						<span>Total paid</span>
+						<span>{formatCents(totalCents)}</span>
+					</TotalsLineStrong>
+				</ReceiptTotals>
+			</ReceiptPanel>
+		);
+	};
+
+	const renderPaidRatings = () => {
+		if (checkoutStatus !== "paid" || !paidConfirmation) {
+			return (
+				<ConfirmationPanel>
+					<ConfirmationHeader>
+						<ConfirmationTitle>Payment received</ConfirmationTitle>
+						<SectionHint>
+							We are confirming the order and preparing your receipt. This usually
+							takes a moment.
+						</SectionHint>
+					</ConfirmationHeader>
+					<LoadingText>Finalizing your order...</LoadingText>
+				</ConfirmationPanel>
+			);
+		}
+
+		return (
+			<ConfirmationPanel>
+				<ConfirmationHeader>
+					<ConfirmationTitle>Order confirmed</ConfirmationTitle>
+					<SectionHint>
+						{paidConfirmationItems.length > 0
+							? "Review your receipt, then rate what you ordered while it is still fresh."
+							: "Your payment is complete."}
+					</SectionHint>
+				</ConfirmationHeader>
+				{renderPaidReceipt()}
+				{paidConfirmationItems.length > 0 ? (
+					<RatingList>
+						{paidConfirmationItems.map((item) => {
+							const key = makeRatingKey(item);
+							const ratingState = itemRatings[key] || {};
+							const submitted = ratingState.submitted === true;
+
+							return (
+								<RatingCard key={key}>
+									<RatingCardTop>
+										<div>
+											<BasketName>{item.name}</BasketName>
+											<BasketMeta>
+												Qty {item.quantity} - {formatCents(item.lineTotalCents)}
+											</BasketMeta>
+										</div>
+										{submitted ? <SentChip>Rated</SentChip> : null}
+									</RatingCardTop>
+									<StarRatingControl
+										disabled={submitted}
+										label={`Rate ${item.name}`}
+										onChange={(ratingValue) =>
+											updateItemRating(item, { ratingValue })
+										}
+										value={ratingState.ratingValue || 0}
+									/>
+									<TagRow>
+										{FOOD_REVIEW_TAGS.map((tag) => {
+											const active = (ratingState.reviewTags || []).includes(tag);
+											return (
+												<ReviewTagButton
+													$active={active}
+													disabled={submitted}
+													key={tag}
+													onClick={() =>
+														updateItemRating(item, {
+															reviewTags: toggleListValue(
+																ratingState.reviewTags || [],
+																tag,
+															),
+														})
+													}
+													type="button"
+												>
+													{tag}
+												</ReviewTagButton>
+											);
+										})}
+									</TagRow>
+									<ReviewInput
+										disabled={submitted}
+										onChange={(event) =>
+											updateItemRating(item, {
+												reviewText: event.target.value.slice(0, 800),
+											})
+										}
+										placeholder="Optional note"
+										value={ratingState.reviewText || ""}
+									/>
+									<RatingSubmitButton
+										disabled={
+											submitted ||
+											!ratingState.ratingValue ||
+											ratingBusy === `item:${key}`
+										}
+										onClick={() => handleSubmitItemRating(item)}
+										type="button"
+									>
+										{ratingBusy === `item:${key}` ? "Saving..." : "Save rating"}
+									</RatingSubmitButton>
+								</RatingCard>
+							);
+						})}
+					</RatingList>
+				) : null}
+				{canRateServer ? (
+					<RatingCard>
+						<RatingCardTop>
+							<div>
+								<BasketName>Service from {paidConfirmation.server.name}</BasketName>
+								<BasketMeta>Private feedback for the restaurant</BasketMeta>
+							</div>
+							{serverRating.submitted ? <SentChip>Rated</SentChip> : null}
+						</RatingCardTop>
+						<StarRatingControl
+							disabled={serverRating.submitted}
+							label={`Rate ${paidConfirmation.server.name}`}
+							onChange={(ratingValue) =>
+								setServerRating((current) => ({
+									...current,
+									ratingValue,
+								}))
+							}
+							value={serverRating.ratingValue}
+						/>
+						<TagRow>
+							{SERVER_REVIEW_TAGS.map((tag) => {
+								const active = serverRating.feedbackTags.includes(tag);
+								return (
+									<ReviewTagButton
+										$active={active}
+										disabled={serverRating.submitted}
+										key={tag}
+										onClick={() =>
+											setServerRating((current) => ({
+												...current,
+												feedbackTags: toggleListValue(
+													current.feedbackTags,
+													tag,
+												),
+											}))
+										}
+										type="button"
+									>
+										{tag}
+									</ReviewTagButton>
+								);
+							})}
+						</TagRow>
+						<ReviewInput
+							disabled={serverRating.submitted}
+							onChange={(event) =>
+								setServerRating((current) => ({
+									...current,
+									feedbackText: event.target.value.slice(0, 600),
+								}))
+							}
+							placeholder="Optional service note"
+							value={serverRating.feedbackText}
+						/>
+						<RatingSubmitButton
+							disabled={
+								serverRating.submitted ||
+								!serverRating.ratingValue ||
+								ratingBusy === "server"
+							}
+							onClick={handleSubmitServerRating}
+							type="button"
+						>
+							{ratingBusy === "server" ? "Saving..." : "Save service rating"}
+						</RatingSubmitButton>
+					</RatingCard>
+				) : null}
+				{ratingNotice ? <BasketMeta>{ratingNotice}</BasketMeta> : null}
+			</ConfirmationPanel>
+		);
+	};
 
 	if (state.status === "loading") {
 		return (
@@ -1511,6 +2334,74 @@ const ScanRedirect = () => {
 
 	if (state.status === "ready") {
 		const restaurantPath = `/r/${state.restaurant.slug}`;
+
+		if (paymentNotice === "success") {
+			return (
+				<Page>
+					<Helmet>
+						<title>Order Confirmation | Scerv</title>
+					</Helmet>
+					<Panel $wide>
+						<TopBar>
+							<BrandMark>Scerv receipt</BrandMark>
+							{guest?.uid ? (
+								<GuestBadge title={guest.email || guest.firstName || "Guest"}>
+									<span>{String(guest.firstName || "G").slice(0, 1)}</span>
+									<span>{guest.firstName || "Guest"}</span>
+								</GuestBadge>
+							) : null}
+						</TopBar>
+						<PaidPageHeader>
+							<PaidPageTitle>
+								{checkoutStatus === "paid" ? "You're all set." : "Payment received."}
+							</PaidPageTitle>
+							<PaidPageText>
+								{checkoutStatus === "paid"
+									? `Thanks for dining at ${state.restaurant.displayName}. Your table has been sent to the restaurant team for closeout.`
+									: `Thanks for dining at ${state.restaurant.displayName}. We are finalizing your receipt now.`}
+							</PaidPageText>
+						</PaidPageHeader>
+						<AppDownloadPanel>
+							<ConfirmationHeader>
+								<ConfirmationTitle>Keep your Scerv history</ConfirmationTitle>
+								<SectionHint>
+									Download the app to keep receipts, rewards, favorites, and
+									future reservations in one place.
+								</SectionHint>
+							</ConfirmationHeader>
+							<AppDownloadActions>
+								<StoreLinkButton
+									href={SCERV_IOS_APP_URL}
+									rel="noreferrer"
+									target="_blank"
+								>
+									iPhone app
+								</StoreLinkButton>
+								<StoreLinkButton
+									href={SCERV_ANDROID_APP_URL}
+									rel="noreferrer"
+									target="_blank"
+								>
+									Android app
+								</StoreLinkButton>
+							</AppDownloadActions>
+						</AppDownloadPanel>
+						{renderPaidRatings()}
+						<ConfirmationActions>
+							<CloseWindowButton onClick={handleClosePaidWindow} type="button">
+								Close this window
+							</CloseWindowButton>
+							<SecondaryAction to={restaurantPath}>
+								View restaurant page
+							</SecondaryAction>
+							{closeWindowNotice ? (
+								<BasketMeta>{closeWindowNotice}</BasketMeta>
+							) : null}
+						</ConfirmationActions>
+					</Panel>
+				</Page>
+			);
+		}
 
 		return (
 			<Page $hasBasket={Boolean(browserSession && basket.itemCount > 0)}>
@@ -1559,6 +2450,170 @@ const ScanRedirect = () => {
 							Checkout was cancelled. No card payment was completed.
 						</NoticeText>
 					) : null}
+					{checkoutStatus === "paid" && paidConfirmation ? (
+						<ConfirmationPanel>
+							<ConfirmationHeader>
+								<ConfirmationTitle>Order confirmed</ConfirmationTitle>
+								<SectionHint>
+									{paidConfirmationItems.length > 0
+										? "Rate what you ordered while it is still fresh."
+										: "Your payment is complete."}
+								</SectionHint>
+							</ConfirmationHeader>
+							<TotalsLine>
+								<span>Order</span>
+								<span>{paidConfirmation.orderId}</span>
+							</TotalsLine>
+							<TotalsLine>
+								<span>Total paid</span>
+								<span>{formatCents(paidConfirmation.total)}</span>
+							</TotalsLine>
+							{paidConfirmationItems.length > 0 ? (
+								<RatingList>
+									{paidConfirmationItems.map((item) => {
+										const key = makeRatingKey(item);
+										const ratingState = itemRatings[key] || {};
+										const submitted = ratingState.submitted === true;
+
+										return (
+											<RatingCard key={key}>
+												<RatingCardTop>
+													<div>
+														<BasketName>{item.name}</BasketName>
+														<BasketMeta>
+															Qty {item.quantity} - {formatCents(item.lineTotalCents)}
+														</BasketMeta>
+													</div>
+													{submitted ? <SentChip>Rated</SentChip> : null}
+												</RatingCardTop>
+												<StarRatingControl
+													disabled={submitted}
+													label={`Rate ${item.name}`}
+													onChange={(ratingValue) =>
+														updateItemRating(item, { ratingValue })
+													}
+													value={ratingState.ratingValue || 0}
+												/>
+												<TagRow>
+													{FOOD_REVIEW_TAGS.map((tag) => {
+														const active = (ratingState.reviewTags || []).includes(tag);
+														return (
+															<ReviewTagButton
+																$active={active}
+																disabled={submitted}
+																key={tag}
+																onClick={() =>
+																	updateItemRating(item, {
+																		reviewTags: toggleListValue(
+																			ratingState.reviewTags || [],
+																			tag,
+																		),
+																	})
+																}
+																type="button"
+															>
+																{tag}
+															</ReviewTagButton>
+														);
+													})}
+												</TagRow>
+												<ReviewInput
+													disabled={submitted}
+													onChange={(event) =>
+														updateItemRating(item, {
+															reviewText: event.target.value.slice(0, 800),
+														})
+													}
+													placeholder="Optional note"
+													value={ratingState.reviewText || ""}
+												/>
+												<RatingSubmitButton
+													disabled={
+														submitted ||
+														!ratingState.ratingValue ||
+														ratingBusy === `item:${key}`
+													}
+													onClick={() => handleSubmitItemRating(item)}
+													type="button"
+												>
+													{ratingBusy === `item:${key}` ? "Saving..." : "Save rating"}
+												</RatingSubmitButton>
+											</RatingCard>
+										);
+									})}
+								</RatingList>
+							) : null}
+							{canRateServer ? (
+								<RatingCard>
+									<RatingCardTop>
+										<div>
+											<BasketName>Service from {paidConfirmation.server.name}</BasketName>
+											<BasketMeta>Private feedback for the restaurant</BasketMeta>
+										</div>
+										{serverRating.submitted ? <SentChip>Rated</SentChip> : null}
+									</RatingCardTop>
+									<StarRatingControl
+										disabled={serverRating.submitted}
+										label={`Rate ${paidConfirmation.server.name}`}
+										onChange={(ratingValue) =>
+											setServerRating((current) => ({
+												...current,
+												ratingValue,
+											}))
+										}
+										value={serverRating.ratingValue}
+									/>
+									<TagRow>
+										{SERVER_REVIEW_TAGS.map((tag) => {
+											const active = serverRating.feedbackTags.includes(tag);
+											return (
+												<ReviewTagButton
+													$active={active}
+													disabled={serverRating.submitted}
+													key={tag}
+													onClick={() =>
+														setServerRating((current) => ({
+															...current,
+															feedbackTags: toggleListValue(
+																current.feedbackTags,
+																tag,
+															),
+														}))
+													}
+													type="button"
+												>
+													{tag}
+												</ReviewTagButton>
+											);
+										})}
+									</TagRow>
+									<ReviewInput
+										disabled={serverRating.submitted}
+										onChange={(event) =>
+											setServerRating((current) => ({
+												...current,
+												feedbackText: event.target.value.slice(0, 600),
+											}))
+										}
+										placeholder="Optional service note"
+										value={serverRating.feedbackText}
+									/>
+									<RatingSubmitButton
+										disabled={
+											serverRating.submitted ||
+											!serverRating.ratingValue ||
+											ratingBusy === "server"
+										}
+										onClick={handleSubmitServerRating}
+										type="button"
+									>
+										{ratingBusy === "server" ? "Saving..." : "Save service rating"}
+									</RatingSubmitButton>
+								</RatingCard>
+							) : null}
+							{ratingNotice ? <BasketMeta>{ratingNotice}</BasketMeta> : null}
+						</ConfirmationPanel>
+					) : null}
 					{!guest?.uid ? (
 						<BrowserGuestIdentity
 							onVerified={(verifiedGuest) => {
@@ -1575,12 +2630,22 @@ const ScanRedirect = () => {
 								<SessionSummary>
 									{browserSession.isPending
 										? "Opening this table..."
-										: `Connected to ${browserSession.tableName || "your table"}`}
+										: `${tableGuestCount > 1 ? `${tableGuestCount} guests` : "Joined"} at ${
+												browserSession.tableName || "your table"
+											}`}
 								</SessionSummary>
 								<SessionActions>
 									<SyncChip $status={syncStatus}>
 										{syncStatus === "syncing" ? "Syncing" : "Ready"}
 									</SyncChip>
+									<ShareTableButton
+										aria-label="Share this table link"
+										onClick={handleShareTableLink}
+										title="Share this table"
+										type="button"
+									>
+										Share
+									</ShareTableButton>
 									<InfoButton
 										aria-expanded={showSessionDetails}
 										aria-label="Show table session details"
@@ -1592,10 +2657,33 @@ const ScanRedirect = () => {
 									</InfoButton>
 								</SessionActions>
 							</CompactSessionBar>
+							{shareNotice ? (
+								<NoticeText $tone="success">{shareNotice}</NoticeText>
+							) : null}
+							{tablePartyMembers.length > 0 ? (
+								<PartyMemberRail aria-label="Guests joined at this table">
+									{tablePartyMembers.slice(0, 6).map((member) => (
+										<PartyMemberChip key={member.userId}>
+											{member.userId === guest?.uid
+												? "You"
+												: member.name || "Guest"}
+										</PartyMemberChip>
+									))}
+									{tableGuestCount > tablePartyMembers.length ? (
+										<PartyMemberChip>
+											+{tableGuestCount - tablePartyMembers.length} more
+										</PartyMemberChip>
+									) : null}
+								</PartyMemberRail>
+							) : null}
 							{showSessionDetails ? (
 								<SessionDetails>
 									<div>Restaurant: {browserSession.restaurantName}</div>
 									<div>Table: {browserSession.tableName}</div>
+									<div>
+										Party: {tableGuestCount}{" "}
+										{tableGuestCount === 1 ? "guest" : "guests"} connected
+									</div>
 									<div>
 										Prices and availability come directly from the restaurant
 										menu before anything reaches the kitchen.
@@ -1765,7 +2853,15 @@ const ScanRedirect = () => {
 														<SentItemRow key={item.id}>
 															<div>
 																<BasketName>{item.name}</BasketName>
-																<BasketMeta>Qty {item.quantity}</BasketMeta>
+																<BasketMeta>
+																	Qty {item.quantity}
+																	{item.orderedByPipName || item.addedByName
+																		? ` - ${
+																				item.orderedByPipName ||
+																				item.addedByName
+																			}`
+																		: ""}
+																</BasketMeta>
 																<StatusChip $tone={liveStatus.tone}>
 																	{liveStatus.label}
 																</StatusChip>
@@ -1785,6 +2881,12 @@ const ScanRedirect = () => {
 									<EmptyBasket>
 										Sent to the restaurant. You can add more items and send
 										another round.
+									</EmptyBasket>
+								) : null}
+								{submissionResult?.itemsImported ? (
+									<EmptyBasket>
+										We brought over {submissionResult.itemsImported} items from the
+										restaurant page. Review them, then send when ready.
 									</EmptyBasket>
 								) : null}
 								{checkoutFinalizing && sentItemCount > 0 ? (

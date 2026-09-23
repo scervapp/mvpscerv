@@ -380,10 +380,69 @@ const getBrowserBasketItems = async (sessionRef) => {
 			lineTotalCents: priceCents * quantity,
 			status: item.status || "draft",
 			ticketId: item.ticketId || null,
+			destination: item.destination || null,
 			pacingStatus: item.pacingStatus || null,
 			addedByName: item.addedByName || "Guest",
+			orderedByUserId: item.orderedByUserId || item.addedByCustomerId || null,
+			orderedByPipName:
+				item.orderedByPipName || item.addedByName || item.customerName || "Guest",
 		};
 	});
+};
+
+const normalizeBrowserSharedBasketItem = (item = {}) => {
+	const quantity = normalizeBrowserQuantity(item.quantity);
+	const priceCents = Math.max(
+		0,
+		Math.round(Number(item.priceCents || Number(item.price || 0) * 100 || 0)),
+	);
+
+	return {
+		id: item.id || item.browserBasketItemId || item.menuItemId || "",
+		menuItemId: item.menuItemId || null,
+		name: item.name || item.dishName || "Menu item",
+		description: item.description || "",
+		category: item.category || "",
+		imageUrl: item.imageUrl || item.imageUri || "",
+		priceCents,
+		quantity,
+		notes: item.notes || item.specialInstructions || "",
+		lineTotalCents: priceCents * quantity,
+		status: item.status || "sent",
+		ticketId: item.ticketId || item.orderId || null,
+		destination: item.destination || null,
+		pacingStatus: item.pacingStatus || null,
+		addedByName:
+			item.addedByName ||
+			item.orderedByPipName ||
+			item.customerName ||
+			item.orderedFor ||
+			"Guest",
+		orderedByUserId: item.orderedByUserId || item.addedByCustomerId || null,
+		orderedByPipName:
+			item.orderedByPipName ||
+			item.addedByName ||
+			item.customerName ||
+			item.orderedFor ||
+			"Guest",
+	};
+};
+
+const getBrowserSharedSentItemsForParty = async (partyId) => {
+	if (!partyId) return [];
+
+	const basketDoc = await db.collection("shared_baskets").doc(partyId).get();
+	if (!basketDoc.exists) return [];
+
+	return ((basketDoc.data() || {}).items || [])
+		.filter(
+			(item) =>
+				item &&
+				item.status === "sent" &&
+				item.paymentResponsibility !== "restaurant_pos",
+		)
+		.map(normalizeBrowserSharedBasketItem)
+		.filter((item) => item.id && item.priceCents > 0 && item.quantity > 0);
 };
 
 const buildBrowserBasketSummary = (items = []) => {
@@ -441,6 +500,84 @@ const summarizeBrowserBasket = async (sessionRef) => {
 	);
 
 	return basket;
+};
+
+const compactBrowserPartyMembers = (partyData = {}) => {
+	const members = (Array.isArray(partyData.guestPips)
+		? partyData.guestPips
+		: []
+	)
+		.filter((pip) => pip && pip.userId)
+		.map((pip) => ({
+			userId: pip.userId,
+			name: pip.name || "Guest",
+			source: pip.source || null,
+		}));
+
+	return {
+		guestCount: Math.max(
+			members.length,
+			Array.isArray(partyData.guestUserIds) ? partyData.guestUserIds.length : 0,
+			1,
+		),
+		partyMembers: members,
+	};
+};
+
+const closeBrowserSessionsForParty = async ({
+	partyId,
+	reason,
+	status = "closed",
+	closedBy = null,
+}) => {
+	if (!partyId) return;
+
+	const sessionsSnapshot = await db
+		.collection("browserTableSessions")
+		.where("partyId", "==", partyId)
+		.get();
+
+	if (sessionsSnapshot.empty) return;
+
+	const now = admin.firestore.FieldValue.serverTimestamp();
+	const writes = [];
+
+	for (const sessionDoc of sessionsSnapshot.docs) {
+		writes.push({
+			ref: sessionDoc.ref,
+			data: {
+				status,
+				basketStatus: status,
+				closedAt: now,
+				closedReason: reason,
+				updatedAt: now,
+				...(closedBy ? { closedBy } : {}),
+			},
+			options: { merge: true },
+		});
+
+		const basketItemsSnapshot = await sessionDoc.ref.collection("basketItems").get();
+		basketItemsSnapshot.docs.forEach((basketItemDoc) => {
+			writes.push({
+				ref: basketItemDoc.ref,
+				data: {
+					status,
+					closedAt: now,
+					closedReason: reason,
+					updatedAt: now,
+				},
+				options: { merge: true },
+			});
+		});
+	}
+
+	for (let index = 0; index < writes.length; index += 450) {
+		const batch = db.batch();
+		writes.slice(index, index + 450).forEach((write) => {
+			batch.set(write.ref, write.data, write.options);
+		});
+		await batch.commit();
+	}
 };
 
 const assertBrowserMenuItem = async ({ restaurantId, menuItemId }) => {
@@ -2797,19 +2934,44 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 				record.restaurant.restaurantName ||
 				record.restaurant.name ||
 				"Restaurant";
-			const existingPartyId =
-				existingSessionData.partyId || freshTable.currentPartyId || null;
-			let partyRef = existingPartyId
-				? db.collection("parties").doc(existingPartyId)
-				: fallbackPartyRef;
-			let partyDoc = existingPartyId ? await transaction.get(partyRef) : null;
-			let partyData = partyDoc && partyDoc.exists ? partyDoc.data() || {} : null;
-			const partyIsUsable =
-				partyData &&
-				partyData.restaurantId === record.restaurantId &&
-				((partyData.table && partyData.table.id === record.tableId) ||
-					partyData.tableId === record.tableId) &&
-				partyData.status === "active";
+			const candidatePartyIds = [
+				freshTable.currentPartyId,
+				tableStatus === "occupied" ? existingSessionData.partyId : null,
+			].filter((partyId, index, values) => partyId && values.indexOf(partyId) === index);
+			let partyRef = fallbackPartyRef;
+			let partyDoc = null;
+			let partyData = null;
+			let partyIsUsable = false;
+
+			// Prefer the party currently attached to the table. A browser session id is
+			// deterministic per guest/token, so stale cached sessions can point at an
+			// earlier party after the table has been cleaned and reused.
+			for (const candidatePartyId of candidatePartyIds) {
+				const candidateRef = db.collection("parties").doc(candidatePartyId);
+				const candidateDoc = await transaction.get(candidateRef);
+				const candidateData =
+					candidateDoc && candidateDoc.exists ? candidateDoc.data() || {} : null;
+				const candidateIsUsable =
+					candidateData &&
+					candidateData.restaurantId === record.restaurantId &&
+					((candidateData.table && candidateData.table.id === record.tableId) ||
+						candidateData.tableId === record.tableId) &&
+					candidateData.status === "active";
+
+				if (candidateIsUsable) {
+					partyRef = candidateRef;
+					partyDoc = candidateDoc;
+					partyData = candidateData;
+					partyIsUsable = true;
+					break;
+				}
+			}
+
+			if (!partyIsUsable) {
+				partyRef = fallbackPartyRef;
+				partyDoc = null;
+				partyData = null;
+			}
 
 			if (["checkedout", "completed", "dirty"].includes(tableStatus)) {
 				throw new functions.https.HttpsError(
@@ -2849,6 +3011,9 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 				const guestAlreadyJoined = currentGuestPips.some(
 					(pip) => pip && pip.userId === customerId,
 				);
+				const nextGuestPips = guestAlreadyJoined
+					? currentGuestPips
+					: [...currentGuestPips, guestPip];
 				transaction.set(
 					partyRef,
 					{
@@ -2863,6 +3028,21 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 					},
 					{ merge: true },
 				);
+				if (checkInId) {
+					transaction.set(
+						db.collection("checkIns").doc(checkInId),
+						{
+							numberOfPeople: Math.max(1, nextGuestPips.length),
+							guestUserIds: admin.firestore.FieldValue.arrayUnion(customerId),
+							lastUpdated: now,
+						},
+						{ merge: true },
+					);
+				}
+				partyData = {
+					...partyData,
+					guestPips: nextGuestPips,
+				};
 			} else {
 				transaction.set(fallbackCheckInRef, {
 					id: fallbackCheckInRef.id,
@@ -2871,7 +3051,8 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 					customerName,
 					numberOfPeople: 1,
 					status: "ACCEPTED",
-					type: "browser_table",
+					type: "party",
+					fulfillmentType: "browser_table",
 					partyId,
 					table: { id: record.tableId, name: tableName },
 					server: assignedServer,
@@ -2911,7 +3092,15 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 					guestPips: [guestPip],
 					server: assignedServer,
 				});
+				partyData = {
+					guestPips: [guestPip],
+				};
 			}
+
+			const sessionParty = compactBrowserPartyMembers({
+				...partyData,
+				guestPips: (partyData && partyData.guestPips) || [guestPip],
+			});
 
 			transaction.set(
 				tableRef,
@@ -2919,7 +3108,7 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 					status: "OCCUPIED",
 					currentPartyId: partyId,
 					currentCheckInId: checkInId,
-					currentCustomerId: customerId,
+					currentCustomerId: freshTable.currentCustomerId || customerId,
 					seatedAt: freshTable.seatedAt || now,
 					updatedAt: now,
 				},
@@ -2961,6 +3150,8 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 				partyId,
 				checkInId,
 				server: assignedServer,
+				guestCount: sessionParty.guestCount,
+				partyMembers: sessionParty.partyMembers,
 				customerId,
 				customerName,
 				customerEmail,
@@ -2999,6 +3190,8 @@ exports.createBrowserTableSession = functions.https.onCall(async (data, context)
 				tableName: sessionPatch.tableName,
 				partyId: sessionPatch.partyId,
 				checkInId: sessionPatch.checkInId,
+				guestCount: sessionPatch.guestCount,
+				partyMembers: sessionPatch.partyMembers || [],
 				customerId,
 				customerName,
 				capabilities: sessionPatch.capabilities,
@@ -3535,20 +3728,44 @@ exports.getBrowserOrderStatus = functions.https.onCall(async (data, context) => 
 			context,
 			data && data.sessionId,
 		);
-		const basket = buildBrowserBasketSummary(
-			await getBrowserBasketItems(sessionRef),
+		const localItems = await getBrowserBasketItems(sessionRef);
+		const draftItems = localItems.filter(
+			(item) => (item.status || "draft") === "draft",
 		);
-		const sentItems = (basket.items || []).filter(
+		const localSentItems = localItems.filter((item) => item.status === "sent");
+		const sharedSentItems = await getBrowserSharedSentItemsForParty(
+			session.partyId || null,
+		);
+		const sentItems =
+			sharedSentItems.length > 0 ? sharedSentItems : localSentItems;
+		const basket = buildBrowserBasketSummary([...draftItems, ...sentItems]);
+		const partySnapshot = session.partyId
+			? await db.collection("parties").doc(session.partyId).get()
+			: null;
+		const party = partySnapshot && partySnapshot.exists
+			? {
+					partyId: session.partyId,
+					...compactBrowserPartyMembers(partySnapshot.data() || {}),
+				}
+			: {
+					partyId: session.partyId || null,
+					guestCount: Number(session.guestCount || 1),
+					partyMembers: Array.isArray(session.partyMembers)
+						? session.partyMembers
+						: [],
+				};
+		const sentItemsWithTickets = sentItems.filter(
 			(item) => item.status === "sent" && item.ticketId,
 		);
 		const ticketIds = [
-			...new Set(sentItems.map((item) => item.ticketId).filter(Boolean)),
+			...new Set(sentItemsWithTickets.map((item) => item.ticketId).filter(Boolean)),
 		].slice(0, 30);
 
 		if (ticketIds.length === 0) {
 			return {
 				success: true,
 				basket,
+				party,
 				items: [],
 				tickets: [],
 			};
@@ -3563,14 +3780,15 @@ exports.getBrowserOrderStatus = functions.https.onCall(async (data, context) => 
 			const ticket = ticketDoc.data() || {};
 			if (
 				ticket.restaurantId !== session.restaurantId ||
-				ticket.browserSessionId !== sessionId
+				(ticket.browserSessionId !== sessionId &&
+					(!session.partyId || ticket.partyId !== session.partyId))
 			) {
 				return;
 			}
 			ticketsById.set(ticketDoc.id, { id: ticketDoc.id, ...ticket });
 		});
 
-		const statusItems = sentItems.map((item) => {
+		const statusItems = sentItemsWithTickets.map((item) => {
 			const ticket = ticketsById.get(item.ticketId) || {};
 			const status = getBrowserItemGuestStatus({ basketItem: item, ticket });
 			return {
@@ -3599,6 +3817,7 @@ exports.getBrowserOrderStatus = functions.https.onCall(async (data, context) => 
 		return {
 			success: true,
 			basket,
+			party,
 			items: statusItems,
 			tickets,
 		};
@@ -4468,6 +4687,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 		}
 
 		// --- TRANSACTION PHASE ---
+		let browserCleanupPartyId = partyId || null;
 		await db.runTransaction(async (transaction) => {
 			// READ 1: Get check-in document
 			let associatedPartyId = null;
@@ -4502,6 +4722,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 			}
 
 			const targetPartyId = partyId || associatedPartyId;
+			browserCleanupPartyId = targetPartyId || browserCleanupPartyId;
 			let partyRef = null;
 			let partyDoc = { exists: false };
 			let partyData = {};
@@ -4567,6 +4788,7 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 			// WRITE 3: Free the physical table
 			transaction.update(tableRef, {
 				status: "available",
+				currentPartyId: null,
 				currentCheckInId: null,
 				currentCustomerId: null,
 				seatedAt: null,
@@ -4640,6 +4862,21 @@ exports.forceClearTable = functions.https.onCall(async (data, context) => {
 				);
 			}
 		});
+
+		if (browserCleanupPartyId) {
+			await closeBrowserSessionsForParty({
+				partyId: browserCleanupPartyId,
+				reason: "manager_force_clear",
+				status: "voided",
+				closedBy: {
+					userId: context.auth.uid,
+					staffId: staffMember.id || staffId || null,
+					name: staffName || staffMember.name || null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+				},
+			});
+		}
 
 		return {
 			success: true,
@@ -5575,6 +5812,7 @@ exports.markPartyTableClean = functions.https.onCall(async (data, context) => {
 					tableRef,
 					{
 						status: "available",
+						currentPartyId: null,
 						currentCheckInId: null,
 						currentCustomerId: null,
 						seatedAt: null,
@@ -5603,6 +5841,13 @@ exports.markPartyTableClean = functions.https.onCall(async (data, context) => {
 					{ merge: true },
 				);
 			}
+		});
+
+		await closeBrowserSessionsForParty({
+			partyId,
+			reason: "table_marked_clean",
+			status: "closed",
+			closedBy: cleanedBy,
 		});
 
 		return { success: true };

@@ -196,3 +196,56 @@ export const syncBrowserCheckoutSession = async ({
 	const result = await syncCheckout({ orderId, checkoutSessionId, sessionId });
 	return result.data || null;
 };
+
+export const submitBrowserMenuItemRating = async ({
+	menuItemId,
+	restaurantId,
+	ratingValue,
+	reviewText = "",
+	reviewTags = [],
+	orderId,
+	customerName = "",
+}) => {
+	const submitRating = httpsCallable(functions, "submitMenuItemRating");
+	const result = await submitRating({
+		menuItemId,
+		restaurantId,
+		ratingValue,
+		reviewText,
+		reviewTags,
+		orderId,
+		customerName,
+		origin: "browser_table_checkout",
+		verificationLevel: "scerv_order_verified",
+	});
+	return result.data || null;
+};
+
+export const submitBrowserServerRating = async ({
+	restaurantId,
+	serverId,
+	serverName,
+	ratingValue,
+	feedbackText = "",
+	feedbackTags = [],
+	orderId,
+	partyId,
+	checkInId,
+	customerName = "",
+}) => {
+	const submitRating = httpsCallable(functions, "submitServerRating");
+	const result = await submitRating({
+		restaurantId,
+		serverId,
+		serverName,
+		ratingValue,
+		feedbackText,
+		feedbackTags,
+		orderId,
+		partyId,
+		checkInId,
+		customerName,
+		origin: "browser_table_checkout",
+	});
+	return result.data || null;
+};

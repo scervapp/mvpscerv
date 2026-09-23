@@ -40,6 +40,7 @@ import { Formik } from "formik";
 import OrderDetailsModal from "../../components/restaurant/OrderDetailModal";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
+import { useNavigation } from "@react-navigation/native";
 
 const TABLE_TYPE_OPTIONS = [
 	{ label: "Dining", value: "dining" },
@@ -448,6 +449,7 @@ const getStatusColor = (status) => {
 
 const TableManagementScreen = () => {
 	const { t } = useTranslation();
+	const navigation = useNavigation();
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
 	const [tables, setTables] = useState([]);
@@ -644,7 +646,16 @@ const TableManagementScreen = () => {
 	};
 
 	const handleTablePress = (table) => {
-		setSelectedTable(table);
+		const activePartyId =
+			table?.currentPartyId || (table?.id ? activePartyMap[table.id] : null);
+		setSelectedTable(
+			table
+				? {
+						...table,
+						currentPartyId: table.currentPartyId || activePartyId || null,
+					}
+				: table,
+		);
 		setIsModalVisible(true);
 	};
 
@@ -661,10 +672,9 @@ const TableManagementScreen = () => {
 
 		setIsActionLoading(true);
 		try {
-			// 🚨 Grab the active party ID from our map
-			const targetPartyId = activePartyMap[tableToClear.id] || null;
+			const targetPartyId =
+				tableToClear.currentPartyId || activePartyMap[tableToClear.id] || null;
 
-			// 🚨 Send the complete payload to the Cloud Function
 			await forceClearTableFunction({
 				restaurantId: currentUserData.uid,
 				tableId: tableToClear.id,
@@ -722,7 +732,8 @@ const TableManagementScreen = () => {
 		if (!selectedTable) return;
 		setIsActionLoading(true);
 		try {
-			const targetPartyId = activePartyMap[selectedTable.id] || null;
+			const targetPartyId =
+				selectedTable.currentPartyId || activePartyMap[selectedTable.id] || null;
 			const staffName =
 				activeSession?.name ||
 				`${activeSession?.firstName || ""} ${
@@ -758,6 +769,15 @@ const TableManagementScreen = () => {
 			setIsActionLoading(false);
 			setIsModalVisible(false);
 		}
+	};
+
+	const handleOpenLiveTable = (partyId) => {
+		if (!partyId) return;
+		setIsModalVisible(false);
+		navigation.navigate("ActiveTablesNavigator", {
+			screen: "ManagePartyScreen",
+			params: { partyId },
+		});
 	};
 
 	const handleCopyQrUrl = async () => {
@@ -1128,6 +1148,7 @@ const TableManagementScreen = () => {
 								!isEditMode
 							}
 							onClose={closeModal}
+							onOpenTable={handleOpenLiveTable}
 							table={selectedTable}
 						/>
 
