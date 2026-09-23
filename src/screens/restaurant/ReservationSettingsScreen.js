@@ -48,36 +48,42 @@ const STYLE_FEATURE_PRESETS = {
 		hostCheckInRequests: false,
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 	quick_service: {
 		reservations: false,
 		hostCheckInRequests: false,
 		qrSelfCheckIn: false,
 		tableScanOrdering: false,
+		pickup: true,
 	},
 	casual_dining: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 	full_service: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 	fine_dining: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: false,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 	hotel_concierge: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: false,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 };
 
@@ -145,12 +151,14 @@ const getDefaultExperienceState = () => ({
 		hostCheckInRequests: false,
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
+		pickup: false,
 	},
 	allowedFeatures: {
 		reservations: true,
 		hostCheckInRequests: true,
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
+		pickup: true,
 	},
 });
 
@@ -187,6 +195,7 @@ const ReservationSettingsScreen = () => {
 						qrSelfCheckIn: experienceConfig.features.qrSelfCheckIn !== false,
 						tableScanOrdering:
 							experienceConfig.features.tableScanOrdering === true,
+						pickup: experienceConfig.features.pickup === true,
 					},
 					allowedFeatures: {
 						reservations: experienceConfig.isFeatureAllowed("reservations"),
@@ -195,6 +204,7 @@ const ReservationSettingsScreen = () => {
 						qrSelfCheckIn: experienceConfig.isFeatureAllowed("qrSelfCheckIn"),
 						tableScanOrdering:
 							experienceConfig.isFeatureAllowed("tableScanOrdering"),
+						pickup: experienceConfig.isFeatureAllowed("pickup"),
 					},
 				});
 			});
@@ -494,6 +504,25 @@ const ReservationSettingsScreen = () => {
 							disabled={
 								!canManageReservationSettings ||
 								experienceState.allowedFeatures.qrSelfCheckIn === false
+							}
+						/>
+					</View>
+					<View style={styles.toggleRow}>
+						<View style={styles.toggleCopy}>
+							<Text style={styles.toggleTitle}>Pickup ordering</Text>
+							<Text style={styles.panelSubtitle}>
+								Guests can place orders for pickup without a table.
+							</Text>
+							{experienceState.allowedFeatures.pickup === false && (
+								<Text style={styles.lockedFeatureText}>Locked by Scerv plan</Text>
+							)}
+						</View>
+						<Switch
+							value={experienceState.features.pickup}
+							onValueChange={() => toggleExperienceFeature("pickup")}
+							disabled={
+								!canManageReservationSettings ||
+								experienceState.allowedFeatures.pickup === false
 							}
 						/>
 					</View>
