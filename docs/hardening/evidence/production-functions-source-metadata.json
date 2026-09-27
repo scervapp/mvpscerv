@@ -1,0 +1,1831 @@
+{
+  "generatedAt": "2026-09-27T09:05:37.511Z",
+  "projectId": "scervmvp",
+  "region": "us-central1",
+  "functionCount": 133,
+  "uniqueFirebaseFunctionsHashCount": 32,
+  "hashGroups": [
+    {
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "count": 54,
+      "firstUpdateTime": "2026-06-05T04:05:03.540Z",
+      "lastUpdateTime": "2026-06-05T04:05:59.652Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "acknowledgePartyServiceRequest",
+        "activatePartyCheckIn",
+        "addEmployee",
+        "addItemToBasket",
+        "addItemToSharedBasket",
+        "addLocalPIPToParty",
+        "addTable",
+        "aggregateDishRating",
+        "aggregateMenuItemRating",
+        "assignPartyServer",
+        "autoCloseStaleWorkDays",
+        "autoTranslateMenuItem",
+        "cancelCheckIn",
+        "cancelParty",
+        "cancelPartyCheckIn",
+        "clearBasket",
+        "clearTable",
+        "completePickupOrderHandoff",
+        "convertIndividualToParty",
+        "createParty",
+        "createPartySession",
+        "createPendingOrder",
+        "customerCancelSeatedCheckIn",
+        "declineCheckIn",
+        "deleteEmployee",
+        "deleteTable",
+        "discountOrderItem",
+        "emitDgiInvoice",
+        "forceClearTable",
+        "handleCheckIn",
+        "handleCheckInResponse",
+        "handleQRScan",
+        "inviteToParty",
+        "joinParty",
+        "leaveParty",
+        "linkBasketToCheckIn",
+        "markPartyTableClean",
+        "removeItemFromBasket",
+        "removeSharedBasketItem",
+        "searchPIPs",
+        "selfSeatingCheckIn",
+        "sendToChefsQ",
+        "setEmployeeRole",
+        "setManagerPin",
+        "submitDishRating",
+        "submitMenuItemRating",
+        "syncCustomerSearchIndex",
+        "translateInstruction",
+        "updateBasketItemQuantity",
+        "updateEmployee",
+        "updateSharedBasketItemQuantity",
+        "updateTable",
+        "verifyEmailOtp",
+        "verifyEmployeePin"
+      ]
+    },
+    {
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "count": 15,
+      "firstUpdateTime": "2026-06-10T02:35:38.228Z",
+      "lastUpdateTime": "2026-06-10T02:35:44.824Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "addStaffItemsToPartyAndSendToKitchen",
+        "closePartyTable",
+        "endWorkDay",
+        "getAggregatedSalesReport",
+        "getDailySalesReport",
+        "getDashboardReport",
+        "getOrderDetail",
+        "getOrdersLedger",
+        "getReportingDashboard",
+        "getSalesReport",
+        "markReadyKitchenItemsServed",
+        "sendItemsToChefsQ",
+        "sendOrderToKitchen",
+        "startWorkDay",
+        "updateKitchenOrderStationStatus"
+      ]
+    },
+    {
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "count": 7,
+      "firstUpdateTime": "2026-06-05T04:05:52.126Z",
+      "lastUpdateTime": "2026-06-05T04:06:05.688Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "chargeSavedDlocalCard",
+        "confirmDlocalPayment",
+        "createDlocalCheckout",
+        "createDlocalPayment",
+        "dlocalWebhook",
+        "processDlocalNativePayment",
+        "processDlocalTokenCharge"
+      ]
+    },
+    {
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "count": 5,
+      "firstUpdateTime": "2026-06-05T04:05:25.971Z",
+      "lastUpdateTime": "2026-06-05T04:05:30.916Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "checkOnboardingStatus",
+        "createConnectedAccount",
+        "createLoginLink",
+        "createStripeCustomer",
+        "onUserCreate"
+      ]
+    },
+    {
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "count": 5,
+      "firstUpdateTime": "2026-06-17T12:12:37.866690488Z",
+      "lastUpdateTime": "2026-06-17T12:12:42.716251053Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "cancelScervCustomerPromotion",
+        "issueScervCustomerPromotion",
+        "listScervPromotionLedger",
+        "redeemCustomerPromotion",
+        "saveScervWalletDefinition"
+      ]
+    },
+    {
+      "hash": "187ef51bdd83cac13c15a3064a448745f4042d51",
+      "count": 4,
+      "firstUpdateTime": "2026-06-17T03:58:28.612025622Z",
+      "lastUpdateTime": "2026-06-17T03:58:35.551404056Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "createScervAdminUser",
+        "listScervAdminUsers",
+        "setScervAdminUserDisabled",
+        "updateScervAdminUserRole"
+      ]
+    },
+    {
+      "hash": "25467eb398ab56b8c016713e3448d6d46d09a607",
+      "count": 4,
+      "firstUpdateTime": "2026-06-17T08:08:47.391552624Z",
+      "lastUpdateTime": "2026-06-17T08:08:51.472180486Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "archiveScervMenuItem",
+        "getScervCustomerProfile",
+        "searchScervAdminRecords",
+        "updateScervRestaurantProfile"
+      ]
+    },
+    {
+      "hash": "a866fc5d94559ad6148cc4a0334e0f315efa615f",
+      "count": 4,
+      "firstUpdateTime": "2026-06-17T12:18:20.962556945Z",
+      "lastUpdateTime": "2026-06-17T12:18:30.044857861Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "deleteScervFirestoreDocument",
+        "getScervFirestoreCollection",
+        "getScervFirestoreDocument",
+        "setScervFirestoreDocument"
+      ]
+    },
+    {
+      "hash": "14719d219632857b76eebf068fafd3ff3cdf557a",
+      "count": 3,
+      "firstUpdateTime": "2026-06-05T04:05:50.674Z",
+      "lastUpdateTime": "2026-06-05T04:06:02.367Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "capturePayPalOrder",
+        "chargeVaultedCard",
+        "createPayPalOrder"
+      ]
+    },
+    {
+      "hash": "68105dd8d9a47f69a6206c657ded189b77a6dc44",
+      "count": 3,
+      "firstUpdateTime": "2026-06-17T12:03:25.060Z",
+      "lastUpdateTime": "2026-06-17T12:03:25.275Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "addScervSupportCaseNote",
+        "listScervSupportCases",
+        "saveScervSupportCase"
+      ]
+    },
+    {
+      "hash": "c810da7511188225cf43c4b38077909f8267cf78",
+      "count": 3,
+      "firstUpdateTime": "2026-06-10T02:35:39.930Z",
+      "lastUpdateTime": "2026-06-10T02:35:40.661Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "captureStaffTerminalPayment",
+        "createTerminalConnectionToken",
+        "prepareStaffTerminalPayment"
+      ]
+    },
+    {
+      "hash": "ca8426ed93a2c1c701dc3b7ffdacb8aa15226c3c",
+      "count": 3,
+      "firstUpdateTime": "2026-06-18T19:05:49.622848501Z",
+      "lastUpdateTime": "2026-06-18T19:06:04.491Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "getScervAdminDashboardStats",
+        "listScervNewsletterSubscribers",
+        "updateScervNewsletterSubscriber"
+      ]
+    },
+    {
+      "hash": "6ae241419821d0614c6a0c0ec1065989e3c18397",
+      "count": 2,
+      "firstUpdateTime": "2026-06-17T20:04:43.508556914Z",
+      "lastUpdateTime": "2026-06-17T20:04:44.598273883Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "listScervDemoLeads",
+        "updateScervDemoLead"
+      ]
+    },
+    {
+      "hash": "8b1662d1e73f73290780bf64a50b1bdd1eb8d41d",
+      "count": 2,
+      "firstUpdateTime": "2026-06-17T11:10:00.900906765Z",
+      "lastUpdateTime": "2026-06-17T11:10:02.391595221Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "addScervOrderSupportNote",
+        "getScervOrderSupportDetail"
+      ]
+    },
+    {
+      "hash": "d39ea2461c3e74e9d90af49c5841620907d54347",
+      "count": 2,
+      "firstUpdateTime": "2026-06-17T11:54:40.425Z",
+      "lastUpdateTime": "2026-06-17T11:54:42.802180682Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "getScervRestaurantProfile",
+        "listScervAdminAuditLogs"
+      ]
+    },
+    {
+      "hash": "297dedf74101455c289a14f4422985d5fd46f306",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T11:28:00.392433842Z",
+      "lastUpdateTime": "2026-06-17T11:28:00.392433842Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "createScervRestaurantOnboarding"
+      ]
+    },
+    {
+      "hash": "34b08e24010487d82d317a6dcfbbfd1eaaf2ca1f",
+      "count": 1,
+      "firstUpdateTime": "2026-06-05T04:05:29.901Z",
+      "lastUpdateTime": "2026-06-05T04:05:29.901Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "sendEmailOtp"
+      ]
+    },
+    {
+      "hash": "383b2a1eaaccdb1e8ac02e1b04b1b6a1906cb3f0",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T12:38:09.757Z",
+      "lastUpdateTime": "2026-06-17T12:38:09.757Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "saveScervMenuItem"
+      ]
+    },
+    {
+      "hash": "41f26508d50be678abf2174c61d3e78f696c00da",
+      "count": 1,
+      "firstUpdateTime": "2026-06-10T03:00:00.853Z",
+      "lastUpdateTime": "2026-06-10T03:00:00.853Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "stripeWebhookLive"
+      ]
+    },
+    {
+      "hash": "4ddc4e47304f108467e0ec7427394757cba5b7b2",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T12:25:33.303371697Z",
+      "lastUpdateTime": "2026-06-17T12:25:33.303371697Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "setScervCustomerDisabled"
+      ]
+    },
+    {
+      "hash": "59eb9ce01fca75f682d8046962cdab49f0bc0096",
+      "count": 1,
+      "firstUpdateTime": "2026-06-10T03:00:01.699Z",
+      "lastUpdateTime": "2026-06-10T03:00:01.699Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "stripeWebhookTest"
+      ]
+    },
+    {
+      "hash": "5c070ee4f7475426d75efe148cfbe2a074abc25f",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T11:10:02.078524883Z",
+      "lastUpdateTime": "2026-06-17T11:10:02.078524883Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "refundScervStripeOrder"
+      ]
+    },
+    {
+      "hash": "64cb5cdd632fa945ba9d3b9dcfdc113ccc93ba05",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T20:04:45.203785525Z",
+      "lastUpdateTime": "2026-06-17T20:04:45.203785525Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "submitScervDemoRequest"
+      ]
+    },
+    {
+      "hash": "932900a53e2d72167a13def4779bec1457fe6480",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T07:45:41.297Z",
+      "lastUpdateTime": "2026-06-17T07:45:41.297Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "listScervCustomers"
+      ]
+    },
+    {
+      "hash": "a20f905d39db94838aceea24953532ef57b859f4",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T11:40:42.947844692Z",
+      "lastUpdateTime": "2026-06-17T11:40:42.947844692Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "saveRestaurantFeatureEntitlements"
+      ]
+    },
+    {
+      "hash": "a3699ee8ff73006a71c9ae159e625868119e87a0",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T12:25:32.921011841Z",
+      "lastUpdateTime": "2026-06-17T12:25:32.921011841Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "sendScervCustomerPasswordReset"
+      ]
+    },
+    {
+      "hash": "b306fc9177325cac8dc4e19878d88c8b3cef4625",
+      "count": 1,
+      "firstUpdateTime": "2026-06-18T19:05:35.324985918Z",
+      "lastUpdateTime": "2026-06-18T19:05:35.324985918Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "submitScervNewsletterSignup"
+      ]
+    },
+    {
+      "hash": "b83f14bc2676debf269347f0b36c5c416ee56b7a",
+      "count": 1,
+      "firstUpdateTime": "2026-06-05T04:05:27.734Z",
+      "lastUpdateTime": "2026-06-05T04:05:27.734Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "getStripePublishableKey"
+      ]
+    },
+    {
+      "hash": "be9a4f60739707feab331b2f2e385260f563cd5e",
+      "count": 1,
+      "firstUpdateTime": "2026-06-05T20:33:11.084Z",
+      "lastUpdateTime": "2026-06-05T20:33:11.084Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "createUserAccount"
+      ]
+    },
+    {
+      "hash": "d4bdb6c15c234780115bf77d60bd1923ba19789a",
+      "count": 1,
+      "firstUpdateTime": "2026-06-05T04:05:52.421Z",
+      "lastUpdateTime": "2026-06-05T04:05:52.421Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "getDlocalPublicKey"
+      ]
+    },
+    {
+      "hash": "e6e2a89e86c672aff0d4b420dfb5641e69d9044f",
+      "count": 1,
+      "firstUpdateTime": "2026-06-10T03:25:20.619Z",
+      "lastUpdateTime": "2026-06-10T03:25:20.619Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "preparePayment"
+      ]
+    },
+    {
+      "hash": "eee9cf9e77285c91037d0a86812496684bbd397d",
+      "count": 1,
+      "firstUpdateTime": "2026-06-17T11:54:37.598046207Z",
+      "lastUpdateTime": "2026-06-17T11:54:37.598046207Z",
+      "runtimes": [
+        "nodejs20"
+      ],
+      "functions": [
+        "resendRestaurantOwnerSetupEmail"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "acknowledgePartyServiceRequest",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "5",
+      "updateTime": "2026-06-05T04:05:45.524Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "activatePartyCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "33",
+      "updateTime": "2026-06-05T04:05:48.060Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addEmployee",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "18",
+      "updateTime": "2026-06-05T04:05:47.618Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addItemToBasket",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "67",
+      "updateTime": "2026-06-05T04:05:28.786Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addItemToSharedBasket",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "34",
+      "updateTime": "2026-06-05T04:05:28.177Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addLocalPIPToParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "32",
+      "updateTime": "2026-06-05T04:05:49.116Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addScervOrderSupportNote",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:10:02.391595221Z",
+      "hash": "8b1662d1e73f73290780bf64a50b1bdd1eb8d41d",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addScervSupportCaseNote",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T12:03:25.242Z",
+      "hash": "68105dd8d9a47f69a6206c657ded189b77a6dc44",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addStaffItemsToPartyAndSendToKitchen",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "9",
+      "updateTime": "2026-06-10T02:35:44.655Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "addTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "14",
+      "updateTime": "2026-06-05T04:05:48.728Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "aggregateDishRating",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "32",
+      "updateTime": "2026-06-05T04:05:27.164Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "aggregateMenuItemRating",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:30.141Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "archiveScervMenuItem",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T08:08:47.391552624Z",
+      "hash": "25467eb398ab56b8c016713e3448d6d46d09a607",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "assignPartyServer",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "3",
+      "updateTime": "2026-06-05T04:05:47.470Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "autoCloseStaleWorkDays",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:47.497Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "autoTranslateMenuItem",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:54.285Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "cancelCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "63",
+      "updateTime": "2026-06-05T04:05:26.753Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "cancelParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "36",
+      "updateTime": "2026-06-05T04:05:47.663Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "cancelPartyCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "31",
+      "updateTime": "2026-06-05T04:05:47.934Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "cancelScervCustomerPromotion",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:12:42.392086464Z",
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "capturePayPalOrder",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "5",
+      "updateTime": "2026-06-05T04:06:02.367Z",
+      "hash": "14719d219632857b76eebf068fafd3ff3cdf557a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "captureStaffTerminalPayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "6",
+      "updateTime": "2026-06-10T02:35:39.930Z",
+      "hash": "c810da7511188225cf43c4b38077909f8267cf78",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "chargeSavedDlocalCard",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:56.996Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "chargeVaultedCard",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:50.674Z",
+      "hash": "14719d219632857b76eebf068fafd3ff3cdf557a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "checkOnboardingStatus",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "55",
+      "updateTime": "2026-06-05T04:05:25.971Z",
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "clearBasket",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "60",
+      "updateTime": "2026-06-05T04:05:25.144Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "clearTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "45",
+      "updateTime": "2026-06-05T04:05:29.262Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "closePartyTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "32",
+      "updateTime": "2026-06-10T02:35:41.274Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "completePickupOrderHandoff",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:51.165Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "confirmDlocalPayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "63",
+      "updateTime": "2026-06-05T04:06:05.688Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "convertIndividualToParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "9",
+      "updateTime": "2026-06-05T04:05:28.942Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createConnectedAccount",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "55",
+      "updateTime": "2026-06-05T04:05:27.174Z",
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createDlocalCheckout",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "10",
+      "updateTime": "2026-06-05T04:05:54.122Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createDlocalPayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "8",
+      "updateTime": "2026-06-05T04:05:52.126Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createLoginLink",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "49",
+      "updateTime": "2026-06-05T04:05:27.712Z",
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "43",
+      "updateTime": "2026-06-05T04:05:28.433Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createPartySession",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "11",
+      "updateTime": "2026-06-05T04:05:47.787Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createPayPalOrder",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:57.287Z",
+      "hash": "14719d219632857b76eebf068fafd3ff3cdf557a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createPendingOrder",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "7",
+      "updateTime": "2026-06-05T04:05:03.776Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createScervAdminUser",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T03:58:35.252832152Z",
+      "hash": "187ef51bdd83cac13c15a3064a448745f4042d51",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createScervRestaurantOnboarding",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:28:00.392433842Z",
+      "hash": "297dedf74101455c289a14f4422985d5fd46f306",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createStripeCustomer",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "59",
+      "updateTime": "2026-06-05T04:05:30.916Z",
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createTerminalConnectionToken",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "13",
+      "updateTime": "2026-06-10T02:35:40.545Z",
+      "hash": "c810da7511188225cf43c4b38077909f8267cf78",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "createUserAccount",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "24",
+      "updateTime": "2026-06-05T20:33:11.084Z",
+      "hash": "be9a4f60739707feab331b2f2e385260f563cd5e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "customerCancelSeatedCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "3",
+      "updateTime": "2026-06-05T04:05:25.244Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "declineCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "3",
+      "updateTime": "2026-06-05T04:05:25.438Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "deleteEmployee",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "13",
+      "updateTime": "2026-06-05T04:05:45.351Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "deleteScervFirestoreDocument",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:18:26.914153905Z",
+      "hash": "a866fc5d94559ad6148cc4a0334e0f315efa615f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "deleteTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "13",
+      "updateTime": "2026-06-05T04:05:59.652Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "discountOrderItem",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "15",
+      "updateTime": "2026-06-05T04:05:03.664Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "dlocalWebhook",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "6",
+      "updateTime": "2026-06-05T04:05:57.431Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "emitDgiInvoice",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "39",
+      "updateTime": "2026-06-05T04:05:49.512Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "endWorkDay",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "23",
+      "updateTime": "2026-06-10T02:35:40.642Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "forceClearTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "14",
+      "updateTime": "2026-06-05T04:05:48.126Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getAggregatedSalesReport",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "17",
+      "updateTime": "2026-06-10T02:35:42.750Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getDailySalesReport",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "69",
+      "updateTime": "2026-06-10T02:35:44.824Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getDashboardReport",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "11",
+      "updateTime": "2026-06-10T02:35:38.326Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getDlocalPublicKey",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:52.421Z",
+      "hash": "d4bdb6c15c234780115bf77d60bd1923ba19789a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getOrderDetail",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "9",
+      "updateTime": "2026-06-10T02:35:39.937Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getOrdersLedger",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "10",
+      "updateTime": "2026-06-10T02:35:38.999Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getReportingDashboard",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "9",
+      "updateTime": "2026-06-10T02:35:40.927Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getSalesReport",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "23",
+      "updateTime": "2026-06-10T02:35:39.447Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervAdminDashboardStats",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "3",
+      "updateTime": "2026-06-18T19:06:04.491Z",
+      "hash": "ca8426ed93a2c1c701dc3b7ffdacb8aa15226c3c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervCustomerProfile",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T08:08:48.198418672Z",
+      "hash": "25467eb398ab56b8c016713e3448d6d46d09a607",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervFirestoreCollection",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:18:20.962556945Z",
+      "hash": "a866fc5d94559ad6148cc4a0334e0f315efa615f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervFirestoreDocument",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:18:30.044857861Z",
+      "hash": "a866fc5d94559ad6148cc4a0334e0f315efa615f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervOrderSupportDetail",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:10:00.900906765Z",
+      "hash": "8b1662d1e73f73290780bf64a50b1bdd1eb8d41d",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getScervRestaurantProfile",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T11:54:40.425Z",
+      "hash": "d39ea2461c3e74e9d90af49c5841620907d54347",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "getStripePublishableKey",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "62",
+      "updateTime": "2026-06-05T04:05:27.734Z",
+      "hash": "b83f14bc2676debf269347f0b36c5c416ee56b7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "handleCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "65",
+      "updateTime": "2026-06-05T04:05:29.095Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "handleCheckInResponse",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "64",
+      "updateTime": "2026-06-05T04:05:28.402Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "handleQRScan",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "3",
+      "updateTime": "2026-06-05T04:05:27.056Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "inviteToParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "37",
+      "updateTime": "2026-06-05T04:05:38.369Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "issueScervCustomerPromotion",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:12:42.716251053Z",
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "joinParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "37",
+      "updateTime": "2026-06-05T04:05:38.383Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "leaveParty",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "37",
+      "updateTime": "2026-06-05T04:05:39.535Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "linkBasketToCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "17",
+      "updateTime": "2026-06-05T04:05:26.918Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervAdminAuditLogs",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:54:42.802180682Z",
+      "hash": "d39ea2461c3e74e9d90af49c5841620907d54347",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervAdminUsers",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T03:58:28.612025622Z",
+      "hash": "187ef51bdd83cac13c15a3064a448745f4042d51",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervCustomers",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T07:45:41.297Z",
+      "hash": "932900a53e2d72167a13def4779bec1457fe6480",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervDemoLeads",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T20:04:43.508556914Z",
+      "hash": "6ae241419821d0614c6a0c0ec1065989e3c18397",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervNewsletterSubscribers",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-18T19:05:51.528116060Z",
+      "hash": "ca8426ed93a2c1c701dc3b7ffdacb8aa15226c3c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervPromotionLedger",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:12:42.447422740Z",
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "listScervSupportCases",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T12:03:25.060Z",
+      "hash": "68105dd8d9a47f69a6206c657ded189b77a6dc44",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "markPartyTableClean",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:44.801Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "markReadyKitchenItemsServed",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-10T02:35:41.028Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "onUserCreate",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "23",
+      "updateTime": "2026-06-05T04:05:26.649Z",
+      "hash": "46a1887ae027ea65aab3b2cfb95da665aead124e",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "preparePayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "49",
+      "updateTime": "2026-06-10T03:25:20.619Z",
+      "hash": "e6e2a89e86c672aff0d4b420dfb5641e69d9044f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "prepareStaffTerminalPayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "13",
+      "updateTime": "2026-06-10T02:35:40.661Z",
+      "hash": "c810da7511188225cf43c4b38077909f8267cf78",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "processDlocalNativePayment",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:53.368Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "processDlocalTokenCharge",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:53.516Z",
+      "hash": "ad8158fc2217fb1d5b4486059dbd1a74aadd8b77",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "redeemCustomerPromotion",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:12:37.866690488Z",
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "refundScervStripeOrder",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:10:02.078524883Z",
+      "hash": "5c070ee4f7475426d75efe148cfbe2a074abc25f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "removeItemFromBasket",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "61",
+      "updateTime": "2026-06-05T04:05:30.050Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "removeSharedBasketItem",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "29",
+      "updateTime": "2026-06-05T04:05:46.249Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "resendRestaurantOwnerSetupEmail",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:54:37.598046207Z",
+      "hash": "eee9cf9e77285c91037d0a86812496684bbd397d",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "saveRestaurantFeatureEntitlements",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T11:40:42.947844692Z",
+      "hash": "a20f905d39db94838aceea24953532ef57b859f4",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "saveScervMenuItem",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T12:38:09.757Z",
+      "hash": "383b2a1eaaccdb1e8ac02e1b04b1b6a1906cb3f0",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "saveScervSupportCase",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-17T12:03:25.275Z",
+      "hash": "68105dd8d9a47f69a6206c657ded189b77a6dc44",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "saveScervWalletDefinition",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:12:40.237582940Z",
+      "hash": "c7c43361d78a1a9ab0509fc6e650dcb85d5e1b5c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "searchPIPs",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "31",
+      "updateTime": "2026-06-05T04:05:48.162Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "searchScervAdminRecords",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T08:08:51.472180486Z",
+      "hash": "25467eb398ab56b8c016713e3448d6d46d09a607",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "selfSeatingCheckIn",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:03.540Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "sendEmailOtp",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "6",
+      "updateTime": "2026-06-05T04:05:29.901Z",
+      "hash": "34b08e24010487d82d317a6dcfbbfd1eaaf2ca1f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "sendItemsToChefsQ",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "31",
+      "updateTime": "2026-06-10T02:35:38.228Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "sendOrderToKitchen",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "43",
+      "updateTime": "2026-06-10T02:35:40.060Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "sendScervCustomerPasswordReset",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:25:32.921011841Z",
+      "hash": "a3699ee8ff73006a71c9ae159e625868119e87a0",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "sendToChefsQ",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "87",
+      "updateTime": "2026-06-05T04:05:28.971Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "setEmployeeRole",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "10",
+      "updateTime": "2026-06-05T04:05:50.136Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "setManagerPin",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "14",
+      "updateTime": "2026-06-05T04:05:48.113Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "setScervAdminUserDisabled",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T03:58:35.512558118Z",
+      "hash": "187ef51bdd83cac13c15a3064a448745f4042d51",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "setScervCustomerDisabled",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:25:33.303371697Z",
+      "hash": "4ddc4e47304f108467e0ec7427394757cba5b7b2",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "setScervFirestoreDocument",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T12:18:26.000110836Z",
+      "hash": "a866fc5d94559ad6148cc4a0334e0f315efa615f",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "startWorkDay",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "22",
+      "updateTime": "2026-06-10T02:35:38.597Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "stripeWebhookLive",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "61",
+      "updateTime": "2026-06-10T03:00:00.853Z",
+      "hash": "41f26508d50be678abf2174c61d3e78f696c00da",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "stripeWebhookTest",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "125",
+      "updateTime": "2026-06-10T03:00:01.699Z",
+      "hash": "59eb9ce01fca75f682d8046962cdab49f0bc0096",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "submitDishRating",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "32",
+      "updateTime": "2026-06-05T04:05:26.536Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "submitMenuItemRating",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "7",
+      "updateTime": "2026-06-05T04:05:32.452Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "submitScervDemoRequest",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T20:04:45.203785525Z",
+      "hash": "64cb5cdd632fa945ba9d3b9dcfdc113ccc93ba05",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "submitScervNewsletterSignup",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-18T19:05:35.324985918Z",
+      "hash": "b306fc9177325cac8dc4e19878d88c8b3cef4625",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "syncCustomerSearchIndex",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:28.080Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": null
+    },
+    {
+      "name": "translateInstruction",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "2",
+      "updateTime": "2026-06-05T04:05:59.604Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateBasketItemQuantity",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "68",
+      "updateTime": "2026-06-05T04:05:29.092Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateEmployee",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:47.743Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateKitchenOrderStationStatus",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "8",
+      "updateTime": "2026-06-10T02:35:44.683Z",
+      "hash": "2df0545ee444b015f37c28ea15ce0c9cc420e9b6",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateScervAdminUserRole",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T03:58:35.551404056Z",
+      "hash": "187ef51bdd83cac13c15a3064a448745f4042d51",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateScervDemoLead",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T20:04:44.598273883Z",
+      "hash": "6ae241419821d0614c6a0c0ec1065989e3c18397",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateScervNewsletterSubscriber",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-18T19:05:49.622848501Z",
+      "hash": "ca8426ed93a2c1c701dc3b7ffdacb8aa15226c3c",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateScervRestaurantProfile",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "1",
+      "updateTime": "2026-06-17T08:08:47.964672046Z",
+      "hash": "25467eb398ab56b8c016713e3448d6d46d09a607",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateSharedBasketItemQuantity",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "31",
+      "updateTime": "2026-06-05T04:05:47.690Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "updateTable",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "14",
+      "updateTime": "2026-06-05T04:05:57.180Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "verifyEmailOtp",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "4",
+      "updateTime": "2026-06-05T04:05:30.554Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    },
+    {
+      "name": "verifyEmployeePin",
+      "runtime": "nodejs20",
+      "status": "ACTIVE",
+      "versionId": "17",
+      "updateTime": "2026-06-05T04:05:46.759Z",
+      "hash": "4feab1bb4eb5c4d9b7125788a77175d540aa5d7a",
+      "deploymentTool": "cli-firebase",
+      "deploymentCallable": "true"
+    }
+  ],
+  "notes": [
+    "Read-only metadata from Cloud Functions v1 API.",
+    "No source upload URLs, provider credentials or environment values are stored.",
+    "firebase-functions-hash values are deployment labels, not proven git commit SHAs."
+  ]
+}

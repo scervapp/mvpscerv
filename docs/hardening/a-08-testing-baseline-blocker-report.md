@@ -20,6 +20,17 @@ A-06 recorded these facts:
 - Production and testing Firestore rules match each other, but they do not match the current local `firestore.rules` source.
 - The current local branch contains hardening docs, deploy guards, CI gates, browser-ordering work and other post-production changes.
 
+Additional read-only production function metadata was captured in
+`docs/hardening/evidence/production-functions-source-metadata.json`:
+
+- 133 production application functions were returned from the Cloud Functions v1 API.
+- Those functions span 32 distinct `firebase-functions-hash` deployment labels.
+- The largest deployment label covers 54 functions updated on 2026-06-05.
+- Later deployment labels cover smaller groups on 2026-06-10, 2026-06-17 and 2026-06-18.
+- These labels are Firebase deployment hashes, not proven Git commit SHAs.
+
+That means production is currently a stitched deployed state, not a single known local source ref.
+
 Deploying the current local branch to testing would violate the W0 rule:
 
 > Baseline: A-06 verified production baseline source. Must not include any hardening.
