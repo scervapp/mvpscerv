@@ -155,5 +155,5 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Engineering + Founder
 - Blocks: A-08, Phase A exit
 - Needed by: Phase A exit
-- Answer:
-- Closed:
+- Answer: The exact source ref for the deployed production functions remains unknown. Founder explicitly approved waiving strict production-baseline parity and using the current hardening branch `codex/browser-ordering-mvp` as the testing-lane baseline for `scervmvp-testing`, accepting that this is no longer a production-parity W0 baseline. See D-023.
+- Closed: 2026-09-27 -> D-023

@@ -258,3 +258,15 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-16-pin-lockout-dos-decision.md`; source search of `verifyEmployeePin` and staff attempt collections.
 - Reversal trigger: Pilot operator requirements or security review require throttling before launch; implement it under this decision's per-device/session and recovery constraints.
 - Supersedes: none
+
+### D-023 — Waive strict production-baseline parity for the testing lane
+- Date: 2026-09-27
+- Decided by: Founder
+- Context: A-08 was blocked because the exact production source ref is unknown. Production is a stitched deployed state, testing has no deployed functions, and there are no current live restaurants. The founder confirmed Scerv expects to sign the first live restaurant next week and wants the hardening lane moving.
+- Decision: Use the current hardening branch `codex/browser-ordering-mvp` as the `scervmvp-testing` baseline, explicitly accepting that this is not an exact production-parity W0 baseline.
+- Alternatives rejected: Stop until the historical production source ref is recovered; deploy directly to production; call the current branch a production-parity baseline.
+- Risk accepted: Testing may expose drift from current production behavior because the baseline includes browser-ordering and hardening changes already accumulated on the branch.
+- Required controls: deploy to testing only; deploy functions before tightened rules; backfill `restaurantPublic` before raw restaurant public reads are removed; record smoke-test results; require a separate go/no-go before any production deploy.
+- Evidence: Founder approval in conversation on 2026-09-27; `docs/hardening/a-08-testing-baseline-blocker-report.md`; OQ-018 closure.
+- Reversal trigger: A production-parity source ref is recovered and must replace the current testing baseline, or testing reveals unacceptable drift.
+- Supersedes: D-014 for the testing lane only. Production release discipline remains unchanged.

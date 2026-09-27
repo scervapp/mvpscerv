@@ -7,7 +7,7 @@ Deploy status: None
 
 ## Result
 
-A-08 was not executed.
+A-08 was originally not executed because the exact production source ref was unknown. On 2026-09-27, the founder explicitly approved waiving strict production-baseline parity and using the current hardening branch as the `scervmvp-testing` baseline. This changes A-08 from blocked to an approved non-production-parity baseline path.
 
 The task requires deploying the A-06 verified production baseline source to `scervmvp-testing` and running a smoke script. Current evidence does not identify a deployable source ref that exactly represents the production application baseline.
 
@@ -45,4 +45,10 @@ One of these must happen:
 
 ## Recommendation
 
-Do not deploy anything to `scervmvp-testing` for A-08 until the source-ref question is answered. The first testing-lane deploy must be boring, reversible and explainable.
+Proceed only under D-023, with explicit drift notes:
+
+- This testing baseline is **current hardening source**, not exact production parity.
+- Deploy functions before tightened Firestore rules.
+- Backfill `restaurantPublic` before rules that remove public raw restaurant reads.
+- Record every testing deploy command and smoke result.
+- Do not deploy to production from this lane until testing QA and go/no-go evidence are complete.
