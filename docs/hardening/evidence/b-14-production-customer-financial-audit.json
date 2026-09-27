@@ -1,0 +1,339 @@
+{
+  "generatedAt": "2026-09-27T10:18:51.942Z",
+  "project": "scervmvp",
+  "database": "(default)",
+  "readOnly": true,
+  "actor": "scervapp@gmail.com",
+  "limitPerCollection": 1000,
+  "customers": {
+    "counters": {
+      "totalScanned": 48,
+      "withLegacyStripeCustomerId": 0,
+      "withTestStripeCustomerId": 43,
+      "withLiveStripeCustomerId": 43,
+      "withRootAvailablePoints": 0,
+      "withRootScervAvailablePoints": 0
+    },
+    "findings": [
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "ae3242515dc1",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "e1e762155112",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "6fe512a21761",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "52f09d19b88e",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "0e75bfce442f",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "240225061e6a",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "eb3228384d1f",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "dac473c30b28",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "b05204f538f6",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "0a41bcf05051",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "90ecb20cbc34",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "cd2e4ed2e8a2",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "1db19ab74bfb",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "591452868586",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "53c4b6ce8435",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "6503e66757f2",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "00a1f689b3a9",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "6ea3d1ca09cf",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "48b0fea541f1",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "d191090ad4b8",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "0dee678602e5",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "bd104043dbb1",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "9637bd140f47",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "6aff268a1023",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "3d9ab520ebce",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "7ea045159e6e",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "c483d7407d32",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "42856bae07c7",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "49ac84755438",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "d7121e444a04",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "5cc4ccbf4ab3",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "a1a9f5247fa9",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "acbfd0745daf",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "c6e08245fe75",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "e6fb799d02d0",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "a85559d5adb6",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "27c5ea56e744",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "0f7afa39a92c",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "f86f55b824fd",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "daceb9c84990",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "3df10cd2d49c",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "85ec7eb59886",
+        "fields": [
+          "role"
+        ]
+      },
+      {
+        "type": "customer_has_authority_field",
+        "refHash": "55fe964ba583",
+        "fields": [
+          "role"
+        ]
+      }
+    ]
+  },
+  "restaurantClubs": {
+    "counters": {
+      "totalScanned": 0,
+      "withUnlockedRewards": 0,
+      "withRedeemedRewards": 0
+    },
+    "findings": []
+  },
+  "promotions": {
+    "counters": {
+      "totalScanned": 0,
+      "available": 0,
+      "redeemed": 0,
+      "cancelled": 0,
+      "foodCredit": 0
+    },
+    "findings": []
+  }
+}

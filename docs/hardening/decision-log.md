@@ -225,3 +225,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-12-restaurant-public-projection-report.md`; `functions/restaurantPublicProfile.js`; `tests/unit/restaurant-public-profile.test.cjs`; `tests/rules/firestore.rules.test.cjs`.
 - Reversal trigger: Testing QA shows a guest-facing screen still depends on a protected root field; either add a safe public projection field or move that decision server-side.
 - Supersedes: none
+
+### D-020 — Remediate legacy customer authority fields before live pilot, not by emergency manual edit
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: B-14 read-only production audit scanned 48 customer documents. It found 43 customer docs with legacy `role` fields and 43 docs with both test and live Stripe customer mappings. No root customer point balances, restaurant-club subdocs or promotion subdocs were found. Founder previously confirmed there are no live restaurants or active production restaurant payments.
+- Decision: Do not perform an emergency manual production edit today. Before the first live restaurant goes live, remove legacy customer `role` fields through an audited admin/server maintenance action and reconcile existing Stripe customer mappings by provider metadata before trusting live payment reuse.
+- Alternatives rejected: Directly edit production customer documents by hand; ignore the legacy fields because B-13 blocks future writes; delete all customer payment mappings without a support/reconciliation path.
+- Risk accepted: Legacy `role` fields remain present until a controlled cleanup runs, but current and future authority checks must not trust customer document roles.
+- Evidence: `docs/hardening/b-14-customer-fee-rewards-stripe-data-review.md`; `docs/hardening/evidence/b-14-production-customer-financial-audit.json`.
+- Reversal trigger: Production pilot timing changes, provider reconciliation finds mismatched customer IDs, or a live payment flow depends on these legacy mappings before cleanup.
+- Supersedes: none
