@@ -163,5 +163,13 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Founder
 - Blocks: A-08, B-01, B-04, B-05, B-06, B-18
 - Needed by: testing-lane deploy
-- Answer: Deploy attempt `npx firebase-tools deploy --only functions --project scervmvp-testing` passed the deploy guard and lint predeploy, then failed because Firebase could not enable `artifactregistry.googleapis.com` without the `scervmvp-testing` project being on the Blaze plan. Upgrade URL shown by Firebase: `https://console.firebase.google.com/project/scervmvp-testing/usage/details`.
+- Answer: Deploy attempt `npx firebase-tools deploy --only functions --project scervmvp-testing` passed the deploy guard and lint predeploy, then failed because Firebase could not enable `artifactregistry.googleapis.com` without the `scervmvp-testing` project being on the Blaze plan. Founder upgraded `scervmvp-testing` to Blaze on 2026-09-27. A retry enabled `cloudbuild.googleapis.com` and `artifactregistry.googleapis.com` successfully, then moved to the next blocker.
+- Closed: 2026-09-27 -> founder confirmation in chat
+
+### OQ-020 — Can Secret Manager be enabled and testing secrets be provisioned for `scervmvp-testing`?
+- Raised: 2026-09-27 by A-08 testing deploy retry
+- Owner to answer: Founder + Engineering
+- Blocks: A-08, B-01, B-04, B-05, B-06, B-18
+- Needed by: testing-lane functions deploy
+- Answer: Retry command `$env:FUNCTIONS_DISCOVERY_TIMEOUT='60000'; npx.cmd firebase-tools deploy --only functions --project scervmvp-testing` passed deploy guard, lint, required Cloud Functions/Cloud Build/Artifact Registry API checks and function discovery, then failed because `secretmanager.googleapis.com` is disabled for `scervmvp-testing`. Required defined secrets include Stripe test/live publishable and secret keys, Stripe webhook secrets and `RESEND_API_KEY`; inactive PayPal/dLocalGo rails remain fail-closed and are not part of this deploy requirement.
 - Closed:

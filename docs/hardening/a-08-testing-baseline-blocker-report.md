@@ -69,3 +69,23 @@ Result:
 - Deploy failed before upload because `cloudbuild.googleapis.com` and `artifactregistry.googleapis.com` were missing, and `artifactregistry.googleapis.com` cannot be enabled unless `scervmvp-testing` is upgraded to Blaze.
 
 New blocker: OQ-019.
+
+## 2026-09-27 Testing Deploy Retry After Blaze Upgrade
+
+Founder confirmed `scervmvp-testing` was upgraded to Blaze. Retry command:
+
+```powershell
+$env:FUNCTIONS_DISCOVERY_TIMEOUT='60000'; npx.cmd firebase-tools deploy --only functions --project scervmvp-testing
+```
+
+Result:
+
+- Deploy guard passed for `functions` on `scervmvp-testing`.
+- Functions lint predeploy passed.
+- Firebase confirmed `cloudfunctions.googleapis.com`, `cloudbuild.googleapis.com` and `artifactregistry.googleapis.com` were enabled.
+- Raising `FUNCTIONS_DISCOVERY_TIMEOUT` to 60 seconds allowed Firebase function discovery to complete after the prior 10-second timeout.
+- Deploy then failed before upload because `secretmanager.googleapis.com` is disabled for `scervmvp-testing`.
+- Firebase also warned that Node.js 20 was deprecated on 2026-04-30 and will be decommissioned on 2026-10-31.
+
+Resolved blocker: OQ-019.
+New blocker: OQ-020.
