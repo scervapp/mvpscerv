@@ -9,7 +9,11 @@ const db = admin.firestore();
 const { updateDoc } = require("firebase-admin/firestore");
 const { FieldValue } = require("firebase-admin/firestore");
 const { generateOrderId } = require("./orderFunctions");
-const { getStripeKeys, createStripeCustomerHelper } = require("./stripeUtils");
+const {
+	getStripeKeys,
+	createStripeCustomerHelper,
+	normalizeStripeSecret,
+} = require("./stripeUtils");
 const { isFeatureAllowed } = require("./featureEntitlements");
 
 const STRIPE_PUBLISHABLE_KEY_TEST = defineSecret("STRIPE_PUBLISHABLE_KEY_TEST");
@@ -4356,8 +4360,8 @@ exports.stripeWebhookTest = functions
 	})
 	.https.onRequest(async (request, response) => {
 		const sig = request.headers["stripe-signature"];
-		const webhookSecret = STRIPE_WEBHOOK_SECRET_TEST.value();
-		const secretKey = STRIPE_SECRET_KEY_TEST.value(); // Use TEST API key
+		const webhookSecret = normalizeStripeSecret(STRIPE_WEBHOOK_SECRET_TEST.value());
+		const secretKey = normalizeStripeSecret(STRIPE_SECRET_KEY_TEST.value()); // Use TEST API key
 		let event;
 
 		if (!webhookSecret || !secretKey) {
@@ -4401,8 +4405,8 @@ exports.stripeWebhookLive = functions
 	})
 	.https.onRequest(async (request, response) => {
 		const sig = request.headers["stripe-signature"];
-		const webhookSecret = STRIPE_WEBHOOK_SECRET_LIVE.value();
-		const secretKey = STRIPE_SECRET_KEY_LIVE.value(); // Use LIVE API key
+		const webhookSecret = normalizeStripeSecret(STRIPE_WEBHOOK_SECRET_LIVE.value());
+		const secretKey = normalizeStripeSecret(STRIPE_SECRET_KEY_LIVE.value()); // Use LIVE API key
 		let event;
 
 		if (!webhookSecret || !secretKey) {

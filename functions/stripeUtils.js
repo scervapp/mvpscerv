@@ -28,13 +28,17 @@ const getCustomerUpdatePayload = (userData = {}) => ({
 	name: getCustomerName(userData),
 });
 
+const normalizeStripeSecret = (value) => String(value || "").trim();
+
 const getStripeModeConfig = (mode) => {
 	const isLiveMode = mode === "live";
 	return {
 		mode: isLiveMode ? "live" : "test",
-		secretKey: isLiveMode
-			? STRIPE_SECRET_KEY_LIVE.value()
-			: STRIPE_SECRET_KEY_TEST.value(),
+		secretKey: normalizeStripeSecret(
+			isLiveMode
+				? STRIPE_SECRET_KEY_LIVE.value()
+				: STRIPE_SECRET_KEY_TEST.value(),
+		),
 		customerIdField: isLiveMode
 			? "stripeCustomerId_live"
 			: "stripeCustomerId_test",
@@ -59,12 +63,16 @@ const getStripeKeys = async (restaurantId) => {
 		const isTestAccount = restaurantDoc.data().isTestAccount !== false;
 
 		return {
-			publishableKey: isTestAccount
-				? STRIPE_PUBLISHABLE_KEY_TEST.value()
-				: STRIPE_PUBLISHABLE_KEY_LIVE.value(),
-			stripeSecretKey: isTestAccount
-				? STRIPE_SECRET_KEY_TEST.value()
-				: STRIPE_SECRET_KEY_LIVE.value(),
+			publishableKey: normalizeStripeSecret(
+				isTestAccount
+					? STRIPE_PUBLISHABLE_KEY_TEST.value()
+					: STRIPE_PUBLISHABLE_KEY_LIVE.value(),
+			),
+			stripeSecretKey: normalizeStripeSecret(
+				isTestAccount
+					? STRIPE_SECRET_KEY_TEST.value()
+					: STRIPE_SECRET_KEY_LIVE.value(),
+			),
 			isTestMode: isTestAccount,
 		};
 	} catch (error) {
@@ -210,4 +218,5 @@ module.exports = {
 	createStripeCustomerHelper,
 	ensureStripeCustomerForMode,
 	ensureStripeCustomersForCustomer,
+	normalizeStripeSecret,
 };
