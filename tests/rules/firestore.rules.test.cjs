@@ -76,6 +76,27 @@ test("public discovery documents are readable but not client-writable", async ()
 	);
 });
 
+test("client version app config is public-readable and server-written only", async () => {
+	await seed("appConfig/clientVersions", {
+		enabled: true,
+		minNativeVersion: "0.0.44",
+		minNativeBuildIos: 34,
+		minNativeBuildAndroid: 36,
+	});
+
+	await assertSucceeds(getDoc(doc(anon(), "appConfig/clientVersions")));
+	await assertFails(
+		setDoc(doc(anon(), "appConfig/clientVersions"), {
+			enabled: false,
+		}),
+	);
+	await assertFails(
+		updateDoc(doc(authed("alice"), "appConfig/clientVersions"), {
+			minNativeVersion: "0.0.1",
+		}),
+	);
+});
+
 test("customers can read and maintain only their own profile", async () => {
 	await seed("customers/alice", { fullName: "Alice" });
 	await seed("customers/bob", { fullName: "Bob" });

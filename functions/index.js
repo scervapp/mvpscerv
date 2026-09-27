@@ -19,6 +19,7 @@ const rewardsFunctions = require("./rewardsFunctions");
 const reservationFunctions = require("./reservationFunctions");
 const adminFunctions = require("./adminFunctions");
 const recommendationFunctions = require("./recommendationFunctions");
+const clientVersionFunctions = require("./clientVersionFunctions");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -73,6 +74,7 @@ exports.createStripeCustomer = userFunctions.createStripeCustomer;
 exports.onUserCreate = userFunctions.onUserCreate;
 exports.syncCustomerSearchIndex = userFunctions.syncCustomerSearchIndex;
 exports.createUserAccount = userFunctions.createUserAccount;
+exports.checkClientVersion = clientVersionFunctions.checkClientVersion;
 
 exports.sendEmailOtp = userFunctions.sendEmailOtp;
 exports.verifyEmailOtp = userFunctions.verifyEmailOtp;

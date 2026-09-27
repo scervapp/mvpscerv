@@ -192,3 +192,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-02-admin-god-mode-containment-report.md`.
 - Reversal trigger: A-08 baseline strategy changes and B-02 needs to be rebased or replaced.
 - Supersedes: none
+
+### D-017 — Allow local B-03 minimum-version gate while deploy lanes are blocked
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: A-08 blocks testing-lane deployment, and A-02 still lacks GitHub CI/branch-protection evidence. B-03 can still be implemented locally without mutating cloud state, and it reduces the risk of future hardening waves breaking old clients silently.
+- Decision: Proceed with the native minimum-version gate and server-side version policy helper locally. Keep B-03 at `Fixed locally` until a testing-profile build proves the blocking update screen and the server rejection path.
+- Alternatives rejected: Wait for A-08 before writing the gate; deploy a breaking rules wave without a client update mechanism.
+- Risk accepted: The local branch now contains app-gating behavior that remains inactive unless `appConfig/clientVersions` explicitly enables a minimum policy.
+- Evidence: `docs/hardening/b-03-min-version-gate-report.md`.
+- Reversal trigger: Device testing shows unacceptable startup latency or a better compatibility mechanism is chosen.
+- Supersedes: none

@@ -10,29 +10,32 @@ import { RestaurantDataProvider } from "./src/context/restaurant/RestaurantDataC
 import { NotificationProvider } from "./src/context/NotificationProvider";
 import { I18nextProvider } from "react-i18next";
 import i18n from "./src/config/i18n"; // <-- Import i18n object
+import AppVersionGate from "./src/components/AppVersionGate";
 
 export default function App() {
 	return (
 		<SafeAreaProvider>
-			<ActionSheetProvider>
-				<NotificationProvider>
-					<AuthProvider>
-						<EmployeeSessionProvider>
-							<RestaurantDataProvider>
-								<WorkDayProvider>
-									<PartyProvider>
-										<BasketProvider>
-											<I18nextProvider i18n={i18n}>
-												<AppNavigator />
-											</I18nextProvider>
-										</BasketProvider>
-									</PartyProvider>
-								</WorkDayProvider>
-							</RestaurantDataProvider>
-						</EmployeeSessionProvider>
-					</AuthProvider>
-				</NotificationProvider>
-			</ActionSheetProvider>
+			<AppVersionGate>
+				<ActionSheetProvider>
+					<NotificationProvider>
+						<AuthProvider>
+							<EmployeeSessionProvider>
+								<RestaurantDataProvider>
+									<WorkDayProvider>
+										<PartyProvider>
+											<BasketProvider>
+												<I18nextProvider i18n={i18n}>
+													<AppNavigator />
+												</I18nextProvider>
+											</BasketProvider>
+										</PartyProvider>
+									</WorkDayProvider>
+								</RestaurantDataProvider>
+							</EmployeeSessionProvider>
+						</AuthProvider>
+					</NotificationProvider>
+				</ActionSheetProvider>
+			</AppVersionGate>
 		</SafeAreaProvider>
 	);
 }
