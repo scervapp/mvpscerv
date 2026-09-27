@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isImageUpload() {
+      return request.resource != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /menuItemImages/{ownerUid}/{fileName} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == ownerUid
+        && isImageUpload();
+      allow delete: if isSignedIn() && request.auth.uid == ownerUid;
+    }
+
+    match /restaurantProfileImages/{ownerUid}/{fileName} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == ownerUid
+        && isImageUpload();
+      allow delete: if isSignedIn() && request.auth.uid == ownerUid;
+    }
+
+    match /review-photos/{restaurantId}/{menuItemId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && fileName.matches(request.auth.uid + '_.*')
+        && isImageUpload();
+      allow delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

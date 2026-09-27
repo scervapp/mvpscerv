@@ -76,11 +76,12 @@ const normalizeStatus = (value) =>
 		.replace(/[\s-]+/g, "_");
 
 export const getRestaurantListingStatus = (restaurant = {}) => {
+	const safeRestaurant = restaurant || {};
 	const rawStatus = normalizeStatus(
-		restaurant.scervStatus ||
-			restaurant.listingStatus ||
-			restaurant.profileStatus ||
-			restaurant.claimStatus,
+		safeRestaurant.scervStatus ||
+			safeRestaurant.listingStatus ||
+			safeRestaurant.profileStatus ||
+			safeRestaurant.claimStatus,
 	);
 
 	if (
@@ -92,8 +93,8 @@ export const getRestaurantListingStatus = (restaurant = {}) => {
 		return "claimed";
 	}
 	if (
-		restaurant.isCommunityProfile === true ||
-		restaurant.isClaimed === false ||
+		safeRestaurant.isCommunityProfile === true ||
+		safeRestaurant.isClaimed === false ||
 		[
 			"community",
 			"community_listed",

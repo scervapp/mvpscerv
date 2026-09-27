@@ -23,17 +23,18 @@ const getRatingCount = (menuItem = {}) => {
 };
 
 const getListingStatus = (restaurant = {}) => {
+	const safeRestaurant = restaurant || {};
 	const status = String(
-		restaurant.listingStatus ||
-			restaurant.scervStatus ||
-			restaurant.claimStatus ||
+		safeRestaurant.listingStatus ||
+			safeRestaurant.scervStatus ||
+			safeRestaurant.claimStatus ||
 			"scerv_enabled",
 	)
 		.trim()
 		.toLowerCase();
 
 	if (
-		restaurant.isCommunityProfile === true ||
+		safeRestaurant.isCommunityProfile === true ||
 		["community", "community_listed", "unclaimed", "discovery_only"].includes(
 			status,
 		)
@@ -58,8 +59,9 @@ const RestaurantCard = ({
 	onBestFoodPress,
 }) => {
 	const { t } = useTranslation();
-	const isComingSoon = restaurant.isComingSoon === true;
-	const imageUri = restaurant.imageUri;
+	const safeRestaurant = restaurant || {};
+	const isComingSoon = safeRestaurant.isComingSoon === true;
+	const imageUri = safeRestaurant.imageUri;
 	const bestFoodRating = getFoodRating(bestMatchingFood);
 	const bestFoodRatingCount = getRatingCount(bestMatchingFood);
 	const bestFoodScervScore = bestMatchingFood
@@ -69,16 +71,19 @@ const RestaurantCard = ({
 		? getDiscoveryDishLabel(bestMatchingFood)
 		: null;
 	const area = [
-		restaurant.area || restaurant.neighborhood || restaurant.city,
-		restaurant.state,
+		safeRestaurant.area || safeRestaurant.neighborhood || safeRestaurant.city,
+		safeRestaurant.state,
 	]
 		.filter(Boolean)
 		.join(", ");
-	const address = [restaurant.address, restaurant.city].filter(Boolean).join(", ");
-	const isOpen = restaurant.isOpen === true || restaurant.openNow === true;
+	const address = [safeRestaurant.address, safeRestaurant.city]
+		.filter(Boolean)
+		.join(", ");
+	const isOpen =
+		safeRestaurant.isOpen === true || safeRestaurant.openNow === true;
 	const explicitlyClosed =
-		restaurant.isOpen === false || restaurant.openNow === false;
-	const listingStatus = getListingStatus(restaurant);
+		safeRestaurant.isOpen === false || safeRestaurant.openNow === false;
+	const listingStatus = getListingStatus(safeRestaurant);
 	const statusLabel = isComingSoon
 		? t("coming_soon")
 		: listingStatus === "community"
@@ -124,7 +129,9 @@ const RestaurantCard = ({
 			<View style={styles.infoContainer}>
 				<View style={styles.topRow}>
 					<Text style={styles.name} numberOfLines={1}>
-						{restaurant.restaurantName || restaurant.name || "Restaurant"}
+						{safeRestaurant.restaurantName ||
+							safeRestaurant.name ||
+							"Restaurant"}
 					</Text>
 					<View style={[styles.statusPill, statusStyle]}>
 						<Text style={styles.statusText}>{statusLabel}</Text>
@@ -191,10 +198,10 @@ const RestaurantCard = ({
 				) : null}
 
 				<View style={styles.bottomRow}>
-					{restaurant.cuisineType ? (
+					{safeRestaurant.cuisineType ? (
 						<View style={styles.cuisinePill}>
 							<Text style={styles.cuisineText} numberOfLines={1}>
-								{restaurant.cuisineType}
+								{safeRestaurant.cuisineType}
 							</Text>
 						</View>
 					) : null}
