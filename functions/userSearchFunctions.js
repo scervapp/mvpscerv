@@ -1,6 +1,7 @@
 // functions/userSearchFunctions.js
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { buildPipSearchResult } = require("./userSearchPrivacy");
 const db = admin.firestore();
 
 const normalizeSearchValue = (value) =>
@@ -12,18 +13,10 @@ const normalizeSearchValue = (value) =>
 const addSearchResult = (usersMap, doc, currentUserId) => {
 	if (doc.id === currentUserId || usersMap.has(doc.id)) return;
 
-	const userData = doc.data() || {};
-	const name =
-		userData.fullName ||
-		`${userData.firstName || ""} ${userData.lastName || ""}`.trim() ||
-		userData.displayName ||
-		"Unknown User";
+	const result = buildPipSearchResult(doc, currentUserId);
+	if (!result) return;
 
-	usersMap.set(doc.id, {
-		id: doc.id,
-		name,
-		email: userData.email || null,
-	});
+	usersMap.set(doc.id, result);
 };
 
 /**

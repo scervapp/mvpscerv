@@ -394,9 +394,9 @@ const PIPSListScreen = () => {
 								/>
 								<View style={styles.searchResultTextBlock}>
 									<Text style={styles.searchResultName}>{item.name}</Text>
-									{!!item.email && (
+									{!!(item.emailHint || item.email) && (
 										<Text style={styles.searchResultEmail} numberOfLines={1}>
-											{item.email}
+											{item.emailHint || item.email}
 										</Text>
 									)}
 								</View>
