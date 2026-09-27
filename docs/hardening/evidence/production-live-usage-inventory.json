@@ -1,0 +1,178 @@
+{
+  "generatedAt": "2026-09-27T07:50:28.568Z",
+  "projectId": "scervmvp",
+  "databaseId": "(default)",
+  "method": "Firestore REST runAggregationQuery via Firebase CLI authenticated account; aggregate counts only; no document IDs or customer records exported.",
+  "counts": {
+    "restaurants.total": {
+      "count": 1
+    },
+    "restaurants.isActive_true": {
+      "count": 1
+    },
+    "restaurants.isLive_true": {
+      "count": 0
+    },
+    "restaurants.isTestAccount_true": {
+      "count": 1
+    },
+    "restaurants.isDemoSeed_true": {
+      "count": 0
+    },
+    "restaurants.canAcceptPayments_true": {
+      "count": 0
+    },
+    "restaurants.stripeAccountMode_live": {
+      "count": 0
+    },
+    "restaurants.stripeAccountMode_test": {
+      "count": 0
+    },
+    "customers.total": {
+      "count": 48
+    },
+    "orders.total": {
+      "count": 0
+    },
+    "orders.paymentProcessor_stripe": {
+      "count": 0
+    },
+    "orders.paymentProcessor_stripe_terminal": {
+      "count": 0
+    },
+    "orders.paymentMode_live": {
+      "count": 0
+    },
+    "orders.paymentMode_test": {
+      "count": 0
+    },
+    "orders.status_paid": {
+      "count": 0
+    },
+    "orders.status_completed": {
+      "count": 0
+    },
+    "pending_orders.total": {
+      "count": 29
+    },
+    "pending_orders.status_pending_payment": {
+      "count": 0
+    },
+    "pending_orders.status_processing": {
+      "count": 29
+    },
+    "pending_orders.status_paid": {
+      "count": 0
+    },
+    "pending_orders.paymentStatus_pending": {
+      "count": 0
+    },
+    "pending_orders.paymentStatus_paid": {
+      "count": 29
+    },
+    "pending_orders.mode_live": {
+      "count": 0
+    },
+    "pending_orders.mode_test": {
+      "count": 0
+    },
+    "pending_orders.paymentProcessor_stripe": {
+      "count": 0
+    },
+    "terminal_payments.total": {
+      "count": 7
+    },
+    "terminal_payments.status_requires_payment_method": {
+      "count": 0
+    },
+    "terminal_payments.status_succeeded": {
+      "count": 7
+    },
+    "terminal_payments.paymentStatus_pending": {
+      "count": 0
+    },
+    "terminal_payments.paymentStatus_paid": {
+      "count": 7
+    },
+    "terminal_payments.stripeAccountMode_live": {
+      "count": 0
+    },
+    "terminal_payments.stripeAccountMode_test": {
+      "count": 0
+    },
+    "parties.total": {
+      "count": 0
+    },
+    "parties.status_active": {
+      "count": 0
+    },
+    "kitchen_orders.total": {
+      "count": 0
+    },
+    "browserTableSessions.total": {
+      "count": 0
+    },
+    "checkIns.total": {
+      "count": 0
+    },
+    "reservations.total": {
+      "count": 0
+    },
+    "reservationWaitlist.total": {
+      "count": 0
+    },
+    "payment_events.collectionGroup_total": {
+      "count": 36
+    },
+    "payment_events.collectionGroup_status_succeeded": {
+      "error": "400 Bad Request",
+      "code": "FAILED_PRECONDITION",
+      "safeReason": "index-required"
+    },
+    "payment_events.collectionGroup_status_paid": {
+      "error": "400 Bad Request",
+      "code": "FAILED_PRECONDITION",
+      "safeReason": "index-required"
+    },
+    "payment_events.collectionGroup_status_processing": {
+      "error": "400 Bad Request",
+      "code": "FAILED_PRECONDITION",
+      "safeReason": "index-required"
+    },
+    "payment_events.collectionGroup_mode_live": {
+      "error": "400 Bad Request",
+      "code": "FAILED_PRECONDITION",
+      "safeReason": "index-required"
+    },
+    "payment_events.collectionGroup_mode_test": {
+      "error": "400 Bad Request",
+      "code": "FAILED_PRECONDITION",
+      "safeReason": "index-required"
+    },
+    "payment_events.topLevel_total": {
+      "count": 36
+    },
+    "payment_events.topLevel_status_succeeded": {
+      "count": 0
+    },
+    "payment_events.topLevel_status_paid": {
+      "count": 0
+    },
+    "payment_events.topLevel_status_processing": {
+      "count": 0
+    },
+    "payment_events.topLevel_mode_live": {
+      "count": 0
+    },
+    "payment_events.topLevel_mode_test": {
+      "count": 0
+    },
+    "work_days.collectionGroup_total": {
+      "count": 0
+    }
+  },
+  "interpretation": {
+    "livePaymentConclusion": "Engineering can infer only from Firestore aggregate fields. Stripe live-mode dashboard/provider confirmation is still founder-owned.",
+    "productionMutation": false
+  }
+}

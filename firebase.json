@@ -11,12 +11,15 @@
         "*.local"
       ],
       "predeploy": [
-        "node scripts/guard-firebase-deploy.js",
+        "node scripts/guard-firebase-deploy.js --surface functions",
         "npm --prefix \"$RESOURCE_DIR\" run lint"
       ]
     }
   ],
   "firestore": {
+    "predeploy": [
+      "node scripts/guard-firebase-deploy.js --surface firestore:rules"
+    ],
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
@@ -39,6 +42,9 @@
     {
       "target": "admin-scerv-com",
       "public": "web-app/admin/build",
+      "predeploy": [
+        "node scripts/guard-firebase-deploy.js --surface hosting"
+      ],
       "ignore": [
         "firebase.json",
         "**/.*",
@@ -54,6 +60,9 @@
     {
       "target": "scervmvp",
       "public": "web-app/scervWeb/build",
+      "predeploy": [
+        "node scripts/guard-firebase-deploy.js --surface hosting"
+      ],
       "ignore": [
         "firebase.json",
         "**/.*",
@@ -69,6 +78,9 @@
     {
       "target": "mobile",
       "public": "public",
+      "predeploy": [
+        "node scripts/guard-firebase-deploy.js --surface hosting"
+      ],
       "ignore": [
         "firebase.json",
         "**/.*",

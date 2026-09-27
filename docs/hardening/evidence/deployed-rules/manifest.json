@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-09-27T07:40:10.311Z",
+  "projects": {
+    "scervmvp-dev": [
+      {
+        "release": "projects/scervmvp-dev/releases/firebase.storage/scervmvp-dev.firebasestorage.app",
+        "rulesetName": "projects/scervmvp-dev/rulesets/17106fa3-86c2-406e-99d0-76852400e090",
+        "releaseCreateTime": "2026-06-13T02:22:06.722386Z",
+        "sourceFile": "storage.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp-dev__firebase.storage__scervmvp-dev.firebasestorage.app__storage.rules.rules",
+        "sha256": "291333526E97D505549F4D82B7F3F879DD2E8EBF4A9E0626021FF6CF7B1EF039",
+        "bytes": 890
+      },
+      {
+        "release": "projects/scervmvp-dev/releases/cloud.firestore/default",
+        "rulesetName": "projects/scervmvp-dev/rulesets/38742a7f-22f1-4595-81ae-a0a5e6374cb9",
+        "releaseCreateTime": "2026-06-13T02:19:23.652980Z",
+        "sourceFile": "firestore.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp-dev__cloud.firestore__default__firestore.rules.rules",
+        "sha256": "ECF30F940747DCC3C5BA4993093E9A11AC9FC5DF7E14B2A1512D2446923D84EB",
+        "bytes": 163
+      },
+      {
+        "release": "projects/scervmvp-dev/releases/cloud.firestore",
+        "rulesetName": "projects/scervmvp-dev/rulesets/fc7edaa8-e780-49c6-949a-df7d4f0af500",
+        "releaseCreateTime": "2026-06-11T20:12:54.313120Z",
+        "sourceFile": "firestore.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp-dev__cloud.firestore__firestore.rules.rules",
+        "sha256": "D8C62D7C711AB353A8803661E90A082FFE2B4256FC5C62A068431A88D79D9E47",
+        "bytes": 11349
+      }
+    ],
+    "scervmvp-testing": [
+      {
+        "release": "projects/scervmvp-testing/releases/cloud.firestore",
+        "rulesetName": "projects/scervmvp-testing/rulesets/be11c93d-01ef-4379-bd45-2fb99a2e6842",
+        "releaseCreateTime": "2026-06-11T20:12:49.550115Z",
+        "sourceFile": "firestore.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp-testing__cloud.firestore__firestore.rules.rules",
+        "sha256": "36FA8E530F6257C531211E9CB1ED088737611D630DC5DEED0DA1CB49137A77E0",
+        "bytes": 9634
+      }
+    ],
+    "scervmvp": [
+      {
+        "release": "projects/scervmvp/releases/firebase.storage/scervmvp.appspot.com",
+        "rulesetName": "projects/scervmvp/rulesets/07dc92c6-5689-4fc0-bb07-138eb35e4c66",
+        "releaseCreateTime": "2024-04-25T07:02:15.914808Z",
+        "sourceFile": "storage.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp__firebase.storage__scervmvp.appspot.com__storage.rules.rules",
+        "sha256": "69601EEA68483ED002E4397A47CB10AFA9B3C7378D70F0FFB2946FBB639D91B0",
+        "bytes": 891
+      },
+      {
+        "release": "projects/scervmvp/releases/cloud.firestore",
+        "rulesetName": "projects/scervmvp/rulesets/750b0aec-d264-4eb6-9377-43efcf4e2dd4",
+        "releaseCreateTime": "2024-04-24T11:00:13.859252Z",
+        "sourceFile": "firestore.rules",
+        "outputFile": "docs/hardening/evidence/deployed-rules/scervmvp__cloud.firestore__firestore.rules.rules",
+        "sha256": "36FA8E530F6257C531211E9CB1ED088737611D630DC5DEED0DA1CB49137A77E0",
+        "bytes": 9634
+      }
+    ]
+  }
+}

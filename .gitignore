@@ -44,8 +44,14 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files and generated archives
+.env
+.env.*
+!.env.example
+*.zip
+*.tar
+*.tar.gz
+*.tgz
 
 # typescript
 *.tsbuildinfo

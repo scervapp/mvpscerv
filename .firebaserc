@@ -1,6 +1,5 @@
 {
   "projects": {
-    "default": "scervmvp",
     "dev": "scervmvp-dev",
     "testing": "scervmvp-testing",
     "prod": "scervmvp"
