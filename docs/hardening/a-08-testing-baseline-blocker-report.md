@@ -118,3 +118,33 @@ Failed to configure trigger for event-type:providers/firebase.auth/eventTypes/us
 ```
 
 New blocker: OQ-021.
+
+## 2026-09-27 Testing Deploy After Auth Initialization
+
+Founder initialized Firebase Auth for `scervmvp-testing` in the Firebase console. Retry command:
+
+```powershell
+$env:FUNCTIONS_DISCOVERY_TIMEOUT='60000'; npx.cmd firebase-tools deploy --only functions:onUserCreate --project scervmvp-testing
+```
+
+Result:
+
+- Deploy guard passed for `functions` on `scervmvp-testing`.
+- Functions lint predeploy passed.
+- `onUserCreate(us-central1)` completed successfully.
+- `functions:list --project scervmvp-testing --json` returned success and active Node.js 20 functions, including callable, HTTPS, scheduled, Firestore-triggered and Auth-triggered functions.
+- Firebase emitted a non-blocking cleanup warning for old build images. Follow-up cleanup URL shown by Firebase: `https://console.cloud.google.com/gcr/images/scervmvp-testing/us/gcf`.
+
+Minimal smoke:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri 'https://us-central1-scervmvp-testing.cloudfunctions.net/checkClientVersion' -ContentType 'application/json' -Body '{"data":{"platform":"ios","nativeVersion":"0.0.0","nativeBuild":"1"}}'
+```
+
+Result:
+
+- Callable returned `updateRequired: false`.
+- Callable exercised the deployed testing function and a Firestore read of `appConfig/clientVersions`.
+
+Resolved blocker: OQ-021.
+Remaining A-08 work: broader baseline smoke is still pending; do not treat this as device QA or full app-flow verification.

@@ -2,7 +2,7 @@
 
 Purpose: read-only record of what is actually deployed before hardening changes move to dev, testing or production. Do not infer deployed state from local source files.
 
-Status: inventory captured; parity gaps remain. Last updated 2026-09-27T03:40:10-04:00.
+Status: inventory captured; parity gaps remain. A-08 testing functions deployment evidence added 2026-09-27.
 
 ## Inventory rules
 
@@ -17,7 +17,7 @@ Status: inventory captured; parity gaps remain. Last updated 2026-09-27T03:40:10
 | Lane | Project ID | Inventory status | Notes |
 | --- | --- | --- | --- |
 | Development | `scervmvp-dev` | Function, hosting, database and rules inventory captured | Firestore has two releases; the app-targeted `(default)` database rules match local raw source, but the named `default` database does not |
-| Testing | `scervmvp-testing` | Function, hosting, database and rules inventory captured | No deployed functions found; Firestore rules text matches production, not current local source |
+| Testing | `scervmvp-testing` | Function, hosting, database and rules inventory captured; A-08 functions deployment completed later | A-06 found no deployed functions; A-08 later deployed 177 active Node.js 20 functions. Firestore rules text still needs a separate rules-lane decision. |
 | Production | `scervmvp` | Function, hosting, database and rules inventory captured | Production Firestore rules text does not match current local source; live payment status still founder-owned |
 
 ## Local configuration snapshot
@@ -36,7 +36,7 @@ Status: inventory captured; parity gaps remain. Last updated 2026-09-27T03:40:10
 | Lane | Database(s) returned by read-only inventory | PITR | Notes |
 | --- | --- | --- | --- |
 | Development | `(default)` in `nam5`, created `2026-06-12T16:46:40.727243Z`; named database `default` in `us-central1`, created `2026-06-11T20:12:05.091828Z` | Disabled on both | App/admin/web configs use default SDK calls without a custom database ID, so Scerv clients target `(default)` unless code is explicitly changed |
-| Testing | named database `default` in `us-central1`, created `2026-06-11T20:12:07.327123Z` | Disabled | Testing database shape differs from production because production uses `(default)` |
+| Testing | A-06 found named database `default` in `us-central1`, created `2026-06-11T20:12:07.327123Z`; A-08 later created app-targeted `(default)` in `nam5` | Disabled in A-06 inventory; A-08 created `(default)` with PITR disabled | Testing originally differed from production because production uses `(default)`; A-08 created `(default)` to support testing-lane functions and app flows |
 | Production | `(default)` in `nam5`, created `2024-04-24T11:00:06.347672Z` | Disabled | Production Firestore PITR is currently disabled, answering the inventory portion of OQ-013 but not the restore-drill decision |
 
 ## Functions
@@ -44,7 +44,7 @@ Status: inventory captured; parity gaps remain. Last updated 2026-09-27T03:40:10
 | Lane | Function count | Runtime(s) | Region(s) | Source/deploy ref | Inventory timestamp | Notes |
 | --- | ---: | --- | --- | --- | --- | --- |
 | Development | 174 | `nodejs20`: 174 | `us-central1` | Source/deploy hash varies by function; summary from `firebase functions:list --project scervmvp-dev --json` | 2026-09-27 | Browser table functions are present in dev; no Node 22 functions found |
-| Testing | 0 | none | none | Summary from `firebase functions:list --project scervmvp-testing --json` | 2026-09-27 | Testing lane currently has no deployed functions; not yet a proving lane |
+| Testing | 177 | `nodejs20`: 177 | `us-central1` | Summary from `firebase functions:list --project scervmvp-testing --json` after A-08 deploy | 2026-09-27 | A-06 originally found zero functions; A-08 deployed current hardening branch under D-023. Minimal callable smoke for `checkClientVersion` passed; broader baseline smoke remains pending |
 | Production | 134 | `nodejs20`: 133; `nodejs22`: 1 | `us-central1` | Summary from `firebase functions:list --project scervmvp --json` | 2026-09-27 | Only Node 22 function is the Firestore Send Email extension `ext-firestore-send-email-myyv-processqueue`; application functions are Node 20 |
 
 ## Deployed rules evidence
@@ -95,7 +95,7 @@ Deployed rule text was captured read-only into `docs/hardening/evidence/deployed
 ## Phase A findings so far
 
 - Production application functions are still on Node 20. Runtime migration cannot be treated as done because only the email extension is already Node 22.
-- The testing Firebase project currently has no deployed functions, so it cannot validate hardening behavior until a baseline is deliberately deployed there.
+- A-06 found the testing Firebase project had no deployed functions. A-08 later deployed 177 active Node.js 20 functions under D-023, making testing usable for baseline smoke and later hardening validation.
 - Main workspace `.firebaserc` defaults to production. A-05 should run before any deploy workflow work.
 - Firestore deployed-rule metadata and hashes were retrieved through the Firebase Rules API via local Firebase CLI auth helpers because Firebase CLI 13.35.1 does not expose `firestore:rules:get`.
 - Production and testing Firestore rules do not match the current local Firestore rules source hash. Development's app-targeted `(default)` database rules match the current local comparable hash, while the separate named `default` database does not.
