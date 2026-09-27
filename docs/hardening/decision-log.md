@@ -148,3 +148,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/a-03-ci-gate-report.md`; `.github/workflows/backend-quality.yml`; `npm run ci:backend` local pass.
 - Reversal trigger: GitHub Actions cannot run this workflow or the required check design changes.
 - Supersedes: none
+
+### D-013 — Push Phase A local hardening baseline branch and tag
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: The founder asked to continue executing the release-readiness plan. A-02 requires a source-control baseline before hardening work can move toward testing-lane deployment.
+- Decision: Commit and push the local Phase A hardening baseline to branch `codex/browser-ordering-mvp`, and create tag `hardening-phase1-local-20260927` at commit `7ddb8aa288d1e12c598ebfc5951a7691c81a6792`.
+- Alternatives rejected: Keep the hardening baseline local-only; push unrelated workspace artifacts with the hardening commit.
+- Risk accepted: GitHub CI evidence and required branch protection are still pending, so A-02 remains `In progress`.
+- Evidence: `docs/hardening/a-02-branch-baseline-report.md`; pushed branch `codex/browser-ordering-mvp`; tag `hardening-phase1-local-20260927`.
+- Reversal trigger: GitHub CI fails or the baseline must be rebuilt from a different source ref.
+- Supersedes: none
