@@ -185,3 +185,40 @@ Current A-08 conclusion:
 - The deployed backend baseline is reachable and healthy for focused callables.
 - A-08 remains **In progress** until broader app-flow smoke is run in testing, including QR/table session, browser basket-to-kitchen, Stripe test checkout, reservation/check-in and restaurant staff operational screens.
 - Tightened Firestore rules still require their own staged rules-lane deployment and should not be bundled into a broad feature deploy.
+
+## 2026-09-27 Native Stripe Payment Smoke
+
+Scope: real-device native checkout smoke in `scervmvp-testing` using a test restaurant configured for Stripe test mode. This was a payment-path smoke, not full end-to-end restaurant QA.
+
+Observed issue and repair:
+
+- Initial native party checkout reached `preparePayment` but failed with Stripe `ERR_INVALID_CHAR` in the Authorization header.
+- The testing `STRIPE_SECRET_KEY_TEST` Secret Manager value was inspected without printing the key. A clean latest version was created; local Stripe probe returned HTTP `200`.
+- `preparePayment` was redeployed with the hardened Stripe secret normalizer and returned HTTP `200`.
+- Payment then reached the native payment details path, but `finalizeStripePayment` failed with the same stale Authorization-header issue.
+- `finalizeStripePayment` was redeployed onto the hardened Stripe secret path.
+
+Founder device result:
+
+- Native payment subsequently completed successfully in `scervmvp-testing`.
+
+Evidence notes:
+
+- Permanent code fix is committed as `9b90cc8 Extract Stripe secret token before client init`, following `8ee6d57 Harden Stripe secret normalization`.
+- Deployed testing payment functions were refreshed after the successful device payment to remove temporary diagnostic logging.
+- The root cause was not the restaurant `isLive` flag. The restaurant was live/visible but remained in test payment mode through `isTestAccount: true`, `stripeAccountMode: test` and a test Stripe account.
+
+Automated safety-net refresh after the payment repair:
+
+- `npm run ci:backend` could not complete as a single command because an existing local process occupied Firestore emulator port `8080`.
+- The completed portions of that command passed: secret hygiene, functions lint and `25` backend unit tests.
+- The Firestore rules suite was rerun with a temporary root-level emulator config on port `18081` so the real `firestore.rules` source loaded.
+- Firestore rules tests passed: `9` passed, `0` failed.
+
+Remaining A-08 work after this smoke:
+
+- QR/table session smoke.
+- Browser basket-to-kitchen smoke.
+- Browser checkout/confirmation smoke.
+- Reservation/check-in smoke.
+- Restaurant staff operational screens smoke, including KDS, active tables, host stand and reports.
