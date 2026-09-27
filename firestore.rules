@@ -26,6 +26,33 @@ service cloud.firestore {
       return signedIn() && uid() == userId;
     }
 
+    function customerSensitiveIdentityFields() {
+      return [
+        "availablePoints",
+        "emailVerified",
+        "isEmailVerified",
+        "isPhoneVerified",
+        "phoneVerified",
+        "phoneNumberVerified",
+        "restaurantId",
+        "role",
+        "scervAvailablePoints",
+        "stripeCustomerId",
+        "stripeCustomerId_live",
+        "stripeCustomerId_test"
+      ];
+    }
+
+    function customerCreateIsSafe() {
+      return !request.resource.data.keys().hasAny(customerSensitiveIdentityFields());
+    }
+
+    function customerUpdateIsSafe() {
+      return !request.resource.data.diff(resource.data)
+        .affectedKeys()
+        .hasAny(customerSensitiveIdentityFields());
+    }
+
     function isRestaurantUser(restaurantId) {
       return signedIn() &&
         (uid() == restaurantId || tokenRestaurantId() == restaurantId);
@@ -139,9 +166,9 @@ service cloud.firestore {
     }
 
     match /customers/{userId} {
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId) && customerCreateIsSafe();
       allow read: if isOwner(userId);
-      allow update: if isOwner(userId);
+      allow update: if isOwner(userId) && customerUpdateIsSafe();
       allow delete: if false;
 
       match /pips/{pipId} {

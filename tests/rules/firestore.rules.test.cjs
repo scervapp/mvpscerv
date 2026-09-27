@@ -140,6 +140,47 @@ test("customers can read and maintain only their own profile", async () => {
 	await assertFails(deleteDoc(doc(authed("alice"), "customers/alice")));
 });
 
+test("customers cannot write sensitive identity or balance fields", async () => {
+	await seed("customers/alice", {
+		fullName: "Alice",
+		email: "alice@example.com",
+	});
+
+	await assertSucceeds(
+		updateDoc(doc(authed("alice"), "customers/alice"), {
+			fullName: "Alice M",
+			phoneNumber: "+15551234567",
+		}),
+	);
+	await assertFails(
+		updateDoc(doc(authed("alice"), "customers/alice"), {
+			isPhoneVerified: true,
+		}),
+	);
+	await assertFails(
+		updateDoc(doc(authed("alice"), "customers/alice"), {
+			role: "admin",
+		}),
+	);
+	await assertFails(
+		updateDoc(doc(authed("alice"), "customers/alice"), {
+			stripeCustomerId_test: "cus_fake",
+		}),
+	);
+	await assertFails(
+		updateDoc(doc(authed("alice"), "customers/alice"), {
+			scervAvailablePoints: 999999,
+		}),
+	);
+	await assertFails(
+		setDoc(doc(authed("carol"), "customers/carol"), {
+			fullName: "Carol",
+			role: "customer",
+			isPhoneVerified: true,
+		}),
+	);
+});
+
 test("restaurant managers can manage tables but guests cannot", async () => {
 	const manager = authed("manager-a", {
 		role: "manager",

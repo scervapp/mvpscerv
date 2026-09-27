@@ -171,8 +171,6 @@ export const AuthProvider = ({ children }) => {
 					await db.collection("customers").doc(user.uid).set(
 						{
 							phoneNumber: formValues.fullPhoneNumber,
-							isPhoneVerified: true,
-							role: "customer",
 							createdAt: new Date().toISOString(),
 						},
 						{ merge: true },
@@ -207,8 +205,6 @@ export const AuthProvider = ({ children }) => {
 				await db.collection("customers").doc(user.uid).set(
 					{
 						phoneNumber: fullPhoneNumber,
-						isPhoneVerified: true,
-						role: "customer",
 						createdAt: new Date().toISOString(),
 					},
 					{ merge: true },
