@@ -236,3 +236,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-14-customer-fee-rewards-stripe-data-review.md`; `docs/hardening/evidence/b-14-production-customer-financial-audit.json`.
 - Reversal trigger: Production pilot timing changes, provider reconciliation finds mismatched customer IDs, or a live payment flow depends on these legacy mappings before cleanup.
 - Supersedes: none
+
+### D-021 — No production staff PIN reset needed today; require hardened live onboarding
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: B-15 read-only production audit found zero production employee documents, zero PIN hashes, zero plaintext PIN fields, zero top-level staff sessions and zero staff PIN-attempt records. Current source hashes staff PINs with bcrypt, but current Firestore rules still allow the restaurant account to read employee docs directly until the rules lockdown wave is deployed.
+- Decision: Do not run a production PIN reset today because there are no production staff PIN records. Before the first live restaurant, create or reset staff PINs only after the hardened staff client/backend/rules path is deployed through testing.
+- Alternatives rejected: Create live staff PINs before direct employee hash reads are locked down; treat demo/testing PINs as production credentials; run a meaningless production reset against an empty employee dataset.
+- Risk accepted: Demo/testing employees may still exist outside the production dataset; those credentials must be reset before any demo restaurant is converted into a live pilot.
+- Evidence: `docs/hardening/b-15-staff-pin-exposure-assessment.md`; `docs/hardening/evidence/b-15-production-staff-pin-exposure-audit.json`.
+- Reversal trigger: Production employee records appear before rules lockdown, or a restaurant account is onboarded live before the hardened staff rollout.
+- Supersedes: none
