@@ -13,6 +13,21 @@ on:
       - "functions/package.json"
       - "functions/package-lock.json"
       - ".github/workflows/backend-quality.yml"
+  push:
+    branches:
+      - "codex/**"
+      - "hardening/**"
+    paths:
+      - "functions/**"
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "tests/**"
+      - "scripts/check-secret-hygiene.js"
+      - "package.json"
+      - "package-lock.json"
+      - "functions/package.json"
+      - "functions/package-lock.json"
+      - ".github/workflows/backend-quality.yml"
   workflow_dispatch:
 
 permissions:
