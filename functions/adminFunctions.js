@@ -6,6 +6,13 @@ const { Resend } = require("resend");
 const { defineSecret } = require("firebase-functions/params");
 const { getStripeKeys } = require("./stripeUtils");
 const { normalizeOrderForReporting } = require("./reportingHelpers");
+const {
+	buildAfterData,
+	getRuntimeProjectId,
+	isAdminRawWriteEnabled,
+	isDeniedRawFirestoreWritePath,
+	stableHash,
+} = require("./adminRawAccess");
 
 const db = admin.firestore();
 
@@ -297,6 +304,22 @@ const serializeDoc = (doc) => ({
 	id: doc.id,
 	...serializeValue(doc.data() || {}),
 });
+
+const assertAdminRawWriteAllowed = (documentPath) => {
+	if (!isAdminRawWriteEnabled(functions)) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"Raw admin writes are disabled for this environment.",
+		);
+	}
+
+	if (isDeniedRawFirestoreWritePath(documentPath)) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"This Firestore path requires a purpose-built support action.",
+		);
+	}
+};
 
 const compactRestaurant = (doc) => {
 	const data = doc.data() || {};
@@ -2857,7 +2880,7 @@ exports.saveScervWalletDefinition = functions.https.onCall(
 
 exports.getScervFirestoreCollection = functions.https.onCall(
 	async (data, context) => {
-		requireScervAdmin(context, { godmodeOnly: true });
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
 		const collectionPath = normalizeFirestorePath(
 			data && data.collectionPath,
 			"collection",
@@ -2866,6 +2889,12 @@ exports.getScervFirestoreCollection = functions.https.onCall(
 			Math.max(parseInt((data && data.pageSize) || 25, 10), 1),
 			100,
 		);
+
+		await writeAdminAuditLog(actorUid, "godmode_read_firestore_collection", {
+			collectionPath,
+			pageSize,
+			environment: getRuntimeProjectId(),
+		});
 
 		const snapshot = await db.collection(collectionPath).limit(pageSize).get();
 		return {
@@ -2877,11 +2906,16 @@ exports.getScervFirestoreCollection = functions.https.onCall(
 
 exports.getScervFirestoreDocument = functions.https.onCall(
 	async (data, context) => {
-		requireScervAdmin(context, { godmodeOnly: true });
+		const actorUid = requireScervAdmin(context, { godmodeOnly: true });
 		const documentPath = normalizeFirestorePath(
 			data && data.documentPath,
 			"document",
 		);
+		await writeAdminAuditLog(actorUid, "godmode_read_firestore_document", {
+			documentPath,
+			environment: getRuntimeProjectId(),
+		});
+
 		const documentSnap = await db.doc(documentPath).get();
 
 		return {
@@ -2915,13 +2949,30 @@ exports.setScervFirestoreDocument = functions.https.onCall(
 				"Document payload must be a JSON object.",
 			);
 		}
+		assertAdminRawWriteAllowed(documentPath);
 
-		await db.doc(documentPath).set(payload, { merge });
-		await writeAdminAuditLog(actorUid, "godmode_set_firestore_document", {
-			documentPath,
-			merge,
-			reason,
-			payloadKeys: Object.keys(payload).slice(0, 40),
+		const documentRef = db.doc(documentPath);
+		const auditRef = db.collection("scervAdminAuditLogs").doc();
+		await db.runTransaction(async (transaction) => {
+			const beforeSnap = await transaction.get(documentRef);
+			const beforeData = beforeSnap.exists ? beforeSnap.data() || {} : null;
+			const afterData = buildAfterData(beforeData, payload, merge);
+
+			transaction.set(auditRef, {
+				action: "godmode_set_firestore_document",
+				actorUid,
+				payload: {
+					documentPath,
+					environment: getRuntimeProjectId(),
+					merge,
+					reason,
+					payloadKeys: Object.keys(payload).slice(0, 40),
+					beforeHash: stableHash(beforeData),
+					afterHash: stableHash(afterData),
+				},
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+			transaction.set(documentRef, payload, { merge });
 		});
 
 		return { success: true, documentPath };
@@ -2947,11 +2998,27 @@ exports.deleteScervFirestoreDocument = functions.https.onCall(
 				"Confirm the exact document path and provide a reason.",
 			);
 		}
+		assertAdminRawWriteAllowed(documentPath);
 
-		await db.doc(documentPath).delete();
-		await writeAdminAuditLog(actorUid, "godmode_delete_firestore_document", {
-			documentPath,
-			reason,
+		const documentRef = db.doc(documentPath);
+		const auditRef = db.collection("scervAdminAuditLogs").doc();
+		await db.runTransaction(async (transaction) => {
+			const beforeSnap = await transaction.get(documentRef);
+			const beforeData = beforeSnap.exists ? beforeSnap.data() || {} : null;
+
+			transaction.set(auditRef, {
+				action: "godmode_delete_firestore_document",
+				actorUid,
+				payload: {
+					documentPath,
+					environment: getRuntimeProjectId(),
+					reason,
+					beforeHash: stableHash(beforeData),
+					afterHash: null,
+				},
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+			transaction.delete(documentRef);
 		});
 
 		return { success: true, documentPath };

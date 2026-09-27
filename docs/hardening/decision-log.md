@@ -181,3 +181,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/f11-credential-triage-report.md`; `tests/unit/inactive-payment-rails.test.cjs`; `npm run ci:backend` passes locally.
 - Reversal trigger: Founder approves a new non-Stripe payment-rail design with provider confirmation, server pricing, webhook replay/idempotency and compliance review.
 - Supersedes: none
+
+### D-016 — Allow local B-02 god-mode containment while A-08 is blocked
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: A-08 is blocked because the exact production baseline source ref is not recorded. Admin raw Firestore writes remain one of the largest blast-radius risks and B-02 depends on A-06, not on a cloud deploy.
+- Decision: Proceed with B-02 as local-only containment work while A-08 remains blocked. Do not deploy it to testing or production until A-08 is resolved or explicitly waived.
+- Alternatives rejected: Wait on A-08 before reducing the godmode write risk; deploy B-02 before a testing baseline decision.
+- Risk accepted: The local branch can move ahead of the formal Phase A exit, but the deployment lane remains blocked until the plan allows it.
+- Evidence: `docs/hardening/b-02-admin-god-mode-containment-report.md`.
+- Reversal trigger: A-08 baseline strategy changes and B-02 needs to be rebased or replaced.
+- Supersedes: none
