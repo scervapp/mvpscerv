@@ -147,8 +147,8 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Engineering
 - Blocks: A-10, F11 closeout
 - Needed by: Phase B exit
-- Answer:
-- Closed:
+- Answer: Read-only Secret Manager REST list returned `403` with ErrorInfo reason `SERVICE_DISABLED`: Secret Manager API has not been used in project `scervmvp-testing` before or it is disabled. This is not evidence that the testing project has no secrets; the API must be enabled before inventory can complete.
+- Closed: 2026-09-27 -> OQ answered; enabling the API is a separate cloud-configuration action.
 
 ### OQ-018 — What exact source ref should be used for the A-08 testing baseline?
 - Raised: 2026-09-27 by A-08 preflight

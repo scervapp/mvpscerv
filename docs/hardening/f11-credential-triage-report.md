@@ -37,7 +37,7 @@ Secret values were not accessed.
 | Project | Result |
 | --- | --- |
 | `scervmvp-dev` | 15 secret names listed, including Stripe, Resend, PayPal sandbox and dLocal sandbox/live naming families |
-| `scervmvp-testing` | Secret listing returned `403 Forbidden`; this is an access/permission gap, not evidence of no secrets |
+| `scervmvp-testing` | Secret listing returned `403 Forbidden` because Secret Manager API is disabled for the testing project; this is not evidence of no secrets |
 | `scervmvp` | 24 secret names listed, including Stripe, Resend, PayPal, dLocal and the email extension SMTP password naming families |
 
 ## Current interpretation
@@ -59,7 +59,7 @@ Stripe and Resend secrets exist in Secret Manager by name, but this task did not
 - Keep ignore rules for `.env`, `.env.*`, `*.zip` and other generated archives.
 - Use `npm run security:secret-scan` as the local pre-commit/release check.
 - Keep the GitHub `Secret hygiene` workflow active so pull requests and release/hardening branch pushes run the scanner.
-- Resolve testing Secret Manager access or document why the testing project intentionally blocks this inventory.
+- Enable Secret Manager API for `scervmvp-testing` before testing-lane deployment work needs secret inventory or secret-backed functions.
 - Keep inactive PayPal and dLocal/dLocalGo exports fail-closed until a new payment-rail design is approved.
 
 ## Guardrail added
