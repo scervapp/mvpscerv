@@ -20,6 +20,14 @@ const destinationPath = path.join(
 	"app",
 	"google-services.json",
 );
+const debugDestinationPath = path.join(
+	projectRoot,
+	"android",
+	"app",
+	"src",
+	"debug",
+	"google-services.json",
+);
 
 if (!fs.existsSync(sourcePath)) {
 	throw new Error(
@@ -38,9 +46,12 @@ function readTextFile(filePath) {
 }
 
 // Native Android builds read android/app/google-services.json directly.
-// Copying here keeps EAS profiles pointed at the intended Firebase project.
+// Development-client/debug builds read android/app/src/debug/google-services.json.
+// Copying both keeps EAS profiles pointed at the intended Firebase project.
 const fileContents = readTextFile(sourcePath);
 fs.writeFileSync(destinationPath, fileContents);
+fs.mkdirSync(path.dirname(debugDestinationPath), { recursive: true });
+fs.writeFileSync(debugDestinationPath, fileContents);
 console.log(
 	`Prepared Android Firebase config for APP_ENV=${appEnv}: ${sourceRelativePath}`,
 );

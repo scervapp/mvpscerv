@@ -19,6 +19,14 @@
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp-testing"
       }
     },
+    "testingDevelopment": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_ENV": "testing",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp-testing"
+      }
+    },
     "preview": {
       "extends": "testing"
     },
