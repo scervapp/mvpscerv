@@ -52,3 +52,20 @@ Proceed only under D-023, with explicit drift notes:
 - Backfill `restaurantPublic` before rules that remove public raw restaurant reads.
 - Record every testing deploy command and smoke result.
 - Do not deploy to production from this lane until testing QA and go/no-go evidence are complete.
+
+## 2026-09-27 Testing Deploy Attempt
+
+Command attempted:
+
+```powershell
+npx firebase-tools deploy --only functions --project scervmvp-testing
+```
+
+Result:
+
+- Deploy guard passed for `functions` on `scervmvp-testing`.
+- Functions lint predeploy passed.
+- Firebase confirmed `cloudfunctions.googleapis.com` was enabled.
+- Deploy failed before upload because `cloudbuild.googleapis.com` and `artifactregistry.googleapis.com` were missing, and `artifactregistry.googleapis.com` cannot be enabled unless `scervmvp-testing` is upgraded to Blaze.
+
+New blocker: OQ-019.

@@ -157,3 +157,11 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Needed by: Phase A exit
 - Answer: The exact source ref for the deployed production functions remains unknown. Founder explicitly approved waiving strict production-baseline parity and using the current hardening branch `codex/browser-ordering-mvp` as the testing-lane baseline for `scervmvp-testing`, accepting that this is no longer a production-parity W0 baseline. See D-023.
 - Closed: 2026-09-27 -> D-023
+
+### OQ-019 — Can `scervmvp-testing` be upgraded to Blaze for the testing-lane functions deploy?
+- Raised: 2026-09-27 by A-08 testing deploy attempt
+- Owner to answer: Founder
+- Blocks: A-08, B-01, B-04, B-05, B-06, B-18
+- Needed by: testing-lane deploy
+- Answer: Deploy attempt `npx firebase-tools deploy --only functions --project scervmvp-testing` passed the deploy guard and lint predeploy, then failed because Firebase could not enable `artifactregistry.googleapis.com` without the `scervmvp-testing` project being on the Blaze plan. Upgrade URL shown by Firebase: `https://console.firebase.google.com/project/scervmvp-testing/usage/details`.
+- Closed:
