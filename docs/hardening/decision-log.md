@@ -247,3 +247,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-15-staff-pin-exposure-assessment.md`; `docs/hardening/evidence/b-15-production-staff-pin-exposure-audit.json`.
 - Reversal trigger: Production employee records appear before rules lockdown, or a restaurant account is onboarded live before the hardened staff rollout.
 - Supersedes: none
+
+### D-022 — Avoid global staff PIN lockouts for the MVP pilot
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: B-16 reviewed the current `verifyEmployeePin` behavior and found no active hard lockout. A future naive lockout could let one person disable a staff member or manager during service. The founder has confirmed there are no current live restaurants, so this is a pre-pilot design decision rather than an emergency patch.
+- Decision: Do not add a global employee PIN lockout for the MVP pilot. Future PIN throttling must be scoped to restaurant + employee + device/session where practical, use short cooldowns, include manager/owner recovery, and audit failed attempts/cooldowns/unlocks.
+- Alternatives rejected: A 15-minute global employee lockout; no future throttling design at all; user-facing errors that disclose whether the employee or PIN was valid.
+- Risk accepted: Current source remains without a hard lockout in this slice, so brute-force resistance is not fully solved until a scoped throttling design is implemented and tested.
+- Evidence: `docs/hardening/b-16-pin-lockout-dos-decision.md`; source search of `verifyEmployeePin` and staff attempt collections.
+- Reversal trigger: Pilot operator requirements or security review require throttling before launch; implement it under this decision's per-device/session and recovery constraints.
+- Supersedes: none
