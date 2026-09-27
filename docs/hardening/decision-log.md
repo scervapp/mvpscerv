@@ -214,3 +214,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-10-customer-party-reservation-ownership-report.md`; `tests/unit/party-security.test.cjs`; `tests/rules/firestore.rules.test.cjs`.
 - Reversal trigger: Testing QA identifies a legitimate current flow that requires a non-member raw `partyId` join; replace it with a scoped token/invite proof rather than reopening guessed party IDs.
 - Supersedes: none
+
+### D-019 — Allow local B-12 restaurant public projection while deploy lanes are blocked
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: B-10 is fixed locally, and B-12 can reduce public data exposure without deploying cloud state. Raw restaurant documents currently contain public discovery fields mixed with payment/account/entitlement fields.
+- Decision: Proceed locally with a `restaurantPublic` projection, migrate guest-facing reads to that projection, and tighten Firestore rules locally so raw restaurant docs are staff/admin-only. Keep B-12 at `Fixed locally` until a testing deploy, projection backfill and device QA prove the migration.
+- Alternatives rejected: Leave raw restaurant docs public until all other hardening is complete; abruptly deny public restaurant reads without a projection/backfill path.
+- Risk accepted: Testing deployment must run `rebuildRestaurantPublicProfiles` before the tightened rules are deployed, or public discovery pages can appear empty.
+- Evidence: `docs/hardening/b-12-restaurant-public-projection-report.md`; `functions/restaurantPublicProfile.js`; `tests/unit/restaurant-public-profile.test.cjs`; `tests/rules/firestore.rules.test.cjs`.
+- Reversal trigger: Testing QA shows a guest-facing screen still depends on a protected root field; either add a safe public projection field or move that decision server-side.
+- Supersedes: none

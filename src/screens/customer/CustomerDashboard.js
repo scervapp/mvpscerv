@@ -554,7 +554,7 @@ const CustomerDashboard = ({ navigation }) => {
 
 		setIsLoading(true);
 
-		let q = db.collection("restaurants");
+		let q = db.collection("restaurantPublic");
 
 		if (!forceGlobalView && selectedRegion) {
 			q = q.where("countryCode", "==", selectedRegion);
@@ -573,10 +573,7 @@ const CustomerDashboard = ({ navigation }) => {
 					}))
 					.filter((restaurant) => {
 						if (currentUserData?.canViewHiddenRestaurants) {
-							return (
-								restaurant.isLive === true ||
-								restaurant.isTestAccount === true
-							);
+							return true;
 						}
 						return true;
 					});

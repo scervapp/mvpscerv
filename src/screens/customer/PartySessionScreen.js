@@ -150,7 +150,7 @@ const PartySessionScreen = () => {
 		}
 
 		const unsubscribe = db
-			.collection("restaurants")
+			.collection("restaurantPublic")
 			.doc(restaurantId)
 			.onSnapshot(
 				(docSnap) => {

@@ -261,13 +261,8 @@ const PartyCheckoutScreen = () => {
 		normalizedCountry === "usa" ||
 		normalizedCountry === "united states" ||
 		normalizedCountry === "united states of america";
-	const restaurantStripeReady =
-		!!restaurantData?.stripeAccountId &&
-		(restaurantData?.stripeAccountStatus === "verified" ||
-			restaurantData?.stripeChargesEnabled === true);
 	const canAcceptPayments =
-		restaurantData?.canAcceptPayments !== false &&
-		(isPanama || (isUS && restaurantStripeReady));
+		restaurantData?.canAcceptPayments === true && (isPanama || isUS);
 
 	const confirmDlocalPayment = httpsCallable(functions, "confirmDlocalPayment");
 
@@ -655,7 +650,7 @@ const PartyCheckoutScreen = () => {
 		if (!resolvedRestaurantId) return;
 
 		const unsubscribe = db
-			.collection("restaurants")
+			.collection("restaurantPublic")
 			.doc(resolvedRestaurantId)
 			.onSnapshot((doc) => {
 				if (doc.exists) setRestaurantData(doc.data());
@@ -1334,10 +1329,8 @@ const PartyCheckoutScreen = () => {
 		(isUS && stripePublishableKey);
 
 	const getPaymentConfigDebugMessage = () => {
-		const status = restaurantData?.stripeAccountStatus || "missing";
-		const chargesEnabled = String(restaurantData?.stripeChargesEnabled === true);
-		const accountLinked = String(!!restaurantData?.stripeAccountId);
-		return `Restaurant: ${resolvedRestaurantId || "missing"}\nCountry: ${rawCountry || "missing"}\nStripe account: ${accountLinked}\nStripe status: ${status}\nCharges enabled: ${chargesEnabled}`;
+		const publicPaymentReady = String(restaurantData?.canAcceptPayments === true);
+		return `Restaurant: ${resolvedRestaurantId || "missing"}\nCountry: ${rawCountry || "missing"}\nPayments available: ${publicPaymentReady}`;
 	};
 
 	const ensurePaymentConfigReady = async () => {

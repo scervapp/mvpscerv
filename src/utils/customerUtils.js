@@ -8,7 +8,7 @@ import firestore from "@react-native-firebase/firestore";
 
 const fetchRestaurants = async () => {
 	try {
-		const restaurantRef = db.collection("restaurants");
+		const restaurantRef = db.collection("restaurantPublic");
 		const restaurantSnapshot = await restaurantRef.get();
 
 		const restaurants = restaurantSnapshot.docs

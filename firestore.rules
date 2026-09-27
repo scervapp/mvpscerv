@@ -36,6 +36,10 @@ service cloud.firestore {
         role() in ["owner", "manager", "restaurant"];
     }
 
+    function isScervAdmin() {
+      return role() in ["admin", "godmode", "scerv_admin", "super_admin"];
+    }
+
     function isPartyReader(data) {
       return signedIn() && (
         isRestaurantUser(data.restaurantId) ||
@@ -196,8 +200,13 @@ service cloud.firestore {
       }
     }
 
-    match /restaurants/{restaurantId} {
+    match /restaurantPublic/{restaurantId} {
       allow read: if true;
+      allow write: if false;
+    }
+
+    match /restaurants/{restaurantId} {
+      allow read: if isRestaurantUser(restaurantId) || isScervAdmin();
       allow create, update: if isRestaurantManager(restaurantId);
       allow delete: if false;
 

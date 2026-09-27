@@ -287,7 +287,7 @@ const RestaurantDetailScreen = () => {
 
 		setIsLoadingRestaurant(true);
 
-		const restaurantRef = db.collection("restaurants").doc(restaurant.id);
+		const restaurantRef = db.collection("restaurantPublic").doc(restaurant.id);
 		const unsubscribe = restaurantRef.onSnapshot(
 			(docSnap) => {
 				if (docSnap.exists) {

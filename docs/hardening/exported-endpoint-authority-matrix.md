@@ -78,7 +78,7 @@ Legend:
 
 | Endpoint(s) | Intended caller | Local disposition | Remaining gate |
 | --- | --- | --- | --- |
-| `getScervAdminDashboardStats`, `searchScervAdminRecords`, `getScervCustomerProfile`, `getScervRestaurantProfile`, `listScervCustomers`, `listScervAdminAuditLogs` | Scerv admin portal user | Needs admin-role/audit review | Verify environment switch, super-admin role, audit logging and production whitelist |
+| `getScervAdminDashboardStats`, `searchScervAdminRecords`, `getScervCustomerProfile`, `getScervRestaurantProfile`, `listScervCustomers`, `listScervAdminAuditLogs`, `rebuildRestaurantPublicProfiles` | Scerv admin portal user | Needs admin-role/audit review; `rebuildRestaurantPublicProfiles` is admin-only and dry-run unless explicitly confirmed | Verify environment switch, super-admin role, audit logging, production whitelist and projection backfill runbooks |
 | `createScervRestaurantOnboarding`, `assignScervRestaurantOwner`, `resendRestaurantOwnerSetupEmail`, `updateScervRestaurantProfile` | Scerv admin portal user | Needs admin-role/audit review | Verify owner assignment, email side effects and support recovery controls |
 | `sendScervCustomerPasswordReset`, `setScervCustomerDisabled`, `setScervCustomerCreatorStatus` | Scerv admin portal user | Needs admin-role/audit review | Verify customer-service permissions and audit trail |
 | `listScervDemoLeads`, `updateScervDemoLead`, `submitScervDemoRequest`, `submitScervNewsletterSignup`, `listScervNewsletterSubscribers`, `updateScervNewsletterSubscriber` | Public lead capture or Scerv admin | Needs split public/admin review | Verify spam controls, Resend behavior and admin-only listing |

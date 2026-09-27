@@ -20,6 +20,7 @@ const reservationFunctions = require("./reservationFunctions");
 const adminFunctions = require("./adminFunctions");
 const recommendationFunctions = require("./recommendationFunctions");
 const clientVersionFunctions = require("./clientVersionFunctions");
+const restaurantPublicProfile = require("./restaurantPublicProfile");
 // Export functions from other files
 exports.addItemToBasket = require("./basketFunctions").addItemToBasket;
 exports.removeItemFromBasket =
@@ -75,6 +76,10 @@ exports.onUserCreate = userFunctions.onUserCreate;
 exports.syncCustomerSearchIndex = userFunctions.syncCustomerSearchIndex;
 exports.createUserAccount = userFunctions.createUserAccount;
 exports.checkClientVersion = clientVersionFunctions.checkClientVersion;
+exports.syncRestaurantPublicProfile =
+	restaurantPublicProfile.syncRestaurantPublicProfile;
+exports.rebuildRestaurantPublicProfiles =
+	restaurantPublicProfile.rebuildRestaurantPublicProfiles;
 
 exports.sendEmailOtp = userFunctions.sendEmailOtp;
 exports.verifyEmailOtp = userFunctions.verifyEmailOtp;

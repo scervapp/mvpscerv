@@ -444,9 +444,7 @@ const groupMenuItems = (items = []) =>
 	}, {});
 
 const isFeatureEnabled = (restaurant, featureKey) =>
-	restaurant?.features?.[featureKey] === true ||
-	restaurant?.featureEntitlements?.[featureKey] === true ||
-	restaurant?.subscriptionFeatures?.[featureKey] === true;
+	restaurant?.features?.[featureKey] === true;
 
 const RestaurantLanding = () => {
 	const { slug } = useParams();

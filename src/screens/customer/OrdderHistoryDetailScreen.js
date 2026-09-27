@@ -36,7 +36,7 @@ const OrderHistoryDetailScreen = () => {
 		let isMounted = true;
 		if (orderDetails?.restaurantId) {
 			const restRef = db
-				.collection("restaurants")
+				.collection("restaurantPublic")
 				.doc(orderDetails.restaurantId);
 			restRef
 				.get()

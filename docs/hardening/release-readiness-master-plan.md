@@ -190,7 +190,7 @@ Deployment status values: `None` · `Local` · `Dev` · `Testing` · `Prod`
 | B-09 | Rules lockdown R1–R4 in testing (§13) | Not started | ENG | B-07 | Each step deployed separately with rules tests run against testing | Rules diff per step, test output | Testing | Redeploy prior rules file (never a pre-hardening one) |
 | B-10 | Customer/party/reservation ownership review (authority matrix rows) | Fixed locally | ENG | A-02; local start allowed by D-018 | Each row dispositioned: bounded, fail-closed or deferred with a D-entry | `b-10-customer-party-reservation-ownership-report.md`; `joinParty` now requires invite proof for new members, table-created parties now preserve `hostUserId`, check-in party association rules tightened; testing deploy and device QA pending A-08 resolution or explicit waiver | Local→Testing | Per endpoint |
 | B-11 | `searchPIPs` privacy review | Fixed locally | ENG | — | Output fields minimized; rate limit decided | `b-11-search-pips-privacy-report.md`; raw email removed from shaped results, masked `emailHint` added, client display updated, unit coverage added; rate limiting/abuse monitoring still pending before `Done` | Local→Testing | Disable endpoint |
-| B-12 | Restaurant root public-read split: public projection vs protected fields | Not started | ENG + FDR | B-10 | Protected fields (entitlements, fee policy, `isTestAccount`, Stripe IDs) not client-readable | Rules tests for anonymous read | Testing | Restore prior rules + projection stays |
+| B-12 | Restaurant root public-read split: public projection vs protected fields | Fixed locally | ENG + FDR | B-10; local start allowed by D-019 | Protected fields (entitlements, fee policy, `isTestAccount`, Stripe IDs) not client-readable | `b-12-restaurant-public-projection-report.md`; `restaurantPublic` projection, sync trigger, admin rebuild callable, guest read migration and rules tests added locally; testing deploy/backfill/device QA pending A-08 resolution or explicit waiver | Testing | Restore prior rules + projection stays |
 | B-13 | Remove client authority over `isPhoneVerified` and similar legacy identity fields | Not started | ENG | B-10 | Rules deny client write; no server path trusts it | Rules tests, grep evidence | Testing | Revert rule |
 | B-14 | Existing customer fee/rewards/Stripe mapping data review (read-only report) | Not started | ENG + FDR | A-06 | Report of suspicious values; remediation decision | Report file (redacted) | None | N/A |
 | B-15 | Staff PIN historical exposure assessment + reset decision | Not started | FDR + ENG | A-06 | Decision recorded | Decision log | None | N/A |
@@ -421,6 +421,7 @@ Seed entries:
 - **D-003** Production deploys require a signed founder approval entry per deploy.
 - **D-004** Backward-compatibility policy (§12), *pending approval*.
 - **D-018** Local B-10 ownership hardening may proceed while A-08 is blocked.
+- **D-019** Local B-12 public restaurant projection may proceed while A-08 is blocked.
 
 ---
 

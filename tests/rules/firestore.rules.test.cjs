@@ -57,22 +57,45 @@ async function seed(pathValue, data) {
 
 test("public discovery documents are readable but not client-writable", async () => {
 	await seed("restaurants/rest-a", { name: "Harbor and Ember" });
+	await seed("restaurantPublic/rest-a", { name: "Harbor and Ember" });
 	await seed("menuItems/item-a", {
 		name: "Oysters",
 		restaurantId: "rest-a",
 		averageRating: 4.8,
 	});
 
-	await assertSucceeds(getDoc(doc(anon(), "restaurants/rest-a")));
+	await assertSucceeds(getDoc(doc(anon(), "restaurantPublic/rest-a")));
 	await assertSucceeds(getDoc(doc(anon(), "menuItems/item-a")));
+	await assertFails(getDoc(doc(anon(), "restaurants/rest-a")));
 	await assertFails(
-		setDoc(doc(anon(), "restaurants/rest-b"), { name: "Forged" }),
+		setDoc(doc(anon(), "restaurantPublic/rest-b"), { name: "Forged" }),
 	);
 	await assertFails(
 		setDoc(doc(anon(), "menuItems/item-b"), {
 			name: "Forged",
 			restaurantId: "rest-a",
 		}),
+	);
+});
+
+test("raw restaurant documents are limited to restaurant users and Scerv admins", async () => {
+	await seed("restaurants/rest-a", {
+		name: "Harbor and Ember",
+		stripeAccountId: "acct_sensitive",
+	});
+
+	await assertFails(getDoc(doc(anon(), "restaurants/rest-a")));
+	await assertFails(getDoc(doc(authed("guest-a"), "restaurants/rest-a")));
+	await assertSucceeds(
+		getDoc(
+			doc(
+				authed("owner-a", { role: "owner", restaurantId: "rest-a" }),
+				"restaurants/rest-a",
+			),
+		),
+	);
+	await assertSucceeds(
+		getDoc(doc(authed("admin-a", { role: "godmode" }), "restaurants/rest-a")),
 	);
 });
 

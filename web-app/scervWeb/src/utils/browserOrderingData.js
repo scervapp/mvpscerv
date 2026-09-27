@@ -37,12 +37,12 @@ export const getRestaurantBySlug = async (slug) => {
 	const cleanSlug = slugify(slug);
 	if (!cleanSlug) return null;
 
-	const directDoc = await getDoc(doc(db, "restaurants", cleanSlug));
+	const directDoc = await getDoc(doc(db, "restaurantPublic", cleanSlug));
 	if (directDoc.exists()) {
 		return compactRestaurant(directDoc);
 	}
 
-	const restaurantRef = collection(db, "restaurants");
+	const restaurantRef = collection(db, "restaurantPublic");
 	const slugFields = ["slug", "restaurantSlug", "publicSlug"];
 	for (const field of slugFields) {
 		const snapshot = await getDocs(
