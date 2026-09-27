@@ -170,3 +170,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/a-08-testing-baseline-blocker-report.md`; OQ-018.
 - Reversal trigger: A production-parity source ref is identified or founder approves a non-production-parity baseline.
 - Supersedes: none
+
+### D-015 — Fail-close inactive PayPal and dLocal/dLocalGo exports locally
+- Date: 2026-09-27
+- Decided by: Founder/Engineering
+- Context: Founder confirmed PayPal and dLocalGo are not active MVP payment workflows. A-10/F11 found that current source and production metadata still expose PayPal and dLocal/dLocalGo handlers.
+- Decision: Keep legacy rail code available for future redesign, but override the exported PayPal and dLocal/dLocalGo handlers locally so they fail closed before touching provider APIs.
+- Alternatives rejected: Leave inactive rails callable because the UI should not use them; delete all legacy rail code before a future regional payment design exists.
+- Risk accepted: If an old client calls these rails after the change is deployed, it will receive a failed-precondition response and must use Stripe-supported paths.
+- Evidence: `docs/hardening/f11-credential-triage-report.md`; `tests/unit/inactive-payment-rails.test.cjs`; `npm run ci:backend` passes locally.
+- Reversal trigger: Founder approves a new non-Stripe payment-rail design with provider confirmation, server pricing, webhook replay/idempotency and compliance review.
+- Supersedes: none

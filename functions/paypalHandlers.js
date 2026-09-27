@@ -346,3 +346,17 @@ exports.chargeVaultedCard = functions
 			throw new functions.https.HttpsError("internal", error.message);
 		}
 	});
+
+const rejectInactivePayPalRail = () => {
+	// PayPal is intentionally disabled for the MVP. Keep the legacy code above
+	// for future reference, but never let an exported handler touch the provider
+	// until a new payment-rail design is approved.
+	throw new functions.https.HttpsError(
+		"failed-precondition",
+		"PayPal payments are not active for Scerv.",
+	);
+};
+
+exports.createPayPalOrder = functions.https.onCall(rejectInactivePayPalRail);
+exports.capturePayPalOrder = functions.https.onCall(rejectInactivePayPalRail);
+exports.chargeVaultedCard = functions.https.onCall(rejectInactivePayPalRail);

@@ -60,6 +60,7 @@ Stripe and Resend secrets exist in Secret Manager by name, but this task did not
 - Use `npm run security:secret-scan` as the local pre-commit/release check.
 - Keep the GitHub `Secret hygiene` workflow active so pull requests and release/hardening branch pushes run the scanner.
 - Resolve testing Secret Manager access or document why the testing project intentionally blocks this inventory.
+- Keep inactive PayPal and dLocal/dLocalGo exports fail-closed until a new payment-rail design is approved.
 
 ## Guardrail added
 
@@ -75,3 +76,13 @@ Stripe and Resend secrets exist in Secret Manager by name, but this task did not
 - Added `functions/.env.example` with empty placeholder names only.
 - Added `.github/workflows/secret-hygiene.yml`.
 - Added `.gitignore` coverage for `.env`, `.env.*` and generated archives.
+- Added local fail-closed export overrides for PayPal and dLocal/dLocalGo handlers.
+- Added `tests/unit/inactive-payment-rails.test.cjs` to guard those overrides.
+
+## Validation after inactive-rail containment
+
+| Command | Result |
+| --- | --- |
+| `npm run test:functions` | Pass: 6 unit tests |
+| `npm.cmd --prefix functions run lint` | Pass |
+| `npm run ci:backend` | Pass: secret scan, functions lint, 6 unit tests and 5 Firestore rules tests |

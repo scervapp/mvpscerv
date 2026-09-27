@@ -1041,3 +1041,29 @@ exports.chargeSavedDlocalCard = functions
 			};
 		}
 	});
+
+const rejectInactiveDlocalRail = () => {
+	// dLocal/dLocalGo is intentionally disabled for the MVP. The legacy rail
+	// remains in source for future regional payment design, but current exports
+	// must fail closed and avoid provider calls.
+	throw new functions.https.HttpsError(
+		"failed-precondition",
+		"dLocal payments are not active for Scerv.",
+	);
+};
+
+exports.getDlocalPublicKey = functions.https.onCall(rejectInactiveDlocalRail);
+exports.createDlocalCheckout = functions.https.onCall(rejectInactiveDlocalRail);
+exports.processDlocalNativePayment =
+	functions.https.onCall(rejectInactiveDlocalRail);
+exports.processDlocalTokenCharge =
+	functions.https.onCall(rejectInactiveDlocalRail);
+exports.createDlocalPayment = functions.https.onCall(rejectInactiveDlocalRail);
+exports.confirmDlocalPayment = functions.https.onCall(rejectInactiveDlocalRail);
+exports.chargeSavedDlocalCard = functions.https.onCall(rejectInactiveDlocalRail);
+exports.dlocalWebhook = functions.https.onRequest((_request, response) => {
+	response.status(410).json({
+		error: "payment_rail_inactive",
+		message: "dLocal payments are not active for Scerv.",
+	});
+});
