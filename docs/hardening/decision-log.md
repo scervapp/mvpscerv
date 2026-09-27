@@ -159,3 +159,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/a-02-branch-baseline-report.md`; pushed branch `codex/browser-ordering-mvp`; tag `hardening-phase1-local-20260927`.
 - Reversal trigger: GitHub CI fails or the baseline must be rebuilt from a different source ref.
 - Supersedes: none
+
+### D-014 — Do not deploy current local source as the A-08 baseline
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: A-08 requires a testing-lane deploy of the A-06 verified production baseline source. A-06 shows production/testing rules drift from local source, testing has no functions, and no exact production functions source ref is recorded.
+- Decision: Do not deploy the current local branch to `scervmvp-testing` as A-08. Record A-08 as blocked until the source ref is identified or the founder approves a different baseline strategy.
+- Alternatives rejected: Deploy current local source to testing and call it baseline; skip W0 and begin hardening deploys directly.
+- Risk accepted: Phase A exit is delayed until the baseline source question is answered.
+- Evidence: `docs/hardening/a-08-testing-baseline-blocker-report.md`; OQ-018.
+- Reversal trigger: A production-parity source ref is identified or founder approves a non-production-parity baseline.
+- Supersedes: none

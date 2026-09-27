@@ -149,3 +149,11 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Needed by: Phase B exit
 - Answer:
 - Closed:
+
+### OQ-018 — What exact source ref should be used for the A-08 testing baseline?
+- Raised: 2026-09-27 by A-08 preflight
+- Owner to answer: Engineering + Founder
+- Blocks: A-08, Phase A exit
+- Needed by: Phase A exit
+- Answer:
+- Closed:

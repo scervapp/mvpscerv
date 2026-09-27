@@ -1,0 +1,37 @@
+# A-08 Testing Baseline Blocker Report
+
+Date: 2026-09-27
+Task: A-08 — Testing-lane baseline deploy
+Evidence level: L
+Deploy status: None
+
+## Result
+
+A-08 was not executed.
+
+The task requires deploying the A-06 verified production baseline source to `scervmvp-testing` and running a smoke script. Current evidence does not identify a deployable source ref that exactly represents the production application baseline.
+
+## Why This Is Blocked
+
+A-06 recorded these facts:
+
+- `scervmvp-testing` currently has zero deployed functions.
+- Production application functions are deployed, but the source ref for that deployed production function set is not recorded.
+- Production and testing Firestore rules match each other, but they do not match the current local `firestore.rules` source.
+- The current local branch contains hardening docs, deploy guards, CI gates, browser-ordering work and other post-production changes.
+
+Deploying the current local branch to testing would violate the W0 rule:
+
+> Baseline: A-06 verified production baseline source. Must not include any hardening.
+
+## Required Before A-08 Can Run
+
+One of these must happen:
+
+1. Identify the exact source commit/ref that produced the current production application functions, then deploy that source to `scervmvp-testing`.
+2. Create a deliberate founder-approved baseline source ref from production parity evidence, with explicit drift notes and a smoke checklist.
+3. Replace A-08 with a new decision that testing should baseline from current source rather than production source, accepting that this is no longer a production-parity baseline.
+
+## Recommendation
+
+Do not deploy anything to `scervmvp-testing` for A-08 until the source-ref question is answered. The first testing-lane deploy must be boring, reversible and explainable.
