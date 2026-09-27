@@ -168,6 +168,52 @@ test("server-owned operational collections reject client writes", async () => {
 	);
 });
 
+test("customers can create only their own check-in requests and party links", async () => {
+	await seed("parties/party-a", {
+		restaurantId: "rest-a",
+		hostUserId: "alice",
+		guestUserIds: ["alice"],
+		memberUids: ["alice"],
+	});
+	await seed("parties/party-b", {
+		restaurantId: "rest-a",
+		hostUserId: "bob",
+		guestUserIds: ["bob"],
+		memberUids: ["bob"],
+	});
+
+	await assertSucceeds(
+		setDoc(doc(authed("alice"), "checkIns/checkin-a"), {
+			restaurantId: "rest-a",
+			customerId: "alice",
+			status: "REQUESTED",
+		}),
+	);
+	await assertSucceeds(
+		setDoc(doc(authed("alice"), "checkIns/checkin-b"), {
+			restaurantId: "rest-a",
+			customerId: "alice",
+			status: "REQUESTED",
+			associatedPartyId: "party-a",
+		}),
+	);
+	await assertFails(
+		setDoc(doc(authed("alice"), "checkIns/checkin-c"), {
+			restaurantId: "rest-a",
+			customerId: "alice",
+			status: "REQUESTED",
+			associatedPartyId: "party-b",
+		}),
+	);
+	await assertFails(
+		setDoc(doc(authed("mallory"), "checkIns/checkin-d"), {
+			restaurantId: "rest-a",
+			customerId: "alice",
+			status: "REQUESTED",
+		}),
+	);
+});
+
 test("legacy pending orders remain owner-create only until the planned lockdown", async () => {
 	await assertSucceeds(
 		setDoc(doc(authed("alice"), "pending_orders/order-a"), {

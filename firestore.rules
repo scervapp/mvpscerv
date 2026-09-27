@@ -126,7 +126,12 @@ service cloud.firestore {
       return signedIn() &&
         data.customerId == uid() &&
         data.restaurantId is string &&
-        data.status == "REQUESTED";
+        data.status == "REQUESTED" &&
+        (!("associatedPartyId" in data) ||
+          (
+            data.associatedPartyId is string &&
+            isPartyReaderById(data.associatedPartyId)
+          ));
     }
 
     match /customers/{userId} {

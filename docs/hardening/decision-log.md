@@ -203,3 +203,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: `docs/hardening/b-03-min-version-gate-report.md`.
 - Reversal trigger: Device testing shows unacceptable startup latency or a better compatibility mechanism is chosen.
 - Supersedes: none
+
+### D-018 — Allow local B-10 ownership hardening while deploy lanes are blocked
+- Date: 2026-09-27
+- Decided by: Engineering
+- Context: A-08 remains blocked by the missing production-baseline source ref, but customer/party/reservation ownership review can be completed locally without mutating cloud state. The review found narrow Party Mode and check-in association fixes that reduce abuse risk before testing deployment.
+- Decision: Proceed with B-10 locally. Keep it at `Fixed locally` until A-08 is resolved or explicitly waived, then deploy through testing and run device QA for invite joins, occupied-table QR joins, check-in requests and reservation seating.
+- Alternatives rejected: Wait for A-08 before repairing known ownership gaps; deploy ownership changes directly to testing without a baseline decision.
+- Risk accepted: A legacy caller that attempts to join a party as a new member with only a raw `partyId` will now fail closed. Current native occupied-table QR and notification flows include invite codes and should remain compatible.
+- Evidence: `docs/hardening/b-10-customer-party-reservation-ownership-report.md`; `tests/unit/party-security.test.cjs`; `tests/rules/firestore.rules.test.cjs`.
+- Reversal trigger: Testing QA identifies a legitimate current flow that requires a non-member raw `partyId` join; replace it with a scoped token/invite proof rather than reopening guessed party IDs.
+- Supersedes: none

@@ -5,6 +5,11 @@ const admin = require("firebase-admin");
 const db = admin.firestore();
 const { Translate } = require("@google-cloud/translate").v2;
 const { assertRestaurantPermission } = require("./restaurantAccess");
+const {
+	canUseDirectPartyIdJoin,
+	isPartyMember,
+	normalizeInviteCode,
+} = require("./partySecurity");
 
 const translate = new Translate();
 
@@ -406,9 +411,10 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 	}
 	const joinerUserId = context.auth.uid;
 	const { inviteCode, partyId } = data || {};
+	const normalizedInviteCode = normalizeInviteCode(inviteCode);
 
 	// Must have at least one of these to proceed
-	if (!inviteCode && !partyId) {
+	if (!normalizedInviteCode && !partyId) {
 		throw new functions.https.HttpsError(
 			"invalid-argument",
 			"A valid invite code or party ID is required.",
@@ -421,9 +427,29 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 
 	try {
 		// ==============================================================
-		// 1. DIRECT LOOKUP (QR SCAN BYPASS)
+		// 1. INVITE CODE LOOKUP
 		// ==============================================================
-		if (partyId) {
+		if (normalizedInviteCode) {
+			const partyQuery = await partiesRef
+				.where("inviteCode", "==", normalizedInviteCode)
+				.limit(1)
+				.get();
+
+			if (partyQuery.empty) {
+				console.warn(
+					`joinParty: No active party found for invite code: ${normalizedInviteCode}`,
+				);
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Invalid or expired invite code. Please check the code and try again.",
+				);
+			}
+			partyDoc = partyQuery.docs[0];
+		}
+		// ==============================================================
+		// 2. DIRECT LOOKUP (REOPEN EXISTING MEMBERS ONLY)
+		// ==============================================================
+		else if (partyId) {
 			partyDoc = await partiesRef.doc(partyId).get();
 			if (!partyDoc.exists) {
 				console.warn(`joinParty: No party found for partyId: ${partyId}`);
@@ -433,32 +459,12 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 				);
 			}
 		}
-		// ==============================================================
-		// 2. INVITE CODE LOOKUP (MANUAL ENTRY)
-		// ==============================================================
-		else if (inviteCode) {
-			const partyQuery = await partiesRef
-				.where("inviteCode", "==", inviteCode.toUpperCase())
-				.limit(1)
-				.get();
-
-			if (partyQuery.empty) {
-				console.warn(
-					`joinParty: No active party found for invite code: ${inviteCode}`,
-				);
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Invalid or expired invite code. Please check the code and try again.",
-				);
-			}
-			partyDoc = partyQuery.docs[0];
-		}
 
 		const resolvedPartyId = partyDoc.id;
 		const partyData = partyDoc.data();
 
 		if (
-			inviteCode &&
+			normalizedInviteCode &&
 			partyData.inviteCodeExpiry &&
 			partyData.inviteCodeExpiry.toMillis() <= now.toMillis()
 		) {
@@ -469,10 +475,8 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 		}
 
 		// Additional validations
-		if (
-			partyData.guestUserIds &&
-			partyData.guestUserIds.includes(joinerUserId)
-		) {
+		const alreadyMember = isPartyMember(partyData, joinerUserId);
+		if (alreadyMember) {
 			console.log(
 				`joinParty: User ${joinerUserId} is already in party ${resolvedPartyId}.`,
 			);
@@ -481,6 +485,16 @@ exports.joinParty = functions.https.onCall(async (data, context) => {
 				partyId: resolvedPartyId,
 				message: "Already in party.",
 			};
+		}
+
+		if (
+			!normalizedInviteCode &&
+			!canUseDirectPartyIdJoin({ partyData, uid: joinerUserId })
+		) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"An active invite code is required to join this party.",
+			);
 		}
 
 		if (
@@ -1675,6 +1689,7 @@ exports.createPartySession = functions.https.onCall(async (data, context) => {
 					checkInId: checkInRef.id,
 					sharedBasketId: partyRef.id,
 					hostId: hostId,
+					hostUserId: hostId,
 					hostName: hostName,
 					status: "active",
 					inviteCode: newInviteCode,
