@@ -143,6 +143,7 @@ exports.createConnectedAccount = functions
 				stripeAccountId: account.id,
 				stripeAccountStatus: "pending",
 				stripeAccountMode: keys.isTestMode ? "test" : "live",
+				canAcceptPayments: false,
 				stripeCapabilities: {
 					card_payments: account.capabilities.card_payments || null,
 					transfers: account.capabilities.transfers || null,
@@ -237,6 +238,7 @@ exports.checkOnboardingStatus = functions
 			);
 
 			await restaurantRef.update({
+				canAcceptPayments: isOnboarded && account.charges_enabled === true,
 				stripeChargesEnabled: account.charges_enabled === true,
 				stripeDetailsSubmitted: account.details_submitted === true,
 				stripePayoutsEnabled: account.payouts_enabled === true,
