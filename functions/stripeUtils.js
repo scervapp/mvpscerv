@@ -28,7 +28,13 @@ const getCustomerUpdatePayload = (userData = {}) => ({
 	name: getCustomerName(userData),
 });
 
-const normalizeStripeSecret = (value) => String(value || "").trim();
+const normalizeStripeSecret = (value) =>
+	String(value || "")
+		.trim()
+		// Firebase secrets sometimes get pasted with invisible control characters.
+		// Stripe sends the key in an Authorization header, so remove anything
+		// Node would reject before constructing the Stripe client.
+		.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "");
 
 const getStripeModeConfig = (mode) => {
 	const isLiveMode = mode === "live";
