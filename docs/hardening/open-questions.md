@@ -131,8 +131,8 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Engineering
 - Blocks: R6, E-01
 - Needed by: Phase A exit
-- Answer:
-- Closed:
+- Answer: No reviewed `storage.rules` source file was found in the current workspace or Git history. Repository search found only captured deployed storage rules evidence under `docs/hardening/evidence/deployed-rules/`. Storage source parity cannot be claimed until a reviewed source file is recreated from deployed evidence or recovered from another system.
+- Closed: 2026-09-27 -> source not found; recreate/recover is follow-up work.
 
 ### OQ-016 — What is the repository exposure profile for tracked credential-bearing files?
 - Raised: 2026-09-27 by A-10/F11 credential triage

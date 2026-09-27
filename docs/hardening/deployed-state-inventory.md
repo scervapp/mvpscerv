@@ -99,4 +99,4 @@ Deployed rule text was captured read-only into `docs/hardening/evidence/deployed
 - Main workspace `.firebaserc` defaults to production. A-05 should run before any deploy workflow work.
 - Firestore deployed-rule metadata and hashes were retrieved through the Firebase Rules API via local Firebase CLI auth helpers because Firebase CLI 13.35.1 does not expose `firestore:rules:get`.
 - Production and testing Firestore rules do not match the current local Firestore rules source hash. Development's app-targeted `(default)` database rules match the current local comparable hash, while the separate named `default` database does not.
-- Storage rules are deployed in production and development, but no local root `storage.rules` file was found. Storage rules source control is therefore unresolved.
+- Storage rules are deployed in production and development, but no local or historical source-controlled `storage.rules` file was found. Storage rules source control must be recreated or recovered before R6/E-01 can claim parity.
