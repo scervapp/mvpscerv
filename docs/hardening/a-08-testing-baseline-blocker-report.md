@@ -2,8 +2,8 @@
 
 Date: 2026-09-27
 Task: A-08 — Testing-lane baseline deploy
-Evidence level: L
-Deploy status: None
+Evidence level: L + T
+Deploy status: Testing functions deployed; focused backend smoke passed
 
 ## Result
 
@@ -148,3 +148,40 @@ Result:
 
 Resolved blocker: OQ-021.
 Remaining A-08 work: broader baseline smoke is still pending; do not treat this as device QA or full app-flow verification.
+
+## 2026-09-27 Focused Testing-Lane Smoke
+
+Scope: backend/testing-lane smoke only. This did not exercise real devices, native builds, browser checkout with Stripe redirect, QR table flows, reservations or staff KDS workflows.
+
+Testing lane checks:
+
+- `firebase use --project scervmvp-testing` selected `scervmvp-testing`.
+- `firestore:databases:get '(default)' --project scervmvp-testing` confirmed the default Firestore Native database exists in `nam5`.
+- `functions:list --project scervmvp-testing --json` returned `177` deployed functions.
+- All `177` deployed functions reported `ACTIVE`.
+- All `177` deployed functions reported runtime `nodejs20`.
+- Browser/table/payment-related callable names were present, including `resolveBrowserTableToken`, `createBrowserTableSession`, `addBrowserBasketItem`, `updateBrowserBasketItem`, `removeBrowserBasketItem`, `submitBrowserBasketToKitchen`, `createBrowserCheckoutSession`, `syncBrowserCheckoutSession` and `getBrowserOrderStatus`.
+
+Callable success smoke:
+
+- `checkClientVersion` returned `updateRequired: false` and `reason: supported` for a synthetic iOS client request.
+
+Callable validation smoke:
+
+- `submitScervNewsletterSignup` with `email: "not-an-email"` returned HTTP `400` with `INVALID_ARGUMENT`.
+- This proves the deployed testing callable rejects invalid input before accepting the request.
+
+Local backend safety net:
+
+- `npm run ci:backend` passed outside the sandbox after the Windows sandbox hit the known `EPERM` path-resolution issue.
+- Secret hygiene check passed.
+- Functions lint passed.
+- Backend unit tests passed: `25` passed, `0` failed.
+- Firestore emulator rules tests passed: `9` passed, `0` failed.
+
+Current A-08 conclusion:
+
+- The testing lane is no longer blocked by Blaze, Secret Manager, Firestore database creation or Firebase Auth initialization.
+- The deployed backend baseline is reachable and healthy for focused callables.
+- A-08 remains **In progress** until broader app-flow smoke is run in testing, including QR/table session, browser basket-to-kitchen, Stripe test checkout, reservation/check-in and restaurant staff operational screens.
+- Tightened Firestore rules still require their own staged rules-lane deployment and should not be bundled into a broad feature deploy.
