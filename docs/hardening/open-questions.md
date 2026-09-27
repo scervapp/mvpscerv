@@ -171,5 +171,13 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Founder + Engineering
 - Blocks: A-08, B-01, B-04, B-05, B-06, B-18
 - Needed by: testing-lane functions deploy
-- Answer: Retry command `$env:FUNCTIONS_DISCOVERY_TIMEOUT='60000'; npx.cmd firebase-tools deploy --only functions --project scervmvp-testing` passed deploy guard, lint, required Cloud Functions/Cloud Build/Artifact Registry API checks and function discovery, then failed because `secretmanager.googleapis.com` is disabled for `scervmvp-testing`. Required defined secrets include Stripe test/live publishable and secret keys, Stripe webhook secrets and `RESEND_API_KEY`; inactive PayPal/dLocalGo rails remain fail-closed and are not part of this deploy requirement.
+- Answer: Retry command `$env:FUNCTIONS_DISCOVERY_TIMEOUT='60000'; npx.cmd firebase-tools deploy --only functions --project scervmvp-testing` passed deploy guard, lint, required Cloud Functions/Cloud Build/Artifact Registry API checks and function discovery, then failed because `secretmanager.googleapis.com` was disabled for `scervmvp-testing`. Founder enabled Secret Manager. Engineering copied dev test-mode Stripe and Resend secrets into testing without printing values and set disabled placeholders for live-mode Stripe secret names in testing. Deploy then passed secret checks and moved to service/database prerequisites.
+- Closed: 2026-09-27 -> testing secrets provisioned
+
+### OQ-021 — Can Firebase Auth be initialized for `scervmvp-testing`?
+- Raised: 2026-09-27 by A-08 testing deploy
+- Owner to answer: Founder
+- Blocks: A-08 completion, `onUserCreate` deployment, auth-trigger smoke tests
+- Needed by: testing-lane functions deploy completion
+- Answer: Full functions deploy created the testing Firestore database prerequisite gap. Engineering created Firestore database `(default)` in `nam5`; all Firestore-trigger functions then deployed successfully. The only remaining failed function is `onUserCreate`, blocked by `Failed to configure trigger for event-type:providers/firebase.auth/eventTypes/user.create ... Firebase Auth is not enabled in the project.` Enabling `identitytoolkit.googleapis.com` from CLI was successful/already active, but retrying `onUserCreate` still failed. This requires Firebase Auth initialization in the Firebase console for `scervmvp-testing`.
 - Closed:

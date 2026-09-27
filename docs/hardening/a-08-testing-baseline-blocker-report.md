@@ -89,3 +89,32 @@ Result:
 
 Resolved blocker: OQ-019.
 New blocker: OQ-020.
+
+## 2026-09-27 Testing Deploy Progress After Secret Manager Enablement
+
+Secret and service setup performed:
+
+- Founder enabled Secret Manager for `scervmvp-testing`.
+- Engineering copied these dev test-mode secrets into `scervmvp-testing` without printing values: `STRIPE_PUBLISHABLE_KEY_TEST`, `STRIPE_SECRET_KEY_TEST`, `STRIPE_WEBHOOK_SECRET_TEST`, `RESEND_API_KEY`.
+- Engineering set disabled placeholders for testing live-mode names: `STRIPE_PUBLISHABLE_KEY_LIVE`, `STRIPE_SECRET_KEY_LIVE`, `STRIPE_WEBHOOK_SECRET_LIVE`.
+- Engineering created Firestore database `(default)` in `nam5` for `scervmvp-testing`.
+- Engineering enabled/verified `identitytoolkit.googleapis.com`, but this did not initialize Firebase Auth for auth trigger deployment.
+
+Deploy progress:
+
+- Single-function probe `functions:addItemToBasket` succeeded.
+- Full functions deploy then created the bulk of the testing functions.
+- Initial Firestore-trigger failures were resolved after creating the default Firestore database.
+- Targeted redeploy succeeded for: `aggregateDishRating`, `aggregateMenuItemOrderStats`, `aggregateMenuItemRating`, `autoTranslateMenuItem`, `awardRewardsForPaidOrder`, `clearTable`, `handleCheckIn`, `syncCustomerSearchIndex`, `syncRestaurantPublicProfile`, `updateReservationTrustStats`.
+- `functions:list --project scervmvp-testing` confirms the testing lane now has deployed Node.js 20 functions, including callable, HTTPS, scheduled and Firestore-triggered functions.
+
+Remaining blocker:
+
+- `onUserCreate` still fails to deploy because Firebase Auth is not enabled/initialized in `scervmvp-testing`.
+- Retry after enabling `identitytoolkit.googleapis.com` failed with the same error:
+
+```text
+Failed to configure trigger for event-type:providers/firebase.auth/eventTypes/user.create resource:projects/scervmvp-testing service:firebaseauth.googleapis.com. Firebase Auth is not enabled in the project.
+```
+
+New blocker: OQ-021.
