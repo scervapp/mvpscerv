@@ -562,17 +562,23 @@ const EmployeeScreen = () => {
 		const employeeRole = String(item.role || "")
 			.trim()
 			.toLowerCase();
+		const employeeName =
+			String(item.displayName || item.name || "").trim() ||
+			`${item.firstName || ""} ${item.lastName || ""}`.trim() ||
+			`Staff ${String(item.id || "").slice(-6)}`;
 		const canManageThisEmployee = canActorManageEmployee(item);
 		const canDeleteThisEmployee = canManageThisEmployee && employeeRole !== "owner";
 		const serviceRatingCount = Number(item.serviceRatingCount || 0);
 		const serviceAverageRating = Number(item.serviceAverageRating || 0);
 		const cardSubtitle =
-			employeeRole.charAt(0).toUpperCase() + employeeRole.slice(1);
+			(employeeRole.charAt(0).toUpperCase() + employeeRole.slice(1)) ||
+			item.jobTitle ||
+			t("staff", "Staff");
 
 		return (
 		<Card style={styles.card}>
 			<Card.Title
-				title={`${item.firstName} ${item.lastName}`}
+				title={employeeName}
 				titleStyle={styles.employeeName}
 				subtitle={cardSubtitle}
 				subtitleStyle={[
