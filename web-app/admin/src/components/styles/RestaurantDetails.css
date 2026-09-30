@@ -241,6 +241,27 @@
 	margin-left: 26px;
 }
 
+.field-help.no-indent {
+	margin-left: 0;
+}
+
+.pay-lite-policy-fieldset {
+	border: 1px solid #d7e2e4;
+	border-radius: 4px;
+	display: grid;
+	gap: 12px;
+	grid-column: 1 / -1;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	margin: 6px 0 0;
+	padding: 14px;
+}
+
+.pay-lite-policy-fieldset legend {
+	color: #004f56;
+	font-weight: 800;
+	padding: 0 6px;
+}
+
 .restaurant-profile-form button,
 .restaurant-panel button {
 	background: #007bff;

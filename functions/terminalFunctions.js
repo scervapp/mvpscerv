@@ -566,6 +566,39 @@ const resolvePayLitePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
 		["pass_to_customer", "none", "waived"],
 		"pass_to_customer",
 	);
+	const customerFeeBasis = normalizePolicyString(
+		firstDefined(
+			payLitePolicy.customerFeeBasis,
+			payLitePolicy.customerServiceFeeBasis,
+			restaurantPolicy.payLiteCustomerFeeBasis,
+			tierPayLitePolicy.customerFeeBasis,
+			"sales_and_tax",
+		),
+		["sale", "sales_and_tax"],
+		"sales_and_tax",
+	);
+	const taxMode = normalizePolicyString(
+		firstDefined(
+			payLitePolicy.taxMode,
+			restaurantPolicy.payLiteTaxMode,
+			restaurantData.payLiteTaxMode,
+			tierPayLitePolicy.taxMode,
+			"pos_included",
+		),
+		["pos_included", "scerv_calculated", "none", "waived"],
+		"pos_included",
+	);
+	const taxRate = normalizePercentage(
+		firstDefined(
+			payLitePolicy.taxRate,
+			restaurantPolicy.payLiteTaxRate,
+			restaurantData.payLiteTaxRate,
+			restaurantData.taxRate,
+			tierPayLitePolicy.taxRate,
+			0,
+		),
+		0,
+	);
 
 	const scervFeePercentage = normalizePercentage(
 		firstDefined(
@@ -602,10 +635,10 @@ const resolvePayLitePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
 			restaurantPolicy.payLiteScervFeeMode,
 			restaurantPolicy.payLitePlatformFeeMode,
 			tierPayLitePolicy.scervFeeMode,
-			"sale_percentage",
+			"customer_fee",
 		),
 		["sale_percentage", "customer_fee", "card_total_percentage", "fixed", "none", "waived"],
-		"sale_percentage",
+		"customer_fee",
 	);
 	const scervFeeCapCents = normalizeNonNegativeCents(
 		firstDefined(
@@ -633,6 +666,9 @@ const resolvePayLitePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
 		customerFeeMode,
 		customerFeePercentage,
 		customerFeeFixedCents,
+		customerFeeBasis,
+		taxMode,
+		taxRate,
 		scervFeeMode,
 		scervFeePercentage,
 		scervFeeFixedCents,
@@ -650,16 +686,29 @@ const calculatePayLiteFinancials = ({ merchantNetSalesAmount, policy = {} }) => 
 		merchantNetSalesAmount,
 		0,
 	);
+	const taxAmount =
+		policy.taxMode === "scerv_calculated"
+			? calculatePercentageFee(
+					normalizedMerchantNetSalesAmount,
+					policy.taxRate,
+					0,
+				)
+			: 0;
+	const salesAndTaxAmount = normalizedMerchantNetSalesAmount + taxAmount;
+	const customerFeeBasisAmount =
+		policy.customerFeeBasis === "sale"
+			? normalizedMerchantNetSalesAmount
+			: salesAndTaxAmount;
 	const customerServiceFeeAmount =
 		["none", "waived"].includes(policy.customerFeeMode)
 			? 0
 			: calculatePercentageFee(
-					normalizedMerchantNetSalesAmount,
+					customerFeeBasisAmount,
 					policy.customerFeePercentage,
 					policy.customerFeeFixedCents,
 				);
 	const totalChargeAmount =
-		normalizedMerchantNetSalesAmount + customerServiceFeeAmount;
+		salesAndTaxAmount + customerServiceFeeAmount;
 
 	let rawScervFeeAmount = 0;
 	if (["none", "waived"].includes(policy.scervFeeMode)) {
@@ -701,11 +750,17 @@ const calculatePayLiteFinancials = ({ merchantNetSalesAmount, policy = {} }) => 
 
 	return {
 		merchantNetSalesAmount: normalizedMerchantNetSalesAmount,
+		taxAmount,
+		salesAndTaxAmount,
 		customerServiceFeeAmount,
+		customerFeeBasisAmount,
 		totalChargeAmount,
 		scervPayLiteFeeAmount,
 		restaurantTransferAmount,
 		customerFeeMode: policy.customerFeeMode,
+		customerFeeBasis: policy.customerFeeBasis,
+		taxMode: policy.taxMode,
+		taxRate: policy.taxRate,
 		scervFeeMode: policy.scervFeeMode,
 	};
 };
@@ -1596,6 +1651,9 @@ exports.prepareScervPayLiteTerminalPayment = functions
 			const scervFeePercentage = payLitePolicy.scervFeePercentage;
 			const customerServiceFeeAmount =
 				payLiteFinancials.customerServiceFeeAmount;
+			const taxAmount = payLiteFinancials.taxAmount;
+			const salesAndTaxAmount = payLiteFinancials.salesAndTaxAmount;
+			const customerFeeBasisAmount = payLiteFinancials.customerFeeBasisAmount;
 			const totalChargeAmount = payLiteFinancials.totalChargeAmount;
 			const scervPayLiteFeeAmount = payLiteFinancials.scervPayLiteFeeAmount;
 			const restaurantTransferAmount =
@@ -1632,6 +1690,7 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				context.auth.uid,
 				staffMember.id || staffId || "",
 				merchantNetSalesAmount,
+				taxAmount,
 				customerServiceFeeAmount,
 				scervPayLiteFeeAmount,
 				readableNote,
@@ -1659,9 +1718,15 @@ exports.prepareScervPayLiteTerminalPayment = functions
 						staffId: staffMember.id || staffId || "",
 						merchantNetSalesAmount: String(merchantNetSalesAmount),
 						saleAmount: String(merchantNetSalesAmount),
+						taxAmount: String(taxAmount),
+						salesAndTaxAmount: String(salesAndTaxAmount),
 						customerServiceFee: String(customerServiceFeeAmount),
 						scervPayLiteFeeAmount: String(scervPayLiteFeeAmount),
 						customerFeeMode: payLitePolicy.customerFeeMode,
+						customerFeeBasis: payLitePolicy.customerFeeBasis,
+						customerFeeBasisAmount: String(customerFeeBasisAmount),
+						payLiteTaxMode: payLitePolicy.taxMode,
+						payLiteTaxRate: String(payLitePolicy.taxRate),
 						scervFeeMode: payLitePolicy.scervFeeMode,
 						serviceFeePercentage: String(customerFeePercentage),
 						customerServiceFeePercentage: String(customerFeePercentage),
@@ -1673,7 +1738,7 @@ exports.prepareScervPayLiteTerminalPayment = functions
 						total: String(totalChargeAmount),
 						onReaderTipping: "true",
 						tipEligibleAmount: String(tipEligibleAmount),
-						tipBasis: "manual_pos_amount",
+						tipBasis: "manual_sale_amount",
 						stripeAccountMode: resolvedStripeAccount.mode,
 						stripeAccountSource: resolvedStripeAccount.source || "",
 						stripeChargeMode: restaurantStripeAccountId
@@ -1707,16 +1772,24 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				amount: totalChargeAmount,
 				preTipAmount: totalChargeAmount,
 				subtotal: merchantNetSalesAmount,
-				taxAmount: 0,
+				taxAmount,
+				taxRate: payLitePolicy.taxRate,
+				taxMode: payLitePolicy.taxMode,
+				taxSource:
+					payLitePolicy.taxMode === "scerv_calculated"
+						? "payLitePolicy.taxRate"
+						: "pos_or_external",
 				gratuityAmount: 0,
 				customerServiceFeeAmount,
 				customerServiceFee: customerServiceFeeAmount,
 				customerServiceFeePercentage: customerFeePercentage,
 				customerFeeFixedCents: payLitePolicy.customerFeeFixedCents,
 				customerFeeMode: payLitePolicy.customerFeeMode,
-				customerServiceFeeBasis: "manual_pos_total",
-				customerServiceFeeBasisAmount: merchantNetSalesAmount,
+				customerFeeBasis: payLitePolicy.customerFeeBasis,
+				customerServiceFeeBasis: payLitePolicy.customerFeeBasis,
+				customerServiceFeeBasisAmount: customerFeeBasisAmount,
 				merchantNetSalesAmount,
+				salesAndTaxAmount,
 				scervPayLiteFeeAmount,
 				scervPayLiteFeePercentage: scervFeePercentage,
 				scervFeeFixedCents: payLitePolicy.scervFeeFixedCents,
@@ -1743,7 +1816,7 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				restaurantTransferAmount,
 				onReaderTipping: true,
 				tipEligibleAmount,
-				tipBasis: "manual_pos_amount",
+				tipBasis: "manual_sale_amount",
 				tipAmountCents: 0,
 				tipSource: "stripe_terminal_reader",
 				payLitePolicy,
@@ -1756,8 +1829,15 @@ exports.prepareScervPayLiteTerminalPayment = functions
 					source: "scerv_pay_lite",
 					requiresManualPosMatch: true,
 					posAmountCents: merchantNetSalesAmount,
+					saleAmountCents: merchantNetSalesAmount,
+					taxAmountCents: taxAmount,
+					salesAndTaxAmountCents: salesAndTaxAmount,
 					cardTotalCents: totalChargeAmount,
 					customerFeeCents: customerServiceFeeAmount,
+					customerFeeBasis: payLitePolicy.customerFeeBasis,
+					customerFeeBasisAmount,
+					taxMode: payLitePolicy.taxMode,
+					taxRate: payLitePolicy.taxRate,
 					scervFeeCents: scervPayLiteFeeAmount,
 					customerFeeMode: payLitePolicy.customerFeeMode,
 					scervFeeMode: payLitePolicy.scervFeeMode,
@@ -1783,7 +1863,13 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				clientSecret: paymentIntent.client_secret,
 				amount: totalChargeAmount,
 				merchantNetSalesAmount,
+				taxAmount,
+				taxRate: payLitePolicy.taxRate,
+				taxMode: payLitePolicy.taxMode,
+				salesAndTaxAmount,
 				customerServiceFeeAmount,
+				customerFeeBasis: payLitePolicy.customerFeeBasis,
+				customerFeeBasisAmount,
 				scervPayLiteFeeAmount,
 				serviceFeePercentage: customerFeePercentage,
 				customerServiceFeePercentage: customerFeePercentage,
@@ -2102,7 +2188,7 @@ exports.captureStaffTerminalPayment = functions
 					tipAmountCents: gratuityAmount,
 					tipEligibleAmount,
 					tipBasis: isScervPayLite
-						? "manual_pos_amount"
+						? "manual_sale_amount"
 						: "terminal_closeout_subtotal",
 					tipSource: isScervPayLite
 						? "stripe_terminal_reader"
@@ -2124,6 +2210,8 @@ exports.captureStaffTerminalPayment = functions
 					reconciliation: {
 						...existingReconciliation,
 						finalAmountCents: finalAmount,
+						taxAmountCents: taxAmount,
+						salesAndTaxAmountCents: salesAndTaxAmount,
 						tipAmountCents: gratuityAmount,
 						tipEligibleAmount,
 						applicationFeeAmount,
@@ -2149,6 +2237,12 @@ exports.captureStaffTerminalPayment = functions
 				success: true,
 				paymentIntentId,
 				amount: finalAmount,
+				subtotal,
+				taxAmount,
+				taxRate: terminalPaymentData.taxRate || storedPayLitePolicy.taxRate || 0,
+				taxMode: terminalPaymentData.taxMode || storedPayLitePolicy.taxMode || null,
+				salesAndTaxAmount,
+				customerServiceFeeAmount,
 				gratuityAmount,
 				applicationFeeAmount,
 				restaurantTransferAmount,

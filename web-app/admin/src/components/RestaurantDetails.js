@@ -174,6 +174,16 @@ const RestaurantDetails = () => {
 		}));
 	};
 
+	const updatePayLitePolicy = (field, value) => {
+		setFormData((prev) => ({
+			...prev,
+			payLitePolicy: {
+				...(prev.payLitePolicy || {}),
+				[field]: value,
+			},
+		}));
+	};
+
 	const saveProfile = async (event) => {
 		event.preventDefault();
 		setSaving(true);
@@ -189,6 +199,7 @@ const RestaurantDetails = () => {
 				...formData,
 				restaurantNumber: Number(formData.restaurantNumber || 0),
 				taxRate: Number(formData.taxRate || 0),
+				payLitePolicy: formData.payLitePolicy || {},
 			};
 			await updateProfile({ restaurantId: id, updates });
 			setRestaurant(updates);
@@ -474,6 +485,124 @@ const RestaurantDetails = () => {
 								in customer discovery or public restaurant pages yet.
 							</span>
 						</label>
+						<fieldset className="pay-lite-policy-fieldset">
+							<legend>Scerv Pay Lite policy</legend>
+							<label>
+								Tax calculation
+								<select
+									value={formData.payLitePolicy?.taxMode || "pos_included"}
+									onChange={(event) =>
+										updatePayLitePolicy("taxMode", event.target.value)
+									}
+								>
+									<option value="pos_included">POS amount already includes tax</option>
+									<option value="scerv_calculated">Scerv calculates tax</option>
+									<option value="none">No tax</option>
+									<option value="waived">Tax waived</option>
+								</select>
+							</label>
+							<label>
+								Tax rate
+								<input
+									type="number"
+									step="0.001"
+									value={formData.payLitePolicy?.taxRate ?? ""}
+									placeholder="0.08875"
+									onChange={(event) =>
+										updatePayLitePolicy("taxRate", event.target.value)
+									}
+								/>
+								<span className="field-help no-indent">
+									Use decimal or percent. Example: 0.08875 or 8.875.
+								</span>
+							</label>
+							<label>
+								Customer card fee
+								<select
+									value={
+										formData.payLitePolicy?.customerFeeMode ||
+										"pass_to_customer"
+									}
+									onChange={(event) =>
+										updatePayLitePolicy("customerFeeMode", event.target.value)
+									}
+								>
+									<option value="pass_to_customer">Pass fee to customer</option>
+									<option value="none">No customer fee</option>
+									<option value="waived">Fee waived</option>
+								</select>
+							</label>
+							<label>
+								Customer fee rate
+								<input
+									type="number"
+									step="0.001"
+									value={formData.payLitePolicy?.customerFeePercentage ?? ""}
+									placeholder="0.04"
+									onChange={(event) =>
+										updatePayLitePolicy(
+											"customerFeePercentage",
+											event.target.value,
+										)
+									}
+								/>
+							</label>
+							<label>
+								Customer fee basis
+								<select
+									value={
+										formData.payLitePolicy?.customerFeeBasis ||
+										"sales_and_tax"
+									}
+									onChange={(event) =>
+										updatePayLitePolicy("customerFeeBasis", event.target.value)
+									}
+								>
+									<option value="sales_and_tax">Sale plus tax</option>
+									<option value="sale">Sale only</option>
+								</select>
+							</label>
+							<label>
+								Scerv fee capture
+								<select
+									value={formData.payLitePolicy?.scervFeeMode || "customer_fee"}
+									onChange={(event) =>
+										updatePayLitePolicy("scervFeeMode", event.target.value)
+									}
+								>
+									<option value="customer_fee">Keep customer fee</option>
+									<option value="sale_percentage">Percent of sale</option>
+									<option value="card_total_percentage">Percent of card total</option>
+									<option value="fixed">Fixed amount</option>
+									<option value="none">No Scerv fee</option>
+									<option value="waived">Waived</option>
+								</select>
+							</label>
+							<label>
+								Scerv fee rate
+								<input
+									type="number"
+									step="0.001"
+									value={formData.payLitePolicy?.scervFeePercentage ?? ""}
+									placeholder="0.04"
+									onChange={(event) =>
+										updatePayLitePolicy("scervFeePercentage", event.target.value)
+									}
+								/>
+							</label>
+							<label>
+								Fixed Scerv fee cents
+								<input
+									type="number"
+									step="1"
+									value={formData.payLitePolicy?.scervFeeFixedCents ?? ""}
+									placeholder="0"
+									onChange={(event) =>
+										updatePayLitePolicy("scervFeeFixedCents", event.target.value)
+									}
+								/>
+							</label>
+						</fieldset>
 						<button type="submit" disabled={saving}>
 							{saving ? "Saving..." : "Save Profile"}
 						</button>

@@ -103,6 +103,10 @@ const buildPayLiteCustomerReceiptText = (receipt = {}) => {
 		`Sale amount: ${formatReceiptAmount(receipt.merchantNetSalesAmount)}`,
 	];
 
+	if (Number(receipt.taxAmount || 0) > 0) {
+		lines.push(`Tax: ${formatReceiptAmount(receipt.taxAmount)}`);
+	}
+
 	if (Number(receipt.customerServiceFeeAmount || 0) > 0) {
 		lines.push(
 			`Card fee: ${formatReceiptAmount(receipt.customerServiceFeeAmount)}`,
@@ -394,6 +398,27 @@ const RestaurantTerminalPaymentContent = ({
 		["pass_to_customer", "none", "waived"],
 		"pass_to_customer",
 	);
+	const payLiteCustomerFeeBasis = normalizePolicyMode(
+		payLiteConfig.customerFeeBasis ??
+			payLiteConfig.customerServiceFeeBasis ??
+			paymentPolicy.payLiteCustomerFeeBasis,
+		["sale", "sales_and_tax"],
+		"sales_and_tax",
+	);
+	const payLiteTaxMode = normalizePolicyMode(
+		payLiteConfig.taxMode ??
+			paymentPolicy.payLiteTaxMode ??
+			currentUserData?.payLiteTaxMode,
+		["pos_included", "scerv_calculated", "none", "waived"],
+		"pos_included",
+	);
+	const payLiteTaxRate = normalizePercentageValue(
+		payLiteConfig.taxRate ??
+			paymentPolicy.payLiteTaxRate ??
+			currentUserData?.payLiteTaxRate ??
+			currentUserData?.taxRate,
+		0,
+	);
 	const payLiteCustomerFeeFixedCents = normalizeNonNegativeCents(
 		payLiteConfig.customerFeeFixedCents ??
 			payLiteConfig.customerServiceFeeFixedCents ??
@@ -401,20 +426,39 @@ const RestaurantTerminalPaymentContent = ({
 		0,
 	);
 	const payLiteServiceFeeCents = useMemo(
-		() =>
-			["none", "waived"].includes(payLiteCustomerFeeMode)
+		() => {
+			const taxAmount =
+				payLiteTaxMode === "scerv_calculated"
+					? Math.round(payLiteSaleAmountCents * payLiteTaxRate)
+					: 0;
+			const feeBasis =
+				payLiteCustomerFeeBasis === "sale"
+					? payLiteSaleAmountCents
+					: payLiteSaleAmountCents + taxAmount;
+			return ["none", "waived"].includes(payLiteCustomerFeeMode)
 				? 0
-				: Math.round(payLiteSaleAmountCents * payLiteCustomerFeePercentage) +
-					payLiteCustomerFeeFixedCents,
+				: Math.round(feeBasis * payLiteCustomerFeePercentage) +
+					payLiteCustomerFeeFixedCents;
+		},
 		[
+			payLiteCustomerFeeBasis,
 			payLiteCustomerFeeFixedCents,
 			payLiteCustomerFeeMode,
 			payLiteCustomerFeePercentage,
 			payLiteSaleAmountCents,
+			payLiteTaxMode,
+			payLiteTaxRate,
 		],
 	);
+	const payLiteTaxAmountCents = useMemo(
+		() =>
+			payLiteTaxMode === "scerv_calculated"
+				? Math.round(payLiteSaleAmountCents * payLiteTaxRate)
+				: 0,
+		[payLiteSaleAmountCents, payLiteTaxMode, payLiteTaxRate],
+	);
 	const paymentTotalCents = isPayLite
-		? payLiteSaleAmountCents + payLiteServiceFeeCents
+		? payLiteSaleAmountCents + payLiteTaxAmountCents + payLiteServiceFeeCents
 		: expectedTotalCents;
 	const isBusy = isDiscovering || isConnecting || isPaying || isFinalizing;
 	const selectedItemCount = closeoutItemIds.length;
@@ -1287,6 +1331,9 @@ const RestaurantTerminalPaymentContent = ({
 						payLiteServiceFeeCents ||
 						0,
 				);
+				const taxAmount = Number(
+					captureData.taxAmount || prepData.taxAmount || payLiteTaxAmountCents || 0,
+				);
 				const receipt = {
 					paymentIntentId,
 					restaurantName:
@@ -1301,6 +1348,7 @@ const RestaurantTerminalPaymentContent = ({
 							payLiteSaleAmountCents ||
 							0,
 					),
+					taxAmount,
 					customerServiceFeeAmount: customerFeeAmount,
 					gratuityAmount: tipAmount,
 					amount: totalPaidAmount,
@@ -1451,6 +1499,14 @@ const RestaurantTerminalPaymentContent = ({
 									)}
 								</Text>
 							</View>
+							{Number(lastPayLiteReceipt.taxAmount || 0) > 0 ? (
+								<View style={styles.payLiteReceiptRow}>
+									<Text style={styles.payLiteReceiptLabel}>Tax</Text>
+									<Text style={styles.payLiteReceiptValue}>
+										{formatReceiptAmount(lastPayLiteReceipt.taxAmount)}
+									</Text>
+								</View>
+							) : null}
 							{Number(lastPayLiteReceipt.customerServiceFeeAmount || 0) > 0 ? (
 								<View style={styles.payLiteReceiptRow}>
 									<Text style={styles.payLiteReceiptLabel}>Card fee</Text>

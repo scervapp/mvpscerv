@@ -662,6 +662,94 @@ const normalizeListingStatus = (value, fallback = "scerv_enabled") => {
 	return "scerv_enabled";
 };
 
+const normalizePolicyPercentage = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	const normalized = parsed > 1 ? parsed / 100 : parsed;
+	return Math.min(normalized, 1);
+};
+
+const normalizePolicyCents = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	return Math.round(parsed);
+};
+
+const normalizePayLitePolicyInput = (input = {}) => {
+	const policy = input && typeof input === "object" ? input : {};
+	const allowedTaxModes = ["pos_included", "scerv_calculated", "none", "waived"];
+	const allowedCustomerFeeModes = ["pass_to_customer", "none", "waived"];
+	const allowedCustomerFeeBases = ["sale", "sales_and_tax"];
+	const allowedScervFeeModes = [
+		"sale_percentage",
+		"customer_fee",
+		"card_total_percentage",
+		"fixed",
+		"none",
+		"waived",
+	];
+	const pick = (value, allowedValues, fallback) => {
+		const normalized = sanitizeString(value || fallback, 80);
+		return allowedValues.includes(normalized) ? normalized : fallback;
+	};
+	const firstDefined = (...values) => {
+		const match = values.find((value) => value !== undefined && value !== null);
+		return match === undefined ? null : match;
+	};
+
+	return {
+		version: "pay_lite_policy_v2",
+		taxMode: pick(policy.taxMode, allowedTaxModes, "pos_included"),
+		taxRate: normalizePolicyPercentage(policy.taxRate, 0),
+		customerFeeMode: pick(
+			policy.customerFeeMode || policy.customerServiceFeeMode,
+			allowedCustomerFeeModes,
+			"pass_to_customer",
+		),
+		customerFeeBasis: pick(
+			policy.customerFeeBasis || policy.customerServiceFeeBasis,
+			allowedCustomerFeeBases,
+			"sales_and_tax",
+		),
+		customerFeePercentage: normalizePolicyPercentage(
+			firstDefined(
+				policy.customerFeePercentage,
+				policy.customerServiceFeePercentage,
+				policy.customerChargePercentage,
+			),
+			0.04,
+		),
+		customerFeeFixedCents: normalizePolicyCents(
+			firstDefined(
+				policy.customerFeeFixedCents,
+				policy.customerServiceFeeFixedCents,
+			),
+			0,
+		),
+		scervFeeMode: pick(
+			policy.scervFeeMode || policy.platformFeeMode,
+			allowedScervFeeModes,
+			"customer_fee",
+		),
+		scervFeePercentage: normalizePolicyPercentage(
+			firstDefined(policy.scervFeePercentage, policy.platformFeePercentage),
+			0.04,
+		),
+		scervFeeFixedCents: normalizePolicyCents(
+			firstDefined(policy.scervFeeFixedCents, policy.platformFeeFixedCents),
+			0,
+		),
+		scervFeeCapCents: normalizePolicyCents(
+			firstDefined(policy.scervFeeCapCents, policy.platformFeeCapCents),
+			0,
+		),
+		scervFeeMinimumCents: normalizePolicyCents(
+			firstDefined(policy.scervFeeMinimumCents, policy.platformFeeMinimumCents),
+			0,
+		),
+	};
+};
+
 const getCommunityProfileEntitlements = () =>
 	FEATURE_KEYS.reduce((acc, key) => {
 		acc[key] = key === "reviews";
@@ -3064,6 +3152,7 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 			"isCustomerVisible",
 			"isLive",
 			"isFeatured",
+			"payLitePolicy",
 			"backOfficePin",
 		];
 		const cleanUpdates = {};
@@ -3082,6 +3171,8 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 				cleanUpdates[field] = sanitizeString(updates[field], 60)
 					.toLowerCase()
 					.replace(/[\s-]+/g, "_");
+			} else if (field === "payLitePolicy") {
+				cleanUpdates[field] = normalizePayLitePolicyInput(updates[field]);
 			} else if (["restaurantNumber", "taxRate", "geoLat", "geoLong"].includes(field)) {
 				const numericValue = Number(updates[field]);
 				cleanUpdates[field] = Number.isFinite(numericValue) ? numericValue : 0;
