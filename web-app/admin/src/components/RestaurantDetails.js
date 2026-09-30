@@ -704,12 +704,38 @@ const RestaurantDetails = () => {
 						</table>
 					</section>
 					<section className="restaurant-panel">
-						<h2>Employees</h2>
+						<h2>Employees ({employees.length})</h2>
 						<table className="restaurant-table">
+							<thead>
+								<tr>
+									<th>Name</th>
+									<th>Role</th>
+									<th>Status</th>
+									<th>ID</th>
+								</tr>
+							</thead>
 							<tbody>
-								{employees.slice(0, 30).map((employee) => (
-									<tr key={employee.id}><td>{employee.name || `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.id}</td><td>{employee.role || employee.jobTitle || "--"}</td></tr>
-								))}
+								{employees.length === 0 ? (
+									<tr>
+										<td colSpan="4">No employee records found.</td>
+									</tr>
+								) : (
+									employees.slice(0, 30).map((employee) => (
+										<tr key={employee.id}>
+											<td>
+												{employee.name ||
+													`${employee.firstName || ""} ${employee.lastName || ""}`.trim() ||
+													employee.id}
+												{employee.uid ? (
+													<div className="muted-small">UID: {employee.uid}</div>
+												) : null}
+											</td>
+											<td>{employee.role || employee.jobTitle || "--"}</td>
+											<td>{employee.isActive === false ? "Inactive" : "Active"}</td>
+											<td><code>{employee.id}</code></td>
+										</tr>
+									))
+								)}
 							</tbody>
 						</table>
 					</section>

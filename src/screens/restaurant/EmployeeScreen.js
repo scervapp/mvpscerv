@@ -297,6 +297,7 @@ const EmployeeScreen = () => {
 	const [employees, setEmployees] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
+	const [loadError, setLoadError] = useState("");
 
 	// 🚨 NEW: Modal & Selected Employee State
 	const [isModalVisible, setIsModalVisible] = useState(false);
@@ -339,6 +340,7 @@ const EmployeeScreen = () => {
 		}
 
 		try {
+			setLoadError("");
 			const result = await listStaffDirectoryFunction({
 				restaurantId,
 				staffId: activeSession?.id || null,
@@ -372,9 +374,17 @@ const EmployeeScreen = () => {
 			setIsLoading(false);
 		} catch (error) {
 			console.error("Error fetching employees:", error);
+			setLoadError(
+				error?.message ||
+					t(
+						"could_not_load_employee_roster",
+						"Could not load employee roster.",
+					),
+			);
+			setEmployees([]);
 			setIsLoading(false);
 		}
-	}, [activeSession?.id, listStaffDirectoryFunction, restaurantId]);
+	}, [activeSession?.id, listStaffDirectoryFunction, restaurantId, t]);
 
 	useEffect(() => {
 		if (!restaurantId) {
@@ -647,13 +657,23 @@ const EmployeeScreen = () => {
 				ListEmptyComponent={
 					<View style={styles.emptyContainer}>
 						<Ionicons
-							name="people-outline"
+							name={loadError ? "warning-outline" : "people-outline"}
 							size={60}
-							color={colors.textLight}
+							color={loadError ? colors.statusDanger : colors.textLight}
 						/>
 						<Text style={styles.emptyText}>
-							{t("no_employees_found_tap_to_create_the_owner_account")}
+							{loadError ||
+								t("no_employees_found_tap_to_create_the_owner_account")}
 						</Text>
+						{loadError ? (
+							<Button
+								mode="outlined"
+								onPress={loadEmployees}
+								style={styles.retryButton}
+							>
+								{t("retry", "Retry")}
+							</Button>
+						) : null}
 					</View>
 				}
 				contentContainerStyle={styles.listContainer}
@@ -710,6 +730,10 @@ const styles = StyleSheet.create({
 		fontSize: 17,
 		color: colors.textMedium,
 		lineHeight: 24,
+	},
+	retryButton: {
+		marginTop: 16,
+		borderColor: colors.primary,
 	},
 	card: {
 		marginVertical: 8,

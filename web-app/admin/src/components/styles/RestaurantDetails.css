@@ -293,6 +293,12 @@
 	vertical-align: top;
 }
 
+.muted-small {
+	color: #64748b;
+	font-size: 0.78rem;
+	margin-top: 4px;
+}
+
 .restaurant-message,
 .restaurant-error,
 .error {
