@@ -325,3 +325,14 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: Android build `3ad1d40f-e80f-42ad-9c64-7b07825993c5`; APK `https://expo.dev/artifacts/eas/5-gWAlEjdf4DOERHN1a_b-dh7fhR3f7P8zZc81jB8mA.apk`; founder message on 2026-09-30.
 - Reversal trigger: Founder wants iOS device QA completed, or an iOS-specific defect/risk becomes pilot blocking.
 - Supersedes: none
+
+### D-029 — Android MVP smoke unblocks B-09 preparation, not Phase B exit
+- Date: 2026-09-30
+- Decided by: Founder + Engineering
+- Context: Founder tested the Android testing lane after the release-candidate freeze and reported successful pickup order/payment, regular checkout payment, pickup visibility, ChefQ and Bar Q behavior. The full B-07 checklist and iOS testing are still not complete.
+- Decision: Accept the Android founder smoke as enough evidence to begin B-09 rules-lockdown preparation in `scervmvp-testing`, provided each rules step is tested and deployed separately. Keep B-07 formally `In progress` and do not claim full Phase B exit until iOS is tested or the master plan explicitly changes the gate.
+- Alternatives rejected: Block all rules-lockdown preparation on iOS; mark B-07 fully complete from partial Android smoke alone.
+- Risk accepted: Android-first evidence can miss iOS-specific defects and untested B-07 checklist rows.
+- Evidence: `docs/hardening/b-07-staff-device-qa-script.md` 2026-09-30 Android Founder Smoke Evidence; founder confirmation in chat on 2026-09-30.
+- Reversal trigger: Rules-lockdown preparation exposes a device regression, or founder requires full B-07 row-by-row evidence before any R1-R4 testing-lane deploy.
+- Supersedes: none

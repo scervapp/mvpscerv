@@ -2,7 +2,7 @@
 
 Date: 2026-09-30
 Project lane: `scervmvp-testing`
-Status: Ready for Android-first run; iOS deferred by D-028.
+Status: Android founder smoke passed for the tested MVP paths; iOS deferred by D-028.
 
 ## Objective
 
@@ -119,3 +119,18 @@ B-07 is not fully `Device-verified` under the master plan until iOS testing is c
 - This does not validate Firestore rules lockdown R1-R4.
 - This does not validate production.
 - This does not validate iOS until D-028 is reversed and an iOS testing build is installed.
+
+## 2026-09-30 Android Founder Smoke Evidence
+
+Founder-reported testing on the Android testing lane confirmed the following MVP flows worked well enough to stop treating the app as blocked for the next hardening step:
+
+- Customer pickup order placement and payment.
+- Customer regular checkout payment.
+- Pickup order status visibility and customer return path.
+- ChefQ food ticket visibility and updates.
+- Bar Q drink ticket visibility and updates.
+- Restaurant-side queue behavior for the tested order paths.
+
+This is useful device evidence, but it is not a fully signed row-by-row execution of every B-07 checklist item. It does not close the original two-platform Phase B exit gate because iOS testing remains deferred by D-028.
+
+Decision impact: D-029 allows Android-first evidence to unblock preparation of B-09 rules lockdown work in `scervmvp-testing`, while keeping B-07 formally `In progress` until either iOS runs or the master plan changes the gate.

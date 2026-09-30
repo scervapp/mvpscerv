@@ -278,21 +278,56 @@ test("customers can create only their own check-in requests and party links", as
 	);
 });
 
-test("legacy pending orders remain owner-create only until the planned lockdown", async () => {
-	await assertSucceeds(
-		setDoc(doc(authed("alice"), "pending_orders/order-a"), {
+test("R1 server-owned vault and payment collections deny all client access", async () => {
+	await seed("staffSessions/session-a", {
+		restaurantId: "rest-a",
+		employeeId: "employee-a",
+	});
+	await seed("staffPinAttempts/rest-a_employee-a", {
+		count: 1,
+	});
+	await seed("emailOtpChallenges/hash-a", {
+		codeHash: "server-only",
+	});
+	await seed("pending_orders/order-a", {
+		customerId: "alice",
+		restaurantId: "rest-a",
+	});
+	await seed("terminal_payments/payment-a", {
+		restaurantId: "rest-a",
+	});
+
+	const customer = authed("alice");
+	const staff = authed("server-a", {
+		role: "server",
+		restaurantId: "rest-a",
+	});
+
+	await assertFails(getDoc(doc(customer, "staffSessions/session-a")));
+	await assertFails(getDoc(doc(staff, "staffSessions/session-a")));
+	await assertFails(getDoc(doc(customer, "staffPinAttempts/rest-a_employee-a")));
+	await assertFails(getDoc(doc(staff, "staffPinAttempts/rest-a_employee-a")));
+	await assertFails(getDoc(doc(customer, "emailOtpChallenges/hash-a")));
+	await assertFails(getDoc(doc(staff, "emailOtpChallenges/hash-a")));
+	await assertFails(getDoc(doc(customer, "pending_orders/order-a")));
+	await assertFails(getDoc(doc(staff, "pending_orders/order-a")));
+	await assertFails(getDoc(doc(customer, "terminal_payments/payment-a")));
+	await assertFails(getDoc(doc(staff, "terminal_payments/payment-a")));
+
+	await assertFails(
+		setDoc(doc(customer, "pending_orders/order-b"), {
 			customerId: "alice",
 			restaurantId: "rest-a",
 		}),
 	);
 	await assertFails(
-		setDoc(doc(authed("mallory"), "pending_orders/order-b"), {
+		setDoc(doc(staff, "terminal_payments/payment-b"), {
 			customerId: "alice",
 			restaurantId: "rest-a",
 		}),
 	);
 	await assertFails(
-		updateDoc(doc(authed("alice"), "pending_orders/order-a"), {
+		updateDoc(doc(customer, "pending_orders/order-a"), {
 			totalPrice: 1,
 		}),
 	);

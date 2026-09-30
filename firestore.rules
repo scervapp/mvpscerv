@@ -149,10 +149,6 @@ service cloud.firestore {
       return data.restaurantId is string && isRestaurantUser(data.restaurantId);
     }
 
-    function isPendingOrderOwner(data) {
-      return signedIn() && data.customerId == uid();
-    }
-
     function isOwnCheckInRequest(data) {
       return signedIn() &&
         data.customerId == uid() &&
@@ -347,19 +343,25 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /pending_orders/{orderId} {
-      allow read: if isPendingOrderOwner(resource.data) ||
-        isRestaurantUser(resource.data.restaurantId);
+    match /staffSessions/{sessionId} {
+      allow read, write: if false;
+    }
 
-      // Legacy checkout creates pending_orders before calling payment functions.
-      // Payment functions must continue recalculating totals server-side.
-      allow create: if isPendingOrderOwner(request.resource.data);
-      allow update, delete: if false;
+    match /staffPinAttempts/{attemptId} {
+      allow read, write: if false;
+    }
+
+    match /emailOtpChallenges/{challengeId} {
+      allow read, write: if false;
+    }
+
+    match /pending_orders/{orderId} {
+      allow read, write: if false;
     }
 
     match /terminal_payments/{paymentId} {
-      allow read: if signedIn() && isRestaurantUser(resource.data.restaurantId);
       allow write: if false;
+      allow read: if false;
     }
 
     match /notifications/{notificationId} {
