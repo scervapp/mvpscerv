@@ -95,6 +95,9 @@ const getReceiptPaymentLabel = (paymentIntentId = "") => {
 };
 
 const buildPayLiteCustomerReceiptText = (receipt = {}) => {
+	if (receipt.printableText) return String(receipt.printableText);
+	if (receipt.shareText) return String(receipt.shareText);
+
 	const lines = [
 		receipt.restaurantName || "Restaurant",
 		"Scerv Pay Lite Receipt",
@@ -1321,41 +1324,41 @@ const RestaurantTerminalPaymentContent = ({
 			}
 
 			if (isPayLite) {
-				const tipAmount = Number(captureData.gratuityAmount || 0);
-				const totalPaidAmount = Number(
-					captureData.amount || prepData.amount || paymentTotalCents || 0,
-				);
-				const customerFeeAmount = Number(
-					captureData.customerServiceFeeAmount ||
-						prepData.customerServiceFeeAmount ||
-						payLiteServiceFeeCents ||
-						0,
-				);
-				const taxAmount = Number(
-					captureData.taxAmount || prepData.taxAmount || payLiteTaxAmountCents || 0,
-				);
-				const receipt = {
-					paymentIntentId,
-					restaurantName:
-						currentUserData?.restaurantName ||
-						currentUserData?.name ||
-						"Restaurant",
-					staffName: getStaffName(activeSession, currentUserData),
-					paidAt: new Date().toISOString(),
-					merchantNetSalesAmount: Number(
-						captureData.merchantNetSalesAmount ||
-							prepData.merchantNetSalesAmount ||
-							payLiteSaleAmountCents ||
-							0,
-					),
-					taxAmount,
-					customerServiceFeeAmount: customerFeeAmount,
-					gratuityAmount: tipAmount,
-					amount: totalPaidAmount,
-					readerLabel: getReaderName(connectedReader || {}),
-					readerSerialNumber: connectedReader?.serialNumber || "",
-					note: String(payLiteNote || "").trim(),
-				};
+				const receipt =
+					captureData.customerReceipt || {
+						paymentIntentId,
+						restaurantName:
+							currentUserData?.restaurantName ||
+							currentUserData?.name ||
+							"Restaurant",
+						staffName: getStaffName(activeSession, currentUserData),
+						paidAt: new Date().toISOString(),
+						merchantNetSalesAmount: Number(
+							captureData.merchantNetSalesAmount ||
+								prepData.merchantNetSalesAmount ||
+								payLiteSaleAmountCents ||
+								0,
+						),
+						taxAmount: Number(
+							captureData.taxAmount ||
+								prepData.taxAmount ||
+								payLiteTaxAmountCents ||
+								0,
+						),
+						customerServiceFeeAmount: Number(
+							captureData.customerServiceFeeAmount ||
+								prepData.customerServiceFeeAmount ||
+								payLiteServiceFeeCents ||
+								0,
+						),
+						gratuityAmount: Number(captureData.gratuityAmount || 0),
+						amount: Number(
+							captureData.amount || prepData.amount || paymentTotalCents || 0,
+						),
+						readerLabel: getReaderName(connectedReader || {}),
+						readerSerialNumber: connectedReader?.serialNumber || "",
+						note: String(payLiteNote || "").trim(),
+					};
 				setLastPayLiteReceipt(receipt);
 				setStepText("Payment recorded. Receipt ready.");
 				return;

@@ -7,7 +7,11 @@ if (!admin.apps.length) {
 }
 
 const {
-	_test: { buildScervPayLiteDailyReport, calculatePayLiteFinancials },
+	_test: {
+		buildScervPayLiteCustomerReceipt,
+		buildScervPayLiteDailyReport,
+		calculatePayLiteFinancials,
+	},
 } = require("../../functions/terminalFunctions");
 
 test("Pay Lite policy math keeps restaurant sales, guest fee and Scerv fee separate", () => {
@@ -27,13 +31,58 @@ test("Pay Lite policy math keeps restaurant sales, guest fee and Scerv fee separ
 
 	assert.deepEqual(financials, {
 		merchantNetSalesAmount: 10000,
+		taxAmount: 0,
+		salesAndTaxAmount: 10000,
 		customerServiceFeeAmount: 400,
+		customerFeeBasisAmount: 10000,
 		totalChargeAmount: 10400,
 		scervPayLiteFeeAmount: 400,
 		restaurantTransferAmount: 10000,
 		customerFeeMode: "pass_to_customer",
+		customerFeeBasis: undefined,
+		taxMode: undefined,
+		taxRate: undefined,
 		scervFeeMode: "customer_fee",
 	});
+});
+
+test("Pay Lite customer receipt is generated from payment and restaurant data", () => {
+	const receipt = buildScervPayLiteCustomerReceipt({
+		paymentIntentId: "pi_1234567890abcdef",
+		issuedAt: new Date("2026-09-30T14:30:00.000Z"),
+		restaurantData: {
+			restaurantName: "Gemini Bar",
+			address: "12 Main St",
+			city: "Brooklyn",
+			state: "NY",
+			timeZone: "America/New_York",
+		},
+		payment: {
+			restaurantId: "restaurant_gemini",
+			merchantNetSalesAmount: 10000,
+			taxAmount: 888,
+			customerServiceFeeAmount: 436,
+			gratuityAmount: 2000,
+			amount: 13324,
+			paidAt: "2026-09-30T14:30:00.000Z",
+			enteredBy: { staffId: "staff_1", name: "Maya" },
+			terminalReader: { label: "Front Bar S710", serialNumber: "STR710" },
+			note: "POS 44",
+		},
+	});
+
+	assert.equal(receipt.version, "pay_lite_receipt_v1");
+	assert.equal(receipt.restaurantName, "Gemini Bar");
+	assert.equal(receipt.receiptNumber, "90ABCDEF");
+	assert.equal(receipt.amount, 13324);
+	assert.equal(receipt.lineItems.at(-1).label, "Total paid");
+	assert.match(receipt.printableText, /Sale amount: \$100\.00/);
+	assert.match(receipt.printableText, /Tax: \$8\.88/);
+	assert.match(receipt.printableText, /Card fee: \$4\.36/);
+	assert.match(receipt.printableText, /Tip: \$20\.00/);
+	assert.match(receipt.printableText, /Total paid: \$133\.24/);
+	assert.match(receipt.printableText, /Staff: Maya/);
+	assert.match(receipt.printableText, /Reader: Front Bar S710/);
 });
 
 test("Pay Lite daily report totals only paid Pay Lite transactions inside the selected day", () => {

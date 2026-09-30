@@ -64,6 +64,252 @@ const toIsoTimestamp = (value) => {
 	return millis > 0 ? new Date(millis).toISOString() : null;
 };
 
+const formatReceiptCurrency = (cents = 0, currency = "USD") => {
+	const dollars = normalizeNonNegativeCents(cents, 0) / 100;
+	try {
+		return new Intl.NumberFormat("en-US", {
+			style: "currency",
+			currency,
+		}).format(dollars);
+	} catch (error) {
+		return `$${dollars.toFixed(2)}`;
+	}
+};
+
+const formatReceiptDate = (value, timeZone = "America/New_York") => {
+	const millis = toTimestampMillis(value) || Date.now();
+	try {
+		return new Intl.DateTimeFormat("en-US", {
+			timeZone,
+			month: "short",
+			day: "numeric",
+			year: "numeric",
+			hour: "numeric",
+			minute: "2-digit",
+		}).format(new Date(millis));
+	} catch (error) {
+		return new Date(millis).toLocaleString("en-US");
+	}
+};
+
+const getReceiptPaymentLabel = (paymentIntentId = "") => {
+	const id = sanitizeMetadataString(paymentIntentId, 140);
+	return id ? id.slice(-8).toUpperCase() : "RECORDED";
+};
+
+const getReceiptAddressLines = (restaurantData = {}, receiptSettings = {}) => {
+	const configuredLines = Array.isArray(receiptSettings.addressLines)
+		? receiptSettings.addressLines
+		: [];
+	const lines = configuredLines
+		.map((line) => sanitizeMetadataString(line, 120))
+		.filter(Boolean);
+	if (lines.length) return lines.slice(0, 3);
+
+	const address = sanitizeMetadataString(restaurantData.address, 160);
+	const city = sanitizeMetadataString(restaurantData.city, 80);
+	const state = sanitizeMetadataString(restaurantData.state, 40);
+	const postalCode = sanitizeMetadataString(
+		restaurantData.postalCode || restaurantData.zipCode,
+		30,
+	);
+	const cityLine = [city, state, postalCode].filter(Boolean).join(", ");
+	return [address, cityLine].filter(Boolean).slice(0, 3);
+};
+
+const buildReceiptText = ({
+	receipt = {},
+	lineItems = [],
+	footerLines = [],
+	includeDivider = true,
+}) => {
+	const lines = [
+		receipt.restaurantName,
+		...(receipt.legalName && receipt.legalName !== receipt.restaurantName
+			? [receipt.legalName]
+			: []),
+		...(receipt.addressLines || []),
+		"",
+		receipt.title || "Receipt",
+		receipt.displayDate,
+		`Receipt: ${receipt.receiptNumber}`,
+	];
+
+	if (receipt.staffName) lines.push(`Staff: ${receipt.staffName}`);
+	if (receipt.readerLabel) lines.push(`Reader: ${receipt.readerLabel}`);
+	if (receipt.note) lines.push(`Reference: ${receipt.note}`);
+
+	if (includeDivider) lines.push("------------------------------");
+	lineItems.forEach((item) => {
+		lines.push(`${item.label}: ${item.formattedAmount}`);
+	});
+	if (includeDivider) lines.push("------------------------------");
+	lines.push(`Payment: ${receipt.paymentReference}`);
+	lines.push("");
+	lines.push(...footerLines);
+
+	return lines
+		.map((line) => String(line || "").trimEnd())
+		.filter((line, index, all) => line || all[index - 1])
+		.join("\n")
+		.trim();
+};
+
+const buildScervPayLiteCustomerReceipt = ({
+	paymentIntentId,
+	payment = {},
+	restaurantData = {},
+	issuedAt = new Date(),
+}) => {
+	const receiptSettings =
+		restaurantData.payLiteReceiptSettings &&
+		typeof restaurantData.payLiteReceiptSettings === "object"
+			? restaurantData.payLiteReceiptSettings
+			: {};
+	const currency = sanitizeMetadataString(
+		payment.currency || receiptSettings.currency || restaurantData.currency || "USD",
+		8,
+	).toUpperCase();
+	const timeZone = sanitizeMetadataString(
+		receiptSettings.timeZone ||
+			restaurantData.timeZone ||
+			restaurantData.timezone ||
+			"America/New_York",
+		80,
+	);
+	const enteredBy = payment.enteredBy || payment.createdBy || {};
+	const capturedBy = payment.capturedBy || {};
+	const reader = payment.terminalReader || payment.reader || {};
+	const paidAt =
+		payment.paidAt || payment.capturedAt || payment.updatedAt || issuedAt;
+	const paymentId = sanitizeMetadataString(
+		paymentIntentId || payment.paymentIntentId || payment.id,
+		140,
+	);
+	const receiptNumber = getReceiptPaymentLabel(paymentId);
+	const restaurantName = sanitizeMetadataString(
+		receiptSettings.restaurantName ||
+			restaurantData.restaurantName ||
+			restaurantData.name ||
+			"Restaurant",
+		120,
+	);
+	const legalName = sanitizeMetadataString(
+		receiptSettings.legalName || restaurantData.legalName || "",
+		120,
+	);
+	const saleAmount = normalizeNonNegativeCents(
+		payment.merchantNetSalesAmount,
+		payment.subtotal,
+	);
+	const taxAmount = normalizeNonNegativeCents(payment.taxAmount, 0);
+	const customerServiceFeeAmount = normalizeNonNegativeCents(
+		payment.customerServiceFeeAmount || payment.customerServiceFee,
+		0,
+	);
+	const gratuityAmount = normalizeNonNegativeCents(
+		payment.gratuityAmount || payment.tipAmountCents,
+		0,
+	);
+	const totalAmount = normalizeNonNegativeCents(
+		payment.amount || payment.amountReceived,
+		saleAmount + taxAmount + customerServiceFeeAmount + gratuityAmount,
+	);
+
+	const lineItems = [
+		{
+			key: "sale",
+			label: receiptSettings.saleLabel || "Sale amount",
+			amount: saleAmount,
+		},
+		taxAmount > 0
+			? {
+					key: "tax",
+					label: receiptSettings.taxLabel || "Tax",
+					amount: taxAmount,
+				}
+			: null,
+		customerServiceFeeAmount > 0
+			? {
+					key: "card_fee",
+					label: receiptSettings.cardFeeLabel || "Card fee",
+					amount: customerServiceFeeAmount,
+				}
+			: null,
+		{
+			key: "tip",
+			label: receiptSettings.tipLabel || "Tip",
+			amount: gratuityAmount,
+		},
+		{
+			key: "total",
+			label: receiptSettings.totalLabel || "Total paid",
+			amount: totalAmount,
+			emphasis: true,
+		},
+	]
+		.filter(Boolean)
+		.map((item) => ({
+			...item,
+			formattedAmount: formatReceiptCurrency(item.amount, currency),
+		}));
+
+	const footerLines = Array.isArray(receiptSettings.footerLines)
+		? receiptSettings.footerLines
+				.map((line) => sanitizeMetadataString(line, 120))
+				.filter(Boolean)
+				.slice(0, 4)
+		: [sanitizeMetadataString(receiptSettings.footer || "Thank you.", 120)];
+
+	const receipt = {
+		version: "pay_lite_receipt_v1",
+		type: "scerv_pay_lite_customer",
+		paymentIntentId: paymentId,
+		receiptNumber,
+		title: sanitizeMetadataString(
+			receiptSettings.title || "Scerv Pay Lite Receipt",
+			120,
+		),
+		restaurantId: sanitizeMetadataString(payment.restaurantId, 120),
+		restaurantName,
+		legalName,
+		addressLines: getReceiptAddressLines(restaurantData, receiptSettings),
+		currency,
+		timeZone,
+		issuedAt: issuedAt instanceof Date ? issuedAt.toISOString() : toIsoTimestamp(issuedAt),
+		paidAt: toIsoTimestamp(paidAt) || new Date().toISOString(),
+		displayDate: formatReceiptDate(paidAt, timeZone),
+		paymentReference: receiptNumber,
+		staffName: sanitizeMetadataString(
+			enteredBy.name ||
+				capturedBy.enteredByName ||
+				capturedBy.name ||
+				"Staff",
+			120,
+		),
+		staffId: sanitizeMetadataString(
+			enteredBy.staffId || capturedBy.enteredByStaffId || capturedBy.staffId,
+			120,
+		),
+		readerLabel: sanitizeMetadataString(reader.label || reader.name || "", 120),
+		readerSerialNumber: sanitizeMetadataString(reader.serialNumber || "", 120),
+		note: sanitizeTerminalNote(payment.note || "", 160),
+		merchantNetSalesAmount: saleAmount,
+		taxAmount,
+		customerServiceFeeAmount,
+		gratuityAmount,
+		amount: totalAmount,
+		lineItems,
+		footerLines,
+	};
+
+	return {
+		...receipt,
+		printableText: buildReceiptText({ receipt, lineItems, footerLines }),
+		shareText: buildReceiptText({ receipt, lineItems, footerLines }),
+	};
+};
+
 const buildScervPayLiteDailyReport = ({
 	payments = [],
 	restaurantData = {},
@@ -1953,6 +2199,14 @@ exports.captureStaffTerminalPayment = functions
 				action: "capture terminal payment",
 			});
 
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const restaurantData = restaurantSnap.exists
+				? restaurantSnap.data() || {}
+				: {};
+
 			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
@@ -2154,8 +2408,8 @@ exports.captureStaffTerminalPayment = functions
 				);
 			}
 
-			await terminalPaymentRef.set(
-				{
+			const capturedAtDate = new Date();
+			const paymentUpdate = {
 					status: "succeeded",
 					paymentStatus: "paid",
 					paymentIntentId,
@@ -2229,9 +2483,52 @@ exports.captureStaffTerminalPayment = functions
 					capturedAt: admin.firestore.FieldValue.serverTimestamp(),
 					paidAt: admin.firestore.FieldValue.serverTimestamp(),
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-				},
+				};
+
+			await terminalPaymentRef.set(
+				paymentUpdate,
 				{ merge: true },
 			);
+
+			let customerReceipt = null;
+			if (isScervPayLite) {
+				customerReceipt = buildScervPayLiteCustomerReceipt({
+					paymentIntentId,
+					restaurantData,
+					issuedAt: capturedAtDate,
+					payment: {
+						id: paymentIntentId,
+						...terminalPaymentData,
+						...paymentUpdate,
+						capturedAt: capturedAtDate.toISOString(),
+						paidAt: capturedAtDate.toISOString(),
+					},
+				});
+
+				await Promise.all([
+					terminalPaymentRef.set(
+						{
+							customerReceipt,
+							receiptVersion: customerReceipt.version,
+							receiptGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+						},
+						{ merge: true },
+					),
+					db
+						.collection("pay_lite_receipts")
+						.doc(paymentIntentId)
+						.set(
+							{
+								...customerReceipt,
+								restaurantId,
+								paymentIntentId,
+								updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+								createdAt: admin.firestore.FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						),
+				]);
+			}
 
 			return {
 				success: true,
@@ -2246,6 +2543,7 @@ exports.captureStaffTerminalPayment = functions
 				gratuityAmount,
 				applicationFeeAmount,
 				restaurantTransferAmount,
+				customerReceipt,
 			};
 		} catch (error) {
 			console.error("Error capturing staff Terminal payment:", error);
@@ -2256,6 +2554,117 @@ exports.captureStaffTerminalPayment = functions
 			);
 		}
 	});
+
+exports.getScervPayLiteReceipt = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const paymentIntentId = sanitizeMetadataString(
+			data && (data.paymentIntentId || data.terminalPaymentId),
+			140,
+		);
+		const staffId = sanitizeMetadataString(
+			data && (data.staffId || data.employeeId),
+			140,
+		);
+		if (!paymentIntentId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"PaymentIntent ID is required.",
+			);
+		}
+
+		const terminalPaymentRef = db
+			.collection("terminal_payments")
+			.doc(paymentIntentId);
+		const terminalPaymentSnap = await terminalPaymentRef.get();
+		if (!terminalPaymentSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Terminal payment was not found.",
+			);
+		}
+
+		const payment = terminalPaymentSnap.data() || {};
+		const restaurantId = sanitizeMetadataString(payment.restaurantId, 120);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Terminal payment is missing restaurant ID.",
+			);
+		}
+
+		await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			allowedJobTitles: ["server", "bartender", "bar"],
+			action: "view Pay Lite receipt",
+		});
+
+		const isScervPayLite =
+			payment.type === "scerv_pay_lite" ||
+			payment.source === "scerv_pay_lite";
+		if (!isScervPayLite) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"This receipt is only available for Scerv Pay Lite payments.",
+			);
+		}
+
+		const restaurantSnap = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.get();
+		const restaurantData = restaurantSnap.exists
+			? restaurantSnap.data() || {}
+			: {};
+		const customerReceipt = buildScervPayLiteCustomerReceipt({
+			paymentIntentId,
+			restaurantData,
+			payment: {
+				id: paymentIntentId,
+				...payment,
+			},
+		});
+
+		await Promise.all([
+			terminalPaymentRef.set(
+				{
+					customerReceipt,
+					receiptVersion: customerReceipt.version,
+					receiptGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			),
+			db
+				.collection("pay_lite_receipts")
+				.doc(paymentIntentId)
+				.set(
+					{
+						...customerReceipt,
+						restaurantId,
+						paymentIntentId,
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				),
+		]);
+
+		return {
+			success: true,
+			receipt: customerReceipt,
+		};
+	},
+);
 
 exports.getStaffTerminalPaymentStatus = functions.https.onCall(
 	async (data, context) => {
@@ -2405,6 +2814,7 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 );
 
 exports._test = {
+	buildScervPayLiteCustomerReceipt,
 	buildScervPayLiteDailyReport,
 	calculatePayLiteFinancials,
 	getPayLitePolicy,
