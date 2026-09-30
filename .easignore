@@ -9,9 +9,12 @@ web-build/
 .codex-remote-attachments/
 
 # Local backups and debug artifacts
+.firebase/
+.tmp/
 backups/
 deliverables/
 generated/
+handoff/
 output/
 tmp/
 tools/
