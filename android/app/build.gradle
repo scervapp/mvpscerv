@@ -118,8 +118,8 @@ android {
         ]
         minSdkVersion 26
         targetSdkVersion 36
-        versionCode 36
-        versionName "0.0.44"
+        versionCode 37
+        versionName "0.0.45"
     }
     signingConfigs {
         debug {

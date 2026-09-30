@@ -22,9 +22,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AuthContext } from "../../context/authContext";
-import { db } from "../../config/firebase";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
-import { getStoredScervScore } from "../../utils/discoveryScoring";
+import { httpsCallable } from "@react-native-firebase/functions";
 import {
 	pickImage,
 	uploadImageAndGetDownloadURL,
@@ -109,10 +110,15 @@ const pickReputationFields = (item = {}) => ({
 	topReview: item.topReview || item.reviewHighlight || "",
 });
 
-const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
+const AddItemModal = ({ isVisible, onClose, itemToEdit, onSaved }) => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const insets = useSafeAreaInsets();
+	const mutateMenuItemFunction = useMemo(
+		() => httpsCallable(functions, "mutateRestaurantMenuItem"),
+		[],
+	);
 
 	const MENU_CATEGORIES = useMemo(
 		() => [
@@ -520,53 +526,18 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 		};
 	};
 
-	const findExistingDishIdentity = async ({ restaurantId, name, category }) => {
-		const identity = buildMenuIdentity({ name, category });
-		const snapshot = await db
-			.collection("menuItems")
-			.where("restaurantId", "==", restaurantId)
-			.get();
-
-		const matches = snapshot.docs
-			.map((doc) => ({ id: doc.id, ...doc.data() }))
-			.filter((item) => {
-				const itemIdentity = buildMenuIdentity({
-					name: item.name,
-					category: item.category,
-				});
-				return (
-					itemIdentity.normalizedName === identity.normalizedName &&
-					itemIdentity.normalizedCategory === identity.normalizedCategory
-				);
-			})
-			.sort((a, b) => {
-				const scoreDiff = getStoredScervScore(b) - getStoredScervScore(a);
-				if (scoreDiff !== 0) return scoreDiff;
-
-				const bSignals = Number(b.ratingCount || 0) + Number(b.reviewCount || 0);
-				const aSignals = Number(a.ratingCount || 0) + Number(a.reviewCount || 0);
-				return bSignals - aSignals;
-			});
-
-		return matches[0] || null;
-	};
-
 	const handleSubmit = async () => {
 		if (!validateForm()) return;
 
 		setIsSubmitting(true);
 
 		try {
-			const restaurantId = currentUserData.uid;
+			const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 			const cleanModifierGroups = buildCleanModifierGroups();
 			const metadata = buildMenuMetadata(cleanModifierGroups);
 			const identity = buildMenuIdentity({ name, category });
-			const existingDishIdentity = !isEditMode
-				? await findExistingDishIdentity({ restaurantId, name, category })
-				: null;
 			const canonicalDishId =
 				itemToEdit?.canonicalDishId ||
-				existingDishIdentity?.canonicalDishId ||
 				buildCanonicalDishId({
 					restaurantId,
 					name,
@@ -589,14 +560,10 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 				modifierGroups: cleanModifierGroups,
 				hasModifiers: modifierGroups.length > 0,
 				...metadata,
-				...(isEditMode
-					? pickReputationFields(itemToEdit)
-					: existingDishIdentity
-						? pickReputationFields(existingDishIdentity)
-						: pickReputationFields()),
-				relistedFromMenuItemId: existingDishIdentity?.id || null,
+				...(isEditMode ? pickReputationFields(itemToEdit) : pickReputationFields()),
+				relistedFromMenuItemId: null,
 				reputationSourceMenuItemId:
-					existingDishIdentity?.id || itemToEdit?.id || null,
+					itemToEdit?.id || itemToEdit?.reputationSourceMenuItemId || null,
 				previousNames: uniqueList([
 					...(itemToEdit?.previousNames || []),
 					...(isEditMode && itemToEdit?.name && itemToEdit.name !== name.trim()
@@ -606,25 +573,21 @@ const AddItemModal = ({ isVisible, onClose, itemToEdit }) => {
 				updatedAt: new Date(),
 			};
 
-			if (!isEditMode) {
-				menuItemData.createdAt = new Date();
-			}
-
-			if (isEditMode) {
-				await db
-					.collection("menuItems")
-					.doc(itemToEdit.id)
-					.update(menuItemData);
-				Alert.alert(
-					t("success_title", "Success"),
-					t("menu_item_updated_message", "Menu item updated."),
-				);
-			} else {
-				await db.collection("menuItems").add(menuItemData);
-				Alert.alert(
-					t("success_title", "Success"),
-					t("new_menu_item_added_message", "New menu item added."),
-				);
+			await mutateMenuItemFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+				action: isEditMode ? "update" : "create",
+				itemId: itemToEdit?.id || null,
+				item: menuItemData,
+			});
+			Alert.alert(
+				t("success_title", "Success"),
+				isEditMode
+					? t("menu_item_updated_message", "Menu item updated.")
+					: t("new_menu_item_added_message", "New menu item added."),
+			);
+			if (typeof onSaved === "function") {
+				onSaved();
 			}
 			onClose();
 		} catch (error) {

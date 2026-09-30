@@ -28,9 +28,9 @@ const getCustomerUpdatePayload = (userData = {}) => ({
 	name: getCustomerName(userData),
 });
 
-const normalizeStripeSecret = (value) => {
+const normalizeStripeKey = (value, prefixPattern) => {
 	const rawValue = String(value || "").trim();
-	const extractedKey = rawValue.match(/sk_(test|live)_[A-Za-z0-9]+/);
+	const extractedKey = rawValue.match(prefixPattern);
 	if (extractedKey && extractedKey[0]) return extractedKey[0];
 
 	// Firebase secrets sometimes get pasted with invisible control characters.
@@ -38,6 +38,12 @@ const normalizeStripeSecret = (value) => {
 	// ASCII if the key did not match the expected Stripe token format above.
 	return rawValue.replace(/[^\x21-\x7E]/g, "");
 };
+
+const normalizeStripeSecret = (value) =>
+	normalizeStripeKey(value, /sk_(test|live)_[A-Za-z0-9]+/);
+
+const normalizeStripePublishableKey = (value) =>
+	normalizeStripeKey(value, /pk_(test|live)_[A-Za-z0-9]+/);
 
 const getStripeModeConfig = (mode) => {
 	const isLiveMode = mode === "live";
@@ -72,7 +78,7 @@ const getStripeKeys = async (restaurantId) => {
 		const isTestAccount = restaurantDoc.data().isTestAccount !== false;
 
 		return {
-			publishableKey: normalizeStripeSecret(
+			publishableKey: normalizeStripePublishableKey(
 				isTestAccount
 					? STRIPE_PUBLISHABLE_KEY_TEST.value()
 					: STRIPE_PUBLISHABLE_KEY_LIVE.value(),

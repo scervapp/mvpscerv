@@ -181,12 +181,15 @@ const PartyCheckoutScreen = () => {
 	const route = useRoute();
 
 	const { partyId } = route.params;
+	const routeOrderMode = route.params?.orderMode || null;
+	const routeFulfillmentType = route.params?.fulfillmentType || null;
 	const pickupInstructionsAccessoryId = "pickup-instructions-keyboard-toolbar";
 
 	const sharedBasket = sharedBaskets[partyId] || {};
 	const sharedBasketItems = sharedBasket.items || [];
 	const activePromotionDiscount = getActivePromotionDiscount(sharedBasket);
 	const party = partyDetails[partyId] || {};
+	const resolvedPartyId = party?.id || partyId;
 	const stripeBillingDetails = useMemo(() => {
 		const name = [
 			currentUserData?.firstName,
@@ -205,9 +208,15 @@ const PartyCheckoutScreen = () => {
 		};
 	}, [currentUserData]);
 
-	const isPickupMode = party?.orderMode === "pickup";
+	const isPickupMode =
+		routeOrderMode === "pickup" ||
+		routeFulfillmentType === "hotel_pickup" ||
+		party?.orderMode === "pickup" ||
+		party?.fulfillmentType === "hotel_pickup";
 	const fulfillmentType =
-		party?.fulfillmentType || (isPickupMode ? "hotel_pickup" : "table");
+		routeFulfillmentType ||
+		party?.fulfillmentType ||
+		(isPickupMode ? "hotel_pickup" : "table");
 
 	const { checkInObj } = useCheckInStatus(
 		party?.restaurantId,
@@ -610,7 +619,10 @@ const PartyCheckoutScreen = () => {
 	]);
 
 	const resolvedRestaurantId =
-		party?.restaurantId || myItemsInBasket[0]?.restaurantId || null;
+		party?.restaurantId ||
+		route.params?.restaurantId ||
+		myItemsInBasket[0]?.restaurantId ||
+		null;
 	const serverRatingContext = useMemo(() => {
 		const server = party?.server || null;
 		const serverId = String(server?.id || "").trim();
@@ -645,6 +657,44 @@ const PartyCheckoutScreen = () => {
 		currentUserData?.uid &&
 		isPricingPolicyLoaded &&
 		(isPickupMode || (party?.id && resolvedCheckInId));
+
+	const openPickupTracker = async (orderId) => {
+		const pickupOrderId = orderId || null;
+		if (!pickupOrderId) return false;
+
+		if (currentUserData?.uid) {
+			try {
+				await db.collection("customers").doc(currentUserData.uid).set(
+					{
+						activePickupOrderId: pickupOrderId,
+						activePickupOrderUpdatedAt:
+							firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+			} catch (error) {
+				console.error("Failed to persist active pickup order:", error);
+			}
+		}
+
+		navigation.dispatch(
+			CommonActions.reset({
+				index: 0,
+				routes: [
+					{
+						name: "PickupOrderStatus",
+						params: {
+							orderId: pickupOrderId,
+							partyId: resolvedPartyId,
+							restaurantId: resolvedRestaurantId,
+						},
+					},
+				],
+			}),
+		);
+
+		return true;
+	};
 
 	useEffect(() => {
 		if (!resolvedRestaurantId) return;
@@ -816,8 +866,8 @@ const PartyCheckoutScreen = () => {
 								itemsToRate: myItemsInBasket,
 								isIndividual: false,
 								origin: "party",
-								appOrderId: party.id,
-								completedPartyId: party.id,
+								appOrderId: resolvedPartyId,
+								completedPartyId: resolvedPartyId,
 								completedRestaurantId: resolvedRestaurantId,
 								serverRatingContext,
 							},
@@ -922,7 +972,7 @@ const PartyCheckoutScreen = () => {
 						: [uid],
 				paidForMemberName: selectedCheckoutMemberName,
 				paidForMemberNames: selectedCheckoutMemberNames,
-				table: isPickupMode ? { name: "Pickup Window" } : party?.table || null,
+				table: isPickupMode ? { name: "Pickup Order" } : party?.table || null,
 				server: isPickupMode ? { name: "Pickup Queue" } : party?.server || null,
 				checkInId: isPickupMode ? null : party?.checkInId || null,
 				checkInTimestamp:
@@ -1013,7 +1063,7 @@ const PartyCheckoutScreen = () => {
 									isIndividual: false,
 									origin: "party",
 									appOrderId: pendingOrderId,
-									completedPartyId: party.id,
+									completedPartyId: resolvedPartyId,
 									completedRestaurantId: resolvedRestaurantId,
 									serverRatingContext,
 								},
@@ -1105,9 +1155,19 @@ const PartyCheckoutScreen = () => {
 					"finalizeStripePayment",
 				);
 				const recoveryResult = await finalizeStripePayment({
-					partyId: party.id,
+					partyId: resolvedPartyId,
 				});
 				if (recoveryResult?.data?.success) {
+					if (isPickupMode) {
+						const recoveredPickupOrderId =
+							recoveryResult.data.fulfilledOrderId ||
+							recoveryResult.data.orderId ||
+							null;
+						if (await openPickupTracker(recoveredPickupOrderId)) {
+							return;
+						}
+					}
+
 					navigation.dispatch(
 						CommonActions.reset({
 							index: 0,
@@ -1117,14 +1177,14 @@ const PartyCheckoutScreen = () => {
 									params: {
 										initialStatus: "processing",
 										itemsToRate: myItemsInBasket,
-										basketId: party.id,
+										basketId: resolvedPartyId,
 										origin: isPickupMode ? "pickup" : "party",
 										isIndividual: false,
 										appOrderId:
 											recoveryResult.data.fulfilledOrderId ||
 											recoveryResult.data.orderId ||
 											null,
-										completedPartyId: party.id,
+										completedPartyId: resolvedPartyId,
 										completedRestaurantId: resolvedRestaurantId,
 										serverRatingContext,
 									},
@@ -1143,8 +1203,8 @@ const PartyCheckoutScreen = () => {
 
 			const { data: prepData } = await preparePayment({
 				paymentType: isPickupMode ? "pickup" : "party",
-				restaurantId: party.restaurantId,
-				partyId: party.id,
+				restaurantId: resolvedRestaurantId,
+				partyId: resolvedPartyId,
 				payingForUserIds: selectedCheckoutMemberIds,
 				items: myItemsInBasket.map((item) => ({ id: item.id })),
 				gratuity: myGratuity,
@@ -1257,7 +1317,7 @@ const PartyCheckoutScreen = () => {
 			const finalizeResult = await finalizeStripePayment({
 				orderId: prepData.orderId,
 				paymentIntentId: prepData.paymentIntentId,
-				partyId: party.id,
+				partyId: resolvedPartyId,
 			});
 			if (!finalizeResult?.data?.success) {
 				throw new Error(
@@ -1266,6 +1326,16 @@ const PartyCheckoutScreen = () => {
 						"Payment succeeded, but the table could not be closed. Please ask staff to refresh the table.",
 					),
 				);
+			}
+
+			if (isPickupMode) {
+				const pickupOrderId =
+					finalizeResult.data.fulfilledOrderId ||
+					finalizeResult.data.orderId ||
+					prepData.orderId;
+				if (await openPickupTracker(pickupOrderId)) {
+					return;
+				}
 			}
 
 			navigation.dispatch(
@@ -1277,11 +1347,11 @@ const PartyCheckoutScreen = () => {
 							params: {
 								initialStatus: "processing",
 								itemsToRate: myItemsInBasket,
-								basketId: party.id,
+								basketId: resolvedPartyId,
 								origin: isPickupMode ? "pickup" : "party",
 								isIndividual: false,
 								appOrderId: prepData.orderId,
-								completedPartyId: party.id,
+								completedPartyId: resolvedPartyId,
 								completedRestaurantId: resolvedRestaurantId,
 								serverRatingContext,
 							},
@@ -1422,7 +1492,7 @@ const PartyCheckoutScreen = () => {
 						)}
 						{isPickupMode && (
 							<Text style={styles.modePill}>
-								{t("hotel_pickup", "Pickup Window")}
+								{t("hotel_pickup", "Pickup Order")}
 							</Text>
 						)}
 					</View>

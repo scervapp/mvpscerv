@@ -1,5 +1,11 @@
 // screens/restaurant/PickupQueueScreen.js
-import React, { useState, useEffect, useContext, useCallback } from "react";
+import React, {
+	useState,
+	useEffect,
+	useContext,
+	useCallback,
+	useMemo,
+} from "react";
 import {
 	View,
 	Text,
@@ -15,7 +21,7 @@ import { useTranslation } from "react-i18next";
 import moment from "moment";
 
 import colors from "../../utils/styles/appStyles";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -28,9 +34,14 @@ const PickupQueueScreen = () => {
 	const { t, i18n } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
-	const completePickupOrderHandoffFunction = httpsCallable(
-		functions,
-		"completePickupOrderHandoff",
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const completePickupOrderHandoffFunction = useMemo(
+		() => httpsCallable(functions, "completePickupOrderHandoff"),
+		[],
+	);
+	const listStaffPickupOrdersFunction = useMemo(
+		() => httpsCallable(functions, "listStaffPickupOrders"),
+		[],
 	);
 
 	const [orders, setOrders] = useState([]);
@@ -38,33 +49,51 @@ const PickupQueueScreen = () => {
 	const [printingOrderId, setPrintingOrderId] = useState(null);
 
 	useEffect(() => {
-		if (!currentUserData?.uid) return;
+		if (!restaurantId) {
+			setIsLoading(false);
+			return undefined;
+		}
 
-		const unsubscribe = db
-			.collection("kitchen_orders")
-			.where("restaurantId", "==", currentUserData.uid)
-			.where("overallStatus", "==", "active")
-			.where("fulfillmentType", "==", "hotel_pickup")
-			.onSnapshot((snap) => {
-				if (!snap) return;
+		let cancelled = false;
+		let timer = null;
 
-				const fetchedOrders = snap.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
+		const loadPickupOrders = async () => {
+			try {
+				const result = await listStaffPickupOrdersFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				if (cancelled) return;
 
+				const fetchedOrders = result.data?.orders || [];
 				fetchedOrders.sort((a, b) => {
-					const timeA = a.createdAt?.toMillis() || 0;
-					const timeB = b.createdAt?.toMillis() || 0;
+					const timeA = Date.parse(a.createdAt || "") || 0;
+					const timeB = Date.parse(b.createdAt || "") || 0;
 					return timeA - timeB;
 				});
 
 				setOrders(fetchedOrders);
 				setIsLoading(false);
-			});
+			} catch (error) {
+				if (!cancelled) {
+					console.error("PickupQueue: Failed to load pickup orders:", error);
+					setIsLoading(false);
+				}
+			}
+		};
 
-		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+		loadPickupOrders();
+		timer = setInterval(loadPickupOrders, 10000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [
+		activeSession?.id,
+		listStaffPickupOrdersFunction,
+		restaurantId,
+	]);
 
 	const getModifierName = useCallback(
 		(modifier) => {
@@ -113,7 +142,7 @@ const PickupQueueScreen = () => {
 				order.orderedByPipName ||
 				order.customerEmail ||
 				"Pickup Guest",
-			table: order.table || { name: "Pickup Window" },
+			table: order.table || { name: "Pickup Order" },
 			server: order.server || { name: "Pickup Queue" },
 			orderMode: "pickup",
 			fulfillmentType: "hotel_pickup",
@@ -216,8 +245,10 @@ const PickupQueueScreen = () => {
 			isReady = true;
 		}
 
-		const waitTime = item?.createdAt?.toDate
-			? moment(item.createdAt.toDate()).fromNow(true)
+		const createdAt = item?.createdAt ? new Date(item.createdAt) : null;
+		const waitTime =
+			createdAt && !Number.isNaN(createdAt.getTime())
+				? moment(createdAt).fromNow(true)
 			: "Just now";
 
 		const customerDisplayName =
@@ -234,7 +265,7 @@ const PickupQueueScreen = () => {
 				<View style={styles.cardHeader}>
 					<View style={{ flex: 1, marginRight: 10 }}>
 						<Text style={styles.orderTitle}>
-							{item?.locationName || item?.table?.name || "Hotel Pickup"}
+							{item?.locationName || item?.table?.name || "Pickup Orders"}
 						</Text>
 
 						<Text style={styles.customerName}>

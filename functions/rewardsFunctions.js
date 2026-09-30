@@ -4,6 +4,7 @@ const {
 	assertFeatureAllowed,
 	isFeatureAllowed,
 } = require("./featureEntitlements");
+const { assertRestaurantPermission } = require("./restaurantAccess");
 
 const db = admin.firestore();
 
@@ -128,6 +129,77 @@ const assertRestaurantAccess = async (uid, restaurantId, authToken = {}) => {
 	}
 
 	return { id: restaurantSnap.id, ...restaurantData };
+};
+
+const assertRewardsSettingsAccess = async (context, restaurantId, employeeId) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	const tokenRestaurantId =
+		context.auth.token && context.auth.token.restaurantId;
+	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+		if (!employeeId || context.auth.uid === restaurantId) {
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			if (!restaurantSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Restaurant not found.",
+				);
+			}
+
+			return { id: restaurantSnap.id, ...restaurantSnap.data() };
+		}
+
+		await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			action: "view rewards settings",
+		});
+
+		const restaurantSnap = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.get();
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Restaurant not found.",
+			);
+		}
+
+		return { id: restaurantSnap.id, ...restaurantSnap.data() };
+	}
+
+	throw new functions.https.HttpsError(
+		"permission-denied",
+		"User is not authorized for this restaurant.",
+	);
+};
+
+const shapeEligibleRewardMenuItem = (doc) => {
+	const data = doc.data() || {};
+	const priceCents =
+		normalizeCents(data.priceCents) ||
+		normalizeCents(Math.round(Number(data.price || 0) * 100));
+
+	return {
+		id: doc.id,
+		name: sanitizeString(data.name || data.itemName, 160),
+		category: sanitizeString(data.category, 120),
+		priceCents,
+		isAvailable: data.isAvailable !== false && data.isArchived !== true,
+		imageUrl: sanitizeString(data.imageUrl || data.imageUri, 500),
+	};
 };
 
 const calculateEarnedPoints = (orderData) => {
@@ -387,6 +459,64 @@ exports.saveRestaurantLoyaltyProgram = functions.https.onCall(
 		);
 
 		return { success: true, program };
+	},
+);
+
+exports.getStaffRewardsSettings = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = sanitizeString(
+			data && (data.employeeId || data.staffId),
+			120,
+		);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		const restaurantData = await assertRewardsSettingsAccess(
+			context,
+			restaurantId,
+			employeeId,
+		);
+		const menuSnap = await db
+			.collection("menuItems")
+			.where("restaurantId", "==", restaurantId)
+			.limit(300)
+			.get();
+		const program =
+			restaurantData.loyaltyProgram ||
+			restaurantData.rewardsProgram ||
+			{
+				enabled: false,
+				name: `${restaurantData.restaurantName || "Restaurant"} Club`,
+				programType: "hybrid",
+				pointsPerDollar: DEFAULT_RESTAURANT_CLUB_POINTS_PER_DOLLAR,
+				tiers: [],
+			};
+
+		return {
+			success: true,
+			featureEnabled:
+				isFeatureAllowed(restaurantData, "rewards") ||
+				isFeatureAllowed(restaurantData, "loyaltyClub"),
+			program: {
+				enabled: program.enabled === true,
+				name: sanitizeString(program.name, 100),
+				programType: sanitizeString(program.programType, 60) || "hybrid",
+				pointsPerDollar:
+					Number(program.pointsPerDollar) ||
+					DEFAULT_RESTAURANT_CLUB_POINTS_PER_DOLLAR,
+				tiers: Array.isArray(program.tiers)
+					? program.tiers.map(normalizeTier).slice(0, 12)
+					: [],
+			},
+			eligibleMenuItems: menuSnap.docs
+				.map(shapeEligibleRewardMenuItem)
+				.filter((item) => item.name),
+		};
 	},
 );
 

@@ -1,5 +1,5 @@
 // components/restaurant/MenuItem.js
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
 	View,
 	Text,
@@ -10,14 +10,20 @@ import {
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import AddItemModal from "./AddItemModal";
-import { db } from "../../config/firebase";
+import { functions } from "../../config/firebase";
+import { httpsCallable } from "@react-native-firebase/functions";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import colors from "../../utils/styles/appStyles";
 import { formatMenuPrice } from "../../utils/currencyFormatter";
 
-const MenuItem = ({ item, restaurantId, onEdit }) => {
+const MenuItem = ({ item, restaurantId, onEdit, onChanged }) => {
 	const { t } = useTranslation();
-	const [showModal, setShowModal] = useState(false);
+	const { activeSession } = useEmployeeSession();
+	const [isMutating, setIsMutating] = useState(false);
+	const mutateMenuItemFunction = useMemo(
+		() => httpsCallable(functions, "mutateRestaurantMenuItem"),
+		[],
+	);
 
 	// Default to true if the field doesn't exist yet
 	const isAvailable = item.isAvailable !== false;
@@ -51,63 +57,44 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 		}
 	};
 
-	const deleteMenuItem = async (restaurantId, menuItem) => {
+	const mutateMenuItem = async ({ action, menuItem, itemPatch = {} }) => {
+		setIsMutating(true);
 		try {
-			// Archive instead of deleting so restaurants cannot reset dish reputation.
-			await db.collection("menuItems").doc(menuItem.id).update({
-				isAvailable: false,
-				isArchived: true,
-				archivedAt: new Date(),
-				archivedByRestaurantId: restaurantId,
+			await mutateMenuItemFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+				action,
+				itemId: menuItem.id,
+				item: itemPatch,
 			});
+			if (typeof onChanged === "function") {
+				onChanged();
+			}
 		} catch (error) {
-			console.log("Error deleting menu item:", error);
-			Alert.alert(t("error_title"), t("error_deleting_menu_item_message"));
-		}
-	};
-
-	// --- NEW: Toggle Visibility Logic ---
-	const handleToggleVisibility = async () => {
-		try {
-			const nextIsAvailable = !isAvailable;
-			await db.collection("menuItems").doc(item.id).update({
-				isAvailable: nextIsAvailable,
-				...(nextIsAvailable
-					? {
-							isArchived: false,
-							archivedAt: null,
-						}
-					: {}),
-			});
-		} catch (error) {
-			console.log("Error toggling availability:", error);
+			console.log("Error mutating menu item:", error);
 			Alert.alert(
 				t("error_title", "Error"),
 				t("error_updating_menu_item_message", "Could not update item status."),
 			);
+		} finally {
+			setIsMutating(false);
 		}
 	};
 
-	// Handle item update
-	const updateMenuItem = async (restaurantId, menuItemId, menuItemData) => {
-		try {
-			const menuItemSnapshot = await db
-				.collection("menuItems")
-				.doc(menuItemId)
-				.get();
-			if (!menuItemSnapshot.exists()) {
-				throw new Error("Menu Item not found");
-			}
+	const deleteMenuItem = async (restaurantId, menuItem) => {
+		await mutateMenuItem({ action: "archive", menuItem });
+	};
 
-			if (menuItemData.restaurantId !== restaurantId) {
-				throw new Error("Menu Item not found");
-			}
-			await db.collection("menuItems").doc(menuItemId).update(menuItemData);
-			console.log("Menu Item updated successfully");
-		} catch (error) {
-			console.log("Error updating menu item:", error);
-			Alert.alert(t("error_title"), t("error_updating_menu_item_message"));
-		}
+	// --- NEW: Toggle Visibility Logic ---
+	const handleToggleVisibility = async () => {
+		const nextIsAvailable = !isAvailable;
+		await mutateMenuItem({
+			action: "availability",
+			menuItem: item,
+			itemPatch: {
+				isAvailable: nextIsAvailable,
+			},
+		});
 	};
 
 	return (
@@ -141,6 +128,7 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 				<TouchableOpacity
 					style={[styles.iconButton, !isAvailable && styles.showButton]}
 					onPress={handleToggleVisibility}
+					disabled={isMutating}
 				>
 					<Ionicons
 						name={isAvailable ? "eye-off-outline" : "eye-outline"}
@@ -160,19 +148,11 @@ const MenuItem = ({ item, restaurantId, onEdit }) => {
 				<TouchableOpacity
 					style={[styles.iconButton, styles.deleteIconButton]}
 					onPress={handleDelete}
+					disabled={isMutating}
 				>
 					<Ionicons name="trash-outline" size={18} color={colors.statusDanger} />
 				</TouchableOpacity>
 			</View>
-
-			<AddItemModal
-				isVisible={showModal}
-				onClose={() => setShowModal(false)}
-				itemData={item}
-				isEdit={true}
-				updateMenuItem={updateMenuItem}
-				restaurantId={restaurantId}
-			/>
 		</View>
 	);
 };

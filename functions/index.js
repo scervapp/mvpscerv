@@ -99,10 +99,20 @@ exports.getSalesReport = reportingFunctions.getSalesReport;
 exports.closePartyTable = restaurantFunctions.closePartyTable;
 exports.createTerminalConnectionToken =
 	terminalFunctions.createTerminalConnectionToken;
+exports.listRestaurantTerminalReaders =
+	terminalFunctions.listRestaurantTerminalReaders;
 exports.prepareStaffTerminalPayment =
 	terminalFunctions.prepareStaffTerminalPayment;
+exports.prepareScervPayLiteTerminalPayment =
+	terminalFunctions.prepareScervPayLiteTerminalPayment;
 exports.captureStaffTerminalPayment =
 	terminalFunctions.captureStaffTerminalPayment;
+exports.getScervPayLiteDailyReport =
+	terminalFunctions.getScervPayLiteDailyReport;
+exports.getStaffTerminalPaymentStatus =
+	terminalFunctions.getStaffTerminalPaymentStatus;
+exports.setDefaultTerminalCollector =
+	terminalFunctions.setDefaultTerminalCollector;
 
 // Dish ratings
 exports.submitDishRating = dishRatingFunction.submitDishRating;
@@ -118,15 +128,19 @@ exports.getScervFeed = recommendationFunctions.getScervFeed;
 exports.awardRewardsForPaidOrder = rewardsFunctions.awardRewardsForPaidOrder;
 exports.saveRestaurantLoyaltyProgram =
 	rewardsFunctions.saveRestaurantLoyaltyProgram;
+exports.getStaffRewardsSettings = rewardsFunctions.getStaffRewardsSettings;
 exports.redeemRestaurantReward = rewardsFunctions.redeemRestaurantReward;
 exports.redeemCustomerPromotion = rewardsFunctions.redeemCustomerPromotion;
 
 // Reservation Functions
 exports.getAvailableReservationSlots =
 	reservationFunctions.getAvailableReservationSlots;
+exports.getStaffReservationSettings =
+	reservationFunctions.getStaffReservationSettings;
 exports.saveReservationSettings = reservationFunctions.saveReservationSettings;
 exports.saveRestaurantExperienceSettings =
 	reservationFunctions.saveRestaurantExperienceSettings;
+exports.setScervPayLiteOnlyMode = reservationFunctions.setScervPayLiteOnlyMode;
 exports.createReservationRequest =
 	reservationFunctions.createReservationRequest;
 exports.createReservationParty = reservationFunctions.createReservationParty;
@@ -220,6 +234,23 @@ exports.createPartySession = partyFunctions.createPartySession;
 exports.searchPIPs = userSearchFunctions.searchPIPs;
 
 // Restaurant Functions
+exports.listStaffDirectory = restaurantFunctions.listStaffDirectory;
+exports.getCurrentWorkDayStatus = restaurantFunctions.getCurrentWorkDayStatus;
+exports.getStaffRestaurantProfile =
+	restaurantFunctions.getStaffRestaurantProfile;
+exports.getStaffBackOfficeSetupStatus =
+	restaurantFunctions.getStaffBackOfficeSetupStatus;
+exports.listStaffMenuItems = restaurantFunctions.listStaffMenuItems;
+exports.mutateRestaurantMenuItem = restaurantFunctions.mutateRestaurantMenuItem;
+exports.listStaffKitchenOrders = restaurantFunctions.listStaffKitchenOrders;
+exports.listStaffActiveTables = restaurantFunctions.listStaffActiveTables;
+exports.getStaffPartyDetail = restaurantFunctions.getStaffPartyDetail;
+exports.getStaffOrderDetail = restaurantFunctions.getStaffOrderDetail;
+exports.listStaffPickupOrders = restaurantFunctions.listStaffPickupOrders;
+exports.listStaffHostCheckIns = restaurantFunctions.listStaffHostCheckIns;
+exports.listStaffServiceRequests = restaurantFunctions.listStaffServiceRequests;
+exports.listStaffReservationOperations =
+	restaurantFunctions.listStaffReservationOperations;
 exports.startWorkDay = restaurantFunctions.startWorkDay;
 exports.endWorkDay = restaurantFunctions.endWorkDay;
 exports.setManagerPin = restaurantFunctions.setManagerPin;

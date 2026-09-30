@@ -997,7 +997,7 @@ export const PartyProvider = ({ children }) => {
 			const payload = {
 				sourceId: partyId,
 				table: isPickup
-					? { id: "hotel_pickup", name: "Hotel Pickup" }
+					? { id: "hotel_pickup", name: "Pickup Order" }
 					: party.table,
 				server: isPickup
 					? { id: "pickup_queue", name: "Pickup Queue" }

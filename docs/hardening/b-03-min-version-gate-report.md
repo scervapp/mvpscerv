@@ -1,8 +1,9 @@
 # B-03 Minimum Version Gate Report
 
 Date: 2026-09-27
+Updated: 2026-09-29
 
-Status: Fixed locally. Not deployed.
+Status: On testing. Server callable deployed to `scervmvp-testing`; native testing-profile device evidence remains pending.
 
 ## Scope
 
@@ -53,10 +54,11 @@ Expected policy shape:
 - `node --check functions/index.js` passed.
 - `npm.cmd --prefix functions run lint` passed.
 - `npm run ci:backend` passed outside the sandbox after the sandbox runner hit a Windows EPERM path-resolution error. Result: secret scan passed, functions lint passed, 16 unit tests passed, 6 Firestore rules tests passed.
+- 2026-09-29: `checkClientVersion` smoke against `scervmvp-testing` returned `updateRequired: false`, `reason: supported` for `{ platform: "ios", version: "999.0.0", build: "999999", appEnv: "testing" }`.
+- 2026-09-29: full backend gate passed after the Node 22 runtime migration: secret scan, functions lint, 27 function unit tests and 9 Firestore rules tests.
 
 ## Remaining Work Before Done
 
-- Deploy to the testing lane only after A-08 is resolved or explicitly waived.
 - Create `appConfig/clientVersions` in testing with a non-blocking policy first.
 - Build/install a testing-profile app and capture the below-minimum update screen.
 - Capture a server `failed-precondition` response from `checkClientVersion` or a hardened callable using the shared policy helper.

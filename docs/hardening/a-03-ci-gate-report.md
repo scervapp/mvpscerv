@@ -68,3 +68,20 @@ Notes:
 ## Remaining A-03 evidence
 
 A-03 is `Fixed locally`, not `Done`, until the branch is pushed and GitHub Actions produces a real PR run showing the backend quality gate passing. The repository also still needs branch protection configured so this check is required before merge.
+
+## 2026-09-29 Update
+
+The CI workflow source was refreshed for the current hardening lane:
+
+- `.github/workflows/backend-quality.yml` now uses Node.js `22`, matching the Functions runtime used in testing.
+- `.github/workflows/secret-hygiene.yml` now includes `codex/**` branch pushes, so secret hygiene is not limited away from the active hardening branch.
+
+Local validation after the W1 callable work passed:
+
+- `npm run ci:backend`
+  - secret hygiene passed
+  - functions lint passed
+  - backend unit tests passed: `27` passed, `0` failed
+  - Firestore emulator rules tests passed: `9` passed, `0` failed
+
+A-03 remains `Fixed locally` until GitHub Actions produces a passing PR run and branch protection marks the backend quality gate as required.

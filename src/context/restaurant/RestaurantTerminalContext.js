@@ -27,10 +27,14 @@ const TerminalContext = createContext({
 	readerList: [],
 	connectedReader: null,
 	loading: false,
+	terminalInitialized: false,
 	discoverReaders: async () => ({ error: null }),
 	cancelDiscovering: async () => ({ error: null }),
+	easyConnect: async () => ({ error: null }),
 	connectReader: async () => ({ error: null }),
 	disconnectReader: async () => ({ error: null }),
+	clearCachedCredentials: async () => ({ error: null }),
+	getCurrentReaders: () => [],
 	retrievePaymentIntent: async () => ({ error: null }),
 	collectPaymentMethod: async () => ({ error: null }),
 	processPaymentIntent: async () => ({ error: null }),
@@ -42,6 +46,15 @@ const getReaderName = (reader = {}) =>
 	reader.id ||
 	reader.deviceType ||
 	"Reader";
+
+const getPreferredCollector = (restaurantData = {}) =>
+	restaurantData?.payLiteDefaultCollector ||
+	restaurantData?.defaultTerminalCollector ||
+	restaurantData?.terminalDefaultCollector ||
+	null;
+
+const getCollectorLocationId = (collector = {}) =>
+	String(collector?.locationId || collector?.terminalLocationId || "").trim();
 
 const withTimeout = (promise, timeoutMs, message) =>
 	new Promise((resolve, reject) => {
@@ -66,12 +79,11 @@ const setNativeConnectionToken = async ({ token, error }) => {
 const TerminalLifecycle = ({
 	children,
 	enabled,
-	stripeTerminalLocationId,
 	liveMode,
 	tokenStatus,
 	setTokenStatus,
 }) => {
-	const autoConnectAttemptedRef = useRef(false);
+	const readerListRef = useRef([]);
 	const [readerList, setReaderList] = useState([]);
 	const {
 		initialize,
@@ -83,12 +95,15 @@ const TerminalLifecycle = ({
 		cancelDiscovering,
 		connectReader,
 		disconnectReader,
+		clearCachedCredentials,
 		retrievePaymentIntent,
 		collectPaymentMethod,
 		processPaymentIntent,
 	} = useStripeTerminal({
 		onUpdateDiscoveredReaders: (readers) => {
-			setReaderList(readers || []);
+			const nextReaders = readers || [];
+			readerListRef.current = nextReaders;
+			setReaderList(nextReaders);
 		},
 		onDidChangeConnectionStatus: (status) => {
 			if (status === "connected") {
@@ -101,13 +116,8 @@ const TerminalLifecycle = ({
 		},
 		onDidDisconnect: () => {
 			setTokenStatus("Reader disconnected");
-			autoConnectAttemptedRef.current = false;
 		},
 	});
-
-	useEffect(() => {
-		autoConnectAttemptedRef.current = false;
-	}, [enabled, stripeTerminalLocationId]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -133,56 +143,6 @@ const TerminalLifecycle = ({
 		};
 	}, [enabled, initialize, isInitialized, setTokenStatus]);
 
-	useEffect(() => {
-		let mounted = true;
-
-		const connectAvailableInternetReader = async () => {
-			if (!enabled || !isInitialized || connectedReader) return;
-			if (autoConnectAttemptedRef.current) return;
-			autoConnectAttemptedRef.current = true;
-			setTokenStatus("Looking for reader...");
-
-			try {
-				const result = await easyConnect({
-					discoveryMethod: "internet",
-					timeout: 8,
-					failIfInUse: true,
-					...(stripeTerminalLocationId
-						? { locationId: stripeTerminalLocationId }
-						: {}),
-				});
-
-				if (!mounted) return;
-				if (result?.error) {
-					setTokenStatus("No available reader");
-					return;
-				}
-
-				setTokenStatus(
-					result?.reader
-						? `Reader connected: ${getReaderName(result.reader)}`
-						: "Reader connected",
-				);
-			} catch (error) {
-				if (!mounted) return;
-				setTokenStatus("No available reader");
-			}
-		};
-
-		connectAvailableInternetReader();
-
-		return () => {
-			mounted = false;
-		};
-	}, [
-		connectedReader,
-		easyConnect,
-		enabled,
-		isInitialized,
-		setTokenStatus,
-		stripeTerminalLocationId,
-	]);
-
 	const value = useMemo(
 		() => ({
 			tokenStatus,
@@ -190,10 +150,14 @@ const TerminalLifecycle = ({
 			readerList,
 			connectedReader,
 			loading,
+			terminalInitialized: isInitialized,
 			discoverReaders,
 			cancelDiscovering,
+			easyConnect,
 			connectReader,
 			disconnectReader,
+			clearCachedCredentials,
+			getCurrentReaders: () => readerListRef.current || [],
 			retrievePaymentIntent,
 			collectPaymentMethod,
 			processPaymentIntent,
@@ -202,9 +166,12 @@ const TerminalLifecycle = ({
 			cancelDiscovering,
 			collectPaymentMethod,
 			connectReader,
+			clearCachedCredentials,
 			connectedReader,
 			disconnectReader,
 			discoverReaders,
+			easyConnect,
+			isInitialized,
 			loading,
 			liveMode,
 			processPaymentIntent,
@@ -230,6 +197,7 @@ export const RestaurantTerminalProvider = ({ children }) => {
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 	const [liveMode, setLiveMode] = useState(null);
 	const isTestAccount = currentUserData?.isTestAccount !== false;
+	const preferredCollector = getPreferredCollector(currentUserData);
 	const stripeTerminalLocationId =
 		(isTestAccount
 			? currentUserData?.stripeTerminalLocationId_test ||
@@ -238,6 +206,7 @@ export const RestaurantTerminalProvider = ({ children }) => {
 				currentUserData?.terminalLocationId_live) ||
 		currentUserData?.stripeTerminalLocationId ||
 		currentUserData?.terminalLocationId ||
+		getCollectorLocationId(preferredCollector) ||
 		"";
 
 	const fetchConnectionTokenFromServer = useCallback(async () => {
@@ -261,7 +230,6 @@ export const RestaurantTerminalProvider = ({ children }) => {
 			createTerminalConnectionToken({
 				restaurantId,
 				staffId: activeSession?.id || null,
-				locationId: stripeTerminalLocationId || undefined,
 			}),
 			20000,
 			"Timed out requesting a Stripe Terminal connection token from Firebase.",
@@ -274,6 +242,9 @@ export const RestaurantTerminalProvider = ({ children }) => {
 		console.log("[TERMINAL TOKEN] Received connection token", {
 			liveMode: result.data.liveMode === true,
 			locationId: result.data.locationId || stripeTerminalLocationId || null,
+			terminalAccountScope: result.data.terminalAccountScope || "unknown",
+			connectedAccountId: result.data.connectedAccountId || null,
+			locationSource: result.data.locationSource || "unknown",
 			durationMs: Date.now() - startedAt,
 		});
 		setLiveMode(result.data.liveMode === true);
@@ -314,7 +285,6 @@ export const RestaurantTerminalProvider = ({ children }) => {
 				<StripeTerminalProvider logLevel="error" tokenProvider={tokenProvider}>
 					<TerminalLifecycle
 						enabled={!!restaurantId}
-						stripeTerminalLocationId={stripeTerminalLocationId}
 						liveMode={liveMode}
 						tokenStatus={tokenStatus}
 						setTokenStatus={setTokenStatus}

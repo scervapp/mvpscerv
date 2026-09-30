@@ -1,7 +1,9 @@
 import React, {
 	useCallback,
 	useContext,
+	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -13,6 +15,7 @@ import {
 	ScrollView,
 	StyleSheet,
 	Text,
+	TextInput,
 	TouchableOpacity,
 	View,
 } from "react-native";
@@ -32,6 +35,37 @@ const getStaffName = (activeSession, currentUserData) =>
 	`${currentUserData?.firstName || ""} ${currentUserData?.lastName || ""}`.trim() ||
 	"Staff";
 
+const DEFAULT_PAY_LITE_FEE_PERCENTAGE = 0.04;
+
+const parseCurrencyInputToCents = (value) => {
+	const normalized = String(value || "").replace(/[^0-9.]/g, "");
+	if (!normalized) return 0;
+	const parts = normalized.split(".");
+	const dollars = parts[0] || "0";
+	const cents = (parts[1] || "").slice(0, 2).padEnd(2, "0");
+	const parsed = Number(`${dollars}.${cents}`);
+	if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+	return Math.round(parsed * 100);
+};
+
+const normalizePercentageValue = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	const normalized = parsed > 1 ? parsed / 100 : parsed;
+	return Math.min(normalized, 1);
+};
+
+const normalizeNonNegativeCents = (value, fallback = 0) => {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+	return Math.round(parsed);
+};
+
+const normalizePolicyMode = (value, allowedValues = [], fallback = "") => {
+	const normalized = String(value || "").trim();
+	return allowedValues.includes(normalized) ? normalized : fallback;
+};
+
 const getReaderName = (reader = {}) =>
 	reader.label ||
 	reader.serialNumber ||
@@ -39,22 +73,102 @@ const getReaderName = (reader = {}) =>
 	reader.deviceType ||
 	"Stripe reader";
 
-const requestTerminalLocationPermission = async () => {
+const getDiscoveryMethodLabel = (discoveryMethod) =>
+	discoveryMethod === "bluetoothScan"
+		? "M2 Bluetooth readers"
+		: "internet readers";
+
+const getPreferredCollector = (restaurantData = {}) =>
+	restaurantData?.payLiteDefaultCollector ||
+	restaurantData?.defaultTerminalCollector ||
+	restaurantData?.terminalDefaultCollector ||
+	null;
+
+const getCollectorLocationId = (collector = {}) =>
+	String(collector?.locationId || collector?.terminalLocationId || "").trim();
+
+const normalizeRole = (value) => String(value || "").trim().toLowerCase();
+
+const isManagementSession = (activeSession = {}) =>
+	["owner", "manager"].includes(normalizeRole(activeSession?.role));
+
+const isSameCollector = (reader = {}, collector = {}) => {
+	if (!reader || !collector) return false;
+	const readerId = String(reader.id || "").trim();
+	const collectorReaderId = String(collector.readerId || collector.id || "").trim();
+	if (readerId && collectorReaderId && readerId === collectorReaderId) return true;
+
+	const readerSerial = String(reader.serialNumber || "").trim();
+	const collectorSerial = String(collector.serialNumber || "").trim();
+	return !!readerSerial && !!collectorSerial && readerSerial === collectorSerial;
+};
+
+const selectInternetReader = (readers = [], collector = {}) => {
+	const internetReaders = (readers || []).filter(
+		(reader) =>
+			reader &&
+			(reader.discoveryMethod === "internet" ||
+				reader.deviceType === "stripeS710" ||
+				reader.deviceType === "stripeS700"),
+	);
+	if (!internetReaders.length) return null;
+
+	const preferredReader = internetReaders.find((reader) =>
+		isSameCollector(reader, collector),
+	);
+	return preferredReader || internetReaders[0];
+};
+
+const wait = (durationMs) =>
+	new Promise((resolve) => {
+		setTimeout(resolve, durationMs);
+	});
+
+const waitForDiscoveredReaders = async (getReaders, timeoutMs = 2500) => {
+	const startedAt = Date.now();
+	while (Date.now() - startedAt < timeoutMs) {
+		const readers = getReaders();
+		if (readers.length) return readers;
+		await wait(250);
+	}
+	return getReaders();
+};
+
+const requestTerminalDiscoveryPermissions = async (discoveryMethod) => {
 	if (Platform.OS !== "android") return true;
 
-	const permission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
-	const hasPermission = await PermissionsAndroid.check(permission);
-	if (hasPermission) return true;
+	const requestedPermissions = [
+		PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+		discoveryMethod === "bluetoothScan"
+			? PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN ||
+				"android.permission.BLUETOOTH_SCAN"
+			: null,
+		discoveryMethod === "bluetoothScan"
+			? PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT ||
+				"android.permission.BLUETOOTH_CONNECT"
+			: null,
+	].filter(Boolean);
 
-	const result = await PermissionsAndroid.request(permission, {
-		title: "Location Permission",
+	const permissionResults = await Promise.all(
+		requestedPermissions.map(async (permission) => ({
+			permission,
+			granted: await PermissionsAndroid.check(permission),
+		})),
+	);
+
+	if (permissionResults.every((result) => result.granted)) return true;
+
+	const result = await PermissionsAndroid.requestMultiple(requestedPermissions, {
+		title: "Reader Permissions",
 		message:
-			"Scerv needs location permission to discover and connect to card readers.",
+			"Scerv needs Bluetooth and location access to find nearby Stripe card readers.",
 		buttonPositive: "Allow",
 		buttonNegative: "Not now",
 	});
 
-	return result === PermissionsAndroid.RESULTS.GRANTED;
+	return requestedPermissions.every(
+		(permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED,
+	);
 };
 
 const waitForTerminalPaymentStatus = (paymentIntentId, timeoutMs = 25000) =>
@@ -95,10 +209,34 @@ const waitForTerminalPaymentStatus = (paymentIntentId, timeoutMs = 25000) =>
 		}
 	});
 
+const withTerminalTimeout = (promise, timeoutMs, message) =>
+	new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+		promise
+			.then((result) => {
+				clearTimeout(timer);
+				resolve(result);
+			})
+			.catch((error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
+	});
+
 const isConnectionTokenTimeout = (error) =>
 	String(error?.message || error || "")
 		.toLowerCase()
 		.includes("timed out waiting for connection token");
+
+const isAlreadyConnectedReaderError = (error) => {
+	const message = String(error?.code || error?.message || error || "")
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+	return (
+		message.includes("already_connected") ||
+		(message.includes("already") && message.includes("connected"))
+	);
+};
 
 const getFriendlyReaderError = (error, fallback) => {
 	const message = String(error?.message || error || "").toLowerCase();
@@ -112,6 +250,9 @@ const getFriendlyReaderError = (error, fallback) => {
 	if (message.includes("already") && message.includes("discover")) {
 		return "Reader search is already running. Wait a moment, then try again.";
 	}
+	if (message.includes("single discovery operation")) {
+		return "Reader search is already running. Wait a moment, then try again.";
+	}
 	if (message.includes("amount")) {
 		return "The total changed. Reopen closeout and review the amount.";
 	}
@@ -122,6 +263,7 @@ const getFriendlyReaderError = (error, fallback) => {
 const RestaurantTerminalPaymentContent = ({
 	activeSession,
 	currentUserData,
+	endSession,
 	params,
 	tokenStatus,
 }) => {
@@ -133,20 +275,29 @@ const RestaurantTerminalPaymentContent = ({
 	const [isPaying, setIsPaying] = useState(false);
 	const [isFinalizing, setIsFinalizing] = useState(false);
 	const [processedPaymentIntentId, setProcessedPaymentIntentId] = useState("");
+	const [payLiteAmountText, setPayLiteAmountText] = useState("");
+	const [payLiteNote, setPayLiteNote] = useState("");
+	const [lastDiscoveryMethod, setLastDiscoveryMethod] = useState("internet");
+	const [preferredCollectorOverride, setPreferredCollectorOverride] =
+		useState(null);
 	const showDiagnostics = typeof __DEV__ !== "undefined" && __DEV__;
+	const showReaderControls = false;
 
 	const {
 		liveMode,
 		readerList,
+		easyConnect,
 		discoverReaders,
 		cancelDiscovering,
 		connectReader,
 		disconnectReader,
+		getCurrentReaders,
 		connectedReader,
 		retrievePaymentIntent,
 		collectPaymentMethod,
 		processPaymentIntent,
 	} = useRestaurantTerminal();
+	const autoConnectAttemptedRef = useRef(false);
 
 	const {
 		partyId,
@@ -158,16 +309,92 @@ const RestaurantTerminalPaymentContent = ({
 		receiptEmail = "",
 		closeoutNotes = "",
 		stripeTerminalLocationId = "",
+		restaurantId,
+		mode = "",
+		lockToPayLite = false,
 	} = params || {};
 
+	const isPayLite = mode === "scerv_pay_lite";
+	const payLiteSaleAmountCents = useMemo(
+		() => parseCurrencyInputToCents(payLiteAmountText),
+		[payLiteAmountText],
+	);
+	const payLiteConfig = currentUserData?.payLitePolicy || {};
+	const paymentPolicy = currentUserData?.paymentPolicy || {};
+	const payLiteCustomerFeePercentage = useMemo(
+		() =>
+			normalizePercentageValue(
+				payLiteConfig.customerFeePercentage ??
+				payLiteConfig.customerServiceFeePercentage ??
+					payLiteConfig.customerChargePercentage ??
+					paymentPolicy.payLiteCustomerServiceFeePercentage ??
+					paymentPolicy.payLiteCustomerFeePercentage ??
+					currentUserData?.payLiteCustomerServiceFeePercentage ??
+					currentUserData?.payLiteCustomerFeePercentage,
+				DEFAULT_PAY_LITE_FEE_PERCENTAGE,
+			),
+		[currentUserData, payLiteConfig, paymentPolicy],
+	);
+	const payLiteCustomerFeeMode = normalizePolicyMode(
+		payLiteConfig.customerFeeMode ??
+			payLiteConfig.customerServiceFeeMode ??
+			paymentPolicy.payLiteCustomerFeeMode,
+		["pass_to_customer", "none", "waived"],
+		"pass_to_customer",
+	);
+	const payLiteCustomerFeeFixedCents = normalizeNonNegativeCents(
+		payLiteConfig.customerFeeFixedCents ??
+			payLiteConfig.customerServiceFeeFixedCents ??
+			paymentPolicy.payLiteCustomerFeeFixedCents,
+		0,
+	);
+	const payLiteServiceFeeCents = useMemo(
+		() =>
+			["none", "waived"].includes(payLiteCustomerFeeMode)
+				? 0
+				: Math.round(payLiteSaleAmountCents * payLiteCustomerFeePercentage) +
+					payLiteCustomerFeeFixedCents,
+		[
+			payLiteCustomerFeeFixedCents,
+			payLiteCustomerFeeMode,
+			payLiteCustomerFeePercentage,
+			payLiteSaleAmountCents,
+		],
+	);
+	const paymentTotalCents = isPayLite
+		? payLiteSaleAmountCents + payLiteServiceFeeCents
+		: expectedTotalCents;
 	const isBusy = isDiscovering || isConnecting || isPaying || isFinalizing;
 	const selectedItemCount = closeoutItemIds.length;
 	const isSimulatedReader = connectedReader?.simulated === true;
 	const canUseTestReader = liveMode === false;
+	const preferredCollector =
+		preferredCollectorOverride || getPreferredCollector(currentUserData);
+	const effectiveTerminalLocationId =
+		getCollectorLocationId(preferredCollector) || stripeTerminalLocationId;
+	const connectedReaderIsDefault = isSameCollector(
+		connectedReader,
+		preferredCollector,
+	);
+	const canSetDefaultCollector =
+		isPayLite &&
+		!!connectedReader &&
+		isManagementSession(activeSession) &&
+		!connectedReaderIsDefault;
+	const collectorPillLabel = connectedReader
+		? `${connectedReaderIsDefault ? "Default" : "Connected"}: ${getReaderName(
+				connectedReader,
+			)}`
+		: preferredCollector
+			? `Default: ${getReaderName(preferredCollector)}`
+			: "No collector";
+	const pendingReaderLabel = preferredCollector
+		? getReaderName(preferredCollector)
+		: "No reader connected";
 
 	const totalLabel = useMemo(
-		() => formatCurrencyFromDollars(Number(expectedTotalCents || 0) / 100),
-		[expectedTotalCents],
+		() => formatCurrencyFromDollars(Number(paymentTotalCents || 0) / 100),
+		[paymentTotalCents],
 	);
 
 	const goToActiveTables = useCallback(() => {
@@ -179,13 +406,27 @@ const RestaurantTerminalPaymentContent = ({
 		);
 	}, [navigation]);
 
-	const startDiscovery = async ({ simulated = false } = {}) => {
-		const hasLocationPermission = await requestTerminalLocationPermission();
-		if (!hasLocationPermission) {
+	const startDiscovery = async ({
+		simulated = false,
+		discoveryMethod = "internet",
+	} = {}) => {
+		const previousDiscoveryMethod = lastDiscoveryMethod;
+		const hasRequiredPermissions =
+			await requestTerminalDiscoveryPermissions(discoveryMethod);
+		if (!hasRequiredPermissions) {
 			setErrorText(
-				"Location permission is required before discovering Stripe readers.",
+				discoveryMethod === "bluetoothScan"
+					? "Bluetooth and location permission are required before discovering M2 readers."
+					: "Location permission is required before discovering Stripe readers.",
 			);
-			setStepText("Location permission required.");
+			setStepText("Reader permission required.");
+			return;
+		}
+		if (discoveryMethod === "bluetoothScan" && !effectiveTerminalLocationId) {
+			setErrorText(
+				"Stripe Terminal location is required before connecting an M2 reader.",
+			);
+			setStepText("Terminal location required.");
 			return;
 		}
 
@@ -194,12 +435,17 @@ const RestaurantTerminalPaymentContent = ({
 		setStepText(
 			simulated
 				? "Searching for test readers..."
-				: "Searching for internet readers...",
+				: `Searching for ${getDiscoveryMethodLabel(discoveryMethod)}...`,
 		);
 
 		try {
 			if (connectedReader) {
-				if (connectedReader.simulated === simulated) {
+				const connectedDiscoveryMethod =
+					connectedReader.discoveryMethod || previousDiscoveryMethod;
+				if (
+					connectedReader.simulated === simulated &&
+					connectedDiscoveryMethod === discoveryMethod
+				) {
 					setStepText("Reader already connected. Ready to collect payment.");
 					return;
 				}
@@ -207,7 +453,7 @@ const RestaurantTerminalPaymentContent = ({
 				setStepText(
 					simulated
 						? "Disconnecting real reader for test mode..."
-						: "Disconnecting test reader...",
+						: "Disconnecting current reader...",
 				);
 				const disconnectResult = await disconnectReader();
 				if (disconnectResult?.error) {
@@ -215,13 +461,22 @@ const RestaurantTerminalPaymentContent = ({
 				}
 			}
 			await cancelDiscovering();
-			const result = await discoverReaders({
-				discoveryMethod: "internet",
-				simulated,
-				...(stripeTerminalLocationId && !simulated
-					? { locationId: stripeTerminalLocationId }
-					: {}),
-			});
+			setLastDiscoveryMethod(discoveryMethod);
+			const result = await discoverReaders(
+				discoveryMethod === "bluetoothScan"
+					? {
+							discoveryMethod: "bluetoothScan",
+							simulated,
+							timeout: 12,
+						}
+					: {
+							discoveryMethod: "internet",
+							simulated,
+							...(effectiveTerminalLocationId && !simulated
+								? { locationId: effectiveTerminalLocationId }
+								: {}),
+						},
+			);
 
 			if (result?.error) {
 				throw result.error;
@@ -236,18 +491,338 @@ const RestaurantTerminalPaymentContent = ({
 		}
 	};
 
+	const refreshBackendTerminalReaders = async () => {
+		if (!restaurantId) return null;
+		const listRestaurantTerminalReaders = httpsCallable(
+			functions,
+			"listRestaurantTerminalReaders",
+		);
+		const result = await withTerminalTimeout(
+			listRestaurantTerminalReaders({
+				restaurantId,
+				staffId: activeSession?.id || null,
+				locationId: effectiveTerminalLocationId || "",
+			}),
+			8000,
+			"Timed out checking Stripe readers.",
+		);
+		const data = result?.data || null;
+
+		const recommendedReader = data?.recommendedReader || null;
+		if (recommendedReader) {
+			setPreferredCollectorOverride(recommendedReader);
+			if (recommendedReader.status === "offline") {
+				setStepText(`${getReaderName(recommendedReader)} is offline.`);
+			}
+		} else if (Array.isArray(data?.readers) && !data.readers.length) {
+			setStepText("No Stripe readers found for this location.");
+		}
+
+		console.log("[TERMINAL READERS] backend reader snapshot", {
+			locationId: data?.locationId || effectiveTerminalLocationId || null,
+			recommendedSource: data?.recommendedSource || "none",
+			readerCount: Array.isArray(data?.readers) ? data.readers.length : 0,
+			readers: (data?.readers || []).map((reader) => ({
+				label: reader.label || "",
+				id: reader.id || "",
+				serialNumber: reader.serialNumber || "",
+				status: reader.status || "",
+				deviceType: reader.deviceType || "",
+				locationId: reader.locationId || "",
+			})),
+		});
+
+		return data;
+	};
+
+	const connectS710Reader = useCallback(async ({ simulated = false, auto = false } = {}) => {
+		const hasRequiredPermissions =
+			await requestTerminalDiscoveryPermissions("internet");
+		if (!hasRequiredPermissions) {
+			setErrorText(
+				"Location permission is required before connecting the S710.",
+			);
+			setStepText("Reader permission required.");
+			return;
+		}
+
+		setErrorText("");
+		setIsConnecting(true);
+		setLastDiscoveryMethod("internet");
+		setStepText(
+			simulated
+				? "Connecting test reader..."
+				: auto
+					? "Connecting default S710..."
+					: "Connecting S710...",
+		);
+
+		try {
+			let connectionTarget = preferredCollector;
+			if (!simulated) {
+				try {
+					const backendReaders = await refreshBackendTerminalReaders();
+					if (backendReaders?.recommendedReader) {
+						connectionTarget = backendReaders.recommendedReader;
+					}
+				} catch (readerError) {
+					console.log("[TERMINAL READERS] backend lookup failed", {
+						error: readerError,
+					});
+					if (!auto) {
+						setStepText("Could not check saved readers. Searching locally...");
+					}
+				}
+			}
+
+			if (connectedReader) {
+				const connectedDiscoveryMethod =
+					connectedReader.discoveryMethod || lastDiscoveryMethod || "internet";
+				const connectedIsInternetReader =
+					connectedDiscoveryMethod === "internet" ||
+					connectedReader.deviceType === "stripeS710" ||
+					connectedReader.deviceType === "stripeS700";
+				if (
+					connectedReader.simulated === simulated &&
+					(connectedReaderIsDefault || connectedIsInternetReader || auto)
+				) {
+					setStepText(
+						`${getReaderName(connectedReader)} connected. Ready to collect payment.`,
+					);
+					return;
+				}
+
+				setStepText("Refreshing S710 session...");
+				const disconnectResult = await disconnectReader();
+				if (disconnectResult?.error) {
+					throw disconnectResult.error;
+				}
+			}
+
+			await withTerminalTimeout(
+				cancelDiscovering(),
+				3000,
+				"Timed out resetting reader discovery.",
+			);
+			setStepText(
+				effectiveTerminalLocationId
+					? "Finding S710 at saved Terminal location..."
+					: "Finding S710...",
+			);
+			console.log("[TERMINAL S710] starting internet discovery", {
+				locationId: effectiveTerminalLocationId || null,
+				hasPreferredCollector: !!connectionTarget,
+				preferredCollector: connectionTarget
+					? {
+							label: connectionTarget.label || connectionTarget.name || "",
+							readerId:
+								connectionTarget.readerId || connectionTarget.id || "",
+							serialNumber: connectionTarget.serialNumber || "",
+							locationId: connectionTarget.locationId || "",
+						}
+					: null,
+			});
+			const discoveryResult = await withTerminalTimeout(
+				discoverReaders({
+					discoveryMethod: "internet",
+					timeout: 8,
+					simulated,
+					...(effectiveTerminalLocationId && !simulated
+						? { locationId: effectiveTerminalLocationId }
+						: {}),
+				}),
+				10000,
+				"Timed out looking for internet readers.",
+			);
+
+			if (discoveryResult?.error) {
+				console.log("[TERMINAL S710] discovery failed", {
+					locationId: effectiveTerminalLocationId || null,
+					error: discoveryResult.error,
+				});
+				if (isAlreadyConnectedReaderError(discoveryResult.error)) {
+					setStepText("Reader connected. Ready to collect payment.");
+					return;
+				}
+				throw discoveryResult.error;
+			}
+
+			const discoveredReaders = await waitForDiscoveredReaders(getCurrentReaders);
+			console.log("[TERMINAL S710] discovered internet readers", {
+				count: discoveredReaders.length,
+				locationId: effectiveTerminalLocationId || null,
+				readers: discoveredReaders.map((reader) => ({
+					label: reader.label || "",
+					serialNumber: reader.serialNumber || "",
+					locationId: reader.locationId || "",
+					deviceType: reader.deviceType || "",
+					status: reader.status || "",
+				})),
+			});
+
+			const selectedReader = selectInternetReader(
+				discoveredReaders,
+				connectionTarget,
+			);
+			let result = null;
+
+			if (selectedReader) {
+				setStepText(`Connecting ${getReaderName(selectedReader)}...`);
+				result = await withTerminalTimeout(
+					connectReader({
+						reader: selectedReader,
+						discoveryMethod: "internet",
+						failIfInUse: true,
+					}),
+					15000,
+					"Timed out connecting to the internet reader.",
+				);
+			} else {
+				setStepText("S710 not found at saved location. Searching account...");
+				result = await withTerminalTimeout(
+					easyConnect({
+						discoveryMethod: "internet",
+						timeout: 8,
+						failIfInUse: true,
+					}),
+					12000,
+					"Timed out connecting to an available internet reader.",
+				);
+			}
+
+			if (result?.error) {
+				console.log("[TERMINAL S710] connect failed", {
+					locationId: effectiveTerminalLocationId || null,
+					error: result.error,
+				});
+				if (isAlreadyConnectedReaderError(result.error)) {
+					setStepText("Reader connected. Ready to collect payment.");
+					return;
+				}
+				throw result.error;
+			}
+
+			setStepText(
+				result?.reader
+					? `${getReaderName(result.reader)} connected. Ready to collect payment.`
+					: "S710 connected. Ready to collect payment.",
+			);
+		} catch (error) {
+			console.log("[TERMINAL S710] connection attempt failed", {
+				locationId: effectiveTerminalLocationId || null,
+				error,
+			});
+			if (isAlreadyConnectedReaderError(error)) {
+				setErrorText("");
+				setStepText("Reader connected. Ready to collect payment.");
+				return;
+			}
+			if (auto) {
+				setErrorText("");
+				setStepText("Connecting reader...");
+				return;
+			}
+			setErrorText(
+				getFriendlyReaderError(error, "Could not connect to the S710. Try again."),
+			);
+			setStepText("S710 connection failed.");
+		} finally {
+			setIsConnecting(false);
+		}
+	}, [
+		cancelDiscovering,
+		connectReader,
+		connectedReader,
+		connectedReaderIsDefault,
+		disconnectReader,
+		discoverReaders,
+		easyConnect,
+		effectiveTerminalLocationId,
+		getCurrentReaders,
+		lastDiscoveryMethod,
+		preferredCollector,
+	]);
+
+	useEffect(() => {
+		autoConnectAttemptedRef.current = false;
+	}, [
+		isPayLite,
+		restaurantId,
+		effectiveTerminalLocationId,
+		preferredCollector?.id,
+		preferredCollector?.readerId,
+		preferredCollector?.serialNumber,
+		preferredCollector?.discoveryMethod,
+	]);
+
+	useEffect(() => {
+		if (!isPayLite) return;
+		if (connectedReader) {
+			autoConnectAttemptedRef.current = false;
+			setErrorText("");
+			return;
+		}
+		if (isBusy) {
+			return;
+		}
+		if (!effectiveTerminalLocationId) {
+			setStepText("Default reader location is not configured.");
+			return;
+		}
+
+		const preferredDiscoveryMethod =
+			preferredCollector?.discoveryMethod || "internet";
+		if (preferredCollector && preferredDiscoveryMethod !== "internet") {
+			setStepText(
+				`${getReaderName(preferredCollector)} is the default collector.`,
+			);
+			return;
+		}
+
+		const retryDelayMs = autoConnectAttemptedRef.current ? 3000 : 250;
+		const timer = setTimeout(() => {
+			autoConnectAttemptedRef.current = true;
+			connectS710Reader({ simulated: false, auto: true });
+		}, retryDelayMs);
+
+		return () => clearTimeout(timer);
+	}, [
+		connectS710Reader,
+		connectedReader,
+		isBusy,
+		isPayLite,
+		preferredCollector,
+		effectiveTerminalLocationId,
+	]);
+
 	const handleConnectReader = async (reader) => {
 		setErrorText("");
 		setIsConnecting(true);
 		setStepText(`Connecting to ${getReaderName(reader)}...`);
+		const discoveryMethod =
+			reader.discoveryMethod || lastDiscoveryMethod || "internet";
 
 		try {
+			if (discoveryMethod === "bluetoothScan" && !effectiveTerminalLocationId) {
+				throw new Error(
+					"Stripe Terminal location is required before connecting an M2 reader.",
+				);
+			}
 			const connectToSelectedReader = () =>
-				connectReader({
-					reader,
-					discoveryMethod: "internet",
-					failIfInUse: true,
-				});
+				connectReader(
+					discoveryMethod === "bluetoothScan"
+						? {
+								reader,
+								discoveryMethod: "bluetoothScan",
+								locationId: effectiveTerminalLocationId,
+								autoReconnectOnUnexpectedDisconnect: true,
+							}
+						: {
+								reader,
+								discoveryMethod: "internet",
+								failIfInUse: true,
+							},
+				);
 
 			let result = await connectToSelectedReader();
 
@@ -260,7 +835,11 @@ const RestaurantTerminalPaymentContent = ({
 				throw result.error;
 			}
 
-			setStepText("Reader connected. Ready to collect payment.");
+			setStepText(
+				discoveryMethod === "bluetoothScan"
+					? "M2 reader connected. Ready to collect payment."
+					: "Reader connected. Ready to collect payment.",
+			);
 		} catch (error) {
 			setErrorText(
 				getFriendlyReaderError(
@@ -269,6 +848,61 @@ const RestaurantTerminalPaymentContent = ({
 				),
 			);
 			setStepText("Reader connection failed.");
+		} finally {
+			setIsConnecting(false);
+		}
+	};
+
+	const handleSetDefaultCollector = async () => {
+		if (!connectedReader) {
+			setErrorText("Connect a collector before setting the default.");
+			return;
+		}
+
+		setErrorText("");
+		setIsConnecting(true);
+		setStepText("Saving default collector...");
+
+		const discoveryMethod =
+			connectedReader.discoveryMethod || lastDiscoveryMethod || "internet";
+		const collectorPayload = {
+			id: connectedReader.id || "",
+			readerId: connectedReader.id || "",
+			label: connectedReader.label || "",
+			serialNumber: connectedReader.serialNumber || "",
+			deviceType: connectedReader.deviceType || "",
+			discoveryMethod,
+			locationId: connectedReader.locationId || effectiveTerminalLocationId || "",
+			simulated: connectedReader.simulated === true,
+		};
+
+		try {
+			const setDefaultTerminalCollector = httpsCallable(
+				functions,
+				"setDefaultTerminalCollector",
+			);
+			const result = await setDefaultTerminalCollector({
+				restaurantId:
+					restaurantId || currentUserData?.restaurantId || currentUserData?.uid,
+				staffId: activeSession?.id || null,
+				collector: collectorPayload,
+			});
+			const savedCollector =
+				result?.data?.collector || {
+					...collectorPayload,
+					name: getReaderName(connectedReader),
+				};
+			setPreferredCollectorOverride(savedCollector);
+			setStepText(`${getReaderName(connectedReader)} is the default collector.`);
+			Alert.alert(
+				"Default Collector Saved",
+				`${getReaderName(connectedReader)} will be selected first when Pay Lite opens.`,
+			);
+		} catch (error) {
+			setErrorText(
+				error?.message || "Could not save this collector as the default.",
+			);
+			setStepText("Default collector was not saved.");
 		} finally {
 			setIsConnecting(false);
 		}
@@ -343,6 +977,10 @@ const RestaurantTerminalPaymentContent = ({
 			setErrorText("Connect a reader before collecting payment.");
 			return;
 		}
+		if (isPayLite && payLiteSaleAmountCents <= 0) {
+			setErrorText("Enter the POS sale amount before collecting payment.");
+			return;
+		}
 
 		setErrorText("");
 		setIsPaying(true);
@@ -356,23 +994,55 @@ const RestaurantTerminalPaymentContent = ({
 			setStepText("Preparing payment...");
 			const prepareStaffTerminalPayment = httpsCallable(
 				functions,
-				"prepareStaffTerminalPayment",
+				isPayLite
+					? "prepareScervPayLiteTerminalPayment"
+					: "prepareStaffTerminalPayment",
 			);
 			let prepResult;
 			try {
-				prepResult = await prepareStaffTerminalPayment({
-					partyId,
-					closeoutItemIds,
-					closeoutSeatIds,
-					staffId: activeSession?.id || null,
-					staffName: getStaffName(activeSession, currentUserData),
-				});
+				prepResult = await prepareStaffTerminalPayment(
+					isPayLite
+						? {
+								restaurantId:
+									restaurantId ||
+									currentUserData?.restaurantId ||
+									currentUserData?.uid,
+								saleAmountCents: payLiteSaleAmountCents,
+								staffId: activeSession?.id || null,
+								staffName: getStaffName(activeSession, currentUserData),
+								note: payLiteNote,
+								terminalLocationId: effectiveTerminalLocationId || "",
+								terminalReader: connectedReader
+									? {
+											id: connectedReader.id || "",
+											label: connectedReader.label || "",
+											serialNumber: connectedReader.serialNumber || "",
+											deviceType: connectedReader.deviceType || "",
+											status: connectedReader.status || "",
+											locationId: connectedReader.locationId || "",
+										}
+									: null,
+								clientContext: {
+									surface: "restaurant_app",
+									platform: Platform.OS,
+									entryPoint: "scerv_pay_lite",
+								},
+							}
+						: {
+								partyId,
+								closeoutItemIds,
+								closeoutSeatIds,
+								staffId: activeSession?.id || null,
+								staffName: getStaffName(activeSession, currentUserData),
+							},
+				);
 			} catch (error) {
-				console.error("[TERMINAL PAYMENT] prepareStaffTerminalPayment failed", {
+				console.error("[TERMINAL PAYMENT] prepare terminal payment failed", {
 					code: error?.code,
 					message: error?.message,
 					details: error?.details,
 					partyId,
+					mode,
 					staffId: activeSession?.id || null,
 					closeoutItemIds,
 					closeoutSeatIds,
@@ -390,17 +1060,20 @@ const RestaurantTerminalPaymentContent = ({
 			console.log("[TERMINAL PAYMENT] Prepared payment intent", {
 				paymentIntentId: prepData.paymentIntentId,
 				amount: prepData.amount,
-				expectedTotalCents,
+				expectedTotalCents: paymentTotalCents,
 				subtotal: prepData.subtotal,
 				taxAmount: prepData.taxAmount,
 				customerServiceFeeAmount: prepData.customerServiceFeeAmount,
 				onReaderTipping: prepData.onReaderTipping,
 			});
 
-			if (Number(prepData.amount || 0) !== Number(expectedTotalCents || 0)) {
+			if (
+				!isPayLite &&
+				Number(prepData.amount || 0) !== Number(paymentTotalCents || 0)
+			) {
 				console.error("[TERMINAL PAYMENT] Prepared amount mismatch", {
 					preparedAmount: prepData.amount,
-					expectedTotalCents,
+					expectedTotalCents: paymentTotalCents,
 					subtotal: prepData.subtotal,
 					taxAmount: prepData.taxAmount,
 					customerServiceFeeAmount: prepData.customerServiceFeeAmount,
@@ -415,7 +1088,11 @@ const RestaurantTerminalPaymentContent = ({
 			console.log("[TERMINAL PAYMENT] Retrieving payment intent", {
 				paymentIntentId: prepData.paymentIntentId,
 			});
-			const retrieved = await retrievePaymentIntent(prepData.clientSecret);
+			const retrieved = await withTerminalTimeout(
+				retrievePaymentIntent(prepData.clientSecret),
+				15000,
+				"Reader session could not load this payment. Reconnect the S710 and try again.",
+			);
 			if (retrieved?.error) throw retrieved.error;
 			console.log("[TERMINAL PAYMENT] Payment intent retrieved", {
 				paymentIntentId:
@@ -425,25 +1102,37 @@ const RestaurantTerminalPaymentContent = ({
 
 			terminalStage = "collectPaymentMethod";
 			setStepText(
-				isSimulatedReader
+				isPayLite
+					? isSimulatedReader
+						? "Running simulated card payment..."
+						: "Customer can add a tip, then tap or insert card."
+					: isSimulatedReader
 					? "Running simulated card payment..."
 					: "Guest selects tip on reader, then presents card.",
 			);
+			const tipEligibleAmount = isPayLite
+				? Number(
+						prepData.tipEligibleAmount ||
+							prepData.merchantNetSalesAmount ||
+							payLiteSaleAmountCents ||
+							0,
+					)
+				: Number(prepData.subtotal || 0);
 			console.log("[TERMINAL PAYMENT] Collecting payment method", {
 				paymentIntentId: prepData.paymentIntentId,
 				isSimulatedReader,
-				tipEligibleAmount: isSimulatedReader
-					? null
-					: Number(prepData.subtotal || 0),
+				tipEligibleAmount: isSimulatedReader ? null : tipEligibleAmount,
 			});
-			const collected = await collectPaymentMethod({
-				paymentIntent: retrieved.paymentIntent,
-				skipTipping: isSimulatedReader,
-				...(isSimulatedReader
-					? {}
-					: { tipEligibleAmount: Number(prepData.subtotal || 0) }),
-				updatePaymentIntent: true,
-			});
+			const collected = await withTerminalTimeout(
+				collectPaymentMethod({
+					paymentIntent: retrieved.paymentIntent,
+					skipTipping: isSimulatedReader,
+					...(isSimulatedReader ? {} : { tipEligibleAmount }),
+					updatePaymentIntent: true,
+				}),
+				30000,
+				"The S710 did not display the payment. Reconnect the reader and try again.",
+			);
 			if (collected?.error) throw collected.error;
 			console.log("[TERMINAL PAYMENT] Payment method collected", {
 				paymentIntentId:
@@ -487,9 +1176,11 @@ const RestaurantTerminalPaymentContent = ({
 			}
 
 			setStepText(
-				`Payment captured with ${formatCurrencyFromDollars(
-					Number(captureData.gratuityAmount || 0) / 100,
-				)} gratuity. Waiting for Stripe confirmation...`,
+				isPayLite
+					? "Payment captured. Waiting for Stripe confirmation..."
+					: `Payment captured with ${formatCurrencyFromDollars(
+							Number(captureData.gratuityAmount || 0) / 100,
+						)} gratuity. Waiting for Stripe confirmation...`,
 			);
 
 			const webhookReady = await waitForTerminalPaymentStatus(paymentIntentId);
@@ -497,6 +1188,43 @@ const RestaurantTerminalPaymentContent = ({
 				throw new Error(
 					"Payment captured, but Stripe confirmation is still syncing. Tap Finalize Closeout in a few seconds.",
 				);
+			}
+
+			if (isPayLite) {
+				const tipAmount = Number(captureData.gratuityAmount || 0);
+				const tipLine =
+					tipAmount > 0
+						? ` Tip recorded: ${formatCurrencyFromDollars(tipAmount / 100)}.`
+						: "";
+				Alert.alert(
+					"Payment Recorded",
+					`${formatCurrencyFromDollars(
+						Number(captureData.amount || paymentTotalCents || 0) / 100,
+					)} collected.${tipLine}`,
+					[
+						{
+							text: "New Payment",
+							onPress: () => {
+								setPayLiteAmountText("");
+								setPayLiteNote("");
+								setProcessedPaymentIntentId("");
+								setStepText("Reader connected. Ready to collect payment.");
+							},
+						},
+						lockToPayLite
+							? {
+									text: "Lock",
+									onPress: () => {
+										setPayLiteAmountText("");
+										setPayLiteNote("");
+										setProcessedPaymentIntentId("");
+										endSession?.();
+									},
+								}
+							: { text: "Done", onPress: () => navigation.goBack() },
+					],
+				);
+				return;
 			}
 
 			await finalizeCloseout(paymentIntentId);
@@ -524,32 +1252,296 @@ const RestaurantTerminalPaymentContent = ({
 		}
 	};
 
+	if (isPayLite) {
+		return (
+			<SafeAreaView style={styles.payLiteContainer}>
+				<View style={styles.payLiteHeader}>
+					<TouchableOpacity
+						style={styles.payLiteLockButton}
+						onPress={() => (lockToPayLite ? endSession?.() : navigation.goBack())}
+						disabled={isBusy}
+					>
+						<Ionicons
+							name={lockToPayLite ? "lock-closed-outline" : "arrow-back"}
+							size={20}
+							color={colors.textDark}
+						/>
+					</TouchableOpacity>
+					<View style={styles.headerText}>
+						<Text style={styles.payLiteTitle}>Collect payment</Text>
+						<Text style={styles.payLiteSubtitle}>
+							{getStaffName(activeSession, currentUserData)}
+						</Text>
+					</View>
+					<View
+						style={[
+							styles.payLiteCollectorPill,
+							connectedReader
+								? styles.payLiteCollectorPillConnected
+								: styles.payLiteCollectorPillIdle,
+						]}
+					>
+						<View
+							style={[
+								styles.payLiteCollectorDot,
+								connectedReader
+									? styles.payLiteCollectorDotConnected
+									: styles.payLiteCollectorDotIdle,
+							]}
+						/>
+						<Text numberOfLines={1} style={styles.payLiteCollectorText}>
+							{collectorPillLabel}
+						</Text>
+					</View>
+				</View>
+
+				<View style={styles.payLiteTerminalCard}>
+					<Text style={styles.payLiteAmountLabel}>Amount</Text>
+					<TextInput
+						style={styles.payLiteCompactAmountInput}
+						value={payLiteAmountText}
+						onChangeText={setPayLiteAmountText}
+						placeholder="0.00"
+						keyboardType="decimal-pad"
+						editable={!isBusy}
+						autoFocus={lockToPayLite}
+					/>
+					<TouchableOpacity
+						style={[
+							styles.payLiteCollectButton,
+							(!connectedReader || isBusy || payLiteSaleAmountCents <= 0) &&
+								styles.buttonDisabled,
+						]}
+						onPress={handleCollectPayment}
+						disabled={!connectedReader || isBusy || payLiteSaleAmountCents <= 0}
+					>
+						{isPaying || isFinalizing ? (
+							<ActivityIndicator size="small" color={colors.surfaceWhite} />
+						) : (
+							<Text style={styles.primaryButtonText}>Collect payment</Text>
+						)}
+					</TouchableOpacity>
+					<Text style={styles.payLiteCompactHelp}>
+						Enter the sale amount from the POS. Customer tip is handled on the
+						reader.
+					</Text>
+				</View>
+
+				<View style={styles.payLiteStatusCard}>
+					<View style={styles.payLiteStatusRow}>
+						<MaterialCommunityIcons
+							name={connectedReader ? "contactless-payment" : "credit-card-sync"}
+							size={22}
+							color={connectedReader ? colors.statusSuccess : colors.primary}
+						/>
+						<View style={styles.statusTextWrap}>
+							<Text style={styles.statusTitle}>
+								{connectedReader
+									? getReaderName(connectedReader)
+									: pendingReaderLabel}
+							</Text>
+							<Text style={styles.statusText}>{stepText}</Text>
+						</View>
+					</View>
+					{!connectedReader && (isConnecting || isDiscovering) ? (
+						<View style={styles.loadingRow}>
+							<ActivityIndicator size="small" color={colors.primary} />
+							<Text style={styles.loadingText}>Connecting automatically...</Text>
+						</View>
+					) : null}
+					{showReaderControls ? (
+						<>
+							<View style={styles.payLiteReaderActions}>
+							<TouchableOpacity
+								style={styles.payLiteSmallButton}
+									onPress={() => connectS710Reader({ simulated: false })}
+								disabled={isBusy}
+							>
+									<Text style={styles.secondaryButtonText}>S710</Text>
+							</TouchableOpacity>
+								<TouchableOpacity
+									style={styles.payLiteSmallButton}
+									onPress={() =>
+										startDiscovery({
+											simulated: false,
+											discoveryMethod: "bluetoothScan",
+										})
+									}
+									disabled={isBusy}
+								>
+									<Text style={styles.secondaryButtonText}>M2</Text>
+								</TouchableOpacity>
+								{canUseTestReader ? (
+									<TouchableOpacity
+										style={styles.payLiteSmallButton}
+										onPress={() => connectS710Reader({ simulated: true })}
+										disabled={isBusy}
+									>
+										<Text style={styles.secondaryButtonText}>Test</Text>
+									</TouchableOpacity>
+								) : null}
+							</View>
+							{connectedReader ? (
+								<TouchableOpacity
+									style={[
+										styles.payLiteDefaultButton,
+										connectedReaderIsDefault && styles.payLiteDefaultButtonActive,
+									]}
+									onPress={handleSetDefaultCollector}
+									disabled={isBusy || !canSetDefaultCollector}
+								>
+									<MaterialCommunityIcons
+										name={
+											connectedReaderIsDefault
+												? "check-circle"
+												: "star-outline"
+										}
+										size={16}
+										color={
+											connectedReaderIsDefault
+												? colors.statusSuccess
+												: colors.primary
+										}
+									/>
+									<Text style={styles.payLiteDefaultButtonText}>
+										{connectedReaderIsDefault
+											? "Default collector"
+											: isManagementSession(activeSession)
+												? "Set as default collector"
+												: "Manager can set this as default"}
+									</Text>
+								</TouchableOpacity>
+							) : null}
+							{readerList.slice(0, 2).map((reader) => {
+								const isConnected = connectedReader?.id === reader.id;
+								return (
+									<TouchableOpacity
+										key={reader.id}
+										style={[
+											styles.payLiteReaderRow,
+											isConnected && styles.readerRowConnected,
+										]}
+										onPress={() => handleConnectReader(reader)}
+										disabled={isBusy || isConnected}
+									>
+										<Text numberOfLines={1} style={styles.readerName}>
+											{getReaderName(reader)}
+										</Text>
+										<Text style={styles.readerAction}>
+											{isConnected ? "Connected" : "Connect"}
+										</Text>
+									</TouchableOpacity>
+								);
+							})}
+						</>
+					) : null}
+				</View>
+
+				<View style={styles.payLiteDetailsCard}>
+					<TextInput
+						style={styles.payLiteCompactNote}
+						value={payLiteNote}
+						onChangeText={setPayLiteNote}
+						placeholder="Optional POS ticket or note"
+						editable={!isBusy}
+						maxLength={160}
+					/>
+				</View>
+
+				{errorText ? (
+					<View style={styles.payLiteErrorBox}>
+						<Text style={styles.errorText}>{errorText}</Text>
+					</View>
+				) : null}
+			</SafeAreaView>
+		);
+	}
+
 	return (
 		<SafeAreaView style={styles.container}>
 			<ScrollView contentContainerStyle={styles.content}>
 				<View style={styles.header}>
 					<TouchableOpacity
 						style={styles.backButton}
-						onPress={() => navigation.goBack()}
+						onPress={() => (lockToPayLite ? endSession?.() : navigation.goBack())}
 						disabled={isBusy}
 					>
-						<Ionicons name="arrow-back" size={22} color={colors.textDark} />
+						<Ionicons
+							name={lockToPayLite ? "lock-closed-outline" : "arrow-back"}
+							size={22}
+							color={colors.textDark}
+						/>
 					</TouchableOpacity>
 					<View style={styles.headerText}>
-						<Text style={styles.title}>Card Reader</Text>
-						<Text style={styles.subtitle}>{tableName}</Text>
+						<Text style={styles.title}>
+							{isPayLite ? "Scerv Pay Lite" : "Card Reader"}
+						</Text>
+						<Text style={styles.subtitle}>
+							{isPayLite
+								? `${getStaffName(activeSession, currentUserData)} signed in`
+								: tableName}
+						</Text>
 					</View>
 				</View>
 
+				{isPayLite ? (
+					<View style={styles.payLiteAmountPanel}>
+						<Text style={styles.payLiteAmountLabel}>Enter sale amount</Text>
+						<TextInput
+							style={styles.payLiteAmountInput}
+							value={payLiteAmountText}
+							onChangeText={setPayLiteAmountText}
+							placeholder="0.00"
+							keyboardType="decimal-pad"
+							editable={!isBusy}
+							autoFocus={lockToPayLite}
+						/>
+						<Text style={styles.payLiteAmountHelp}>
+							POS/bar amount before card fee. Customer tip happens on the reader.
+						</Text>
+					</View>
+				) : null}
+
 				<View style={styles.totalPanel}>
-					<Text style={styles.totalLabel}>Amount to collect</Text>
-					<Text style={styles.totalAmount}>{totalLabel}</Text>
+					<Text style={styles.totalLabel}>
+						{isPayLite ? "Sale amount" : "Amount to collect"}
+					</Text>
+					<Text style={styles.totalAmount}>
+						{isPayLite
+							? formatCurrencyFromDollars(
+									Number(payLiteSaleAmountCents || 0) / 100,
+								)
+							: totalLabel}
+					</Text>
 					<Text style={styles.totalMeta}>
-						{selectedItemCount} item{selectedItemCount === 1 ? "" : "s"} selected
+						{isPayLite
+							? "Customer tip happens on the reader"
+							: `${selectedItemCount} item${
+									selectedItemCount === 1 ? "" : "s"
+								} selected`}
 					</Text>
 				</View>
 
-				{selectedSeatBreakdown.length > 0 && (
+				{isPayLite ? (
+					<View style={styles.inputPanel}>
+						<Text style={styles.panelTitle}>Payment details</Text>
+						<Text style={styles.inputHelp}>
+							Staff enters the POS sale amount and collects payment. Reconciliation
+							details are available in the back office.
+						</Text>
+						<Text style={styles.inputLabel}>Internal note</Text>
+						<TextInput
+							style={styles.noteInput}
+							value={payLiteNote}
+							onChangeText={setPayLiteNote}
+							placeholder="Optional shift, register, or POS ticket"
+							editable={!isBusy}
+							maxLength={160}
+						/>
+					</View>
+				) : null}
+
+				{!isPayLite && selectedSeatBreakdown.length > 0 && (
 					<View style={styles.seatPanel}>
 						<Text style={styles.panelTitle}>Closeout seats</Text>
 						{selectedSeatBreakdown.map((seat) => (
@@ -603,15 +1595,27 @@ const RestaurantTerminalPaymentContent = ({
 				<View style={styles.actionGrid}>
 					<TouchableOpacity
 						style={styles.secondaryButton}
-						onPress={() => startDiscovery({ simulated: false })}
+						onPress={() => connectS710Reader({ simulated: false })}
 						disabled={isBusy}
 					>
-						<Text style={styles.secondaryButtonText}>Find Readers</Text>
+						<Text style={styles.secondaryButtonText}>Find S710</Text>
+					</TouchableOpacity>
+					<TouchableOpacity
+						style={styles.secondaryButton}
+						onPress={() =>
+							startDiscovery({
+								simulated: false,
+								discoveryMethod: "bluetoothScan",
+							})
+						}
+						disabled={isBusy}
+					>
+						<Text style={styles.secondaryButtonText}>Find M2</Text>
 					</TouchableOpacity>
 					{canUseTestReader ? (
 						<TouchableOpacity
 							style={styles.secondaryButton}
-							onPress={() => startDiscovery({ simulated: true })}
+							onPress={() => connectS710Reader({ simulated: true })}
 							disabled={isBusy}
 						>
 							<Text style={styles.secondaryButtonText}>Test Reader</Text>
@@ -653,7 +1657,7 @@ const RestaurantTerminalPaymentContent = ({
 			</ScrollView>
 
 			<View style={styles.footer}>
-				{processedPaymentIntentId && !isPaying ? (
+				{!isPayLite && processedPaymentIntentId && !isPaying ? (
 					<TouchableOpacity
 						style={styles.secondaryFullButton}
 						onPress={() => finalizeCloseout(processedPaymentIntentId)}
@@ -665,15 +1669,24 @@ const RestaurantTerminalPaymentContent = ({
 				<TouchableOpacity
 					style={[
 						styles.primaryButton,
-						(!connectedReader || isBusy) && styles.buttonDisabled,
+						(!connectedReader ||
+							isBusy ||
+							(isPayLite && payLiteSaleAmountCents <= 0)) &&
+							styles.buttonDisabled,
 					]}
 					onPress={handleCollectPayment}
-					disabled={!connectedReader || isBusy}
+					disabled={
+						!connectedReader ||
+						isBusy ||
+						(isPayLite && payLiteSaleAmountCents <= 0)
+					}
 				>
 					{isPaying || isFinalizing ? (
 						<ActivityIndicator size="small" color={colors.surfaceWhite} />
 					) : (
-						<Text style={styles.primaryButtonText}>Collect {totalLabel}</Text>
+						<Text style={styles.primaryButtonText}>
+							{isPayLite ? "Collect payment" : `Collect ${totalLabel}`}
+						</Text>
 					)}
 				</TouchableOpacity>
 			</View>
@@ -684,10 +1697,11 @@ const RestaurantTerminalPaymentContent = ({
 const RestaurantTerminalPaymentScreen = () => {
 	const route = useRoute();
 	const { currentUserData } = useContext(AuthContext);
-	const { activeSession } = useEmployeeSession();
+	const { activeSession, endSession } = useEmployeeSession();
 	const { tokenStatus } = useRestaurantTerminal();
 	const restaurantId = route.params?.restaurantId || currentUserData?.uid;
 	const isTestAccount = currentUserData?.isTestAccount !== false;
+	const preferredCollector = getPreferredCollector(currentUserData);
 	const stripeTerminalLocationId =
 		route.params?.stripeTerminalLocationId ||
 		(isTestAccount
@@ -697,6 +1711,7 @@ const RestaurantTerminalPaymentScreen = () => {
 				currentUserData?.terminalLocationId_live) ||
 		currentUserData?.stripeTerminalLocationId ||
 		currentUserData?.terminalLocationId ||
+		getCollectorLocationId(preferredCollector) ||
 		"";
 
 	if (!restaurantId) {
@@ -711,6 +1726,7 @@ const RestaurantTerminalPaymentScreen = () => {
 		<RestaurantTerminalPaymentContent
 			activeSession={activeSession}
 			currentUserData={currentUserData}
+			endSession={endSession}
 			tokenStatus={tokenStatus}
 			params={{
 				...(route.params || {}),
@@ -766,6 +1782,196 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		marginTop: 2,
 	},
+	payLiteContainer: {
+		flex: 1,
+		backgroundColor: colors.backgroundLight,
+		padding: 16,
+		gap: 10,
+	},
+	payLiteHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		minHeight: 44,
+	},
+	payLiteCollectorPill: {
+		flexDirection: "row",
+		alignItems: "center",
+		maxWidth: 156,
+		borderRadius: 999,
+		borderWidth: 1,
+		paddingHorizontal: 9,
+		paddingVertical: 6,
+		gap: 6,
+	},
+	payLiteCollectorPillConnected: {
+		backgroundColor: colors.statusSuccess + "12",
+		borderColor: colors.statusSuccess + "55",
+	},
+	payLiteCollectorPillIdle: {
+		backgroundColor: colors.surfaceWhite,
+		borderColor: colors.borderLight,
+	},
+	payLiteCollectorDot: {
+		width: 8,
+		height: 8,
+		borderRadius: 999,
+	},
+	payLiteCollectorDotConnected: {
+		backgroundColor: colors.statusSuccess,
+	},
+	payLiteCollectorDotIdle: {
+		backgroundColor: colors.textLight,
+	},
+	payLiteCollectorText: {
+		flex: 1,
+		fontSize: 11,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteLockButton: {
+		width: 40,
+		height: 40,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 10,
+		backgroundColor: colors.surfaceWhite,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		marginRight: 10,
+	},
+	payLiteTitle: {
+		fontSize: 22,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteSubtitle: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 1,
+	},
+	payLiteTerminalCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 2,
+		borderColor: colors.primary,
+		padding: 14,
+	},
+	payLiteCompactAmountInput: {
+		height: 86,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 14,
+		fontSize: 44,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 8,
+		marginBottom: 10,
+	},
+	payLiteCollectButton: {
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.primary,
+		borderRadius: 10,
+		paddingVertical: 14,
+		minHeight: 50,
+	},
+	payLiteCompactHelp: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		lineHeight: 16,
+		marginTop: 8,
+	},
+	payLiteStatusCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+	},
+	payLiteStatusRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+	},
+	payLiteReaderActions: {
+		flexDirection: "row",
+		gap: 8,
+		marginTop: 10,
+	},
+	payLiteSmallButton: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 9,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		backgroundColor: colors.surfaceWhite,
+		paddingVertical: 9,
+	},
+	payLiteDefaultButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 9,
+		borderWidth: 1,
+		borderColor: colors.primary + "55",
+		backgroundColor: colors.primary + "08",
+		paddingVertical: 9,
+		paddingHorizontal: 10,
+		gap: 6,
+		marginTop: 9,
+	},
+	payLiteDefaultButtonActive: {
+		borderColor: colors.statusSuccess + "55",
+		backgroundColor: colors.statusSuccess + "12",
+	},
+	payLiteDefaultButtonText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteReaderRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 9,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		paddingHorizontal: 10,
+		paddingVertical: 9,
+		marginTop: 8,
+	},
+	payLiteDetailsCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+	},
+	payLiteCompactNote: {
+		height: 42,
+		borderRadius: 9,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 12,
+		fontSize: 13,
+		fontWeight: "700",
+		color: colors.textDark,
+		marginTop: 8,
+	},
+	payLiteErrorBox: {
+		backgroundColor: colors.statusDanger + "12",
+		borderWidth: 1,
+		borderColor: colors.statusDanger + "55",
+		borderRadius: 10,
+		padding: 10,
+	},
 	totalPanel: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 10,
@@ -792,7 +1998,48 @@ const styles = StyleSheet.create({
 		color: colors.textMedium,
 		marginTop: 4,
 	},
+	payLiteAmountPanel: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 2,
+		borderColor: colors.primary,
+		padding: 18,
+		marginBottom: 14,
+	},
+	payLiteAmountLabel: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textMedium,
+		textTransform: "uppercase",
+	},
+	payLiteAmountInput: {
+		height: 92,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 16,
+		fontSize: 46,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginTop: 10,
+	},
+	payLiteAmountHelp: {
+		fontSize: 13,
+		fontWeight: "700",
+		color: colors.textMedium,
+		lineHeight: 18,
+		marginTop: 10,
+	},
 	seatPanel: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 14,
+		marginBottom: 14,
+	},
+	inputPanel: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 10,
 		borderWidth: 1,
@@ -805,6 +2052,69 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: colors.textDark,
 		marginBottom: 10,
+	},
+	inputLabel: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginBottom: 6,
+		textTransform: "uppercase",
+	},
+	amountInput: {
+		height: 54,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 14,
+		fontSize: 24,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginBottom: 8,
+	},
+	noteInput: {
+		minHeight: 48,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		backgroundColor: colors.backgroundLight,
+		paddingHorizontal: 14,
+		fontSize: 14,
+		fontWeight: "700",
+		color: colors.textDark,
+	},
+	payLiteBreakdown: {
+		backgroundColor: colors.backgroundLight,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+		marginBottom: 14,
+	},
+	breakdownRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingVertical: 5,
+		gap: 12,
+	},
+	breakdownLabel: {
+		flex: 1,
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+	},
+	breakdownValue: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	inputHelp: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: colors.textMedium,
+		lineHeight: 17,
+		marginBottom: 14,
 	},
 	seatRow: {
 		flexDirection: "row",
@@ -896,11 +2206,13 @@ const styles = StyleSheet.create({
 	},
 	actionGrid: {
 		flexDirection: "row",
+		flexWrap: "wrap",
 		gap: 10,
 		marginBottom: 12,
 	},
 	secondaryButton: {
-		flex: 1,
+		flexGrow: 1,
+		flexBasis: "30%",
 		alignItems: "center",
 		justifyContent: "center",
 		borderRadius: 10,

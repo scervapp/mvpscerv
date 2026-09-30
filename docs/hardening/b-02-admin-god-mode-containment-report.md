@@ -1,8 +1,9 @@
 # B-02 Admin God-Mode Containment Report
 
 Date: 2026-09-27
+Updated: 2026-09-29
 
-Status: Fixed locally. Not deployed.
+Status: On testing. Functions deployed to `scervmvp-testing`; production remains unchanged.
 
 ## Scope
 
@@ -46,5 +47,11 @@ B-02 targets the raw Firestore data-explorer endpoints:
 
 ## Remaining Work Before Testing Deploy
 
+- Testing deployment completed as part of the `scervmvp-testing` functions deploy on 2026-09-29.
 - Decide whether production should ever allow break-glass raw writes. Default remains off.
-- Deploy only to the testing lane after the A-08 baseline issue is resolved or explicitly waived.
+- Run an admin-portal smoke against testing with a godmode user:
+  - raw reads write audit records,
+  - raw writes remain disabled by default,
+  - denied sensitive paths fail cleanly,
+  - environment labeling is unmistakable.
+- Production use remains blocked without founder approval, audit review and an explicit break-glass decision.

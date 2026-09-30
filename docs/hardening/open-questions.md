@@ -107,8 +107,8 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Owner to answer: Founder + Operations
 - Blocks: B-08, Phase D QA scope
 - Needed by: Phase B
-- Answer:
-- Closed:
+- Answer: Terminal is in pilot scope. The first live bar use case requires Scerv Pay Lite on Stripe Terminal S710 with manager reporting for daily reconciliation. The full-service restaurant pilot may use the broader Scerv platform, but order pacing is not required for the first bar Pay Lite launch and must remain feature-flagged/limited unless it has its own device QA evidence.
+- Closed: 2026-09-29 -> D-024
 
 ### OQ-013 — Is PITR/backup currently enabled in production?
 - Raised: 2026-09-27 by release-readiness planning
@@ -181,3 +181,11 @@ Open questions block work when assumptions would otherwise be unsafe. Close an i
 - Needed by: testing-lane functions deploy completion
 - Answer: Full functions deploy created the testing Firestore database prerequisite gap. Engineering created Firestore database `(default)` in `nam5`; all Firestore-trigger functions then deployed successfully. The only remaining failed function was `onUserCreate`, blocked by `Failed to configure trigger for event-type:providers/firebase.auth/eventTypes/user.create ... Firebase Auth is not enabled in the project.` Enabling `identitytoolkit.googleapis.com` from CLI was successful/already active, but retrying `onUserCreate` still failed. Founder then initialized Firebase Auth in the Firebase console for `scervmvp-testing`, and `functions:onUserCreate` deployed successfully.
 - Closed: 2026-09-27 -> testing Auth initialized and `onUserCreate` deployed
+
+### OQ-022 — Can EAS create or select iOS internal-distribution credentials for the testing app?
+- Raised: 2026-09-29 by B-06 testing-profile build attempt
+- Owner to answer: Founder
+- Blocks: B-06, B-07 iOS device QA
+- Needed by: B-06 completion
+- Answer: Founder approved running the interactive EAS credential setup. The retry reached the Apple password prompt for `scervapp@gmail.com`; founder must enter password/2FA locally to continue. On 2026-09-30 founder said not to worry about the iOS build for now, so B-07 will proceed Android-first under D-028. This does not satisfy the original two-platform Phase B exit gate.
+- Closed:

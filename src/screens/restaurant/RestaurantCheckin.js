@@ -19,23 +19,15 @@ import {
 import moment from "moment";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import {
-	onSnapshot,
-	collection,
-	query,
-	where,
-	getDocs,
-} from "@react-native-firebase/firestore";
 import { httpsCallable } from "@react-native-firebase/functions";
 import { useTranslation } from "react-i18next";
 import { useNavigation } from "@react-navigation/native";
 
 import ServerAssignmentModal from "../../components/restaurant/ServerAssignmentModal";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
-import { buildReadyStationInfo } from "../../utils/restaurantStationStatus";
 
 const getPartyPriority = (party) => {
 	const isDirty = party.status === "checkedOut";
@@ -63,7 +55,6 @@ const RestaurantActiveTables = () => {
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [rawActiveParties, setRawActiveParties] = useState([]);
-	const [kitchenTicketsByParty, setKitchenTicketsByParty] = useState({});
 	const [isLoading, setIsLoading] = useState(true);
 	const [isActionLoading, setIsActionLoading] = useState(false);
 	const [runningFoodPartyId, setRunningFoodPartyId] = useState(null);
@@ -75,26 +66,36 @@ const RestaurantActiveTables = () => {
 		useState(null);
 	const [restaurantServers, setRestaurantServers] = useState([]);
 
-	const forceClearTableFunction = httpsCallable(functions, "forceClearTable");
-	const markPartyTableCleanFunction = httpsCallable(
-		functions,
-		"markPartyTableClean",
+	const forceClearTableFunction = useMemo(
+		() => httpsCallable(functions, "forceClearTable"),
+		[],
 	);
-	const assignPartyServerFunction = httpsCallable(
-		functions,
-		"assignPartyServer",
+	const markPartyTableCleanFunction = useMemo(
+		() => httpsCallable(functions, "markPartyTableClean"),
+		[],
 	);
-	const acknowledgePartyServiceRequestFunction = httpsCallable(
-		functions,
-		"acknowledgePartyServiceRequest",
+	const assignPartyServerFunction = useMemo(
+		() => httpsCallable(functions, "assignPartyServer"),
+		[],
 	);
-	const markReadyKitchenItemsServedFunction = httpsCallable(
-		functions,
-		"markReadyKitchenItemsServed",
+	const acknowledgePartyServiceRequestFunction = useMemo(
+		() => httpsCallable(functions, "acknowledgePartyServiceRequest"),
+		[],
+	);
+	const markReadyKitchenItemsServedFunction = useMemo(
+		() => httpsCallable(functions, "markReadyKitchenItemsServed"),
+		[],
+	);
+	const listStaffActiveTablesFunction = useMemo(
+		() => httpsCallable(functions, "listStaffActiveTables"),
+		[],
+	);
+	const listStaffDirectoryFunction = useMemo(
+		() => httpsCallable(functions, "listStaffDirectory"),
+		[],
 	);
 
-	// Listen for active and recently paid tables that still need cleaning.
-	useEffect(() => {
+	const loadActiveTables = useCallback(async () => {
 		if (!restaurantId) {
 			setError(
 				t(
@@ -106,84 +107,77 @@ const RestaurantActiveTables = () => {
 			return;
 		}
 
-		const q = db
-			.collection("parties")
-			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", ["active", "checkedOut"])
-			.orderBy("createdAt", "desc");
-
-		const unsubscribe = onSnapshot(
-			q,
-			(querySnapshot) => {
-				const partiesData = querySnapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-
-				let filteredParties = partiesData.filter(
-					(party) => party.fulfillmentType !== "hotel_pickup",
-				);
-
-				// Restrict view if strictly a server
-				if (
-					activeSession?.role === "worker" &&
-					activeSession?.jobTitle === "server"
-				) {
-					filteredParties = filteredParties.filter((party) => {
-						const needsServer =
-							!party.server || party?.server?.id === "unassigned";
-						const isMyTable = party?.server?.id === activeSession.id;
-						return needsServer || isMyTable;
-					});
-				}
-
-				setRawActiveParties(filteredParties);
-				setError(null);
-				setIsLoading(false);
-				setIsRefreshing(false);
-			},
-			(err) => {
-				console.error("RestaurantActiveTables: Snapshot error:", err);
-				setError(
-					t(
-						"failed_to_listen_for_active_tables",
-						"Failed to load active tables.",
-					),
-				);
-				setIsLoading(false);
-				setIsRefreshing(false);
-			},
-		);
-
-		return () => unsubscribe();
+		try {
+			const result = await listStaffActiveTablesFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+			});
+			const filteredParties = (result.data?.parties || []).filter(
+				(party) => party.fulfillmentType !== "hotel_pickup",
+			);
+			setRawActiveParties(filteredParties);
+			setError(null);
+			setIsLoading(false);
+			setIsRefreshing(false);
+		} catch (err) {
+			console.error("RestaurantActiveTables: Load error:", err);
+			setError(
+				t(
+					"failed_to_listen_for_active_tables",
+					"Failed to load active tables.",
+				),
+			);
+			setIsLoading(false);
+			setIsRefreshing(false);
+		}
 	}, [
-		restaurantId,
 		activeSession?.id,
-		activeSession?.role,
-		activeSession?.jobTitle,
+		listStaffActiveTablesFunction,
+		restaurantId,
 		t,
 	]);
+
+	useEffect(() => {
+		if (!restaurantId) {
+			loadActiveTables();
+			return undefined;
+		}
+
+		setIsLoading(true);
+		let cancelled = false;
+		let timer = null;
+		const pollActiveTables = async () => {
+			if (cancelled) return;
+			await loadActiveTables();
+		};
+
+		pollActiveTables();
+		timer = setInterval(pollActiveTables, 10000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [loadActiveTables, restaurantId]);
 
 	const activeParties = useMemo(
 		() =>
 			rawActiveParties
 				.map((party) => ({
 					...party,
-					...buildReadyStationInfo(kitchenTicketsByParty[party.id] || []),
+					hasItemsReady:
+						party.hasItemsReady === true ||
+						Number(party.readyItemCount || 0) > 0,
 				}))
 				.sort((a, b) => {
 					const priorityDifference = getPartyPriority(a) - getPartyPriority(b);
 					if (priorityDifference !== 0) return priorityDifference;
 
-					const aCreatedAt = a.createdAt?.toMillis
-						? a.createdAt.toMillis()
-						: 0;
-					const bCreatedAt = b.createdAt?.toMillis
-						? b.createdAt.toMillis()
-						: 0;
+					const aCreatedAt = Date.parse(a.createdAt || "") || 0;
+					const bCreatedAt = Date.parse(b.createdAt || "") || 0;
 					return aCreatedAt - bCreatedAt;
 				}),
-		[rawActiveParties, kitchenTicketsByParty],
+		[rawActiveParties],
 	);
 	const tablePulse = useMemo(
 		() => ({
@@ -203,69 +197,32 @@ const RestaurantActiveTables = () => {
 		[activeParties],
 	);
 
-	useEffect(() => {
-		if (!restaurantId) {
-			setKitchenTicketsByParty({});
-			return;
-		}
-
-		const unsubscribe = db
-			.collection("kitchen_orders")
-			.where("restaurantId", "==", restaurantId)
-			.where("overallStatus", "==", "active")
-			.onSnapshot(
-				(snapshot) => {
-					const nextTicketsByParty = {};
-
-					snapshot.docs.forEach((doc) => {
-						const ticket = { id: doc.id, ...doc.data() };
-						if (!ticket.partyId || ticket.fulfillmentType === "hotel_pickup") {
-							return;
-						}
-						if (!nextTicketsByParty[ticket.partyId]) {
-							nextTicketsByParty[ticket.partyId] = [];
-						}
-						nextTicketsByParty[ticket.partyId].push(ticket);
-					});
-
-					setKitchenTicketsByParty(nextTicketsByParty);
-				},
-				(err) => {
-					console.error("RestaurantActiveTables: Kitchen snapshot error:", err);
-					setKitchenTicketsByParty({});
-				},
-			);
-
-		return () => unsubscribe();
-	}, [restaurantId]);
-
 	// Fetch servers for assignment.
 	useEffect(() => {
 		const fetchServers = async () => {
 			if (!restaurantId) return;
 
 			try {
-				const staffQuery = query(
-					collection(db, `restaurants/${restaurantId}/employees`),
-					where("jobTitle", "==", "server"),
+				const result = await listStaffDirectoryFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				const staffList = (result.data?.employees || []).filter(
+					(employee) =>
+						employee.isActive !== false && employee.jobTitle === "server",
 				);
-				const staffSnapshot = await getDocs(staffQuery);
-				const staffList = staffSnapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
 				setRestaurantServers(staffList);
 			} catch (err) {
 				console.error("Error fetching staff:", err);
 			}
 		};
 		fetchServers();
-	}, [restaurantId]);
+	}, [activeSession?.id, listStaffDirectoryFunction, restaurantId]);
 
 	const onRefresh = useCallback(() => {
 		setIsRefreshing(true);
-		setTimeout(() => setIsRefreshing(false), 1000);
-	}, []);
+		loadActiveTables();
+	}, [loadActiveTables]);
 
 	const handleTableTap = (party) => {
 		const isDirty = party.status === "checkedOut";
@@ -318,6 +275,7 @@ const RestaurantActiveTables = () => {
 			});
 			setIsServerModalVisible(false);
 			setSelectedPartyForAssignment(null);
+			await loadActiveTables();
 			if (openAfterAssign) {
 				navigation.navigate("ManagePartyScreen", { partyId: partyOverride.id });
 			}
@@ -338,6 +296,7 @@ const RestaurantActiveTables = () => {
 						activeSession?.lastName || ""
 					}`.trim(),
 			});
+			await loadActiveTables();
 		} catch (error) {
 			console.error("Error clearing service request:", error);
 			Alert.alert(
@@ -367,6 +326,7 @@ const RestaurantActiveTables = () => {
 				staffId: activeSession?.id || null,
 				staffName,
 			});
+			await loadActiveTables();
 		} catch (error) {
 			console.error("Error marking food as run:", error);
 			Alert.alert(
@@ -425,6 +385,7 @@ const RestaurantActiveTables = () => {
 								staffName,
 							});
 						}
+						await loadActiveTables();
 
 					} catch (error) {
 						console.error("Error clearing table:", error);
@@ -461,11 +422,18 @@ const RestaurantActiveTables = () => {
 			item.source === "browser_qr" || item.hasBrowserOrder === true;
 		const isRunningFood = runningFoodPartyId === item.id;
 
-		const seatedTime = item.createdAt?.toDate
-			? item.createdAt
-					.toDate()
-					.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-			: t("just_now", "Just now");
+		const createdAtDate = item.createdAt?.toDate
+			? item.createdAt.toDate()
+			: item.createdAt
+				? new Date(item.createdAt)
+				: null;
+		const seatedTime =
+			createdAtDate && !Number.isNaN(createdAtDate.getTime())
+				? createdAtDate.toLocaleTimeString([], {
+						hour: "2-digit",
+						minute: "2-digit",
+					})
+				: t("just_now", "Just now");
 
 		const timeWaiting = item.serviceRequestedAt
 			? moment(item.serviceRequestedAt).fromNow()

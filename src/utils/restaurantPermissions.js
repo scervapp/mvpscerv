@@ -27,7 +27,7 @@ export const getRestaurantPermissions = (activeSession) => {
 		isBartender,
 		isSupport,
 
-		canViewDashboard: isManagement || isServer || isHost || isSupport,
+		canViewDashboard: isManagement || isServer || isHost || isSupport || isBartender,
 		canViewTickets: isFrontOfHouse || isSupport,
 		canSeatWalkIn: isManagement || isHost || isServer,
 		canViewServiceRequests: isFrontOfHouse || isSupport,

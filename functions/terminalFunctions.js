@@ -28,12 +28,284 @@ const normalizeNonNegativeCents = (value, fallback = 0) => {
 	return Math.round(parsed);
 };
 
+const normalizePolicyString = (value, allowedValues = [], fallback = "") => {
+	const normalized = String(value || "").trim();
+	return allowedValues.includes(normalized) ? normalized : fallback;
+};
+
 const calculatePercentageFee = (amountCents, percentage, fixedCents = 0) =>
 	Math.max(
 		0,
 		Math.round(Number(amountCents || 0) * normalizePercentage(percentage)) +
 			normalizeNonNegativeCents(fixedCents),
 	);
+
+const sanitizeTerminalNote = (value, maxLength = 160) =>
+	String(value || "")
+		.trim()
+		.replace(/\s+/g, " ")
+		.slice(0, maxLength);
+
+const sanitizeMetadataString = (value, maxLength = 120) =>
+	String(value || "")
+		.trim()
+		.slice(0, maxLength);
+
+const toTimestampMillis = (value) => {
+	if (!value) return 0;
+	if (typeof value.toMillis === "function") return value.toMillis();
+	if (typeof value.toDate === "function") return value.toDate().getTime();
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toIsoTimestamp = (value) => {
+	const millis = toTimestampMillis(value);
+	return millis > 0 ? new Date(millis).toISOString() : null;
+};
+
+const buildScervPayLiteDailyReport = ({
+	payments = [],
+	restaurantData = {},
+	restaurantId = "",
+	startMs = 0,
+	endMs = 0,
+}) => {
+	const rows = payments
+		.map((payment) => ({ ...(payment || {}) }))
+		.filter((payment) => {
+			const isPayLite =
+				payment.type === "scerv_pay_lite" ||
+				payment.source === "scerv_pay_lite";
+			const isPaid =
+				payment.paymentStatus === "paid" ||
+				payment.status === "succeeded" ||
+				payment.status === "paid";
+			const paidMillis = toTimestampMillis(
+				payment.paidAt || payment.capturedAt || payment.updatedAt || payment.createdAt,
+			);
+			return isPayLite && isPaid && paidMillis >= startMs && paidMillis < endMs;
+		})
+		.sort((a, b) => {
+			const aMs = toTimestampMillis(a.paidAt || a.capturedAt || a.createdAt);
+			const bMs = toTimestampMillis(b.paidAt || b.capturedAt || b.createdAt);
+			return bMs - aMs;
+		})
+		.map((payment) => {
+			const enteredBy = payment.enteredBy || payment.createdBy || {};
+			const capturedBy = payment.capturedBy || {};
+			const reader = payment.terminalReader || payment.reader || {};
+			const amount = normalizeNonNegativeCents(payment.amount, 0);
+			const merchantNetSalesAmount = normalizeNonNegativeCents(
+				payment.merchantNetSalesAmount,
+				payment.subtotal,
+			);
+			const customerServiceFeeAmount = normalizeNonNegativeCents(
+				payment.customerServiceFeeAmount || payment.customerServiceFee,
+				0,
+			);
+			const gratuityAmount = normalizeNonNegativeCents(
+				payment.gratuityAmount || payment.tipAmountCents,
+				0,
+			);
+			const applicationFeeAmount = normalizeNonNegativeCents(
+				payment.applicationFeeAmount || payment.scervPayLiteFeeAmount,
+				0,
+			);
+			const restaurantTransferAmount = normalizeNonNegativeCents(
+				payment.restaurantTransferAmount,
+				Math.max(0, amount - applicationFeeAmount),
+			);
+
+			return {
+				id: payment.id,
+				paymentIntentId: payment.paymentIntentId || payment.id,
+				status: payment.status || payment.paymentStatus || "paid",
+				paidAt: toIsoTimestamp(
+					payment.paidAt ||
+						payment.capturedAt ||
+						payment.updatedAt ||
+						payment.createdAt,
+				),
+				createdAt: toIsoTimestamp(payment.createdAt),
+				staffId:
+					enteredBy.staffId ||
+					enteredBy.id ||
+					capturedBy.enteredByStaffId ||
+					capturedBy.staffId ||
+					null,
+				staffName:
+					enteredBy.name ||
+					capturedBy.enteredByName ||
+					capturedBy.name ||
+					"Staff",
+				note: payment.note || "",
+				readerLabel: reader.label || reader.name || null,
+				readerSerialNumber: reader.serialNumber || null,
+				merchantNetSalesAmount,
+				customerServiceFeeAmount,
+				gratuityAmount,
+				amount,
+				applicationFeeAmount,
+				restaurantTransferAmount,
+				customerFeeMode: payment.customerFeeMode || null,
+				scervFeeMode: payment.scervFeeMode || null,
+			};
+		});
+
+	const summary = rows.reduce(
+		(acc, row) => {
+			acc.transactionCount += 1;
+			acc.merchantNetSalesAmount += row.merchantNetSalesAmount;
+			acc.customerServiceFeeAmount += row.customerServiceFeeAmount;
+			acc.gratuityAmount += row.gratuityAmount;
+			acc.amount += row.amount;
+			acc.applicationFeeAmount += row.applicationFeeAmount;
+			acc.restaurantTransferAmount += row.restaurantTransferAmount;
+			return acc;
+		},
+		{
+			transactionCount: 0,
+			merchantNetSalesAmount: 0,
+			customerServiceFeeAmount: 0,
+			gratuityAmount: 0,
+			amount: 0,
+			applicationFeeAmount: 0,
+			restaurantTransferAmount: 0,
+		},
+	);
+
+	return {
+		restaurantId,
+		restaurantName:
+			restaurantData.restaurantName || restaurantData.name || "Restaurant",
+		startAt: new Date(startMs).toISOString(),
+		endAt: new Date(endMs).toISOString(),
+		summary,
+		transactions: rows,
+	};
+};
+
+const assertTerminalPaymentStatusAccess = async ({
+	context,
+	restaurantId,
+	staffId,
+}) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"User must be authenticated.",
+		);
+	}
+
+	const tokenRestaurantId =
+		context.auth.token && context.auth.token.restaurantId;
+	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+		if (!staffId || context.auth.uid === restaurantId) return;
+	}
+
+	await assertRestaurantPermission({
+		db,
+		context,
+		restaurantId,
+		employeeId: staffId,
+		allowedRoles: ["owner", "manager", "admin"],
+		allowedJobTitles: ["server", "bartender", "bar"],
+		action: "view Terminal payment status",
+	});
+};
+
+const shapeTerminalPaymentStatus = (doc) => {
+	const data = doc.data() || {};
+	const status = sanitizeMetadataString(
+		data.paymentStatus || data.status || "unknown",
+		80,
+	);
+
+	return {
+		exists: true,
+		id: doc.id,
+		paymentIntentId: sanitizeMetadataString(data.paymentIntentId || doc.id, 120),
+		restaurantId: sanitizeMetadataString(data.restaurantId, 120),
+		partyId: sanitizeMetadataString(data.partyId, 120) || null,
+		status,
+		paid: status === "paid" || status === "succeeded",
+		closeoutFinalized: data.closeoutFinalized === true,
+		amount: normalizeNonNegativeCents(data.amount, 0),
+		subtotal: normalizeNonNegativeCents(data.subtotal, 0),
+		taxAmount: normalizeNonNegativeCents(data.taxAmount, 0),
+		gratuityAmount: normalizeNonNegativeCents(
+			data.gratuityAmount || data.tipAmountCents,
+			0,
+		),
+		customerServiceFeeAmount: normalizeNonNegativeCents(
+			data.customerServiceFeeAmount || data.customerServiceFee,
+			0,
+		),
+		applicationFeeAmount: normalizeNonNegativeCents(
+			data.applicationFeeAmount || data.scervPayLiteFeeAmount,
+			0,
+		),
+		restaurantTransferAmount: normalizeNonNegativeCents(
+			data.restaurantTransferAmount,
+			0,
+		),
+		source: sanitizeMetadataString(data.source || data.type, 80) || null,
+		createdAt: toIsoTimestamp(data.createdAt),
+		updatedAt: toIsoTimestamp(data.updatedAt),
+		paidAt: toIsoTimestamp(data.paidAt || data.capturedAt),
+	};
+};
+
+const sanitizeTerminalCollector = (collector = {}) => {
+	const readerId = sanitizeMetadataString(
+		collector.readerId || collector.id || "",
+		120,
+	);
+	const serialNumber = sanitizeMetadataString(collector.serialNumber || "", 120);
+	const label = sanitizeMetadataString(
+		collector.label || collector.name || serialNumber || readerId || "Collector",
+		120,
+	);
+	const discoveryMethod = ["bluetoothScan", "internet"].includes(
+		collector.discoveryMethod,
+	)
+		? collector.discoveryMethod
+		: "internet";
+
+	if (!readerId && !serialNumber) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Collector must include a reader ID or serial number.",
+		);
+	}
+
+	return {
+		id: readerId,
+		readerId,
+		label,
+		name: label,
+		serialNumber,
+		deviceType: sanitizeMetadataString(collector.deviceType || "", 80),
+		discoveryMethod,
+		locationId: sanitizeMetadataString(collector.locationId || "", 120),
+		simulated: collector.simulated === true,
+	};
+};
+
+const getOpenWorkDaySnapshot = async (restaurantId) => {
+	const snapshot = await db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("work_days")
+		.where("status", "==", "OPEN")
+		.limit(1)
+		.get();
+
+	if (snapshot.empty) return null;
+	const doc = snapshot.docs[0];
+	return { id: doc.id, data: doc.data() || {} };
+};
 
 const isCustomerAppInitiatedItem = (item = {}) =>
 	item.source === "customer_app" ||
@@ -246,6 +518,198 @@ const resolveTerminalPolicy = ({ restaurantData = {}, tierConfig = {} }) => {
 	};
 };
 
+const resolvePayLitePolicy = ({ restaurantData = {}, tierConfig = {} }) => {
+	const restaurantPolicy = restaurantData.paymentPolicy || {};
+	const payLitePolicy = restaurantData.payLitePolicy || {};
+	const tierPolicy = tierConfig.paymentPolicy || {};
+	const tierPayLitePolicy = tierConfig.payLitePolicy || {};
+	const firstDefined = (...values) => {
+		const match = values.find((value) => value !== undefined && value !== null);
+		return match === undefined ? null : match;
+	};
+
+	const customerFeePercentage = normalizePercentage(
+		firstDefined(
+			payLitePolicy.customerFeePercentage,
+			payLitePolicy.customerServiceFeePercentage,
+			payLitePolicy.customerChargePercentage,
+			restaurantPolicy.payLiteCustomerServiceFeePercentage,
+			restaurantPolicy.payLiteCustomerFeePercentage,
+			restaurantData.payLiteCustomerServiceFeePercentage,
+			restaurantData.payLiteCustomerFeePercentage,
+			tierPayLitePolicy.customerServiceFeePercentage,
+			tierPolicy.payLiteCustomerServiceFeePercentage,
+			tierConfig.payLiteCustomerServiceFeePercentage,
+			DEFAULT_TERMINAL_PROCESSING_FEE_PERCENTAGE,
+		),
+		DEFAULT_TERMINAL_PROCESSING_FEE_PERCENTAGE,
+	);
+	const customerFeeFixedCents = normalizeNonNegativeCents(
+		firstDefined(
+			payLitePolicy.customerFeeFixedCents,
+			payLitePolicy.customerServiceFeeFixedCents,
+			restaurantPolicy.payLiteCustomerFeeFixedCents,
+			tierPayLitePolicy.customerFeeFixedCents,
+			tierPayLitePolicy.customerServiceFeeFixedCents,
+			0,
+		),
+		0,
+	);
+	const customerFeeMode = normalizePolicyString(
+		firstDefined(
+			payLitePolicy.customerFeeMode,
+			payLitePolicy.customerServiceFeeMode,
+			restaurantPolicy.payLiteCustomerFeeMode,
+			tierPayLitePolicy.customerFeeMode,
+			"pass_to_customer",
+		),
+		["pass_to_customer", "none", "waived"],
+		"pass_to_customer",
+	);
+
+	const scervFeePercentage = normalizePercentage(
+		firstDefined(
+			payLitePolicy.scervFeePercentage,
+			payLitePolicy.platformFeePercentage,
+			restaurantPolicy.payLiteScervFeePercentage,
+			restaurantPolicy.payLitePlatformFeePercentage,
+			restaurantData.payLiteScervFeePercentage,
+			restaurantData.payLitePlatformFeePercentage,
+			tierPayLitePolicy.scervFeePercentage,
+			tierPayLitePolicy.platformFeePercentage,
+			tierPolicy.payLiteScervFeePercentage,
+			tierConfig.payLiteScervFeePercentage,
+			DEFAULT_TERMINAL_PROCESSING_FEE_PERCENTAGE,
+		),
+		DEFAULT_TERMINAL_PROCESSING_FEE_PERCENTAGE,
+	);
+	const scervFeeFixedCents = normalizeNonNegativeCents(
+		firstDefined(
+			payLitePolicy.scervFeeFixedCents,
+			payLitePolicy.platformFeeFixedCents,
+			restaurantPolicy.payLiteScervFeeFixedCents,
+			restaurantPolicy.payLitePlatformFeeFixedCents,
+			tierPayLitePolicy.scervFeeFixedCents,
+			tierPayLitePolicy.platformFeeFixedCents,
+			0,
+		),
+		0,
+	);
+	const scervFeeMode = normalizePolicyString(
+		firstDefined(
+			payLitePolicy.scervFeeMode,
+			payLitePolicy.platformFeeMode,
+			restaurantPolicy.payLiteScervFeeMode,
+			restaurantPolicy.payLitePlatformFeeMode,
+			tierPayLitePolicy.scervFeeMode,
+			"sale_percentage",
+		),
+		["sale_percentage", "customer_fee", "card_total_percentage", "fixed", "none", "waived"],
+		"sale_percentage",
+	);
+	const scervFeeCapCents = normalizeNonNegativeCents(
+		firstDefined(
+			payLitePolicy.scervFeeCapCents,
+			payLitePolicy.platformFeeCapCents,
+			restaurantPolicy.payLiteScervFeeCapCents,
+			tierPayLitePolicy.scervFeeCapCents,
+			0,
+		),
+		0,
+	);
+	const scervFeeMinimumCents = normalizeNonNegativeCents(
+		firstDefined(
+			payLitePolicy.scervFeeMinimumCents,
+			payLitePolicy.platformFeeMinimumCents,
+			restaurantPolicy.payLiteScervFeeMinimumCents,
+			tierPayLitePolicy.scervFeeMinimumCents,
+			0,
+		),
+		0,
+	);
+
+	return {
+		version: "pay_lite_policy_v1",
+		customerFeeMode,
+		customerFeePercentage,
+		customerFeeFixedCents,
+		scervFeeMode,
+		scervFeePercentage,
+		scervFeeFixedCents,
+		scervFeeCapCents,
+		scervFeeMinimumCents,
+		source: "restaurant_config",
+	};
+};
+
+const getPayLitePolicy = (restaurantData = {}, tierConfig = {}) =>
+	resolvePayLitePolicy({ restaurantData, tierConfig });
+
+const calculatePayLiteFinancials = ({ merchantNetSalesAmount, policy = {} }) => {
+	const normalizedMerchantNetSalesAmount = normalizeNonNegativeCents(
+		merchantNetSalesAmount,
+		0,
+	);
+	const customerServiceFeeAmount =
+		["none", "waived"].includes(policy.customerFeeMode)
+			? 0
+			: calculatePercentageFee(
+					normalizedMerchantNetSalesAmount,
+					policy.customerFeePercentage,
+					policy.customerFeeFixedCents,
+				);
+	const totalChargeAmount =
+		normalizedMerchantNetSalesAmount + customerServiceFeeAmount;
+
+	let rawScervFeeAmount = 0;
+	if (["none", "waived"].includes(policy.scervFeeMode)) {
+		rawScervFeeAmount = 0;
+	} else if (policy.scervFeeMode === "customer_fee") {
+		rawScervFeeAmount = customerServiceFeeAmount;
+	} else if (policy.scervFeeMode === "card_total_percentage") {
+		rawScervFeeAmount = calculatePercentageFee(
+			totalChargeAmount,
+			policy.scervFeePercentage,
+			policy.scervFeeFixedCents,
+		);
+	} else if (policy.scervFeeMode === "fixed") {
+		rawScervFeeAmount = policy.scervFeeFixedCents;
+	} else {
+		rawScervFeeAmount = calculatePercentageFee(
+			normalizedMerchantNetSalesAmount,
+			policy.scervFeePercentage,
+			policy.scervFeeFixedCents,
+		);
+	}
+
+	const cappedScervFeeAmount =
+		policy.scervFeeCapCents > 0
+			? Math.min(rawScervFeeAmount, policy.scervFeeCapCents)
+			: rawScervFeeAmount;
+	const minimumScervFeeAmount =
+		cappedScervFeeAmount > 0
+			? Math.max(cappedScervFeeAmount, policy.scervFeeMinimumCents)
+			: cappedScervFeeAmount;
+	const scervPayLiteFeeAmount = Math.min(
+		totalChargeAmount,
+		minimumScervFeeAmount,
+	);
+	const restaurantTransferAmount = Math.max(
+		0,
+		totalChargeAmount - scervPayLiteFeeAmount,
+	);
+
+	return {
+		merchantNetSalesAmount: normalizedMerchantNetSalesAmount,
+		customerServiceFeeAmount,
+		totalChargeAmount,
+		scervPayLiteFeeAmount,
+		restaurantTransferAmount,
+		customerFeeMode: policy.customerFeeMode,
+		scervFeeMode: policy.scervFeeMode,
+	};
+};
+
 const resolveStripeModeValue = ({
 	restaurantData = {},
 	isTestMode = true,
@@ -296,7 +760,16 @@ const resolveRestaurantStripeAccount = ({ restaurantData = {}, keys }) =>
 		modeField: "stripeAccountMode",
 	});
 
+const getStripeConnectedAccountOptions = (connectedAccountId, extraOptions = {}) =>
+	connectedAccountId
+		? {
+				...extraOptions,
+				stripeAccount: connectedAccountId,
+			}
+		: extraOptions;
+
 const resolveRestaurantTerminalLocation = ({ restaurantData = {}, keys }) => {
+	const mode = keys.isTestMode ? "test" : "live";
 	const resolved = resolveStripeModeValue({
 		restaurantData,
 		isTestMode: keys.isTestMode,
@@ -317,7 +790,91 @@ const resolveRestaurantTerminalLocation = ({ restaurantData = {}, keys }) => {
 		modeField: "terminalLocationMode",
 	});
 
+	if (fallback.value) return fallback;
+
+	const payLiteDefaultCollector = restaurantData.payLiteDefaultCollector || {};
+	const defaultTerminalCollector = restaurantData.defaultTerminalCollector || {};
+	const terminalDefaultCollector = restaurantData.terminalDefaultCollector || {};
+	const defaultCollectorLocation =
+		payLiteDefaultCollector.locationId ||
+		defaultTerminalCollector.locationId ||
+		terminalDefaultCollector.locationId ||
+		"";
+
+	if (defaultCollectorLocation) {
+		return {
+			value: String(defaultCollectorLocation).trim(),
+			source: "defaultCollector.locationId",
+			mode,
+		};
+	}
+
 	return fallback;
+};
+
+const normalizeStripeTerminalReader = (reader = {}) => {
+	const locationId =
+		typeof reader.location === "string"
+			? reader.location
+			: reader.location && reader.location.id
+				? reader.location.id
+				: "";
+	return {
+		id: reader.id || "",
+		readerId: reader.id || "",
+		label: reader.label || reader.id || "Stripe reader",
+		name: reader.label || reader.id || "Stripe reader",
+		serialNumber: reader.serial_number || reader.serialNumber || "",
+		deviceType: reader.device_type || reader.deviceType || "",
+		status: reader.status || "unknown",
+		locationId,
+		ipAddress: reader.ip_address || reader.ipAddress || "",
+		discoveryMethod: "internet",
+		simulated: false,
+	};
+};
+
+const getConfiguredDefaultTerminalCollector = (restaurantData = {}) =>
+	restaurantData.payLiteDefaultCollector ||
+	restaurantData.defaultTerminalCollector ||
+	restaurantData.terminalDefaultCollector ||
+	null;
+
+const terminalReaderMatchesCollector = (reader = {}, collector = {}) => {
+	if (!reader || !collector) return false;
+	const readerId = String(reader.readerId || reader.id || "").trim();
+	const collectorId = String(collector.readerId || collector.id || "").trim();
+	if (readerId && collectorId && readerId === collectorId) return true;
+
+	const readerSerial = String(reader.serialNumber || "").trim();
+	const collectorSerial = String(collector.serialNumber || "").trim();
+	return !!readerSerial && !!collectorSerial && readerSerial === collectorSerial;
+};
+
+const selectRecommendedTerminalReader = (readers = [], defaultCollector = null) => {
+	const onlineReaders = readers.filter((reader) => reader.status === "online");
+	const matchingOnlineReader = onlineReaders.find((reader) =>
+		terminalReaderMatchesCollector(reader, defaultCollector),
+	);
+	if (matchingOnlineReader) {
+		return { reader: matchingOnlineReader, source: "default_online" };
+	}
+
+	if (onlineReaders.length) {
+		return { reader: onlineReaders[0], source: "first_online" };
+	}
+
+	const matchingReader = readers.find((reader) =>
+		terminalReaderMatchesCollector(reader, defaultCollector),
+	);
+	if (matchingReader) {
+		return { reader: matchingReader, source: "default_offline" };
+	}
+
+	return {
+		reader: readers[0] || null,
+		source: readers.length ? "first_available" : "none",
+	};
 };
 
 exports.createTerminalConnectionToken = functions
@@ -374,6 +931,11 @@ exports.createTerminalConnectionToken = functions
 			const restaurantData = restaurantSnap.exists
 				? restaurantSnap.data() || {}
 				: {};
+			const resolvedStripeAccount = resolveRestaurantStripeAccount({
+				restaurantData,
+				keys,
+			});
+			const restaurantStripeAccountId = resolvedStripeAccount.value || "";
 			const resolvedTerminalLocation = resolveRestaurantTerminalLocation({
 				restaurantData,
 				keys,
@@ -387,6 +949,7 @@ exports.createTerminalConnectionToken = functions
 			});
 			const token = await stripeInstance.terminal.connectionTokens.create(
 				resolvedLocationId ? { location: resolvedLocationId } : {},
+				getStripeConnectedAccountOptions(restaurantStripeAccountId),
 			);
 
 			return {
@@ -396,6 +959,10 @@ exports.createTerminalConnectionToken = functions
 				locationSource: locationId
 					? "request"
 					: resolvedTerminalLocation.source,
+				terminalAccountScope: restaurantStripeAccountId
+					? "connected_account"
+					: "platform",
+				connectedAccountId: restaurantStripeAccountId || null,
 			};
 		} catch (error) {
 			console.error("Error creating Terminal connection token:", error);
@@ -406,6 +973,197 @@ exports.createTerminalConnectionToken = functions
 			);
 		}
 	});
+
+exports.listRestaurantTerminalReaders = functions
+	.runWith({
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const { restaurantId, staffId, locationId = "" } = data || {};
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		try {
+			await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: [
+					"server",
+					"bartender",
+					"bar",
+					"chef",
+					"kitchen",
+					"host",
+					"support",
+					"busser",
+					"runner",
+				],
+				action: "list terminal readers",
+			});
+
+			const keys = await getStripeKeys(restaurantId);
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			const restaurantData = restaurantSnap.exists
+				? restaurantSnap.data() || {}
+				: {};
+			const resolvedStripeAccount = resolveRestaurantStripeAccount({
+				restaurantData,
+				keys,
+			});
+			const restaurantStripeAccountId = resolvedStripeAccount.value || "";
+			const resolvedTerminalLocation = resolveRestaurantTerminalLocation({
+				restaurantData,
+				keys,
+			});
+			const resolvedLocationId = String(
+				locationId || resolvedTerminalLocation.value || "",
+			).trim();
+
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+			const listParams = {
+				limit: 100,
+				...(resolvedLocationId ? { location: resolvedLocationId } : {}),
+			};
+			const stripeReaders = await stripeInstance.terminal.readers.list(
+				listParams,
+				getStripeConnectedAccountOptions(restaurantStripeAccountId),
+			);
+			const readers = (stripeReaders.data || []).map(
+				normalizeStripeTerminalReader,
+			);
+			const defaultCollector =
+				getConfiguredDefaultTerminalCollector(restaurantData);
+			const recommended = selectRecommendedTerminalReader(
+				readers,
+				defaultCollector,
+			);
+
+			return {
+				success: true,
+				liveMode: !keys.isTestMode,
+				locationId: resolvedLocationId || null,
+				locationSource: locationId
+					? "request"
+					: resolvedTerminalLocation.source,
+				terminalAccountScope: restaurantStripeAccountId
+					? "connected_account"
+					: "platform",
+				connectedAccountId: restaurantStripeAccountId || null,
+				defaultCollector: defaultCollector || null,
+				readers,
+				recommendedReader: recommended.reader,
+				recommendedSource: recommended.source,
+			};
+		} catch (error) {
+			console.error("Error listing Terminal readers:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				"Could not list Terminal readers.",
+			);
+		}
+	});
+
+exports.setDefaultTerminalCollector = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const { restaurantId, staffId = null, collector = null } = data || {};
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		try {
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				action: "set the default Terminal collector",
+			});
+
+			const sanitizedCollector = sanitizeTerminalCollector(collector || {});
+			const staffMemberId = staffMember && staffMember.id ? staffMember.id : null;
+			const staffMemberName =
+				staffMember && staffMember.name ? staffMember.name : null;
+			const staffMemberRole =
+				staffMember && staffMember.role ? staffMember.role : null;
+			const collectorPayload = {
+				...sanitizedCollector,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedBy: context.auth.uid,
+				updatedByStaffId: staffMemberId || staffId || null,
+				updatedByName: staffMemberName,
+				updatedByRole: staffMemberRole,
+			};
+
+			await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.set(
+					{
+						payLiteDefaultCollector: collectorPayload,
+						defaultTerminalCollector: collectorPayload,
+						updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					},
+					{ merge: true },
+				);
+
+			return {
+				success: true,
+				collector: {
+					...sanitizedCollector,
+					updatedBy: context.auth.uid,
+					updatedByStaffId: staffMemberId || staffId || null,
+					updatedByName: staffMemberName,
+					updatedByRole: staffMemberRole,
+				},
+			};
+		} catch (error) {
+			console.error("Error setting default Terminal collector:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				error && error.message
+					? error.message
+					: "Could not save the default Terminal collector.",
+			);
+		}
+	},
+);
 
 exports.prepareStaffTerminalPayment = functions
 	.runWith({
@@ -592,6 +1350,10 @@ exports.prepareStaffTerminalPayment = functions
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
+			const stripeRequestOptions = getStripeConnectedAccountOptions(
+				restaurantStripeAccountId,
+				{ idempotencyKey: prepareIdempotencyKey },
+			);
 			const paymentIntent = await stripeInstance.paymentIntents.create(
 				{
 					amount: preTipAmount,
@@ -599,10 +1361,6 @@ exports.prepareStaffTerminalPayment = functions
 					payment_method_types: ["card_present"],
 					capture_method: "manual",
 					description: `Scerv staff terminal closeout ${partyId}`,
-					transfer_data: {
-						destination: restaurantStripeAccountId,
-					},
-					on_behalf_of: restaurantStripeAccountId,
 					metadata: {
 						type: "restaurant_terminal",
 						partyId,
@@ -638,11 +1396,14 @@ exports.prepareStaffTerminalPayment = functions
 							terminalPolicy.terminalProcessingFeeBasis,
 						stripeAccountMode: resolvedStripeAccount.mode,
 						stripeAccountSource: resolvedStripeAccount.source || "",
+						stripeChargeMode: restaurantStripeAccountId
+							? "connected_account_direct_charge"
+							: "platform_charge",
 						selectedItemIds: selectedItemIds.join(","),
 						selectedSeatIds: selectedSeatIds.join(","),
 					},
 				},
-				{ idempotencyKey: prepareIdempotencyKey },
+				stripeRequestOptions,
 			);
 
 			await db.collection("terminal_payments").doc(paymentIntent.id).set({
@@ -652,6 +1413,9 @@ exports.prepareStaffTerminalPayment = functions
 				connectedAccountId: restaurantStripeAccountId,
 				connectedAccountMode: resolvedStripeAccount.mode,
 				connectedAccountSource: resolvedStripeAccount.source,
+				stripeChargeMode: restaurantStripeAccountId
+					? "connected_account_direct_charge"
+					: "platform_charge",
 				status: "requires_payment_method",
 				paymentStatus: "pending",
 				paymentMethod: "stripe_terminal",
@@ -733,6 +1497,319 @@ exports.prepareStaffTerminalPayment = functions
 		}
 	});
 
+exports.prepareScervPayLiteTerminalPayment = functions
+	.runWith({
+		memory: "512MB",
+		secrets: [
+			STRIPE_PUBLISHABLE_KEY_LIVE,
+			STRIPE_PUBLISHABLE_KEY_TEST,
+			STRIPE_SECRET_KEY_LIVE,
+			STRIPE_SECRET_KEY_TEST,
+		],
+	})
+	.https.onCall(async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const {
+			restaurantId,
+			saleAmountCents,
+			staffId = null,
+			staffName = "",
+			note = "",
+			terminalReader = null,
+			terminalLocationId = "",
+			clientContext = null,
+		} = data || {};
+
+		const merchantNetSalesAmount = normalizeNonNegativeCents(saleAmountCents, 0);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+		if (merchantNetSalesAmount <= 0) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Sale amount must be greater than zero.",
+			);
+		}
+
+		try {
+			const staffMember = await assertRestaurantPermission({
+				db,
+				context,
+				restaurantId,
+				employeeId: staffId,
+				allowedRoles: ["owner", "manager"],
+				allowedJobTitles: ["server", "bartender", "bar"],
+				action: "prepare Scerv Pay Lite payment",
+			});
+
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			if (!restaurantSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Restaurant not found.",
+				);
+			}
+
+			const restaurantData = restaurantSnap.data() || {};
+			const keys = await getStripeKeys(restaurantId);
+			const resolvedStripeAccount = resolveRestaurantStripeAccount({
+				restaurantData,
+				keys,
+			});
+			const restaurantStripeAccountId = resolvedStripeAccount.value || null;
+			const restaurantStripeReady =
+				restaurantStripeAccountId &&
+				(!restaurantData.stripeAccountMode ||
+					restaurantData.stripeAccountMode === resolvedStripeAccount.mode ||
+					resolvedStripeAccount.source !== "stripeAccountId") &&
+				(restaurantData.stripeAccountStatus === "verified" ||
+					restaurantData.stripeChargesEnabled === true);
+
+			if (!restaurantStripeReady) {
+				throw new functions.https.HttpsError(
+					"failed-precondition",
+					keys.isTestMode
+						? "Restaurant test Stripe account is not ready for Pay Lite."
+						: "Restaurant live Stripe account is not ready for Pay Lite.",
+				);
+			}
+
+			const { tierConfig } = await getRestaurantTier(restaurantData);
+			const payLitePolicy = getPayLitePolicy(restaurantData, tierConfig);
+			const payLiteFinancials = calculatePayLiteFinancials({
+				merchantNetSalesAmount,
+				policy: payLitePolicy,
+			});
+			const customerFeePercentage = payLitePolicy.customerFeePercentage;
+			const scervFeePercentage = payLitePolicy.scervFeePercentage;
+			const customerServiceFeeAmount =
+				payLiteFinancials.customerServiceFeeAmount;
+			const totalChargeAmount = payLiteFinancials.totalChargeAmount;
+			const scervPayLiteFeeAmount = payLiteFinancials.scervPayLiteFeeAmount;
+			const restaurantTransferAmount =
+				payLiteFinancials.restaurantTransferAmount;
+			const tipEligibleAmount = merchantNetSalesAmount;
+			const readableNote = sanitizeTerminalNote(note);
+			const openWorkDay = await getOpenWorkDaySnapshot(restaurantId);
+			const readerMetadata = terminalReader && typeof terminalReader === "object"
+				? {
+						id: sanitizeMetadataString(terminalReader.id),
+						label: sanitizeMetadataString(terminalReader.label),
+						serialNumber: sanitizeMetadataString(terminalReader.serialNumber),
+						deviceType: sanitizeMetadataString(terminalReader.deviceType),
+						status: sanitizeMetadataString(terminalReader.status),
+						locationId: sanitizeMetadataString(
+							terminalReader.locationId || terminalLocationId,
+						),
+					}
+				: {
+						locationId: sanitizeMetadataString(terminalLocationId),
+					};
+			const clientMetadata = clientContext && typeof clientContext === "object"
+				? {
+						surface: sanitizeMetadataString(clientContext.surface),
+						platform: sanitizeMetadataString(clientContext.platform),
+						appEnvironment: sanitizeMetadataString(clientContext.appEnvironment),
+						entryPoint: sanitizeMetadataString(clientContext.entryPoint),
+					}
+				: null;
+			const prepareIdempotencyKey = [
+				"pay_lite:v2",
+				resolvedStripeAccount.mode,
+				restaurantStripeAccountId,
+				context.auth.uid,
+				staffMember.id || staffId || "",
+				merchantNetSalesAmount,
+				customerServiceFeeAmount,
+				scervPayLiteFeeAmount,
+				readableNote,
+				Date.now(),
+			].join(":");
+
+			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
+				apiVersion: "2024-04-10",
+			});
+			const stripeRequestOptions = getStripeConnectedAccountOptions(
+				restaurantStripeAccountId,
+				{ idempotencyKey: prepareIdempotencyKey },
+			);
+			const paymentIntent = await stripeInstance.paymentIntents.create(
+				{
+					amount: totalChargeAmount,
+					currency: "usd",
+					payment_method_types: ["card_present"],
+					capture_method: "manual",
+					description: `Scerv Pay Lite ${restaurantId}`,
+					metadata: {
+						type: "scerv_pay_lite",
+						restaurantId,
+						userId: context.auth.uid,
+						staffId: staffMember.id || staffId || "",
+						merchantNetSalesAmount: String(merchantNetSalesAmount),
+						saleAmount: String(merchantNetSalesAmount),
+						customerServiceFee: String(customerServiceFeeAmount),
+						scervPayLiteFeeAmount: String(scervPayLiteFeeAmount),
+						customerFeeMode: payLitePolicy.customerFeeMode,
+						scervFeeMode: payLitePolicy.scervFeeMode,
+						serviceFeePercentage: String(customerFeePercentage),
+						customerServiceFeePercentage: String(customerFeePercentage),
+						customerFeeFixedCents: String(payLitePolicy.customerFeeFixedCents),
+						scervPayLiteFeePercentage: String(scervFeePercentage),
+						platformFeePercentage: String(scervFeePercentage),
+						scervFeeFixedCents: String(payLitePolicy.scervFeeFixedCents),
+						restaurantTransferAmount: String(restaurantTransferAmount),
+						total: String(totalChargeAmount),
+						onReaderTipping: "true",
+						tipEligibleAmount: String(tipEligibleAmount),
+						tipBasis: "manual_pos_amount",
+						stripeAccountMode: resolvedStripeAccount.mode,
+						stripeAccountSource: resolvedStripeAccount.source || "",
+						stripeChargeMode: restaurantStripeAccountId
+							? "connected_account_direct_charge"
+							: "platform_charge",
+						workDayId: openWorkDay ? openWorkDay.id : "",
+						terminalReaderId: readerMetadata.id || "",
+						terminalReaderSerialNumber: readerMetadata.serialNumber || "",
+						terminalLocationId: readerMetadata.locationId || "",
+						note: readableNote,
+					},
+				},
+				stripeRequestOptions,
+			);
+
+			await db.collection("terminal_payments").doc(paymentIntent.id).set({
+				id: paymentIntent.id,
+				restaurantId,
+				connectedAccountId: restaurantStripeAccountId,
+				connectedAccountMode: resolvedStripeAccount.mode,
+				connectedAccountSource: resolvedStripeAccount.source,
+				stripeChargeMode: restaurantStripeAccountId
+					? "connected_account_direct_charge"
+					: "platform_charge",
+				status: "requires_payment_method",
+				paymentStatus: "pending",
+				paymentMethod: "stripe_terminal",
+				source: "scerv_pay_lite",
+				type: "scerv_pay_lite",
+				liveMode: !keys.isTestMode,
+				amount: totalChargeAmount,
+				preTipAmount: totalChargeAmount,
+				subtotal: merchantNetSalesAmount,
+				taxAmount: 0,
+				gratuityAmount: 0,
+				customerServiceFeeAmount,
+				customerServiceFee: customerServiceFeeAmount,
+				customerServiceFeePercentage: customerFeePercentage,
+				customerFeeFixedCents: payLitePolicy.customerFeeFixedCents,
+				customerFeeMode: payLitePolicy.customerFeeMode,
+				customerServiceFeeBasis: "manual_pos_total",
+				customerServiceFeeBasisAmount: merchantNetSalesAmount,
+				merchantNetSalesAmount,
+				scervPayLiteFeeAmount,
+				scervPayLiteFeePercentage: scervFeePercentage,
+				scervFeeFixedCents: payLitePolicy.scervFeeFixedCents,
+				scervFeeMode: payLitePolicy.scervFeeMode,
+				scervFeeCapCents: payLitePolicy.scervFeeCapCents,
+				scervFeeMinimumCents: payLitePolicy.scervFeeMinimumCents,
+				serviceFeePercentage: customerFeePercentage,
+				platformFeePercentage: scervFeePercentage,
+				applicationFeeAmount: scervPayLiteFeeAmount,
+				enteredAmountCents: merchantNetSalesAmount,
+				enteredAt: admin.firestore.FieldValue.serverTimestamp(),
+				enteredBy: {
+					userId: context.auth.uid,
+					staffId: staffMember.id || staffId || null,
+					name: staffName || staffMember.name || null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+				},
+				terminalProcessingFeeAmount: 0,
+				terminalProcessingFeePercentage: 0,
+				terminalProcessingFeeFixedCents: 0,
+				terminalProcessingFeeBasis: "total",
+				terminalProcessingFeeBasisAmount: merchantNetSalesAmount,
+				restaurantTransferAmount,
+				onReaderTipping: true,
+				tipEligibleAmount,
+				tipBasis: "manual_pos_amount",
+				tipAmountCents: 0,
+				tipSource: "stripe_terminal_reader",
+				payLitePolicy,
+				workDayId: openWorkDay ? openWorkDay.id : null,
+				workDayStatus: openWorkDay ? openWorkDay.data.status || "OPEN" : null,
+				terminalReader: readerMetadata,
+				terminalLocationId: readerMetadata.locationId || null,
+				clientContext: clientMetadata,
+				reconciliation: {
+					source: "scerv_pay_lite",
+					requiresManualPosMatch: true,
+					posAmountCents: merchantNetSalesAmount,
+					cardTotalCents: totalChargeAmount,
+					customerFeeCents: customerServiceFeeAmount,
+					scervFeeCents: scervPayLiteFeeAmount,
+					customerFeeMode: payLitePolicy.customerFeeMode,
+					scervFeeMode: payLitePolicy.scervFeeMode,
+					restaurantTransferAmount,
+					tipEligibleAmount,
+					tipBasis: "manual_pos_amount",
+				},
+				note: readableNote,
+				closeoutFinalized: true,
+				createdBy: {
+					userId: context.auth.uid,
+					staffId: staffMember.id || staffId || null,
+					name: staffName || staffMember.name || null,
+					role: staffMember.role || null,
+					jobTitle: staffMember.jobTitle || null,
+				},
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+
+			return {
+				paymentIntentId: paymentIntent.id,
+				clientSecret: paymentIntent.client_secret,
+				amount: totalChargeAmount,
+				merchantNetSalesAmount,
+				customerServiceFeeAmount,
+				scervPayLiteFeeAmount,
+				serviceFeePercentage: customerFeePercentage,
+				customerServiceFeePercentage: customerFeePercentage,
+				customerFeeFixedCents: payLitePolicy.customerFeeFixedCents,
+				customerFeeMode: payLitePolicy.customerFeeMode,
+				scervPayLiteFeePercentage: scervFeePercentage,
+				scervFeeFixedCents: payLitePolicy.scervFeeFixedCents,
+				scervFeeMode: payLitePolicy.scervFeeMode,
+				applicationFeeAmount: scervPayLiteFeeAmount,
+				restaurantTransferAmount,
+				onReaderTipping: true,
+				tipEligibleAmount,
+				liveMode: !keys.isTestMode,
+			};
+		} catch (error) {
+			console.error("Error preparing Scerv Pay Lite Terminal payment:", error);
+			if (error instanceof functions.https.HttpsError) throw error;
+			throw new functions.https.HttpsError(
+				"internal",
+				error && error.message
+					? error.message
+					: "Could not prepare Scerv Pay Lite payment.",
+			);
+		}
+	});
+
 exports.captureStaffTerminalPayment = functions
 	.runWith({
 		memory: "512MB",
@@ -786,7 +1863,7 @@ exports.captureStaffTerminalPayment = functions
 				restaurantId,
 				employeeId: staffId,
 				allowedRoles: ["owner", "manager"],
-				allowedJobTitles: ["server", "bartender"],
+				allowedJobTitles: ["server", "bartender", "bar"],
 				action: "capture terminal payment",
 			});
 
@@ -794,9 +1871,19 @@ exports.captureStaffTerminalPayment = functions
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
+			const captureConnectedAccountId =
+				terminalPaymentData.stripeChargeMode ===
+					"connected_account_direct_charge" &&
+				terminalPaymentData.connectedAccountId
+					? terminalPaymentData.connectedAccountId
+					: null;
+			const stripeRequestOptions =
+				getStripeConnectedAccountOptions(captureConnectedAccountId);
 
 			let paymentIntent = await stripeInstance.paymentIntents.retrieve(
 				paymentIntentId,
+				{},
+				stripeRequestOptions,
 			);
 			const preTipAmount = Math.max(
 				0,
@@ -836,6 +1923,9 @@ exports.captureStaffTerminalPayment = functions
 			const terminalPolicy =
 				terminalPaymentData.terminalPolicy ||
 				resolveTerminalPolicy({ restaurantData: {}, tierConfig: {} });
+			const isScervPayLite =
+				terminalPaymentData.type === "scerv_pay_lite" ||
+				terminalPaymentData.source === "scerv_pay_lite";
 			const subtotal = normalizeNonNegativeCents(
 				terminalPaymentData.subtotal,
 				0,
@@ -865,48 +1955,98 @@ exports.captureStaffTerminalPayment = functions
 				terminalPolicy.terminalProcessingFeePercentage,
 				terminalPolicy.terminalProcessingFeeFixedCents,
 			);
-			const applicationFeeAmount = Math.min(
-				finalAmount,
-				customerServiceFeeAmount + terminalProcessingFeeAmount,
+			const payLiteMerchantNetSalesAmount = normalizeNonNegativeCents(
+				terminalPaymentData.merchantNetSalesAmount,
+				subtotal,
 			);
+			const configuredPayLiteFeeAmount =
+				terminalPaymentData.scervPayLiteFeeAmount !== undefined &&
+				terminalPaymentData.scervPayLiteFeeAmount !== null
+					? terminalPaymentData.scervPayLiteFeeAmount
+					: terminalPaymentData.applicationFeeAmount;
+			const payLiteFeeAmount = normalizeNonNegativeCents(
+				configuredPayLiteFeeAmount,
+				Math.max(0, finalAmount - payLiteMerchantNetSalesAmount),
+			);
+			const applicationFeeAmount = isScervPayLite
+				? Math.min(finalAmount, payLiteFeeAmount)
+				: Math.min(
+						finalAmount,
+						customerServiceFeeAmount + terminalProcessingFeeAmount,
+					);
 			const restaurantTransferAmount = Math.max(
 				0,
 				finalAmount - applicationFeeAmount,
 			);
 
-			if (applicationFeeAmount < customerServiceFeeAmount) {
+			if (!isScervPayLite && applicationFeeAmount < customerServiceFeeAmount) {
 				throw new functions.https.HttpsError(
 					"failed-precondition",
 					"Terminal payment amount is less than required service fees.",
 				);
 			}
 
-			const restaurantProcessingFeeAmount = Math.max(
-				0,
-				applicationFeeAmount - customerServiceFeeAmount,
+			const restaurantProcessingFeeAmount = isScervPayLite
+				? 0
+				: Math.max(0, applicationFeeAmount - customerServiceFeeAmount);
+			const tipEligibleAmount = normalizeNonNegativeCents(
+				terminalPaymentData.tipEligibleAmount,
+				isScervPayLite ? payLiteMerchantNetSalesAmount : subtotal,
 			);
+			const existingReconciliation =
+				terminalPaymentData.reconciliation &&
+				typeof terminalPaymentData.reconciliation === "object"
+					? terminalPaymentData.reconciliation
+					: {};
+			const storedPayLitePolicy =
+				terminalPaymentData.payLitePolicy &&
+				typeof terminalPaymentData.payLitePolicy === "object"
+					? terminalPaymentData.payLitePolicy
+					: {};
+			const enteredBy = terminalPaymentData.enteredBy || {};
+			const createdBy = terminalPaymentData.createdBy || {};
 
 			if (paymentIntent.status === "requires_capture") {
-				await stripeInstance.paymentIntents.update(paymentIntentId, {
-					metadata: {
-						...(paymentIntent.metadata || {}),
-						gratuity: String(gratuityAmount),
-						total: String(finalAmount),
-						platformFee: String(applicationFeeAmount),
-						terminalApplicationFeeAmount: String(applicationFeeAmount),
-						customerServiceFee: String(customerServiceFeeAmount),
-						terminalProcessingFeeAmount: String(restaurantProcessingFeeAmount),
-						terminalProcessingFeePercentage: String(
-							terminalPolicy.terminalProcessingFeePercentage,
-						),
-						terminalProcessingFeeFixedCents: String(
-							terminalPolicy.terminalProcessingFeeFixedCents,
-						),
-						terminalProcessingFeeBasis:
-							terminalPolicy.terminalProcessingFeeBasis,
-						terminalProcessingFeeBasisAmount: String(feeBasisAmount),
+				await stripeInstance.paymentIntents.update(
+					paymentIntentId,
+					{
+						metadata: {
+							...(paymentIntent.metadata || {}),
+							gratuity: String(gratuityAmount),
+							total: String(finalAmount),
+							platformFee: String(applicationFeeAmount),
+							terminalApplicationFeeAmount: String(applicationFeeAmount),
+							customerServiceFee: String(customerServiceFeeAmount),
+							terminalProcessingFeeAmount: String(restaurantProcessingFeeAmount),
+							merchantNetSalesAmount: String(
+								isScervPayLite
+									? payLiteMerchantNetSalesAmount
+									: salesAndTaxAmount,
+							),
+							tipEligibleAmount: String(tipEligibleAmount),
+							tipSource: isScervPayLite
+								? "stripe_terminal_reader"
+								: "restaurant_terminal_reader",
+							scervPayLiteFeeAmount: String(
+								isScervPayLite ? applicationFeeAmount : 0,
+							),
+							terminalProcessingFeePercentage: String(
+								isScervPayLite
+									? 0
+									: terminalPolicy.terminalProcessingFeePercentage,
+							),
+							terminalProcessingFeeFixedCents: String(
+								isScervPayLite
+									? 0
+									: terminalPolicy.terminalProcessingFeeFixedCents,
+							),
+							terminalProcessingFeeBasis:
+								terminalPolicy.terminalProcessingFeeBasis,
+							terminalProcessingFeeBasisAmount: String(feeBasisAmount),
+						},
 					},
-				});
+					stripeRequestOptions,
+				);
 				paymentIntent = await stripeInstance.paymentIntents.capture(
 					paymentIntentId,
 					{
@@ -915,7 +2055,9 @@ exports.captureStaffTerminalPayment = functions
 							application_fee_amount: applicationFeeAmount,
 						}),
 					},
-					{ idempotencyKey: `terminal_capture:${paymentIntentId}:${finalAmount}` },
+					getStripeConnectedAccountOptions(captureConnectedAccountId, {
+						idempotencyKey: `terminal_capture:${paymentIntentId}:${finalAmount}`,
+					}),
 				);
 			}
 
@@ -939,16 +2081,36 @@ exports.captureStaffTerminalPayment = functions
 					gratuityAmount,
 					customerServiceFeeAmount,
 					customerServiceFee: customerServiceFeeAmount,
+					customerFeeMode:
+						terminalPaymentData.customerFeeMode ||
+						storedPayLitePolicy.customerFeeMode ||
+						null,
 					applicationFeeAmount,
 					stripeApplicationFeeAmount: applicationFeeAmount,
 					platformFee: applicationFeeAmount,
 					scervFee: applicationFeeAmount,
+					scervFeeMode:
+						terminalPaymentData.scervFeeMode ||
+						storedPayLitePolicy.scervFeeMode ||
+						null,
 					terminalProcessingFeeAmount: restaurantProcessingFeeAmount,
 					restaurantProcessingFeeAmount,
+					merchantNetSalesAmount: isScervPayLite
+						? payLiteMerchantNetSalesAmount
+						: salesAndTaxAmount,
+					scervPayLiteFeeAmount: isScervPayLite ? applicationFeeAmount : 0,
+					tipAmountCents: gratuityAmount,
+					tipEligibleAmount,
+					tipBasis: isScervPayLite
+						? "manual_pos_amount"
+						: "terminal_closeout_subtotal",
+					tipSource: isScervPayLite
+						? "stripe_terminal_reader"
+						: "restaurant_terminal_reader",
 					terminalProcessingFeePercentage:
-						terminalPolicy.terminalProcessingFeePercentage,
+						isScervPayLite ? 0 : terminalPolicy.terminalProcessingFeePercentage,
 					terminalProcessingFeeFixedCents:
-						terminalPolicy.terminalProcessingFeeFixedCents,
+						isScervPayLite ? 0 : terminalPolicy.terminalProcessingFeeFixedCents,
 					terminalProcessingFeeBasis:
 						terminalPolicy.terminalProcessingFeeBasis,
 					terminalProcessingFeeBasisAmount: feeBasisAmount,
@@ -956,6 +2118,25 @@ exports.captureStaffTerminalPayment = functions
 					capturedBy: {
 						userId: context.auth.uid,
 						staffId: staffId || null,
+						enteredByStaffId: enteredBy.staffId || createdBy.staffId || null,
+						enteredByName: enteredBy.name || createdBy.name || null,
+					},
+					reconciliation: {
+						...existingReconciliation,
+						finalAmountCents: finalAmount,
+						tipAmountCents: gratuityAmount,
+						tipEligibleAmount,
+						applicationFeeAmount,
+						customerFeeMode:
+							terminalPaymentData.customerFeeMode ||
+							storedPayLitePolicy.customerFeeMode ||
+							null,
+						scervFeeMode:
+							terminalPaymentData.scervFeeMode ||
+							storedPayLitePolicy.scervFeeMode ||
+							null,
+						restaurantTransferAmount,
+						capturedByStaffId: staffId || null,
 					},
 					capturedAt: admin.firestore.FieldValue.serverTimestamp(),
 					paidAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -970,6 +2151,7 @@ exports.captureStaffTerminalPayment = functions
 				amount: finalAmount,
 				gratuityAmount,
 				applicationFeeAmount,
+				restaurantTransferAmount,
 			};
 		} catch (error) {
 			console.error("Error capturing staff Terminal payment:", error);
@@ -980,3 +2162,158 @@ exports.captureStaffTerminalPayment = functions
 			);
 		}
 	});
+
+exports.getStaffTerminalPaymentStatus = functions.https.onCall(
+	async (data, context) => {
+		const paymentIntentId = sanitizeMetadataString(
+			data && (data.paymentIntentId || data.terminalPaymentId),
+			140,
+		);
+		const staffId = sanitizeMetadataString(
+			data && (data.staffId || data.employeeId),
+			140,
+		);
+		const requestedRestaurantId = sanitizeMetadataString(
+			data && data.restaurantId,
+			140,
+		);
+
+		if (!paymentIntentId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"PaymentIntent ID is required.",
+			);
+		}
+
+		const paymentSnap = await db
+			.collection("terminal_payments")
+			.doc(paymentIntentId)
+			.get();
+		if (!paymentSnap.exists) {
+			if (!requestedRestaurantId) {
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Restaurant ID is required for missing payment lookup.",
+				);
+			}
+
+			await assertTerminalPaymentStatusAccess({
+				context,
+				restaurantId: requestedRestaurantId,
+				staffId,
+			});
+
+			return {
+				success: true,
+				exists: false,
+				paid: false,
+				status: "not_found",
+			};
+		}
+
+		const payment = paymentSnap.data() || {};
+		const restaurantId = sanitizeMetadataString(
+			payment.restaurantId || requestedRestaurantId,
+			140,
+		);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Terminal payment is missing restaurant ID.",
+			);
+		}
+
+		await assertTerminalPaymentStatusAccess({
+			context,
+			restaurantId,
+			staffId,
+		});
+
+		return {
+			success: true,
+			...shapeTerminalPaymentStatus(paymentSnap),
+		};
+	},
+);
+
+exports.getScervPayLiteDailyReport = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const {
+			restaurantId,
+			staffId = null,
+			startAt = null,
+			endAt = null,
+			limit = 1000,
+		} = data || {};
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		const startMs = Date.parse(startAt);
+		const endMs = Date.parse(endAt);
+		if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Valid report start and end timestamps are required.",
+			);
+		}
+
+		await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager"],
+			action: "view Scerv Pay Lite reports",
+		});
+
+		const cappedLimit = Math.min(
+			Math.max(Math.round(Number(limit) || 1000), 50),
+			2000,
+		);
+
+		const [restaurantSnap, paymentsSnap] = await Promise.all([
+			db.collection("restaurants").doc(restaurantId).get(),
+			db
+				.collection("terminal_payments")
+				.where("restaurantId", "==", restaurantId)
+				.limit(cappedLimit)
+				.get(),
+		]);
+		const restaurantData = restaurantSnap.data() || {};
+
+		const report = buildScervPayLiteDailyReport({
+			payments: paymentsSnap.docs.map((doc) => ({
+				id: doc.id,
+				...(doc.data() || {}),
+			})),
+			restaurantId,
+			restaurantData,
+			startMs,
+			endMs,
+		});
+
+		return {
+			...report,
+			truncated: paymentsSnap.size >= cappedLimit,
+		};
+	},
+);
+
+exports._test = {
+	buildScervPayLiteDailyReport,
+	calculatePayLiteFinancials,
+	getPayLitePolicy,
+	normalizeNonNegativeCents,
+	toTimestampMillis,
+};

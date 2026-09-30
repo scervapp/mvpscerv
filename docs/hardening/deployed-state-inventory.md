@@ -44,7 +44,7 @@ Status: inventory captured; parity gaps remain. A-08 testing functions deploymen
 | Lane | Function count | Runtime(s) | Region(s) | Source/deploy ref | Inventory timestamp | Notes |
 | --- | ---: | --- | --- | --- | --- | --- |
 | Development | 174 | `nodejs20`: 174 | `us-central1` | Source/deploy hash varies by function; summary from `firebase functions:list --project scervmvp-dev --json` | 2026-09-27 | Browser table functions are present in dev; no Node 22 functions found |
-| Testing | 177 | `nodejs20`: 177 | `us-central1` | Summary from `firebase functions:list --project scervmvp-testing --json` after A-08 deploy | 2026-09-27 | A-06 originally found zero functions; A-08 deployed current hardening branch under D-023. Minimal callable smoke for `checkClientVersion` passed; broader baseline smoke remains pending |
+| Testing | 199 | `nodejs22`: 199 | `us-central1` | Summary from `firebase functions:list --project scervmvp-testing --json` after B-01 Node 22 migration, B-04 W1 additive callable deploy and B-05 W2 additive callable deploy | 2026-09-29 | A-08 originally deployed current hardening branch under D-023. B-01 migrated all testing functions to Node 22 with zero runtime holdouts. B-04 added seven W1 read callables in testing. B-05 added ten W2 staff operational read/mutation callables. Minimal callable smoke for `checkClientVersion`, W1 and W2 fail-closed behavior passed; broader baseline and device smoke remain pending |
 | Production | 134 | `nodejs20`: 133; `nodejs22`: 1 | `us-central1` | Summary from `firebase functions:list --project scervmvp --json` | 2026-09-27 | Only Node 22 function is the Firestore Send Email extension `ext-firestore-send-email-myyv-processqueue`; application functions are Node 20 |
 
 ## Deployed rules evidence
@@ -95,7 +95,7 @@ Deployed rule text was captured read-only into `docs/hardening/evidence/deployed
 ## Phase A findings so far
 
 - Production application functions are still on Node 20. Runtime migration cannot be treated as done because only the email extension is already Node 22.
-- A-06 found the testing Firebase project had no deployed functions. A-08 later deployed 177 active Node.js 20 functions under D-023, making testing usable for baseline smoke and later hardening validation.
+- A-06 found the testing Firebase project had no deployed functions. A-08 later deployed 177 active Node.js 20 functions under D-023, making testing usable for baseline smoke and later hardening validation. B-01 migrated the testing lane to 182 active Node.js 22 functions on 2026-09-29. B-04 added seven W1 read callables, bringing testing to 189 active Node.js 22 functions on 2026-09-29. B-05 added ten W2 staff operational read/mutation callables, bringing testing to 199 active Node.js 22 functions on 2026-09-29.
 - Main workspace `.firebaserc` defaults to production. A-05 should run before any deploy workflow work.
 - Firestore deployed-rule metadata and hashes were retrieved through the Firebase Rules API via local Firebase CLI auth helpers because Firebase CLI 13.35.1 does not expose `firestore:rules:get`.
 - Production and testing Firestore rules do not match the current local Firestore rules source hash. Development's app-targeted `(default)` database rules match the current local comparable hash, while the separate named `default` database does not.

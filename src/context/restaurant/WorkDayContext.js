@@ -5,12 +5,13 @@ import React, {
 	useContext,
 	useEffect,
 	useCallback,
+	useMemo,
 } from "react";
 import { Alert } from "react-native";
 
 import { AuthContext } from "../authContext";
 import { useEmployeeSession } from "./EmployeeSessionContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 export const WorkDayContext = createContext({
@@ -23,56 +24,139 @@ export const WorkDayContext = createContext({
 
 export const WorkDayProvider = ({ children }) => {
 	const { currentUserData } = useContext(AuthContext);
-	const { activeSession } = useEmployeeSession();
+	const { activeSession, isRestoringSession } = useEmployeeSession();
+	const role = String(currentUserData?.role || "").toLowerCase();
+	const canUseAccountUidAsRestaurantId = [
+		"restaurant",
+		"restaurant_owner",
+		"owner",
+		"manager",
+	].includes(role);
+	const restaurantId =
+		activeSession?.restaurantId ||
+		currentUserData?.restaurantId ||
+		(canUseAccountUidAsRestaurantId ? currentUserData?.uid : null);
 
 	const [currentWorkDay, setCurrentWorkDay] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
 
-	const startWorkDayFunction = httpsCallable(functions, "startWorkDay");
-	const endWorkDayFunction = httpsCallable(functions, "endWorkDay");
+	const startWorkDayFunction = useMemo(
+		() => httpsCallable(functions, "startWorkDay"),
+		[],
+	);
+	const endWorkDayFunction = useMemo(
+		() => httpsCallable(functions, "endWorkDay"),
+		[],
+	);
+	const getCurrentWorkDayStatusFunction = useMemo(
+		() => httpsCallable(functions, "getCurrentWorkDayStatus"),
+		[],
+	);
 
-	// This listener automatically finds the current open work day for the restaurant
-	useEffect(() => {
-		const restaurantId = currentUserData?.uid;
+	const buildWorkDayFromStatus = useCallback((statusData = {}) => {
+		if (!statusData.isOpen || !statusData.workDayId) return null;
+		const openedDate = statusData.openedAt
+			? new Date(statusData.openedAt)
+			: null;
+		const openedAt =
+			openedDate && !Number.isNaN(openedDate.getTime())
+				? openedDate
+				: new Date();
+
+		return {
+			id: statusData.workDayId,
+			status: statusData.status || "OPEN",
+			openedAt: statusData.openedAt || null,
+			closedAt: statusData.closedAt || null,
+			managerWhoOpened: statusData.openedBy || null,
+			startTime: {
+				toDate: () => openedAt,
+			},
+		};
+	}, []);
+
+	const loadWorkDayStatus = useCallback(async () => {
+		if (isRestoringSession) {
+			setCurrentWorkDay(null);
+			setIsLoading(true);
+			return;
+		}
+
 		if (!restaurantId) {
 			setCurrentWorkDay(null);
 			setIsLoading(false);
 			return;
 		}
 
-		setIsLoading(true);
-		const workDaysRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("work_days");
-		const q = workDaysRef.where("status", "==", "OPEN").limit(1);
-
-		const unsubscribe = q.onSnapshot(
-			(snapshot) => {
-				if (!snapshot.empty) {
-					const workDayDoc = snapshot.docs[0];
-					console.log(`WorkDayContext: Found OPEN work day: ${workDayDoc.id}`);
-					setCurrentWorkDay({ id: workDayDoc.id, ...workDayDoc.data() });
-				} else {
-					console.log("WorkDayContext: No OPEN work day found.");
-					setCurrentWorkDay(null);
-				}
-				setIsLoading(false);
-			},
-			(error) => {
-				console.error(
-					"WorkDayContext: Error listening for open work day:",
-					error
-				);
-				setIsLoading(false);
+		try {
+			const result = await getCurrentWorkDayStatusFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+			});
+			const nextWorkDay = buildWorkDayFromStatus(result.data || {});
+			setCurrentWorkDay(nextWorkDay);
+			setIsLoading(false);
+		} catch (error) {
+			const message = String(error?.message || "");
+			const code = String(error?.code || "");
+			const isMissingRestaurant =
+				code.includes("not-found") ||
+				message.toLowerCase().includes("restaurant not found");
+			if (isMissingRestaurant) {
+				console.warn("WorkDayContext: Restaurant not ready for work day status.", {
+					restaurantId,
+					activeSessionRestaurantId: activeSession?.restaurantId || null,
+					accountRestaurantId: currentUserData?.restaurantId || null,
+					accountRole: role || null,
+				});
+			} else {
+				console.error("WorkDayContext: Failed to load work day status:", error);
 			}
-		);
+			setIsLoading(false);
+		}
+	}, [
+		activeSession?.id,
+		activeSession?.restaurantId,
+		buildWorkDayFromStatus,
+		currentUserData?.restaurantId,
+		getCurrentWorkDayStatusFunction,
+		isRestoringSession,
+		restaurantId,
+		role,
+	]);
 
-		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+	useEffect(() => {
+		if (isRestoringSession) {
+			setCurrentWorkDay(null);
+			setIsLoading(true);
+			return undefined;
+		}
+
+		if (!restaurantId) {
+			setCurrentWorkDay(null);
+			setIsLoading(false);
+			return undefined;
+		}
+
+		setIsLoading(true);
+		let cancelled = false;
+		let timer = null;
+
+		const pollWorkDayStatus = async () => {
+			if (cancelled) return;
+			await loadWorkDayStatus();
+		};
+
+		pollWorkDayStatus();
+		timer = setInterval(pollWorkDayStatus, 30000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [isRestoringSession, loadWorkDayStatus, restaurantId]);
 
 	const startWorkDay = useCallback(async () => {
-		const restaurantId = currentUserData?.uid;
 		if (!restaurantId) {
 			Alert.alert("Error", "Cannot start day: Restaurant ID not found.");
 			return false;
@@ -83,16 +167,21 @@ export const WorkDayProvider = ({ children }) => {
 				staffId: activeSession?.id || null,
 				staffName: activeSession?.name || null,
 			});
-			// The listener will automatically update the state
+			await loadWorkDayStatus();
 			return true;
 		} catch (error) {
 			Alert.alert("Error Starting Day", error.message);
 			return false;
 		}
-	}, [activeSession?.id, activeSession?.name, currentUserData?.uid, startWorkDayFunction]);
+	}, [
+		activeSession?.id,
+		activeSession?.name,
+		loadWorkDayStatus,
+		restaurantId,
+		startWorkDayFunction,
+	]);
 
 	const endWorkDay = useCallback(async () => {
-		const restaurantId = currentUserData?.uid;
 		const workDayId = currentWorkDay?.id;
 		if (!restaurantId || !workDayId) {
 			Alert.alert("Error", "Cannot end day: No open work day found.");
@@ -105,7 +194,7 @@ export const WorkDayProvider = ({ children }) => {
 				staffId: activeSession?.id || null,
 				staffName: activeSession?.name || null,
 			});
-			// The listener will automatically clear the state
+			await loadWorkDayStatus();
 			return result?.data || { success: true };
 		} catch (error) {
 			Alert.alert("Error Ending Day", error.message);
@@ -114,9 +203,10 @@ export const WorkDayProvider = ({ children }) => {
 	}, [
 		activeSession?.id,
 		activeSession?.name,
-		currentUserData?.uid,
 		currentWorkDay?.id,
 		endWorkDayFunction,
+		loadWorkDayStatus,
+		restaurantId,
 	]);
 
 	const value = {

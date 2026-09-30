@@ -21,6 +21,7 @@ const FEATURE_ALIASES = {
 	pickup: ["pickup", "pickupEnabled"],
 	tableScanOrdering: ["tableScanOrdering", "tableScanOrderingEnabled"],
 	serviceRequests: ["serviceRequests", "serviceRequestsEnabled"],
+	scervPayLiteOnly: ["scervPayLiteOnly", "scervPayLite", "scervpaylite"],
 };
 
 const ENTITLEMENT_SOURCES = [
@@ -42,6 +43,7 @@ const OPERATIONAL_FEATURES = new Set([
 	"serviceRequests",
 	"rewards",
 	"loyaltyClub",
+	"scervPayLiteOnly",
 ]);
 
 const getRestaurantListingStatus = (restaurantData = {}) => {

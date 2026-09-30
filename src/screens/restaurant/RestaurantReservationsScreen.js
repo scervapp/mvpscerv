@@ -15,7 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import colors from "../../utils/styles/appStyles";
 import TableAndServerSelectionModal from "../../components/restaurant/TableAndServerSelectionModal";
 
@@ -73,7 +74,12 @@ const getOperationalCue = (reservation = {}) => {
 
 const RestaurantReservationsScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
+	const listStaffReservationOperationsFunction = useMemo(
+		() => httpsCallable(functions, "listStaffReservationOperations"),
+		[],
+	);
 
 	const [reservations, setReservations] = useState([]);
 	const [waitlistEntries, setWaitlistEntries] = useState([]);
@@ -88,67 +94,64 @@ const RestaurantReservationsScreen = () => {
 	const [isOfferingWaitlistSlot, setIsOfferingWaitlistSlot] = useState(false);
 
 	useEffect(() => {
-		if (!restaurantId) return undefined;
+		if (!restaurantId) {
+			setIsLoading(false);
+			setIsLoadingWaitlist(false);
+			return undefined;
+		}
 
 		setIsLoading(true);
-		const unsubscribe = db
-			.collection("reservations")
-			.where("restaurantId", "==", restaurantId)
-			.where("status", "in", [
-				"requested",
-				"confirmed",
-				"arrival_requested",
-				"seated",
-			])
-			.onSnapshot(
-				(snapshot) => {
-					const rows = snapshot.docs
-						.map((doc) => ({ id: doc.id, ...doc.data() }))
-						.sort((a, b) => {
-							const aKey = getReservationSortKey(a);
-							const bKey = getReservationSortKey(b);
-							return aKey.localeCompare(bKey);
-						});
-					setReservations(rows);
-					setIsLoading(false);
-				},
-				(error) => {
-					console.error("Error loading reservations:", error);
-					setIsLoading(false);
-				},
-			);
-
-		return () => unsubscribe();
-	}, [restaurantId]);
-
-	useEffect(() => {
-		if (!restaurantId) return undefined;
-
 		setIsLoadingWaitlist(true);
-		const unsubscribe = db
-			.collection("reservationWaitlist")
-			.where("restaurantId", "==", restaurantId)
-			.onSnapshot(
-				(snapshot) => {
-					const rows = snapshot.docs
-						.map((doc) => ({ id: doc.id, ...doc.data() }))
-						.sort((a, b) => {
-							const aTime = a.createdAt?.toMillis?.() || 0;
-							const bTime = b.createdAt?.toMillis?.() || 0;
-							if (aTime !== bTime) return aTime - bTime;
-							return a.id.localeCompare(b.id);
-						});
-					setWaitlistEntries(rows);
-					setIsLoadingWaitlist(false);
-				},
-				(error) => {
-					console.error("Error loading reservation waitlist:", error);
-					setIsLoadingWaitlist(false);
-				},
-			);
+		let cancelled = false;
+		let timer = null;
 
-		return () => unsubscribe();
-	}, [restaurantId]);
+		const loadReservationOperations = async () => {
+			try {
+				const result = await listStaffReservationOperationsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				if (cancelled) return;
+
+				const reservationRows = (result.data?.reservations || []).sort(
+					(a, b) => {
+						const aKey = getReservationSortKey(a);
+						const bKey = getReservationSortKey(b);
+						return aKey.localeCompare(bKey);
+					},
+				);
+				const waitlistRows = (result.data?.waitlist || []).sort((a, b) => {
+					const aTime = Date.parse(a.createdAt || "") || 0;
+					const bTime = Date.parse(b.createdAt || "") || 0;
+					if (aTime !== bTime) return aTime - bTime;
+					return a.id.localeCompare(b.id);
+				});
+
+				setReservations(reservationRows);
+				setWaitlistEntries(waitlistRows);
+				setIsLoading(false);
+				setIsLoadingWaitlist(false);
+			} catch (error) {
+				if (!cancelled) {
+					console.error("Error loading reservation operations:", error);
+					setIsLoading(false);
+					setIsLoadingWaitlist(false);
+				}
+			}
+		};
+
+		loadReservationOperations();
+		timer = setInterval(loadReservationOperations, 10000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [
+		activeSession?.id,
+		listStaffReservationOperationsFunction,
+		restaurantId,
+	]);
 
 	const requestedReservations = useMemo(
 		() =>

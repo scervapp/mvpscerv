@@ -434,6 +434,7 @@ const LiveOrderButton = ({
 	currentPartyIds,
 	partyDetails,
 	sharedBaskets,
+	activePickupOrder,
 	navigation,
 	bottomOffset,
 	activeRouteName,
@@ -459,11 +460,30 @@ const LiveOrderButton = ({
 	}, [currentPartyIds, partyDetails]);
 
 	const basketCount = getBasketItemCount(sharedBaskets?.[liveParty?.id]);
+	const isPickupActive =
+		activePickupOrder &&
+		activePickupOrder.id &&
+		activePickupOrder.status !== "completed" &&
+		activePickupOrder.overallStatus !== "completed";
 
-	if (!liveParty) return null;
+	if (!liveParty && !isPickupActive) return null;
 	if (LIVE_ORDER_BUTTON_HIDDEN_ROUTES.has(activeRouteName)) return null;
 
 	const handlePress = () => {
+		if (isPickupActive) {
+			navigation.navigate("CustomerApp", {
+				screen: "PartyTab",
+				params: {
+					screen: "PickupOrderStatus",
+					params: {
+						orderId: activePickupOrder.id,
+						restaurantId: activePickupOrder.restaurantId || null,
+					},
+				},
+			});
+			return;
+		}
+
 		navigation.navigate("CustomerApp", {
 			screen: "PartyTab",
 			params: {
@@ -479,19 +499,31 @@ const LiveOrderButton = ({
 			onPress={handlePress}
 			activeOpacity={0.9}
 			accessibilityRole="button"
-			accessibilityLabel={t("open_live_order", "Open live order")}
+			accessibilityLabel={
+				isPickupActive
+					? t("open_pickup_order", "Open pickup order")
+					: t("open_live_order", "Open live order")
+			}
 		>
 			<MaterialCommunityIcons
-				name="silverware-fork-knife"
+				name={isPickupActive ? "shopping-outline" : "silverware-fork-knife"}
 				size={22}
 				color={colors.surfaceWhite}
 			/>
 			<View style={styles.liveOrderTextWrap}>
-				<Text style={styles.liveOrderLabel}>{t("live_order", "Live Order")}</Text>
+				<Text style={styles.liveOrderLabel}>
+					{isPickupActive
+						? t("pickup_order", "Pickup Order")
+						: t("live_order", "Live Order")}
+				</Text>
 				<Text style={styles.liveOrderSubLabel} numberOfLines={1}>
-					{basketCount > 0
-						? t("items_count", "{{count}} items", { count: basketCount })
-						: liveParty.restaurantName || t("view_order", "View order")}
+					{isPickupActive
+						? activePickupOrder.readableOrderId
+							? `#${activePickupOrder.readableOrderId}`
+							: t("track_status", "Track status")
+						: basketCount > 0
+							? t("items_count", "{{count}} items", { count: basketCount })
+							: liveParty.restaurantName || t("view_order", "View order")}
 				</Text>
 			</View>
 			<MaterialCommunityIcons
@@ -514,6 +546,9 @@ const CustomerBottomNavigation = () => {
 		useParty();
 	const navigation = useNavigation();
 	const [activeRouteName, setActiveRouteName] = useState(null);
+	const [activePickupOrderId, setActivePickupOrderId] = useState(null);
+	const [activePickupKitchenOrder, setActivePickupKitchenOrder] = useState(null);
+	const [activePickupPendingOrder, setActivePickupPendingOrder] = useState(null);
 	const liveOrderBottomOffset = useMemo(
 		() =>
 			originalPaddingTop +
@@ -524,6 +559,82 @@ const CustomerBottomNavigation = () => {
 	);
 
 	const isGuest = currentUserData?.role === "guest";
+
+	useEffect(() => {
+		if (!currentUserData?.uid || isGuest) {
+			setActivePickupOrderId(null);
+			return undefined;
+		}
+
+		const unsubscribe = db
+			.collection("customers")
+			.doc(currentUserData.uid)
+			.onSnapshot(
+				(doc) => {
+					const data = doc.exists ? doc.data() : {};
+					setActivePickupOrderId(data?.activePickupOrderId || null);
+				},
+				(error) => {
+					console.error("Active pickup listener error:", error);
+					setActivePickupOrderId(null);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [currentUserData?.uid, isGuest]);
+
+	useEffect(() => {
+		setActivePickupKitchenOrder(null);
+		setActivePickupPendingOrder(null);
+
+		if (!activePickupOrderId) return undefined;
+
+		const unsubscribeKitchen = db
+			.collection("kitchen_orders")
+			.doc(activePickupOrderId)
+			.onSnapshot(
+				(doc) => {
+					setActivePickupKitchenOrder(
+						doc.exists ? { id: doc.id, ...doc.data() } : null,
+					);
+				},
+				(error) => {
+					console.error("Active pickup kitchen listener error:", error);
+				},
+			);
+
+		const unsubscribePending = db
+			.collection("pending_orders")
+			.doc(activePickupOrderId)
+			.onSnapshot(
+				(doc) => {
+					setActivePickupPendingOrder(
+						doc.exists ? { id: doc.id, ...doc.data() } : null,
+					);
+				},
+				(error) => {
+					console.error("Active pickup pending listener error:", error);
+				},
+			);
+
+		return () => {
+			unsubscribeKitchen();
+			unsubscribePending();
+		};
+	}, [activePickupOrderId]);
+
+	const activePickupOrder = useMemo(() => {
+		const order = activePickupKitchenOrder || activePickupPendingOrder;
+		if (!order || !activePickupOrderId) return null;
+		return {
+			...order,
+			id: activePickupOrderId,
+			readableOrderId:
+				order.readableOrderId ||
+				order.orderNumber ||
+				activePickupOrderId.slice(-6).toUpperCase(),
+		};
+	}, [activePickupKitchenOrder, activePickupOrderId, activePickupPendingOrder]);
 
 	useEffect(() => {
 		if (!currentUserData?.uid || currentPartyId) {
@@ -720,6 +831,7 @@ const CustomerBottomNavigation = () => {
 				currentPartyIds={currentPartyIds}
 				partyDetails={partyDetails}
 				sharedBaskets={sharedBaskets}
+				activePickupOrder={activePickupOrder}
 				navigation={navigation}
 				bottomOffset={liveOrderBottomOffset}
 				activeRouteName={activeRouteName}

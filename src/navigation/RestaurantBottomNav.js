@@ -41,6 +41,7 @@ import ServerMenuScreen from "../screens/restaurant/ServerMenuScreen.js";
 import { useEmployeeSession } from "../context/restaurant/EmployeeSessionContext.js";
 import PickupQueueScreen from "../screens/restaurant/PickupQueueScreen.js";
 import OrdersLedgerScreen from "../screens/restaurant/OrdersLedgerScreen.js";
+import PayLiteDailyReportScreen from "../screens/restaurant/PayLiteDailyReportScreen.js";
 import OrderDetailScreen from "../screens/restaurant/OrderDetailScreen.js";
 import ServiceRequestsScreen from "../screens/restaurant/ServiceRequestsScreen.js";
 import RestaurantReservationsScreen from "../screens/restaurant/RestaurantReservationsScreen.js";
@@ -125,6 +126,11 @@ const BackOfficeStackNavigator = () => {
 				options={{ title: "Orders Ledger" }}
 			/>
 			<Stack.Screen
+				name="PayLiteDailyReportScreen"
+				component={PayLiteDailyReportScreen}
+				options={{ title: "Pay Lite Daily Receipt" }}
+			/>
+			<Stack.Screen
 				name="OrderDetailScreen"
 				component={OrderDetailScreen}
 				options={{ title: "Order Detail" }}
@@ -163,6 +169,11 @@ const BackOfficeStackNavigator = () => {
 				name="ReservationSettingsScreen"
 				component={ReservationSettingsScreen}
 				options={{ headerTitle: "Reservation Settings" }}
+			/>
+			<Stack.Screen
+				name="RestaurantTerminalPaymentScreen"
+				component={TerminalPaymentScreenGate}
+				options={{ headerShown: false, presentation: "card" }}
 			/>
 		</Stack.Navigator>
 	);

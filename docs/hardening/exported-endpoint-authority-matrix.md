@@ -40,7 +40,7 @@ Legend:
 | Endpoint(s) | Intended caller | Local disposition | Remaining gate |
 | --- | --- | --- | --- |
 | `getReportingDashboard`, `getOrdersLedger`, `getOrderDetail`, `getDashboardReport`, `getSalesReport`, `getAggregatedSalesReport`, `getDailySalesReport` | Owner/manager or report-authorized staff | Locally bounded by report permission checks | Phase 3 report completeness/cost and device QA |
-| `createTerminalConnectionToken`, `prepareStaffTerminalPayment`, `captureStaffTerminalPayment`, `getStaffTerminalPaymentStatus` | Verified payment-capable staff | Locally bounded for status and staff payment path, but provider/device behavior is external | Physical Terminal QA, Stripe reconciliation and manager closeout review |
+| `createTerminalConnectionToken`, `listRestaurantTerminalReaders`, `setDefaultTerminalCollector`, `prepareStaffTerminalPayment`, `prepareScervPayLiteTerminalPayment`, `captureStaffTerminalPayment`, `getStaffTerminalPaymentStatus`, `getScervPayLiteDailyReport` | Verified payment-capable staff for collection; owner/manager for default collector and Pay Lite daily report | Locally bounded for status, staff payment path and Pay Lite report shaping, but provider/device behavior is external | Physical Terminal QA, Stripe reconciliation, Pay Lite daily receipt print/share test and manager closeout review |
 | `discountOrderItem` | Elevated restaurant staff | Needs Phase 1 review | Verify authority, audit trail, item ownership and checkout impact |
 
 ## Customer, browser and party endpoints

@@ -222,3 +222,32 @@ Remaining A-08 work after this smoke:
 - Browser checkout/confirmation smoke.
 - Reservation/check-in smoke.
 - Restaurant staff operational screens smoke, including KDS, active tables, host stand and reports.
+
+## 2026-09-29 Runtime And W1 Baseline Update
+
+Testing-lane backend inventory was refreshed after B-01 and B-04:
+
+- B-01 migrated all testing functions to Node.js 22.
+- B-04 added seven W1 additive staff-read callables.
+- `functions:list --project scervmvp-testing --json` now reports `189` active functions.
+- Runtime count is clean: `nodejs22: 189`.
+
+W1 callable presence and fail-closed smoke:
+
+- `listStaffDirectory`: active, unauthenticated request returns `UNAUTHENTICATED`.
+- `getCurrentWorkDayStatus`: active, unauthenticated request returns `UNAUTHENTICATED`.
+- `getStaffRestaurantProfile`: active, unauthenticated request returns `UNAUTHENTICATED`.
+- `getStaffBackOfficeSetupStatus`: active, unauthenticated request returns `UNAUTHENTICATED`.
+- `getStaffTerminalPaymentStatus`: active, shaped unauthenticated request returns `UNAUTHENTICATED`.
+- `getStaffReservationSettings`: active, shaped unauthenticated request returns `UNAUTHENTICATED`.
+- `getStaffRewardsSettings`: active, shaped unauthenticated request returns `UNAUTHENTICATED`.
+
+Local backend safety net after W1:
+
+- `npm run ci:backend` passed.
+- Secret hygiene passed.
+- Functions lint passed.
+- Backend unit tests passed: `27` passed, `0` failed.
+- Firestore emulator rules tests passed: `9` passed, `0` failed.
+
+A-08 remains **In progress** because broad app-flow/device smoke is still required. The testing backend lane is healthy enough to continue B work, but this is not a full app release proof.

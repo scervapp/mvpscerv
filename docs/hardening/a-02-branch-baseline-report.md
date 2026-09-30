@@ -49,3 +49,12 @@ To close A-02:
 2. Confirm the backend quality gate runs on GitHub.
 3. Configure the required check under branch protection.
 4. Record the CI link in this report and move A-02 to `Done`.
+
+## 2026-09-29 Update
+
+Remote source-control evidence was refreshed:
+
+- Remote branch `codex/browser-ordering-mvp` exists at commit `567ae4acc5ed53e32e433ffa17581cf0def652f5`.
+- Remote tag `hardening-phase1-local-20260927` exists at commit `7ddb8aa288d1e12c598ebfc5951a7691c81a6792`.
+
+A-02 remains `In progress` because this machine does not have the GitHub CLI installed and no GitHub PR/branch-protection evidence was available locally. The missing proof is not code work; it is GitHub repository administration evidence.

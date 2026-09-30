@@ -1,4 +1,10 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	View,
 	Text,
@@ -11,8 +17,9 @@ import {
 	ActivityIndicator,
 	SafeAreaView,
 } from "react-native";
-import { db, functions } from "../../config/firebase.native";
+import { functions } from "../../config/firebase.native";
 import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import colors from "../../utils/styles/appStyles";
 import { httpsCallable } from "@react-native-firebase/functions";
@@ -23,6 +30,7 @@ import i18n from "../../config/i18n";
 const BackOfficeScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const [isStripeLoading, setIsStripeLoading] = useState(false);
 	const [isLogoutLoading, setIsLogoutLoading] = useState(false);
 	const [setupCounts, setSetupCounts] = useState({
@@ -30,6 +38,10 @@ const BackOfficeScreen = ({ navigation }) => {
 		tables: 0,
 		menuItems: 0,
 	});
+	const getStaffBackOfficeSetupStatusFunction = useMemo(
+		() => httpsCallable(functions, "getStaffBackOfficeSetupStatus"),
+		[],
+	);
 
 	const isTestMode = currentUserData?.isTestAccount !== false;
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
@@ -95,6 +107,36 @@ const BackOfficeScreen = ({ navigation }) => {
 				desc: "Revenue & Stats",
 			},
 			{
+				id: "pay-lite",
+				name: "RestaurantTerminalPaymentScreen",
+				label: t("scerv_pay_lite", "Scerv Pay Lite"),
+				iconName: "contactless-payment",
+				color: "#f97316",
+				desc: "Manual S710 card payments",
+				action: () =>
+					navigation.navigate("RestaurantTerminalPaymentScreen", {
+						mode: "scerv_pay_lite",
+						restaurantId,
+						stripeTerminalLocationId:
+							(isTestMode
+								? currentUserData?.stripeTerminalLocationId_test ||
+									currentUserData?.terminalLocationId_test
+								: currentUserData?.stripeTerminalLocationId_live ||
+									currentUserData?.terminalLocationId_live) ||
+							currentUserData?.stripeTerminalLocationId ||
+							currentUserData?.terminalLocationId ||
+							"",
+					}),
+			},
+			{
+				id: "pay-lite-report",
+				name: "PayLiteDailyReportScreen",
+				label: t("pay_lite_daily_receipt", "Pay Lite Receipt"),
+				iconName: "receipt-text-outline",
+				color: "#0f766e",
+				desc: "Daily payments, tips & staff",
+			},
+			{
 				id: "5",
 				name: "RestaurantProfile",
 				label: t("profile"),
@@ -143,53 +185,47 @@ const BackOfficeScreen = ({ navigation }) => {
 		setScreens(dynamicScreens);
 	}, [currentUserData, t]);
 
+	const loadSetupStatus = useCallback(async () => {
+		if (!restaurantId) return;
+
+		try {
+			const result = await getStaffBackOfficeSetupStatusFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+			});
+			const counts = result.data?.counts || {};
+			setSetupCounts({
+				employees: Number(counts.employees || 0),
+				tables: Number(counts.tables || 0),
+				menuItems: Number(counts.menuItems || 0),
+			});
+		} catch (error) {
+			console.error("BackOffice setup status error:", error);
+		}
+	}, [
+		activeSession?.id,
+		getStaffBackOfficeSetupStatusFunction,
+		restaurantId,
+	]);
+
 	useEffect(() => {
 		if (!restaurantId) return undefined;
 
-		const employeesUnsubscribe = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees")
-			.onSnapshot(
-				(snapshot) =>
-					setSetupCounts((previous) => ({
-						...previous,
-						employees: snapshot.size,
-					})),
-				(error) => console.error("BackOffice employee count error:", error),
-			);
+		let cancelled = false;
+		let timer = null;
+		const pollSetupStatus = async () => {
+			if (cancelled) return;
+			await loadSetupStatus();
+		};
 
-		const tablesUnsubscribe = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("tables")
-			.onSnapshot(
-				(snapshot) =>
-					setSetupCounts((previous) => ({
-						...previous,
-						tables: snapshot.size,
-					})),
-				(error) => console.error("BackOffice table count error:", error),
-			);
-
-		const menuUnsubscribe = db
-			.collection("menuItems")
-			.where("restaurantId", "==", restaurantId)
-			.onSnapshot(
-				(snapshot) =>
-					setSetupCounts((previous) => ({
-						...previous,
-						menuItems: snapshot.size,
-					})),
-				(error) => console.error("BackOffice menu count error:", error),
-			);
+		pollSetupStatus();
+		timer = setInterval(pollSetupStatus, 30000);
 
 		return () => {
-			employeesUnsubscribe();
-			tablesUnsubscribe();
-			menuUnsubscribe();
+			cancelled = true;
+			if (timer) clearInterval(timer);
 		};
-	}, [restaurantId]);
+	}, [loadSetupStatus, restaurantId]);
 
 	/* ──────────────────────────────
        STRIPE & LOGOUT FUNCTIONS

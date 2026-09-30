@@ -1,5 +1,11 @@
 // screens/restaurant/EmployeeScreen.js
-import React, { useState, useContext, useEffect } from "react";
+import React, {
+	useState,
+	useContext,
+	useEffect,
+	useMemo,
+	useCallback,
+} from "react";
 import {
 	View,
 	Text,
@@ -14,7 +20,7 @@ import {
 	ScrollView,
 } from "react-native";
 import { AuthContext } from "../../context/authContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 
 import { Button, Card, Avatar, IconButton } from "react-native-paper";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -296,9 +302,22 @@ const EmployeeScreen = () => {
 	const [isModalVisible, setIsModalVisible] = useState(false);
 	const [selectedEmployee, setSelectedEmployee] = useState(null);
 
-	const addEmployeeFunction = httpsCallable(functions, "addEmployee");
-	const updateEmployeeFunction = httpsCallable(functions, "updateEmployee"); // 🚨 Assume this exists in your backend
-	const deleteEmployeeFunction = httpsCallable(functions, "deleteEmployee");
+	const addEmployeeFunction = useMemo(
+		() => httpsCallable(functions, "addEmployee"),
+		[],
+	);
+	const updateEmployeeFunction = useMemo(
+		() => httpsCallable(functions, "updateEmployee"),
+		[],
+	);
+	const deleteEmployeeFunction = useMemo(
+		() => httpsCallable(functions, "deleteEmployee"),
+		[],
+	);
+	const listStaffDirectoryFunction = useMemo(
+		() => httpsCallable(functions, "listStaffDirectory"),
+		[],
+	);
 	const { t } = useTranslation();
 	const currentActorRole = String(activeSession?.role || "")
 		.trim()
@@ -312,35 +331,74 @@ const EmployeeScreen = () => {
 	};
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
-	useEffect(() => {
+	const loadEmployees = useCallback(async () => {
 		if (!restaurantId) {
+			setEmployees([]);
 			setIsLoading(false);
 			return;
 		}
 
-		const employeesQuery = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees")
-			.orderBy("lastName", "asc");
+		try {
+			const result = await listStaffDirectoryFunction({
+				restaurantId,
+				staffId: activeSession?.id || null,
+			});
+			const fetchedEmployees = (result.data?.employees || [])
+				.map((employee) => ({
+					...employee,
+					serviceAverageRating:
+						Number(
+							employee.serviceRating?.average ||
+								employee.serviceAverageRating ||
+								0,
+						) || 0,
+					serviceRatingCount:
+						Number(
+							employee.serviceRating?.count ||
+								employee.serviceRatingCount ||
+								0,
+						) || 0,
+				}))
+				.sort((a, b) => {
+					const lastNameCompare = String(a.lastName || "").localeCompare(
+						String(b.lastName || ""),
+					);
+					if (lastNameCompare !== 0) return lastNameCompare;
+					return String(a.firstName || "").localeCompare(
+						String(b.firstName || ""),
+					);
+				});
+			setEmployees(fetchedEmployees);
+			setIsLoading(false);
+		} catch (error) {
+			console.error("Error fetching employees:", error);
+			setIsLoading(false);
+		}
+	}, [activeSession?.id, listStaffDirectoryFunction, restaurantId]);
 
-		const unsubscribe = employeesQuery.onSnapshot(
-			(querySnapshot) => {
-				const fetchedEmployees = querySnapshot.docs.map((doc) => ({
-					id: doc.id,
-					...doc.data(),
-				}));
-				setEmployees(fetchedEmployees);
-				setIsLoading(false);
-			},
-			(error) => {
-				console.error("Error fetching employees:", error);
-				setIsLoading(false);
-			},
-		);
+	useEffect(() => {
+		if (!restaurantId) {
+			setIsLoading(false);
+			return undefined;
+		}
 
-		return () => unsubscribe();
-	}, [restaurantId]);
+		setIsLoading(true);
+		let cancelled = false;
+		let timer = null;
+
+		const pollEmployees = async () => {
+			if (cancelled) return;
+			await loadEmployees();
+		};
+
+		pollEmployees();
+		timer = setInterval(pollEmployees, 30000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [loadEmployees, restaurantId]);
 
 	// 🚨 NEW: Unified Save Handler (Add vs Edit)
 	const handleSaveEmployee = async (values) => {
@@ -410,22 +468,18 @@ const EmployeeScreen = () => {
 				}
 
 				// --- ADD NEW EMPLOYEE ---
-				const result = await addEmployeeFunction({
+				await addEmployeeFunction({
 					restaurantId,
 					staffId: activeSession?.id || null,
 					...values,
 				});
 
-				if (employees.length === 0 && result.data.success) {
-					await db.collection("restaurants").doc(restaurantId).update({
-						hasSetupEmployees: true,
-					});
-				}
 				Alert.alert(t("success"), t("employee_added_successfully"));
 			}
 
 			setIsModalVisible(false);
 			setSelectedEmployee(null); // Reset after saving
+			await loadEmployees();
 		} catch (error) {
 			Alert.alert(
 				t("error"),
@@ -479,6 +533,7 @@ const EmployeeScreen = () => {
 								employeeId: employee.id,
 								staffId: activeSession?.id || null,
 							});
+							await loadEmployees();
 						} catch (error) {
 							Alert.alert(
 								t("error"),

@@ -95,6 +95,9 @@ const PickupCartScreen = () => {
 
 		navigation.navigate("PartyCheckout", {
 			partyId: currentPartyId,
+			orderMode: "pickup",
+			fulfillmentType: "hotel_pickup",
+			restaurantId: currentParty?.restaurantId || route.params?.restaurantId,
 		});
 	};
 

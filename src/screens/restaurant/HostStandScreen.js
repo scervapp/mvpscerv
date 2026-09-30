@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -12,7 +12,8 @@ import {
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import colors from "../../utils/styles/appStyles";
 import TableAndServerSelectionModal from "../../components/restaurant/TableAndServerSelectionModal";
 
@@ -33,46 +34,66 @@ const normalizeAssignment = ({ table, server }) => ({
 
 const HostStandScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [checkInRequests, setCheckInRequests] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [selectedCheckInRequest, setSelectedCheckInRequest] = useState(null);
 	const [isSeatingRequest, setIsSeatingRequest] = useState(false);
+	const listStaffHostCheckInsFunction = useMemo(
+		() => httpsCallable(functions, "listStaffHostCheckIns"),
+		[],
+	);
+	const handleCheckInResponseFunction = useMemo(
+		() => httpsCallable(functions, "handleCheckInResponse"),
+		[],
+	);
 
 	useEffect(() => {
 		if (!restaurantId) return undefined;
 
 		setIsLoading(true);
-		const unsubscribe = db
-			.collection("checkIns")
-			.where("restaurantId", "==", restaurantId)
-			.where("status", "==", "REQUESTED")
-			.onSnapshot(
-				(snapshot) => {
-					const rows = snapshot.docs
-						.map((doc) => ({ id: doc.id, ...doc.data() }))
-						.filter((item) =>
-							["reservation_arrival", "host_assigned_walk_in"].includes(
-								item.type,
-							),
-						)
-						.sort((a, b) => {
-							const aTime = a.createdAt?.toMillis?.() || 0;
-							const bTime = b.createdAt?.toMillis?.() || 0;
-							return aTime - bTime;
-						});
-					setCheckInRequests(rows);
-					setIsLoading(false);
-				},
-				(error) => {
+		let cancelled = false;
+		let timer = null;
+
+		const loadCheckIns = async () => {
+			try {
+				const result = await listStaffHostCheckInsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				if (cancelled) return;
+				const rows = (result.data?.checkIns || [])
+					.filter((item) =>
+						!item.type ||
+						["reservation_arrival", "host_assigned_walk_in"].includes(
+							item.type,
+						),
+					)
+					.sort((a, b) => {
+						const aTime = Date.parse(a.createdAt || "") || 0;
+						const bTime = Date.parse(b.createdAt || "") || 0;
+						return aTime - bTime;
+					});
+				setCheckInRequests(rows);
+				setIsLoading(false);
+			} catch (error) {
+				if (!cancelled) {
 					console.error("Error loading host check-in requests:", error);
 					setIsLoading(false);
-				},
-			);
+				}
+			}
+		};
 
-		return () => unsubscribe();
-	}, [restaurantId]);
+		loadCheckIns();
+		timer = setInterval(loadCheckIns, 10000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
+	}, [activeSession?.id, listStaffHostCheckInsFunction, restaurantId]);
 
 	const handleSeatCheckInRequest = async ({ table, server }) => {
 		if (!selectedCheckInRequest) return;
@@ -80,14 +101,14 @@ const HostStandScreen = () => {
 
 		try {
 			const assignment = normalizeAssignment({ table, server });
-			const handleResponse = httpsCallable(functions, "handleCheckInResponse");
-			await handleResponse({
+			await handleCheckInResponseFunction({
 				checkInId: selectedCheckInRequest.id,
 				action: "ACCEPTED",
 				table: assignment.table,
 				server: assignment.server,
 				customerId: selectedCheckInRequest.customerId,
 				restaurantId,
+				staffId: activeSession?.id || null,
 			});
 			setSelectedCheckInRequest(null);
 		} catch (error) {

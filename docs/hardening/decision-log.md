@@ -270,3 +270,58 @@ Append-only record for release-readiness decisions. Corrections are new entries 
 - Evidence: Founder approval in conversation on 2026-09-27; `docs/hardening/a-08-testing-baseline-blocker-report.md`; OQ-018 closure.
 - Reversal trigger: A production-parity source ref is recovered and must replace the current testing baseline, or testing reveals unacceptable drift.
 - Supersedes: D-014 for the testing lane only. Production release discipline remains unchanged.
+
+### D-024 — Terminal Pay Lite is in pilot scope; pacing remains gated unless separately QA'd
+- Date: 2026-09-29
+- Decided by: Founder + Engineering
+- Context: Founder is preparing to onboard the first live operator. The immediate bar use case is Scerv Pay Lite: staff enter the total from the existing POS, collect card payment through Stripe Terminal S710, and managers reconcile the day through Scerv. The broader restaurant/lounge use case may later use full Scerv ordering, reservations, rewards, kitchen/bar routing and payment flows.
+- Decision: Treat Stripe Terminal / Scerv Pay Lite as pilot scope and require B-08 physical Terminal QA before live launch. Keep automatic order pacing out of the first bar Pay Lite launch unless it has separate device QA evidence and an explicit feature flag decision.
+- Alternatives rejected: Exclude Terminal from the pilot despite the bar requirement; allow every advanced ordering/pacing feature into launch scope without signed QA; treat S710 payment success alone as enough without daily reconciliation evidence.
+- Risk accepted: The first pilot may use a narrower Scerv Pay Lite workflow before the full platform is hardened end to end. This is acceptable only because it is operationally simpler, uses Stripe-hosted card collection, and records payment/staff/reconciliation metadata.
+- Evidence: `docs/hardening/b-08-physical-terminal-pay-lite-qa.md`; `tests/unit/pay-lite-report.test.cjs`; testing callable `getScervPayLiteDailyReport` deployed on 2026-09-29.
+- Reversal trigger: The pilot operator requires open tabs, split pay, kitchen submission, automatic pacing or non-Terminal payment behavior before B-08 and Phase C evidence exists.
+- Supersedes: none
+
+### D-025 — Testing lane migrated to Node.js 22
+- Date: 2026-09-29
+- Decided by: Engineering
+- Context: Node.js 20 decommission is schedule-critical, and pilot hardening work must not depend on a runtime that is near provider end-of-life.
+- Decision: Move `scervmvp-testing` Firebase Functions to Node.js 22 as a runtime-only hardening step before continuing Phase B/C work.
+- Alternatives rejected: Defer runtime migration until production release; bundle runtime migration with rules lockdown or payment correctness changes.
+- Risk accepted: Firebase emitted build-image cleanup warnings during deploy. The deployed runtime inventory is clean, and artifact cleanup is tracked as provider housekeeping rather than a blocker to testing-lane runtime completion.
+- Evidence: `docs/hardening/b-01-node-22-testing-runtime-report.md`; final testing inventory reports `runtime counts { nodejs22: 182 }` and `holdouts []`.
+- Reversal trigger: Node 22 compatibility failures appear in testing smoke/device QA, or provider runtime guidance changes.
+- Supersedes: none
+
+### D-026 — W1 additive callables are testing-lane deployable one at a time
+- Date: 2026-09-29
+- Decided by: Engineering
+- Context: The W1 staff-read callable names were documented in the hardening packet but were missing from deployed testing. The codebase-qualified Firebase deploy target uploaded the bundle but did not create newly added functions. Individual plain function targets created each new callable successfully.
+- Decision: For new testing-lane W1 callables, deploy by explicit plain function target and verify with `functions:list` plus fail-closed HTTP smoke before marking the wave `On testing`.
+- Alternatives rejected: Treat docs as evidence without deployed endpoints; deploy all functions broadly to force creation; move directly to Firestore rules lockdown while W1 endpoints still returned 404.
+- Risk accepted: Individual deploys are slower and Firebase still emits non-blocking build-image cleanup warnings. This is acceptable because W1 is additive and the slower path gives clearer evidence per endpoint.
+- Evidence: `docs/hardening/b-04-w1-additive-callables-smoke-report.md`; testing inventory now reports 189 active Node.js 22 functions.
+- Reversal trigger: Firebase CLI behavior is fixed or a safer scripted deploy path proves it can create new functions in batches without ambiguity.
+- Supersedes: none
+
+### D-027 — W2 backend surface can advance before client/rules cutover
+- Date: 2026-09-29
+- Decided by: Engineering
+- Context: B-05 needed deployed evidence for hardened staff operational handlers. Current source still has restaurant screens with direct Firestore listeners, and full server-issued staff-session credentials are not uniformly enforced yet.
+- Decision: Deploy the additive W2 staff operational read/mutation callables to `scervmvp-testing` now, keep Firestore rules unchanged, and mark B-05 `On testing` rather than `Done` until a compatible testing client uses the new callables and staff-device QA passes.
+- Alternatives rejected: Wait for the entire client/rules migration before deploying any W2 backend surface; deploy tightened rules before compatible clients; call B-05 complete based only on source-level docs.
+- Risk accepted: The testing lane temporarily has both direct Firestore operational reads and callable reads available. This is acceptable because no rules lockdown was deployed and the new callables fail closed under unauthenticated smoke.
+- Evidence: `docs/hardening/b-05-w2-hardened-handlers-testing-report.md`; testing inventory reports 199 active Node.js 22 functions; W2 unauthenticated shaped smoke returns `UNAUTHENTICATED`; local backend validation passed.
+- Reversal trigger: Staff-device QA shows callable latency or shape does not support operations, or a projection-listener design is chosen for the final rules wave.
+- Supersedes: none
+
+### D-028 — Proceed with Android-first B-07 testing; defer iOS credential setup
+- Date: 2026-09-30
+- Decided by: Founder
+- Context: B-06 produced an Android internal testing build for `scervmvp-testing`. The iOS testing build requires interactive Apple login for `scervapp@gmail.com`, including founder password/2FA, and the founder said not to worry about the iOS build for now.
+- Decision: Proceed with Android-first staff-device QA using the finished testing APK. Keep iOS testing deferred until the founder is ready to complete Apple credential setup.
+- Alternatives rejected: Block all B-07 preparation on iOS credentials; create or alter Apple credentials without founder presence; treat Android-only QA as full Phase B device evidence.
+- Risk accepted: Android-first QA can find major staff-flow defects, but it does not satisfy the original B-06/B-07 two-platform exit gate or Phase B exit evidence.
+- Evidence: Android build `3ad1d40f-e80f-42ad-9c64-7b07825993c5`; APK `https://expo.dev/artifacts/eas/5-gWAlEjdf4DOERHN1a_b-dh7fhR3f7P8zZc81jB8mA.apk`; founder message on 2026-09-30.
+- Reversal trigger: Founder wants iOS device QA completed, or an iOS-specific defect/risk becomes pilot blocking.
+- Supersedes: none

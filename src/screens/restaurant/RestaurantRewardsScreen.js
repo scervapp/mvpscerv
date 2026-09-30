@@ -1,4 +1,10 @@
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -15,9 +21,9 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
-import { db, functions } from "../../config/firebase";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
+import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
-import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
 
 const THRESHOLD_OPTIONS = [
 	{ key: "visits", label: "Visits" },
@@ -145,6 +151,7 @@ const getRedemptionOptions = (rewardType) =>
 
 const RestaurantRewardsScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
+	const { activeSession } = useEmployeeSession();
 	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [program, setProgram] = useState(() =>
@@ -155,63 +162,69 @@ const RestaurantRewardsScreen = () => {
 	const [isRewardsAllowed, setIsRewardsAllowed] = useState(true);
 	const [menuItems, setMenuItems] = useState([]);
 
-	useEffect(() => {
-		if (!restaurantId) return undefined;
+	const getStaffRewardsSettingsFunction = useMemo(
+		() => httpsCallable(functions, "getStaffRewardsSettings"),
+		[],
+	);
 
-		const unsubscribe = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.onSnapshot(
-				(doc) => {
-					if (!doc.exists) {
-						setIsLoading(false);
-						return;
-					}
+	const loadRewardsSettings = useCallback(
+		async ({ silent = false } = {}) => {
+			if (!restaurantId) {
+				setIsLoading(false);
+				return;
+			}
+			if (!silent) setIsLoading(true);
 
-					const restaurant = doc.data() || {};
-					const experienceConfig = getRestaurantExperienceConfig(restaurant);
-					const rewardsAllowed = experienceConfig.isFeatureAllowed("loyaltyClub");
-					setIsRewardsAllowed(rewardsAllowed);
-					setProgram(
-						normalizeProgramForState(
-							restaurant.loyaltyProgram || restaurant.rewardsProgram || {},
-							restaurant.restaurantName || currentUserData?.restaurantName,
-						),
-					);
-					setIsLoading(false);
-				},
-				(error) => {
-					console.error("Error loading rewards program:", error);
-					setIsLoading(false);
-				},
-			);
-
-		return () => unsubscribe();
-	}, [currentUserData?.restaurantName, restaurantId]);
-
-	useEffect(() => {
-		if (!restaurantId) return undefined;
-
-		const unsubscribe = db
-			.collection("menuItems")
-			.where("restaurantId", "==", restaurantId)
-			.onSnapshot(
-				(snapshot) => {
-					const rows = snapshot.docs
-						.map((doc) => ({ id: doc.id, ...doc.data() }))
-						.filter((item) => item.isArchived !== true)
+			try {
+				const result = await getStaffRewardsSettingsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				const payload = result.data || {};
+				setIsRewardsAllowed(payload.featureEnabled !== false);
+				setProgram(
+					normalizeProgramForState(
+						payload.program || {},
+						currentUserData?.restaurantName,
+					),
+				);
+				setMenuItems(
+					(payload.eligibleMenuItems || [])
+						.filter((item) => item.isAvailable !== false)
 						.sort((a, b) =>
 							`${a.category || ""} ${a.name || a.dishName || ""}`.localeCompare(
 								`${b.category || ""} ${b.name || b.dishName || ""}`,
 							),
-						);
-					setMenuItems(rows);
-				},
-				(error) => console.error("Error loading reward menu items:", error),
-			);
+						),
+				);
+			} catch (error) {
+				console.error("Error loading rewards settings:", error);
+				Alert.alert("Could not load rewards", error.message || "Please try again.");
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[
+			activeSession?.id,
+			currentUserData?.restaurantName,
+			getStaffRewardsSettingsFunction,
+			restaurantId,
+		],
+	);
 
-		return () => unsubscribe();
-	}, [restaurantId]);
+	useEffect(() => {
+		if (!restaurantId) {
+			setIsLoading(false);
+			return undefined;
+		}
+
+		loadRewardsSettings();
+		const interval = setInterval(() => {
+			loadRewardsSettings({ silent: true });
+		}, 30000);
+
+		return () => clearInterval(interval);
+	}, [loadRewardsSettings, restaurantId]);
 
 	const menuCategories = useMemo(() => {
 		return [
@@ -288,7 +301,9 @@ const RestaurantRewardsScreen = () => {
 							id: menuItem.id,
 							name: menuItem.name || menuItem.dishName || "Menu item",
 							category: menuItem.category || "",
-							priceCents: Math.round(Number(menuItem.price || 0) * 100),
+							priceCents:
+								Number(menuItem.priceCents || 0) ||
+								Math.round(Number(menuItem.price || 0) * 100),
 						},
 					],
 		});
@@ -347,6 +362,7 @@ const RestaurantRewardsScreen = () => {
 			const saveProgram = httpsCallable(functions, "saveRestaurantLoyaltyProgram");
 			await saveProgram({
 				restaurantId,
+				employeeId: activeSession?.id || null,
 				program: {
 					enabled: isRewardsAllowed && program.enabled,
 					name: program.name,
@@ -371,6 +387,7 @@ const RestaurantRewardsScreen = () => {
 					})),
 				},
 			});
+			loadRewardsSettings({ silent: true });
 			Alert.alert("Saved", "Restaurant rewards updated.");
 		} catch (error) {
 			console.error("Error saving rewards program:", error);

@@ -53,6 +53,7 @@ const EXPERIENCE_FEATURE_KEYS = [
 	"tableScanOrdering",
 	"serviceRequests",
 	"loyaltyClub",
+	"scervPayLiteOnly",
 ];
 
 const ACTIVE_RESERVATION_STATUSES = [
@@ -177,6 +178,47 @@ const assertReservationSettingsAccess = async (context, restaurantId, employeeId
 		employee,
 		restaurantData: { id: restaurantSnap.id, ...restaurantSnap.data() },
 	};
+};
+
+const assertReservationSettingsReadAccess = async (
+	context,
+	restaurantId,
+	employeeId,
+) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	const tokenRestaurantId =
+		context.auth.token && context.auth.token.restaurantId;
+	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+		if (!employeeId || context.auth.uid === restaurantId) {
+			const restaurantSnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.get();
+			if (!restaurantSnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Restaurant not found.",
+				);
+			}
+
+			return {
+				employee: {
+					id: employeeId || context.auth.uid,
+					role: "owner",
+					jobTitle: "owner",
+				},
+				restaurantData: { id: restaurantSnap.id, ...restaurantSnap.data() },
+			};
+		}
+	}
+
+	return assertReservationSettingsAccess(context, restaurantId, employeeId);
 };
 
 const buildStartsAt = (date, time) => {
@@ -570,6 +612,54 @@ exports.getAvailableReservationSlots = functions.https.onCall(
 	},
 );
 
+exports.getStaffReservationSettings = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = sanitizeString(
+			data && (data.employeeId || data.staffId),
+			120,
+		);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		const { restaurantData } = await assertReservationSettingsReadAccess(
+			context,
+			restaurantId,
+			employeeId,
+		);
+		const settings = await getSettings(restaurantId);
+		const features = {};
+		const allowedFeatures = {};
+		EXPERIENCE_FEATURE_KEYS.forEach((key) => {
+			allowedFeatures[key] = isFeatureAllowed(restaurantData, key);
+			features[key] =
+				restaurantData.features && typeof restaurantData.features[key] === "boolean"
+					? allowedFeatures[key] && restaurantData.features[key]
+					: allowedFeatures[key];
+		});
+
+		return {
+			success: true,
+			settings,
+			features,
+			allowedFeatures,
+			hospitalityStyle:
+				ALLOWED_HOSPITALITY_STYLES.includes(restaurantData.hospitalityStyle)
+					? restaurantData.hospitalityStyle
+					: "standard",
+			scervPayLiteOnly:
+				restaurantData.scervPayLiteOnly === true ||
+				(features.scervPayLiteOnly === true &&
+					restaurantData.features &&
+					restaurantData.features.scervPayLiteOnly === true),
+		};
+	},
+);
+
 exports.saveReservationSettings = functions.https.onCall(async (data, context) => {
 	const uid = requireAuth(context);
 	const restaurantId = sanitizeString(data && data.restaurantId, 120);
@@ -682,12 +772,62 @@ exports.saveRestaurantExperienceSettings = functions.https.onCall(
 				{
 					hospitalityStyle: normalizedStyle,
 					features: featurePatch,
+					...(typeof featurePatch.scervPayLiteOnly === "boolean" && {
+						scervPayLiteOnly: featurePatch.scervPayLiteOnly,
+					}),
 					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 				},
 				{ merge: true },
 			);
 
 		return { success: true };
+	},
+);
+
+exports.setScervPayLiteOnlyMode = functions.https.onCall(
+	async (data, context) => {
+		const uid = requireAuth(context);
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = sanitizeString(data && data.employeeId, 120);
+		const enabled = data && data.enabled === true;
+
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+
+		const { restaurantData } = await assertReservationSettingsAccess(
+			context,
+			restaurantId,
+			employeeId,
+		);
+
+		if (!isFeatureAllowed(restaurantData, "scervPayLiteOnly")) {
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Scerv Pay Lite mode is not enabled for this restaurant plan.",
+			);
+		}
+
+		await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.set(
+				{
+					scervPayLiteOnly: enabled,
+					features: {
+						scervPayLiteOnly: enabled,
+					},
+					payLiteModeUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+					payLiteModeUpdatedBy: uid,
+					updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+
+		return { success: true, scervPayLiteOnly: enabled };
 	},
 );
 

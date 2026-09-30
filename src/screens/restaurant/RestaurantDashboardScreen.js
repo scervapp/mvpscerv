@@ -83,10 +83,20 @@ const RestaurantDashboardScreen = () => {
 		navigation.navigate("BackOfficeNavigator", { screen: "BackOffice" });
 	};
 
-	const openRestaurantTab = (tabName, screenName = null) => {
+	const openPayLite = () => {
+		openRestaurantTab("ActiveTablesNavigator", "RestaurantTerminalPaymentScreen", {
+			mode: "scerv_pay_lite",
+			restaurantId: currentUserData?.uid,
+		});
+	};
+
+	const openRestaurantTab = (tabName, screenName = null, params = undefined) => {
 		if (tabName === "ActiveTablesNavigator") {
 			if (screenName) {
-				navigation.navigate("ActiveTablesNavigator", { screen: screenName });
+				navigation.navigate("ActiveTablesNavigator", {
+					screen: screenName,
+					params,
+				});
 				return;
 			}
 
@@ -96,7 +106,7 @@ const RestaurantDashboardScreen = () => {
 
 		const targetNavigation = navigation.getParent() || navigation;
 		if (screenName) {
-			targetNavigation.navigate(tabName, { screen: screenName });
+			targetNavigation.navigate(tabName, { screen: screenName, params });
 			return;
 		}
 
@@ -300,7 +310,8 @@ const RestaurantDashboardScreen = () => {
 
 				{(permissions.canViewTickets ||
 					permissions.canSeatWalkIn ||
-					permissions.canViewServiceRequests) && (
+					permissions.canViewServiceRequests ||
+					permissions.canUseTerminal) && (
 					<View style={styles.section}>
 						<Text style={styles.sectionTitle}>
 							{t("front_of_house", "Front of House")}
@@ -403,6 +414,18 @@ const RestaurantDashboardScreen = () => {
 											"ServiceRequestsScreen",
 										)
 									}
+								/>
+							) : null}
+							{permissions.canUseTerminal ? (
+								<DashboardCard
+									label={t("scerv_pay_lite", "Scerv Pay Lite")}
+									description={t(
+										"manual_card_closeouts",
+										"Quick card payments",
+									)}
+									iconName="contactless-payment"
+									color="#f97316"
+									onPress={openPayLite}
 								/>
 							) : null}
 						</View>

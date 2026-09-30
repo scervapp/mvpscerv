@@ -1,5 +1,11 @@
 // screens/restaurant/MenuManagementScreen.js
-import React, { useState, useEffect, useContext, useMemo } from "react";
+import React, {
+	useState,
+	useEffect,
+	useContext,
+	useMemo,
+	useCallback,
+} from "react";
 import {
 	Text,
 	View,
@@ -11,15 +17,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AddItemModal from "../../components/restaurant/AddItemModal";
-import { db } from "../../config/firebase";
+import { functions } from "../../config/firebase";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
+import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import MenuItem from "../../components/restaurant/MenuItem";
 import colors from "../../utils/styles/appStyles";
-import {
-	SafeAreaView,
-	useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 
 const MenuSectionHeader = ({ title }) => (
@@ -51,7 +56,8 @@ const EmptyMenu = ({ onAddItem }) => {
 const MenuManagementScreen = () => {
 	const { t } = useTranslation();
 	const { currentUserData } = useContext(AuthContext);
-	const insets = useSafeAreaInsets();
+	const { activeSession } = useEmployeeSession();
+	const restaurantId = currentUserData?.restaurantId || currentUserData?.uid;
 
 	const [showModal, setShowModal] = useState(false);
 	const [selectedItem, setSelectedItem] = useState(null);
@@ -62,36 +68,53 @@ const MenuManagementScreen = () => {
 	const visibleItemCount = menuItems.filter((item) => item.isAvailable !== false).length;
 	const hiddenItemCount = menuItems.length - visibleItemCount;
 
-	// --- Robust Data Fetching ---
+	const listStaffMenuItemsFunction = useMemo(
+		() => httpsCallable(functions, "listStaffMenuItems"),
+		[],
+	);
+
+	const loadMenuItems = useCallback(
+		async ({ silent = false } = {}) => {
+			if (!restaurantId) {
+				setMenuItems([]);
+				setIsLoading(false);
+				setError(t("could_not_identify_the_restaurant_please_try_again"));
+				return;
+			}
+
+			if (!silent) setIsLoading(true);
+			try {
+				const result = await listStaffMenuItemsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				setMenuItems(result.data?.menuItems || []);
+				setError(null);
+			} catch (err) {
+				console.error("MenuManagementScreen load error:", err);
+				setError(t("failed_to_load_menu_please_check_your_connection"));
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[activeSession?.id, listStaffMenuItemsFunction, restaurantId, t],
+	);
+
 	useEffect(() => {
-		if (!currentUserData?.uid) {
+		if (!restaurantId) {
+			setMenuItems([]);
 			setIsLoading(false);
 			setError(t("could_not_identify_the_restaurant_please_try_again"));
 			return;
 		}
 
-		const unsubscribe = db
-			.collection("menuItems")
-			.where("restaurantId", "==", currentUserData.uid)
-			.onSnapshot(
-				(snapshot) => {
-					const items = snapshot.docs.map((doc) => ({
-						id: doc.id,
-						...doc.data(),
-					}));
-					setMenuItems(items);
-					setIsLoading(false);
-					setError(null);
-				},
-				(err) => {
-					console.error("MenuManagementScreen snapshot error:", err);
-					setError(t("failed_to_load_menu_please_check_your_connection"));
-					setIsLoading(false);
-				},
-			);
+		loadMenuItems();
+		const interval = setInterval(() => {
+			loadMenuItems({ silent: true });
+		}, 30000);
 
-		return () => unsubscribe();
-	}, [currentUserData?.uid]);
+		return () => clearInterval(interval);
+	}, [loadMenuItems, restaurantId, t]);
 
 	const handleEditItem = (item) => {
 		setSelectedItem(item);
@@ -172,8 +195,9 @@ const MenuManagementScreen = () => {
 	const renderMenuItem = ({ item }) => (
 		<MenuItem
 			item={item}
-			restaurantId={currentUserData.uid}
+			restaurantId={restaurantId}
 			onEdit={() => handleEditItem(item)}
+			onChanged={() => loadMenuItems({ silent: true })}
 		/>
 	);
 
@@ -265,6 +289,7 @@ const MenuManagementScreen = () => {
 					isVisible={showModal}
 					onClose={() => setShowModal(false)}
 					itemToEdit={selectedItem}
+					onSaved={() => loadMenuItems({ silent: true })}
 				/>
 			</View>
 		</SafeAreaView>

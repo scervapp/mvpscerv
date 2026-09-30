@@ -54,7 +54,10 @@ const StationStatusCard = ({ title, status, icon }) => {
 	let tone = "neutral";
 	let label = status || "pending";
 
-	if (status === "new") {
+	if (status === "received") {
+		tone = "info";
+		label = "Received";
+	} else if (status === "new") {
 		tone = "warning";
 		label = "Queued";
 	} else if (status === "preparing") {
@@ -85,6 +88,7 @@ const PickupOrderStatusScreen = () => {
 
 	const [resolvedOrderId, setResolvedOrderId] = useState(routeOrderId);
 	const [order, setOrder] = useState(null);
+	const [pendingOrder, setPendingOrder] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [resolvingOrder, setResolvingOrder] = useState(true);
 
@@ -168,17 +172,57 @@ const PickupOrderStatusScreen = () => {
 		return () => unsubscribe();
 	}, [resolvedOrderId, resolvingOrder]);
 
+	useEffect(() => {
+		if (resolvingOrder || !resolvedOrderId) {
+			setPendingOrder(null);
+			return;
+		}
+
+		const unsubscribe = db
+			.collection("pending_orders")
+			.doc(resolvedOrderId)
+			.onSnapshot(
+				(doc) => {
+					setPendingOrder(doc.exists ? { id: doc.id, ...doc.data() } : null);
+				},
+				(error) => {
+					console.error("Pending pickup order listener error:", error);
+				},
+			);
+
+		return () => unsubscribe();
+	}, [resolvedOrderId, resolvingOrder]);
+
 	const kitchenStatus = order?.stationStatuses?.kitchen || null;
 	const barStatus = order?.stationStatuses?.bar || null;
+	const displayOrder = order || pendingOrder;
+	const displayOrderNumber =
+		displayOrder?.readableOrderId ||
+		displayOrder?.orderNumber ||
+		(resolvedOrderId ? resolvedOrderId.slice(-6).toUpperCase() : "");
+	const waitingForKitchenTicket = !order && !!pendingOrder;
 
 	const allReady = useMemo(() => {
+		if (!order) return false;
 		return (
 			(!kitchenStatus || kitchenStatus === "ready") &&
 			(!barStatus || barStatus === "ready")
 		);
-	}, [kitchenStatus, barStatus]);
+	}, [order, kitchenStatus, barStatus]);
 
 	const overallLabel = useMemo(() => {
+		if (waitingForKitchenTicket) {
+			return {
+				title: t("order_received", "Order Received"),
+				subtitle: t(
+					"pickup_received_message",
+					"Your order is confirmed. The restaurant is getting it into the pickup queue.",
+				),
+				tone: "info",
+				icon: "receipt-outline",
+			};
+		}
+
 		if (order?.overallStatus === "completed") {
 			return {
 				title: t("completed", "Completed"),
@@ -196,7 +240,7 @@ const PickupOrderStatusScreen = () => {
 				title: t("ready_for_pickup", "Ready for Pickup"),
 				subtitle: t(
 					"pickup_ready_message",
-					"Your order is ready at the pickup window.",
+					"Your order is ready for pickup.",
 				),
 				tone: "success",
 				icon: "bag-check-outline",
@@ -212,7 +256,7 @@ const PickupOrderStatusScreen = () => {
 			tone: "info",
 			icon: "time-outline",
 		};
-	}, [order?.overallStatus, allReady, t]);
+	}, [order?.overallStatus, allReady, waitingForKitchenTicket, t]);
 
 	if (loading || resolvingOrder) {
 		return (
@@ -222,7 +266,7 @@ const PickupOrderStatusScreen = () => {
 		);
 	}
 
-	if (!resolvedOrderId || !order) {
+	if (!resolvedOrderId || !displayOrder) {
 		return (
 			<SafeAreaView style={styles.centered}>
 				<Ionicons name="receipt-outline" size={72} color={colors.textLight} />
@@ -262,7 +306,7 @@ const PickupOrderStatusScreen = () => {
 						<Text style={styles.orderIdLabel}>
 							{t("order_number", "Order")}
 						</Text>
-						<Text style={styles.orderIdValue}>#{resolvedOrderId}</Text>
+						<Text style={styles.orderIdValue}>#{displayOrderNumber}</Text>
 					</View>
 				</View>
 
@@ -276,14 +320,16 @@ const PickupOrderStatusScreen = () => {
 							{t("pickup_location", "Pickup Location")}
 						</Text>
 						<Text style={styles.summaryValue}>
-							{order?.table?.name || "Pickup Window"}
+							{displayOrder?.table?.name || "Pickup"}
 						</Text>
 					</View>
 
 					<View style={styles.summaryRow}>
 						<Text style={styles.summaryLabel}>{t("items", "Items")}</Text>
 						<Text style={styles.summaryValue}>
-							{Array.isArray(order?.items) ? order.items.length : 0}
+							{Array.isArray(displayOrder?.items)
+								? displayOrder.items.length
+								: 0}
 						</Text>
 					</View>
 				</View>
@@ -294,6 +340,14 @@ const PickupOrderStatusScreen = () => {
 					</Text>
 
 					<View style={styles.stationGrid}>
+						{waitingForKitchenTicket && (
+							<StationStatusCard
+								title={t("pickup_orders", "Pickup Orders")}
+								status="received"
+								icon="receipt-outline"
+							/>
+						)}
+
 						{!!kitchenStatus && (
 							<StationStatusCard
 								title={t("kitchen", "Kitchen")}
@@ -317,8 +371,8 @@ const PickupOrderStatusScreen = () => {
 						{t("your_order", "Your Order")}
 					</Text>
 
-					{Array.isArray(order?.items) &&
-						order.items.map((item, index) => (
+					{Array.isArray(displayOrder?.items) &&
+						displayOrder.items.map((item, index) => (
 							<View key={item.id || index} style={styles.itemRow}>
 								<Text style={styles.itemName}>
 									{item.quantity || 1}x {item.dishName || item.name}

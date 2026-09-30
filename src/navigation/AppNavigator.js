@@ -20,8 +20,25 @@ import PasswordResetScreen from "../screens/auth/PasswordResetScreen";
 import CustomerBottomNavigation from "./CustomerBottomNav";
 import RestaurantBottomNavigation from "./RestaurantBottomNav";
 import PosLockScreen from "../screens/restaurant/PosLockScreen";
+import RestaurantTerminalPaymentScreen from "../screens/restaurant/RestaurantTerminalPaymentScreen";
+import { RestaurantTerminalProvider } from "../context/restaurant/RestaurantTerminalContext";
 
 const Stack = createNativeStackNavigator();
+
+const isScervPayLiteOnlyRestaurant = (restaurant = {}) =>
+	restaurant?.scervPayLiteOnly === true ||
+	restaurant?.scervPayLite === true ||
+	restaurant?.scervpaylite === true ||
+	restaurant?.features?.scervPayLiteOnly === true ||
+	restaurant?.features?.scervPayLite === true ||
+	restaurant?.features?.scervpaylite === true ||
+	restaurant?.paymentPolicy?.scervPayLiteOnly === true ||
+	restaurant?.payLitePolicy?.scervPayLiteOnly === true;
+
+const isManagementSession = (session = {}) => {
+	const role = String(session?.role || "").toLowerCase();
+	return role === "owner" || role === "manager";
+};
 
 // --- Auth Stack ---
 const AuthStack = () => (
@@ -49,6 +66,7 @@ const AuthStack = () => (
 // --- 🚨 NEW: The Enterprise POS Wrapper ---
 // This acts as a physical gate in front of the Restaurant Bottom Navigation
 const RestaurantFlow = () => {
+	const { currentUserData } = useContext(AuthContext);
 	const { activeSession, isRestoringSession } = useEmployeeSession();
 
 	if (isRestoringSession) {
@@ -62,6 +80,27 @@ const RestaurantFlow = () => {
 	// If no one has entered a PIN, show the Lock Screen
 	if (!activeSession) {
 		return <PosLockScreen />;
+	}
+
+	if (
+		isScervPayLiteOnlyRestaurant(currentUserData) &&
+		!isManagementSession(activeSession)
+	) {
+		return (
+			<RestaurantTerminalProvider>
+				<Stack.Navigator screenOptions={{ headerShown: false }}>
+					<Stack.Screen
+						name="ScervPayLiteOnly"
+						component={RestaurantTerminalPaymentScreen}
+						initialParams={{
+							mode: "scerv_pay_lite",
+							restaurantId: currentUserData?.uid,
+							lockToPayLite: true,
+						}}
+					/>
+				</Stack.Navigator>
+			</RestaurantTerminalProvider>
+		);
 	}
 
 	// Once a PIN is verified, reveal the POS

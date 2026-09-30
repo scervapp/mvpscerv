@@ -1,4 +1,10 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, {
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
 	ActivityIndicator,
 	Alert,
@@ -15,9 +21,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import { AuthContext } from "../../context/authContext";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 import colors from "../../utils/styles/appStyles";
-import { getRestaurantExperienceConfig } from "../../utils/restaurantExperience";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
 
@@ -152,6 +157,7 @@ const getDefaultExperienceState = () => ({
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
 		pickup: false,
+		scervPayLiteOnly: false,
 	},
 	allowedFeatures: {
 		reservations: true,
@@ -159,6 +165,7 @@ const getDefaultExperienceState = () => ({
 		qrSelfCheckIn: true,
 		tableScanOrdering: true,
 		pickup: true,
+		scervPayLiteOnly: true,
 	},
 });
 
@@ -173,92 +180,107 @@ const ReservationSettingsScreen = () => {
 	const [experienceState, setExperienceState] = useState(
 		getDefaultExperienceState,
 	);
+	const [isLoading, setIsLoading] = useState(true);
 	const [isSaving, setIsSaving] = useState(false);
 	const [isSavingExperience, setIsSavingExperience] = useState(false);
 
-	useEffect(() => {
-		if (!restaurantId) return undefined;
+	const getStaffReservationSettingsFunction = useMemo(
+		() => httpsCallable(functions, "getStaffReservationSettings"),
+		[],
+	);
 
-		const unsubscribe = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.onSnapshot((doc) => {
-				if (!doc.exists) return;
-				const data = doc.data() || {};
-				const experienceConfig = getRestaurantExperienceConfig(data);
-				setExperienceState({
-					hospitalityStyle: experienceConfig.hospitalityStyle || "standard",
-					features: {
-						reservations: experienceConfig.features.reservations === true,
-						hostCheckInRequests:
-							experienceConfig.features.hostCheckInRequests === true,
-						qrSelfCheckIn: experienceConfig.features.qrSelfCheckIn !== false,
-						tableScanOrdering:
-							experienceConfig.features.tableScanOrdering === true,
-						pickup: experienceConfig.features.pickup === true,
-					},
-					allowedFeatures: {
-						reservations: experienceConfig.isFeatureAllowed("reservations"),
-						hostCheckInRequests:
-							experienceConfig.isFeatureAllowed("hostCheckInRequests"),
-						qrSelfCheckIn: experienceConfig.isFeatureAllowed("qrSelfCheckIn"),
-						tableScanOrdering:
-							experienceConfig.isFeatureAllowed("tableScanOrdering"),
-						pickup: experienceConfig.isFeatureAllowed("pickup"),
-					},
-				});
-			});
-
-		return () => unsubscribe();
-	}, [restaurantId]);
-
-	useEffect(() => {
-		if (!restaurantId) return undefined;
-
-		const settingsRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("reservationSettings")
-			.doc("general");
-
-		const unsubscribe = settingsRef.onSnapshot((doc) => {
-			if (!doc.exists) return;
-			const data = doc.data() || {};
-			const firstActiveDay = DAYS.find((day) => {
-				return Array.isArray(data.weeklySchedule?.[day.key]) &&
-					data.weeklySchedule[day.key].length > 0;
-			});
-			const sampleWindows = firstActiveDay
-				? data.weeklySchedule[firstActiveDay.key]
-				: [];
-			const lunch = sampleWindows[0] || {};
-			const dinner = sampleWindows[1] || {};
-			const activeDays = DAYS.filter((day) => {
-				return Array.isArray(data.weeklySchedule?.[day.key]) &&
-					data.weeklySchedule[day.key].length > 0;
-			}).map((day) => day.key);
-
-			setSettingsState({
-				enabled: data.enabled === true,
-				slotIntervalMinutes: String(data.slotIntervalMinutes || 30),
-				defaultTurnTimeMinutes: String(data.defaultTurnTimeMinutes || 90),
-				minPartySize: String(data.minPartySize || 1),
-				maxPartySize: String(data.maxPartySize || 12),
-				maxReservationsPerSlot: String(
-					lunch.maxReservationsPerSlot ||
-						dinner.maxReservationsPerSlot ||
-						4,
-				),
-				lunchStart: lunch.start || "11:30",
-				lunchEnd: lunch.end || "14:30",
-				dinnerStart: dinner.start || "17:00",
-				dinnerEnd: dinner.end || "22:00",
-				activeDays: activeDays.length > 0 ? activeDays : DEFAULT_ACTIVE_DAYS,
-			});
+	const applySettingsPayload = useCallback((payload = {}) => {
+		const data = payload.settings || {};
+		const firstActiveDay = DAYS.find((day) => {
+			return Array.isArray(data.weeklySchedule?.[day.key]) &&
+				data.weeklySchedule[day.key].length > 0;
 		});
+		const sampleWindows = firstActiveDay
+			? data.weeklySchedule[firstActiveDay.key]
+			: [];
+		const lunch = sampleWindows[0] || {};
+		const dinner = sampleWindows[1] || {};
+		const activeDays = DAYS.filter((day) => {
+			return Array.isArray(data.weeklySchedule?.[day.key]) &&
+				data.weeklySchedule[day.key].length > 0;
+		}).map((day) => day.key);
+		const features = payload.features || {};
+		const allowedFeatures = {
+			...getDefaultExperienceState().allowedFeatures,
+			...(payload.allowedFeatures || {}),
+		};
 
-		return () => unsubscribe();
-	}, [restaurantId]);
+		setSettingsState({
+			enabled: data.enabled === true,
+			slotIntervalMinutes: String(data.slotIntervalMinutes || 30),
+			defaultTurnTimeMinutes: String(data.defaultTurnTimeMinutes || 90),
+			minPartySize: String(data.minPartySize || 1),
+			maxPartySize: String(data.maxPartySize || 12),
+			maxReservationsPerSlot: String(
+				lunch.maxReservationsPerSlot || dinner.maxReservationsPerSlot || 4,
+			),
+			lunchStart: lunch.start || "11:30",
+			lunchEnd: lunch.end || "14:30",
+			dinnerStart: dinner.start || "17:00",
+			dinnerEnd: dinner.end || "22:00",
+			activeDays: activeDays.length > 0 ? activeDays : DEFAULT_ACTIVE_DAYS,
+		});
+		setExperienceState({
+			hospitalityStyle: payload.hospitalityStyle || "standard",
+			features: {
+				reservations: features.reservations === true,
+				hostCheckInRequests: features.hostCheckInRequests === true,
+				qrSelfCheckIn: features.qrSelfCheckIn !== false,
+				tableScanOrdering: features.tableScanOrdering === true,
+				pickup: features.pickup === true,
+				scervPayLiteOnly: payload.scervPayLiteOnly === true,
+			},
+			allowedFeatures,
+		});
+	}, []);
+
+	const loadReservationSettings = useCallback(
+		async ({ silent = false } = {}) => {
+			if (!restaurantId) {
+				setIsLoading(false);
+				return;
+			}
+			if (!silent) setIsLoading(true);
+
+			try {
+				const result = await getStaffReservationSettingsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				applySettingsPayload(result.data || {});
+			} catch (error) {
+				console.error("Error loading reservation settings:", error);
+				Alert.alert("Could not load settings", error.message || "Please try again.");
+			} finally {
+				setIsLoading(false);
+			}
+		},
+		[
+			activeSession?.id,
+			applySettingsPayload,
+			getStaffReservationSettingsFunction,
+			restaurantId,
+		],
+	);
+
+	useEffect(() => {
+		if (!restaurantId) {
+			setIsLoading(false);
+			return undefined;
+		}
+
+		loadReservationSettings();
+		const interval = setInterval(() => {
+			loadReservationSettings({ silent: true });
+		}, 30000);
+
+		return () => clearInterval(interval);
+	}, [loadReservationSettings, restaurantId]);
 
 	const updateSettings = (patch) => {
 		setSettingsState((prev) => ({ ...prev, ...patch }));
@@ -347,6 +369,16 @@ const ReservationSettingsScreen = () => {
 				hospitalityStyle: experienceState.hospitalityStyle,
 				features: featuresToSave,
 			});
+			const setPayLiteMode = httpsCallable(
+				functions,
+				"setScervPayLiteOnlyMode",
+			);
+			await setPayLiteMode({
+				restaurantId,
+				employeeId: activeSession?.id || null,
+				enabled: featuresToSave.scervPayLiteOnly === true,
+			});
+			loadReservationSettings({ silent: true });
 			Alert.alert("Saved", "Experience controls updated.");
 		} catch (error) {
 			console.error("Error saving experience settings:", error);
@@ -391,6 +423,16 @@ const ReservationSettingsScreen = () => {
 				hospitalityStyle: experienceState.hospitalityStyle,
 				features: featuresToSave,
 			});
+			const setPayLiteMode = httpsCallable(
+				functions,
+				"setScervPayLiteOnlyMode",
+			);
+			await setPayLiteMode({
+				restaurantId,
+				employeeId: activeSession?.id || null,
+				enabled: featuresToSave.scervPayLiteOnly === true,
+			});
+			loadReservationSettings({ silent: true });
 			Alert.alert("Saved", "Reservation settings updated.");
 		} catch (error) {
 			console.error("Error saving reservation settings:", error);
@@ -399,6 +441,16 @@ const ReservationSettingsScreen = () => {
 			setIsSaving(false);
 		}
 	};
+
+	if (isLoading) {
+		return (
+			<SafeAreaView style={styles.safeArea}>
+				<View style={styles.centered}>
+					<ActivityIndicator color={colors.primary} />
+				</View>
+			</SafeAreaView>
+		);
+	}
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
@@ -523,6 +575,25 @@ const ReservationSettingsScreen = () => {
 							disabled={
 								!canManageReservationSettings ||
 								experienceState.allowedFeatures.pickup === false
+							}
+						/>
+					</View>
+					<View style={styles.toggleRow}>
+						<View style={styles.toggleCopy}>
+							<Text style={styles.toggleTitle}>Scerv Pay Lite mode</Text>
+							<Text style={styles.panelSubtitle}>
+								After staff PIN unlock, open directly to manual card payments.
+							</Text>
+							{experienceState.allowedFeatures.scervPayLiteOnly === false && (
+								<Text style={styles.lockedFeatureText}>Locked by Scerv plan</Text>
+							)}
+						</View>
+						<Switch
+							value={experienceState.features.scervPayLiteOnly === true}
+							onValueChange={() => toggleExperienceFeature("scervPayLiteOnly")}
+							disabled={
+								!canManageReservationSettings ||
+								experienceState.allowedFeatures.scervPayLiteOnly === false
 							}
 						/>
 					</View>
@@ -736,6 +807,11 @@ const ReservationSettingsScreen = () => {
 
 const styles = StyleSheet.create({
 	safeArea: { flex: 1, backgroundColor: colors.backgroundLight },
+	centered: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+	},
 	container: { padding: 18, paddingBottom: 40 },
 	title: {
 		fontSize: 26,

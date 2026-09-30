@@ -161,6 +161,1189 @@ const assertTableQrManager = async ({
 	);
 };
 
+const sanitizeString = (value, maxLength = 240) =>
+	String(value || "")
+		.trim()
+		.replace(/\s+/g, " ")
+		.slice(0, maxLength);
+
+const getStaffIdFromData = (data = {}) =>
+	sanitizeString(data.employeeId || data.staffId, 140);
+
+const buildOwnerStaffProfile = (context, staffId = null) => ({
+	id: staffId || context.auth.uid,
+	name:
+		(context.auth.token &&
+			(context.auth.token.name || context.auth.token.email)) ||
+		"Owner",
+	role: "owner",
+	jobTitle: "owner",
+	isActive: true,
+});
+
+const assertStaffReadAccess = async ({
+	context,
+	restaurantId,
+	employeeId,
+	allowedRoles = ["owner", "manager"],
+	allowedJobTitles = [],
+	action = "view restaurant information",
+}) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	if (!restaurantId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Restaurant ID is required.",
+		);
+	}
+
+	const tokenRestaurantId =
+		context.auth.token && context.auth.token.restaurantId;
+	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+		if (!employeeId || context.auth.uid === restaurantId) {
+			return buildOwnerStaffProfile(context, employeeId);
+		}
+
+		return assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles,
+			allowedJobTitles,
+			action,
+		});
+	}
+
+	throw new functions.https.HttpsError(
+		"permission-denied",
+		"User is not authorized for this restaurant.",
+	);
+};
+
+const toMillis = (value) => {
+	if (!value) return 0;
+	if (typeof value.toMillis === "function") return value.toMillis();
+	if (typeof value.toDate === "function") return value.toDate().getTime();
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toIsoTimestamp = (value) => {
+	const millis = toMillis(value);
+	return millis > 0 ? new Date(millis).toISOString() : null;
+};
+
+const normalizeRole = (value) => sanitizeString(value, 80).toLowerCase();
+const normalizeMenuToken = (value) =>
+	sanitizeString(value, 240).toLowerCase().replace(/\s+/g, " ");
+
+const sanitizeStringArray = (value, maxItems = 60, maxLength = 80) =>
+	Array.isArray(value)
+		? [
+				...new Set(
+					value
+						.map((item) => sanitizeString(item, maxLength))
+						.filter(Boolean),
+				),
+			].slice(0, maxItems)
+		: [];
+
+const safeArray = (value, maxItems = 80) =>
+	Array.isArray(value) ? value.slice(0, maxItems) : [];
+
+const buildServerCanonicalDishId = ({ restaurantId, name, category }) => {
+	const normalizedName = normalizeMenuToken(name).replace(/[^a-z0-9]+/g, "_");
+	const normalizedCategory = normalizeMenuToken(category).replace(
+		/[^a-z0-9]+/g,
+		"_",
+	);
+	return `${restaurantId}_${normalizedCategory || "uncategorized"}_${
+		normalizedName || "menu_item"
+	}`.slice(0, 240);
+};
+
+const getMenuReputationScore = (item = {}) =>
+	Number(item.scervScore || item.discoveryScore || item.averageRating || 0) || 0;
+
+const pickMenuReputationFields = (item = {}) => ({
+	totalRatingSum: Number(item.totalRatingSum || 0) || 0,
+	ratingCount: Number(item.ratingCount || 0) || 0,
+	averageRating: Number(item.averageRating || item.rating || 0) || 0,
+	reviewCount: Number(item.reviewCount || 0) || 0,
+	orderCount: Number(item.orderCount || 0) || 0,
+	reorderCount: Number(item.reorderCount || 0) || 0,
+	favoriteCount: Number(item.favoriteCount || 0) || 0,
+	confidenceAdjustedRating:
+		Number(item.confidenceAdjustedRating || 0) || 0,
+	scervScore: Number(item.scervScore || item.discoveryScore || 0) || 0,
+	scervScoreComponents: item.scervScoreComponents || null,
+	scervScoreVersion: Number(item.scervScoreVersion || 1) || 1,
+	discoveryScore:
+		Number(item.discoveryScore || item.averageRating || item.rating || 0) || 0,
+	verificationStats: item.verificationStats || null,
+	topReviewTags: sanitizeStringArray(item.topReviewTags, 25, 80),
+	reviewHighlight: sanitizeString(item.reviewHighlight || item.topReview, 500),
+	topReview: sanitizeString(item.topReview || item.reviewHighlight, 500),
+});
+
+const findExistingMenuIdentity = async ({ restaurantId, name, category }) => {
+	const normalizedName = normalizeMenuToken(name);
+	const normalizedCategory = normalizeMenuToken(category);
+	const snapshot = await db
+		.collection("menuItems")
+		.where("restaurantId", "==", restaurantId)
+		.limit(500)
+		.get();
+
+	const matches = snapshot.docs
+		.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+		.filter((item) => {
+			const itemName = normalizeMenuToken(item.normalizedName || item.name);
+			const itemCategory = normalizeMenuToken(
+				item.normalizedCategory || item.category,
+			);
+			return itemName === normalizedName && itemCategory === normalizedCategory;
+		})
+		.sort((a, b) => {
+			const scoreDiff = getMenuReputationScore(b) - getMenuReputationScore(a);
+			if (scoreDiff !== 0) return scoreDiff;
+			const bSignals = Number(b.ratingCount || 0) + Number(b.reviewCount || 0);
+			const aSignals = Number(a.ratingCount || 0) + Number(a.reviewCount || 0);
+			return bSignals - aSignals;
+		});
+
+	return matches[0] || null;
+};
+
+const FRONT_OF_HOUSE_JOB_TITLES = ["host", "server", "support", "runner"];
+const PREP_TICKET_JOB_TITLES = ["chef", "kitchen", "bartender", "bar"];
+const OPERATIONAL_JOB_TITLES = [
+	...FRONT_OF_HOUSE_JOB_TITLES,
+	...PREP_TICKET_JOB_TITLES,
+];
+
+const isWorkerWithJobTitle = (staff, titles = []) =>
+	normalizeRole(staff && staff.role) === "worker" &&
+	titles.includes(normalizeRole(staff && staff.jobTitle));
+
+const isAssignedServerForParty = (staff, party = {}) => {
+	if (!isWorkerWithJobTitle(staff, ["server"])) return true;
+	const server = party.server || {};
+	return !server.id || server.id === staff.id;
+};
+
+const shapeEmployeeDirectoryRow = (doc) => {
+	const data = doc.data() || {};
+	const firstName = sanitizeString(data.firstName, 80);
+	const lastName = sanitizeString(data.lastName, 80);
+	const displayName =
+		sanitizeString(data.displayName || data.name, 120) ||
+		`${firstName} ${lastName}`.trim() ||
+		"Staff";
+	const serviceRating = data.serviceRating || data.serverRating || {};
+
+	return {
+		id: doc.id,
+		firstName,
+		lastName,
+		displayName,
+		name: displayName,
+		role: normalizeRole(data.role),
+		jobTitle: normalizeRole(data.jobTitle),
+		isActive: data.isActive !== false,
+		serviceRating: {
+			average:
+				Number(serviceRating.average || serviceRating.averageRating || 0) || 0,
+			count: Number(serviceRating.count || serviceRating.ratingCount || 0) || 0,
+		},
+	};
+};
+
+const shapeRestaurantProfile = (doc) => {
+	const data = doc.data() || {};
+	return {
+		id: doc.id,
+		name: sanitizeString(data.restaurantName || data.name, 160),
+		restaurantName: sanitizeString(data.restaurantName || data.name, 160),
+		description: sanitizeString(data.description, 1200),
+		cuisine: sanitizeString(data.cuisine || data.cuisineType, 120),
+		cuisineType: sanitizeString(data.cuisineType || data.cuisine, 120),
+		category: sanitizeString(data.category, 120),
+		hospitalityStyle: sanitizeString(data.hospitalityStyle, 80),
+		priceLevel: sanitizeString(data.priceLevel, 20),
+		phoneNumber: sanitizeString(data.phoneNumber, 80),
+		address: sanitizeString(data.address, 240),
+		city: sanitizeString(data.city, 120),
+		state: sanitizeString(data.state, 40),
+		country: sanitizeString(data.country || data.countryCode, 80),
+		countryCode: sanitizeString(data.countryCode || data.country, 10),
+		area: sanitizeString(data.area, 120),
+		imageUrl: sanitizeString(data.imageUrl || data.imageUri, 500),
+		imageUri: sanitizeString(data.imageUri || data.imageUrl, 500),
+		location: data.location || null,
+		features: data.features || {},
+		isActive: data.isActive !== false,
+		isLive: data.isLive === true,
+		updatedAt: toIsoTimestamp(data.updatedAt),
+	};
+};
+
+const shapeMenuItemForStaff = (doc) => {
+	const item = doc.data() || {};
+	return {
+		id: doc.id,
+		name: sanitizeString(item.name, 160),
+		description: sanitizeString(item.description, 1200),
+		category: sanitizeString(item.category, 120),
+		subcategory: sanitizeString(item.subcategory, 120),
+		price: Number(item.price || 0),
+		imageUrl: sanitizeString(item.imageUrl || item.imageUri, 500),
+		imageUri: sanitizeString(item.imageUri || item.imageUrl, 500),
+		canonicalDishId: sanitizeString(item.canonicalDishId, 240),
+		normalizedName: sanitizeString(item.normalizedName, 240),
+		normalizedCategory: sanitizeString(item.normalizedCategory, 240),
+		isDailySpecial: item.isDailySpecial === true,
+		isAvailable: item.isAvailable !== false,
+		isArchived: item.isArchived === true,
+		archivedAt: toIsoTimestamp(item.archivedAt),
+		destination: sanitizeString(item.destination, 40),
+		ingredientTags: sanitizeStringArray(item.ingredientTags),
+		cuisineTags: sanitizeStringArray(item.cuisineTags),
+		flavorTags: sanitizeStringArray(item.flavorTags),
+		dietaryTags: Array.isArray(item.dietaryTags) ? item.dietaryTags : [],
+		searchKeywords: sanitizeStringArray(item.searchKeywords, 120, 80),
+		tags: Array.isArray(item.tags) ? item.tags : [],
+		allergens: Array.isArray(item.allergens) ? item.allergens : [],
+		modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
+		modifierGroups: Array.isArray(item.modifierGroups)
+			? item.modifierGroups
+			: [],
+		hasModifiers:
+			item.hasModifiers === true ||
+			(Array.isArray(item.modifierGroups) && item.modifierGroups.length > 0),
+		averageRating: Number(item.averageRating || item.rating || 0) || 0,
+		ratingCount: Number(item.ratingCount || item.reviewCount || 0) || 0,
+		reviewCount: Number(item.reviewCount || 0) || 0,
+		totalRatingSum: Number(item.totalRatingSum || 0) || 0,
+		orderCount: Number(item.orderCount || 0) || 0,
+		reorderCount: Number(item.reorderCount || 0) || 0,
+		favoriteCount: Number(item.favoriteCount || 0) || 0,
+		confidenceAdjustedRating:
+			Number(item.confidenceAdjustedRating || 0) || 0,
+		scervScore: Number(item.scervScore || item.discoveryScore || 0) || 0,
+		scervScoreComponents: item.scervScoreComponents || null,
+		scervScoreVersion: Number(item.scervScoreVersion || 1) || 1,
+		discoveryScore:
+			Number(item.discoveryScore || item.averageRating || item.rating || 0) || 0,
+		verificationStats: item.verificationStats || null,
+		topReviewTags: sanitizeStringArray(item.topReviewTags, 25, 80),
+		reviewHighlight: sanitizeString(item.reviewHighlight || item.topReview, 500),
+		topReview: sanitizeString(item.topReview || item.reviewHighlight, 500),
+		relistedFromMenuItemId:
+			sanitizeString(item.relistedFromMenuItemId, 160) || null,
+		reputationSourceMenuItemId:
+			sanitizeString(item.reputationSourceMenuItemId, 160) || null,
+		previousNames: sanitizeStringArray(item.previousNames, 20, 160),
+		sortOrder: Number(item.sortOrder || 0) || 0,
+		updatedAt: toIsoTimestamp(item.updatedAt),
+		createdAt: toIsoTimestamp(item.createdAt),
+	};
+};
+
+const shapeKitchenTicketForStaff = (doc) => {
+	const ticket = doc.data() || {};
+	const items = Array.isArray(ticket.items) ? ticket.items : [];
+	return {
+		id: doc.id,
+		orderId: doc.id,
+		restaurantId: sanitizeString(ticket.restaurantId, 120),
+		partyId: sanitizeString(ticket.partyId, 120) || null,
+		tableId: sanitizeString(ticket.tableId, 120) || null,
+		table: ticket.table || null,
+		tableName: sanitizeString(
+			ticket.tableName ||
+				(ticket.table && (ticket.table.name || ticket.table.label)),
+			120,
+		),
+		locationName: sanitizeString(ticket.locationName, 160),
+		server: ticket.server || null,
+		customerName: sanitizeString(ticket.customerName, 160),
+		orderedByPipName: sanitizeString(ticket.orderedByPipName, 160),
+		customerEmail: sanitizeString(ticket.customerEmail, 200),
+		status: sanitizeString(ticket.status || "new", 40),
+		overallStatus: sanitizeString(ticket.overallStatus || "active", 40),
+		fulfillmentType: sanitizeString(ticket.fulfillmentType, 80),
+		pacingStatus: sanitizeString(ticket.pacingStatus || "fired", 40),
+		stationStatuses: ticket.stationStatuses || {},
+		pickupSpecialInstructions: sanitizeString(
+			ticket.pickupSpecialInstructions,
+			500,
+		),
+		specialInstructions:
+			typeof ticket.specialInstructions === "string"
+				? sanitizeString(ticket.specialInstructions, 500)
+				: ticket.specialInstructions || null,
+		restaurantName: sanitizeString(ticket.restaurantName, 180),
+		readableOrderId: sanitizeString(ticket.readableOrderId, 120),
+		subtotal: Number(ticket.subtotal || 0) || 0,
+		taxAmount: Number(ticket.taxAmount || ticket.tax || 0) || 0,
+		gratuityAmount:
+			Number(ticket.gratuityAmount || ticket.gratuity || 0) || 0,
+		platformFee: Number(ticket.platformFee || 0) || 0,
+		totalPrice: Number(ticket.totalPrice || 0) || 0,
+		items,
+		itemCount: items.reduce(
+			(total, item) => total + Number(item.quantity || 0),
+			0,
+		),
+		createdAt: toIsoTimestamp(ticket.createdAt || ticket.submittedAt),
+		updatedAt: toIsoTimestamp(ticket.updatedAt),
+	};
+};
+
+const shapePartyForStaff = (doc, readySummary = null) => {
+	const party = doc.data() || {};
+	return {
+		id: doc.id,
+		partyId: doc.id,
+		restaurantId: sanitizeString(party.restaurantId, 120),
+		status: sanitizeString(party.status, 40),
+		table: party.table || null,
+		tableId:
+			sanitizeString(party.tableId, 120) ||
+			sanitizeString(party.table && party.table.id, 120) ||
+			null,
+		tableName: sanitizeString(
+			party.tableName ||
+				(party.table && (party.table.name || party.table.label)),
+			120,
+		),
+		server: party.server || null,
+		hostName: sanitizeString(
+			party.hostName || party.customerName || party.guestName,
+			160,
+		),
+		guestPips: Array.isArray(party.guestPips) ? party.guestPips : [],
+		hostUserId: sanitizeString(party.hostUserId, 120) || null,
+		currentCustomerId: sanitizeString(party.currentCustomerId, 120) || null,
+		checkInId:
+			sanitizeString(party.checkInId || party.currentCheckInId, 120) || null,
+		currentCheckInId:
+			sanitizeString(party.currentCheckInId || party.checkInId, 120) || null,
+		customerStatus: sanitizeString(party.customerStatus, 80),
+		fulfillmentType: sanitizeString(party.fulfillmentType, 80),
+		source: sanitizeString(party.source, 80),
+		hasBrowserOrder:
+			party.hasBrowserOrder === true || party.source === "browser_qr",
+		hasCustomerAppOrder: party.hasCustomerAppOrder === true,
+		customerServiceFeeEligible: party.customerServiceFeeEligible === true,
+		guestCount: Number(party.guestCount || party.partySize || 1) || 1,
+		serviceRequested: party.serviceRequested === true,
+		serviceRequestType: sanitizeString(party.serviceRequestType, 80),
+		serviceRequestMessage: sanitizeString(party.serviceRequestMessage, 300),
+		serviceRequestStatus: sanitizeString(party.serviceRequestStatus, 80),
+		serviceRequestedAt: toIsoTimestamp(party.serviceRequestedAt),
+		readyItemCount: readySummary ? readySummary.readyItemCount : 0,
+		prepItemCount: readySummary ? readySummary.prepItemCount : 0,
+		hasItemsReady: readySummary ? readySummary.readyItemCount > 0 : false,
+		allItemsReady: readySummary
+			? readySummary.prepItemCount > 0 &&
+				readySummary.readyItemCount >= readySummary.prepItemCount
+			: false,
+		readyTicketIds: readySummary ? readySummary.readyTicketIds : [],
+		createdAt: toIsoTimestamp(party.createdAt),
+		seatedAt: toIsoTimestamp(party.seatedAt),
+		updatedAt: toIsoTimestamp(party.updatedAt),
+	};
+};
+
+const shapeHostCheckInForStaff = (doc) => {
+	const checkIn = doc.data() || {};
+	return {
+		id: doc.id,
+		checkInId: doc.id,
+		restaurantId: sanitizeString(checkIn.restaurantId, 120),
+		customerId: sanitizeString(checkIn.customerId, 120),
+		type: sanitizeString(checkIn.type, 80),
+		customerName: sanitizeString(
+			checkIn.customerName || checkIn.guestName || checkIn.name,
+			160,
+		),
+		partySize: Number(checkIn.partySize || checkIn.guestCount || 1) || 1,
+		numberOfPeople:
+			Number(checkIn.numberOfPeople || checkIn.partySize || checkIn.guestCount || 1) ||
+			1,
+		status: sanitizeString(checkIn.status, 40),
+		table: checkIn.table || null,
+		reservationId: sanitizeString(checkIn.reservationId, 120) || null,
+		occasion: sanitizeString(checkIn.occasion, 120),
+		seatingPreference: sanitizeString(checkIn.seatingPreference, 160),
+		allergyNotes: sanitizeString(checkIn.allergyNotes, 300),
+		guestNotes: sanitizeString(checkIn.guestNotes || checkIn.notes, 500),
+		createdAt: toIsoTimestamp(checkIn.createdAt || checkIn.requestedAt),
+		updatedAt: toIsoTimestamp(checkIn.updatedAt),
+	};
+};
+
+const shapeServiceRequestForStaff = (doc) => {
+	const party = doc.data() || {};
+	return {
+		id: doc.id,
+		partyId: doc.id,
+		table: party.table || null,
+		tableName: sanitizeString(
+			party.tableName ||
+				(party.table && (party.table.name || party.table.label)),
+			120,
+		),
+		server: party.server || null,
+		guestName: sanitizeString(
+			party.hostName || party.customerName || party.guestName,
+			160,
+		),
+		requestType: sanitizeString(party.serviceRequestType, 80),
+		message: sanitizeString(party.serviceRequestMessage, 300),
+		status: sanitizeString(party.serviceRequestStatus || "requested", 80),
+		requestedAt: toIsoTimestamp(
+			party.serviceRequestedAt || party.updatedAt || party.createdAt,
+		),
+	};
+};
+
+const buildReadySummaryByParty = (tickets = []) => {
+	const summary = new Map();
+	tickets.forEach((doc) => {
+		const ticket = doc.data() || {};
+		if (!ticket.partyId) return;
+		const items = Array.isArray(ticket.items) ? ticket.items : [];
+		let readyItemCount = 0;
+		let prepItemCount = 0;
+		items.forEach((item) => {
+			["kitchen", "bar"].forEach((station) => {
+				if (!kitchenOrderItemBelongsToStation(item, station)) return;
+				prepItemCount += Number(item.quantity || 1) || 1;
+				const fallback =
+					(ticket.stationStatuses && ticket.stationStatuses[station]) ||
+					"new";
+				if (getKitchenOrderItemStationStatus(item, station, fallback) === "ready") {
+					readyItemCount += Number(item.quantity || 1) || 1;
+				}
+			});
+		});
+		if (readyItemCount <= 0 && prepItemCount <= 0) return;
+		const current = summary.get(ticket.partyId) || {
+			readyItemCount: 0,
+			prepItemCount: 0,
+			readyTicketIds: [],
+		};
+		current.readyItemCount += readyItemCount;
+		current.prepItemCount += prepItemCount;
+		if (readyItemCount > 0) current.readyTicketIds.push(doc.id);
+		summary.set(ticket.partyId, current);
+	});
+	return summary;
+};
+
+const countQuery = async (query) => {
+	if (typeof query.count === "function") {
+		const snapshot = await query.count().get();
+		return snapshot.data().count || 0;
+	}
+	const snapshot = await query.get();
+	return snapshot.size;
+};
+
+exports.listStaffDirectory = functions.https.onCall(async (data, context) => {
+	const restaurantId = sanitizeString(data && data.restaurantId, 120);
+	const employeeId = getStaffIdFromData(data);
+
+	await assertStaffReadAccess({
+		context,
+		restaurantId,
+		employeeId,
+		allowedRoles: ["owner", "manager", "admin"],
+		allowedJobTitles: ["server", "bartender", "bar", "host", "kitchen", "cook"],
+		action: "view staff directory",
+	});
+
+	const snapshot = await db
+		.collection("restaurants")
+		.doc(restaurantId)
+		.collection("employees")
+		.limit(250)
+		.get();
+
+	return {
+		success: true,
+		employees: snapshot.docs.map(shapeEmployeeDirectoryRow),
+	};
+});
+
+exports.getCurrentWorkDayStatus = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: [
+				"server",
+				"bartender",
+				"bar",
+				"host",
+				"kitchen",
+				"cook",
+				"expo",
+			],
+			action: "view work day status",
+		});
+
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const restaurantSnap = await restaurantRef.get();
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Restaurant not found.",
+			);
+		}
+
+		const restaurantData = restaurantSnap.data() || {};
+		const currentWorkDayId = sanitizeString(
+			restaurantData.currentWorkDayId,
+			160,
+		);
+		let workDayDoc = null;
+
+		if (currentWorkDayId) {
+			const snap = await restaurantRef
+				.collection("work_days")
+				.doc(currentWorkDayId)
+				.get();
+			if (snap.exists) workDayDoc = snap;
+		}
+
+		if (!workDayDoc) {
+			const openSnap = await restaurantRef
+				.collection("work_days")
+				.where("status", "==", "OPEN")
+				.limit(1)
+				.get();
+			workDayDoc = openSnap.empty ? null : openSnap.docs[0];
+		}
+
+		const workDay = workDayDoc ? workDayDoc.data() || {} : {};
+		const opener = workDay.managerWhoOpened || {};
+		const status = workDay.status || (restaurantData.isOpen ? "OPEN" : "CLOSED");
+
+		return {
+			success: true,
+			isOpen: status === "OPEN",
+			status,
+			workDayId: workDayDoc ? workDayDoc.id : null,
+			openedAt: toIsoTimestamp(workDay.startTime || workDay.openedAt),
+			closedAt: toIsoTimestamp(workDay.endTime || workDay.closedAt),
+			openedBy: workDayDoc
+				? {
+						staffId: sanitizeString(opener.staffId, 120) || null,
+						name: sanitizeString(opener.name, 160) || null,
+						role: normalizeRole(opener.role) || null,
+					}
+				: null,
+		};
+	},
+);
+
+exports.getStaffRestaurantProfile = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			action: "view restaurant profile",
+		});
+
+		const restaurantSnap = await db
+			.collection("restaurants")
+			.doc(restaurantId)
+			.get();
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Restaurant not found.",
+			);
+		}
+
+		return {
+			success: true,
+			restaurant: shapeRestaurantProfile(restaurantSnap),
+		};
+	},
+);
+
+exports.getStaffBackOfficeSetupStatus = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			action: "view back office setup status",
+		});
+
+		const restaurantRef = db.collection("restaurants").doc(restaurantId);
+		const restaurantSnap = await restaurantRef.get();
+		if (!restaurantSnap.exists) {
+			throw new functions.https.HttpsError(
+				"not-found",
+				"Restaurant not found.",
+			);
+		}
+
+		const [employeeSnap, tableCount, menuItemCount] = await Promise.all([
+			restaurantRef.collection("employees").limit(250).get(),
+			countQuery(restaurantRef.collection("tables")),
+			countQuery(
+				db.collection("menuItems").where("restaurantId", "==", restaurantId),
+			),
+		]);
+		const employeeCount = employeeSnap.size;
+		const activeEmployeeCount = employeeSnap.docs.filter((doc) => {
+			const employee = doc.data() || {};
+			return employee.isActive !== false;
+		}).length;
+
+		const counts = {
+			employees: employeeCount,
+			activeEmployees: activeEmployeeCount,
+			tables: tableCount,
+			menuItems: menuItemCount,
+		};
+
+		return {
+			success: true,
+			counts,
+			ready: {
+				employees: counts.activeEmployees > 0,
+				tables: counts.tables > 0,
+				menu: counts.menuItems > 0,
+			},
+		};
+	},
+);
+
+exports.listStaffMenuItems = functions.https.onCall(async (data, context) => {
+	const restaurantId = sanitizeString(data && data.restaurantId, 120);
+	const employeeId = getStaffIdFromData(data);
+
+	await assertStaffReadAccess({
+		context,
+		restaurantId,
+		employeeId,
+		allowedRoles: ["owner", "manager", "admin"],
+		action: "view menu management",
+	});
+
+	const snapshot = await db
+		.collection("menuItems")
+		.where("restaurantId", "==", restaurantId)
+		.limit(500)
+		.get();
+
+	const menuItems = snapshot.docs
+		.map(shapeMenuItemForStaff)
+		.sort((a, b) => {
+			const categoryCompare = a.category.localeCompare(b.category);
+			if (categoryCompare !== 0) return categoryCompare;
+			return (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name);
+		});
+
+	return { success: true, menuItems };
+});
+
+exports.mutateRestaurantMenuItem = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		const action = sanitizeString(data && data.action, 40);
+		const itemId = sanitizeString(data && data.itemId, 160);
+		const item = (data && data.item) || {};
+
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			action: "manage menu items",
+		});
+
+		const allowedActions = ["create", "update", "archive", "availability"];
+		if (!allowedActions.includes(action)) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"A valid menu mutation action is required.",
+			);
+		}
+
+		const menuItemsRef = db.collection("menuItems");
+		const targetRef =
+			action === "create" ? menuItemsRef.doc() : menuItemsRef.doc(itemId);
+
+		if (action !== "create" && !itemId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Menu item ID is required.",
+			);
+		}
+
+		let existingDishIdentity = null;
+		const editablePayload = {};
+		if (action === "create" || action === "update") {
+			const name = sanitizeString(item.name, 160);
+			const category = sanitizeString(item.category, 120);
+			const price = Number(item.price);
+			if (!name || !category || !Number.isFinite(price) || price < 0) {
+				throw new functions.https.HttpsError(
+					"invalid-argument",
+					"Name, category and valid price are required.",
+				);
+			}
+			const normalizedName = normalizeMenuToken(item.normalizedName || name);
+			const normalizedCategory = normalizeMenuToken(
+				item.normalizedCategory || category,
+			);
+			if (action === "create") {
+				existingDishIdentity = await findExistingMenuIdentity({
+					restaurantId,
+					name,
+					category,
+				});
+			}
+
+			Object.assign(editablePayload, {
+				name,
+				description: sanitizeString(item.description, 1200),
+				category,
+				subcategory: sanitizeString(item.subcategory, 120),
+				price: Math.round(price * 100) / 100,
+				imageUrl: sanitizeString(item.imageUrl || item.imageUri, 500),
+				imageUri: sanitizeString(item.imageUri || item.imageUrl, 500),
+				canonicalDishId:
+					sanitizeString(item.canonicalDishId, 240) ||
+					(existingDishIdentity &&
+						sanitizeString(existingDishIdentity.canonicalDishId, 240)) ||
+					buildServerCanonicalDishId({ restaurantId, name, category }),
+				normalizedName,
+				normalizedCategory,
+				destination: sanitizeString(item.destination, 40),
+				isDailySpecial: item.isDailySpecial === true,
+				ingredientTags: sanitizeStringArray(item.ingredientTags),
+				cuisineTags: sanitizeStringArray(item.cuisineTags),
+				flavorTags: sanitizeStringArray(item.flavorTags),
+				dietaryTags: sanitizeStringArray(item.dietaryTags),
+				searchKeywords: sanitizeStringArray(item.searchKeywords, 120, 80),
+				tags: sanitizeStringArray(item.tags),
+				allergens: sanitizeStringArray(item.allergens),
+				modifiers: safeArray(item.modifiers),
+				modifierGroups: safeArray(item.modifierGroups),
+				hasModifiers:
+					item.hasModifiers === true ||
+					(Array.isArray(item.modifierGroups) &&
+						item.modifierGroups.length > 0),
+				isAvailable: item.isAvailable !== false,
+				isArchived: false,
+				archivedAt: null,
+				previousNames: sanitizeStringArray(item.previousNames, 20, 160),
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+		}
+
+		if (action === "availability") {
+			editablePayload.isAvailable = item.isAvailable !== false;
+			if (editablePayload.isAvailable) {
+				editablePayload.isArchived = false;
+				editablePayload.archivedAt = null;
+			}
+			editablePayload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+		}
+
+		if (action === "archive") {
+			editablePayload.isArchived = true;
+			editablePayload.isAvailable = false;
+			editablePayload.archivedAt = admin.firestore.FieldValue.serverTimestamp();
+			editablePayload.archivedByRestaurantId = restaurantId;
+			editablePayload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+		}
+
+		await db.runTransaction(async (transaction) => {
+			const existing = await transaction.get(targetRef);
+			if (action !== "create") {
+				if (!existing.exists) {
+					throw new functions.https.HttpsError("not-found", "Menu item not found.");
+				}
+				if ((existing.data() || {}).restaurantId !== restaurantId) {
+					throw new functions.https.HttpsError(
+						"permission-denied",
+						"Menu item does not belong to this restaurant.",
+					);
+				}
+				transaction.set(targetRef, editablePayload, { merge: true });
+				return;
+			}
+
+			transaction.set(targetRef, {
+				restaurantId,
+				...editablePayload,
+				...pickMenuReputationFields(existingDishIdentity || {}),
+				relistedFromMenuItemId: existingDishIdentity
+					? existingDishIdentity.id
+					: null,
+				reputationSourceMenuItemId: existingDishIdentity
+					? existingDishIdentity.id
+					: null,
+				isArchived: false,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			});
+		});
+
+		return { success: true, itemId: targetRef.id };
+	},
+);
+
+exports.listStaffKitchenOrders = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		const station = normalizeRole(data && data.station);
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: PREP_TICKET_JOB_TITLES,
+			action: "view kitchen and bar tickets",
+		});
+
+		const snapshot = await db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
+			.limit(100)
+			.get();
+		let orders = snapshot.docs.map(shapeKitchenTicketForStaff);
+		if (["kitchen", "bar"].includes(station)) {
+			orders = orders.filter((order) =>
+				(order.items || []).some((item) =>
+					kitchenOrderItemBelongsToStation(item, station),
+				),
+			);
+		}
+
+		return { success: true, orders };
+	},
+);
+
+exports.listStaffActiveTables = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		const staff = await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: FRONT_OF_HOUSE_JOB_TITLES,
+			action: "view active tables",
+		});
+
+		const [partiesSnapshot, ticketsSnapshot] = await Promise.all([
+			db
+				.collection("parties")
+				.where("restaurantId", "==", restaurantId)
+				.where("status", "in", ["active", "checkedOut"])
+				.limit(100)
+				.get(),
+			db
+				.collection("kitchen_orders")
+				.where("restaurantId", "==", restaurantId)
+				.where("overallStatus", "==", "active")
+				.limit(100)
+				.get(),
+		]);
+
+		const readyByParty = buildReadySummaryByParty(ticketsSnapshot.docs);
+		const parties = partiesSnapshot.docs
+			.filter((doc) => isAssignedServerForParty(staff, doc.data() || {}))
+			.map((doc) => shapePartyForStaff(doc, readyByParty.get(doc.id) || null));
+
+		return { success: true, parties };
+	},
+);
+
+exports.getStaffPartyDetail = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	const partyId = sanitizeString(data && data.partyId, 160);
+	const employeeId = getStaffIdFromData(data);
+	if (!partyId) {
+		throw new functions.https.HttpsError("invalid-argument", "Party ID is required.");
+	}
+
+	const partyRef = db.collection("parties").doc(partyId);
+	const partyDoc = await partyRef.get();
+	if (!partyDoc.exists) {
+		throw new functions.https.HttpsError("not-found", "Party not found.");
+	}
+	const party = partyDoc.data() || {};
+	const staff = await assertStaffReadAccess({
+		context,
+		restaurantId: party.restaurantId,
+		employeeId,
+		allowedRoles: ["owner", "manager", "admin"],
+		allowedJobTitles: FRONT_OF_HOUSE_JOB_TITLES,
+		action: "view party details",
+	});
+	if (!isAssignedServerForParty(staff, party)) {
+		throw new functions.https.HttpsError(
+			"permission-denied",
+			"Servers can only view their assigned tables.",
+		);
+	}
+
+	const [basketDoc, restaurantDoc, pricingDoc] = await Promise.all([
+		db.collection("shared_baskets").doc(partyId).get(),
+		db.collection("restaurants").doc(party.restaurantId).get(),
+		db.collection("appConfig").doc("pricingTiers").get(),
+	]);
+
+	return {
+		success: true,
+		party: shapePartyForStaff(partyDoc),
+		basket: basketDoc.exists ? basketDoc.data() || {} : { items: [] },
+		restaurant: restaurantDoc.exists ? shapeRestaurantProfile(restaurantDoc) : null,
+		pricingTiers: pricingDoc.exists ? pricingDoc.data() || {} : {},
+	};
+});
+
+exports.getStaffOrderDetail = functions.https.onCall(async (data, context) => {
+	if (!context.auth || !context.auth.uid) {
+		throw new functions.https.HttpsError(
+			"unauthenticated",
+			"Restaurant staff authentication is required.",
+		);
+	}
+
+	const partyId = sanitizeString(data && data.partyId, 160);
+	const checkInId = sanitizeString(data && data.checkInId, 160);
+	const employeeId = getStaffIdFromData(data);
+
+	if (!partyId && !checkInId) {
+		throw new functions.https.HttpsError(
+			"invalid-argument",
+			"Party ID or check-in ID is required.",
+		);
+	}
+
+	if (partyId) {
+		const partyDoc = await db.collection("parties").doc(partyId).get();
+		if (!partyDoc.exists) {
+			throw new functions.https.HttpsError("not-found", "Party not found.");
+		}
+		const party = partyDoc.data() || {};
+		const staff = await assertStaffReadAccess({
+			context,
+			restaurantId: party.restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: FRONT_OF_HOUSE_JOB_TITLES,
+			action: "view table order details",
+		});
+		if (!isAssignedServerForParty(staff, party)) {
+			throw new functions.https.HttpsError(
+				"permission-denied",
+				"Servers can only view their assigned tables.",
+			);
+		}
+		const basketDoc = await db.collection("shared_baskets").doc(partyId).get();
+		return {
+			success: true,
+			party: shapePartyForStaff(partyDoc),
+			items: basketDoc.exists && Array.isArray((basketDoc.data() || {}).items)
+				? (basketDoc.data() || {}).items
+				: [],
+		};
+	}
+
+	const checkInDoc = await db.collection("checkIns").doc(checkInId).get();
+	if (!checkInDoc.exists) {
+		throw new functions.https.HttpsError("not-found", "Check-in not found.");
+	}
+	const checkIn = checkInDoc.data() || {};
+	await assertStaffReadAccess({
+		context,
+		restaurantId: checkIn.restaurantId,
+		employeeId,
+		allowedRoles: ["owner", "manager", "admin"],
+		action: "view legacy check-in order details",
+	});
+	const itemsSnapshot = await db
+		.collection("baskets")
+		.where("checkInId", "==", checkInId)
+		.limit(100)
+		.get();
+	return {
+		success: true,
+		checkIn: shapeHostCheckInForStaff(checkInDoc),
+		items: itemsSnapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) })),
+	};
+});
+
+exports.listStaffPickupOrders = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: ["host", "support"],
+			action: "view pickup orders",
+		});
+		const snapshot = await db
+			.collection("kitchen_orders")
+			.where("restaurantId", "==", restaurantId)
+			.where("overallStatus", "==", "active")
+			.where("fulfillmentType", "==", "hotel_pickup")
+			.limit(100)
+			.get();
+		return {
+			success: true,
+			orders: snapshot.docs.map(shapeKitchenTicketForStaff),
+		};
+	},
+);
+
+exports.listStaffHostCheckIns = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: ["host", "server", "support"],
+			action: "view host check-in requests",
+		});
+		const snapshot = await db
+			.collection("checkIns")
+			.where("restaurantId", "==", restaurantId)
+			.where("status", "==", "REQUESTED")
+			.limit(100)
+			.get();
+		return {
+			success: true,
+			checkIns: snapshot.docs.map(shapeHostCheckInForStaff),
+		};
+	},
+);
+
+exports.listStaffServiceRequests = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		const staff = await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: FRONT_OF_HOUSE_JOB_TITLES,
+			action: "view service requests",
+		});
+		const snapshot = await db
+			.collection("parties")
+			.where("restaurantId", "==", restaurantId)
+			.where("serviceRequested", "==", true)
+			.limit(100)
+			.get();
+		const serviceRequests = snapshot.docs
+			.filter((doc) => isAssignedServerForParty(staff, doc.data() || {}))
+			.map(shapeServiceRequestForStaff);
+		return { success: true, serviceRequests };
+	},
+);
+
+exports.listStaffReservationOperations = functions.https.onCall(
+	async (data, context) => {
+		const restaurantId = sanitizeString(data && data.restaurantId, 120);
+		const employeeId = getStaffIdFromData(data);
+		await assertStaffReadAccess({
+			context,
+			restaurantId,
+			employeeId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: ["host", "server", "support"],
+			action: "view reservation operations",
+		});
+		const [reservationSnap, waitlistSnap] = await Promise.all([
+			db
+				.collection("reservations")
+				.where("restaurantId", "==", restaurantId)
+				.where("status", "in", [
+					"pending",
+					"requested",
+					"confirmed",
+					"arrival_requested",
+					"seated",
+				])
+				.limit(100)
+				.get(),
+			db
+				.collection("reservationWaitlist")
+				.where("restaurantId", "==", restaurantId)
+				.limit(100)
+				.get(),
+		]);
+		return {
+			success: true,
+			reservations: reservationSnap.docs.map((doc) => ({
+				id: doc.id,
+				...(doc.data() || {}),
+				createdAt: toIsoTimestamp((doc.data() || {}).createdAt),
+				updatedAt: toIsoTimestamp((doc.data() || {}).updatedAt),
+			})),
+			waitlist: waitlistSnap.docs.map((doc) => ({
+				id: doc.id,
+				...(doc.data() || {}),
+				createdAt: toIsoTimestamp((doc.data() || {}).createdAt),
+				updatedAt: toIsoTimestamp((doc.data() || {}).updatedAt),
+			})),
+		};
+	},
+);
+
 const resolveBrowserTableTokenRecord = async (token) => {
 	const cleanToken = String(token || "").trim();
 	if (!cleanToken || cleanToken.length < 20 || cleanToken.length > 160) {
@@ -975,8 +2158,6 @@ const kitchenOrderItemBelongsToStation = (item, station) => {
 
 	return false;
 };
-
-const PREP_TICKET_JOB_TITLES = ["chef", "kitchen", "bartender", "bar"];
 
 const getKitchenOrderItemStationStatus = (
 	item,
@@ -4313,6 +5494,13 @@ exports.addEmployee = functions.https.onCall(async (data, context) => {
 			uid: isFirstEmployee ? context.auth.uid : null,
 			createdAt: admin.firestore.FieldValue.serverTimestamp(),
 		});
+		await db.collection("restaurants").doc(restaurantId).set(
+			{
+				hasSetupEmployees: true,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
 
 		console.log(
 			`Successfully added employee ${newEmployeeRef.id} with role ${roleToSet}.`,

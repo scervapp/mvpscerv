@@ -94,6 +94,140 @@ const firstDefined = (...values) => {
 const normalizeStripeFeeResponsibility = (value) =>
 	value === "scerv" ? "scerv" : "restaurant";
 
+const resolveStripeModeValue = ({
+	restaurantData = {},
+	isTestMode = true,
+	testField,
+	liveField,
+	legacyField,
+	modeField,
+}) => {
+	const mode = isTestMode ? "test" : "live";
+	const modeSpecificValue = isTestMode
+		? restaurantData[testField]
+		: restaurantData[liveField];
+
+	if (modeSpecificValue) {
+		return {
+			value: sanitizeString(modeSpecificValue, 120),
+			mode,
+			source: isTestMode ? testField : liveField,
+		};
+	}
+
+	const legacyMode = restaurantData[modeField] || null;
+	if (
+		restaurantData[legacyField] &&
+		(!legacyMode || legacyMode === mode)
+	) {
+		return {
+			value: sanitizeString(restaurantData[legacyField], 120),
+			mode: legacyMode || mode,
+			source: legacyField,
+		};
+	}
+
+	return {
+		value: "",
+		mode,
+		source: null,
+	};
+};
+
+const resolveRestaurantStripeAccountForCharge = async ({
+	restaurantData = {},
+	stripeInstance,
+	keys,
+	restaurantId,
+}) => {
+	const resolved = resolveStripeModeValue({
+		restaurantData,
+		isTestMode: keys && keys.isTestMode,
+		testField: "stripeAccountId_test",
+		liveField: "stripeAccountId_live",
+		legacyField: "stripeAccountId",
+		modeField: "stripeAccountMode",
+	});
+	const configuredAccountId = resolved.value || null;
+	let platformAccountId = null;
+
+	if (configuredAccountId && stripeInstance && stripeInstance.accounts) {
+		try {
+			const account = await stripeInstance.accounts.retrieve();
+			platformAccountId = account && account.id ? account.id : null;
+		} catch (error) {
+			console.warn("[StripeAccountResolver] Could not retrieve platform account", {
+				restaurantId,
+				mode: resolved.mode,
+				source: resolved.source,
+				errorCode: error && error.code ? error.code : null,
+			});
+		}
+	}
+
+	const pointsToPlatformAccount =
+		!!configuredAccountId &&
+		!!platformAccountId &&
+		configuredAccountId === platformAccountId;
+	const canUseDestinationCharge =
+		!!configuredAccountId && !pointsToPlatformAccount;
+	const allowPlatformFallback =
+		(keys && keys.isTestMode === true) ||
+		restaurantData.isTestAccount === true ||
+		restaurantData.isDemoSeed === true ||
+		restaurantData.allowPlatformStripeCheckout === true;
+
+	if (!canUseDestinationCharge && !allowPlatformFallback) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"This restaurant has not completed Stripe payout onboarding yet.",
+		);
+	}
+
+	if (pointsToPlatformAccount) {
+		console.warn(
+			"[StripeAccountResolver] Restaurant Stripe account points to platform account; using platform charge fallback for testing/demo.",
+			{
+				restaurantId,
+				mode: resolved.mode,
+				source: resolved.source,
+			},
+		);
+	}
+
+	return {
+		mode: resolved.mode,
+		source: resolved.source,
+		configuredAccountId,
+		platformAccountId,
+		pointsToPlatformAccount,
+		connectedAccountId: canUseDestinationCharge ? configuredAccountId : null,
+		stripeConnectChargeType: canUseDestinationCharge
+			? "destination_charge"
+			: "platform_charge",
+		usesDestinationCharge: canUseDestinationCharge,
+	};
+};
+
+const buildStripeConnectPaymentIntentParams = ({
+	stripeAccountResolution,
+	applicationFeeAmount,
+}) => {
+	if (!stripeAccountResolution || !stripeAccountResolution.usesDestinationCharge) {
+		return {};
+	}
+	const connectedAccountId = stripeAccountResolution.connectedAccountId;
+	return {
+		...(applicationFeeAmount > 0 && {
+			application_fee_amount: applicationFeeAmount,
+		}),
+		transfer_data: {
+			destination: connectedAccountId,
+		},
+		on_behalf_of: connectedAccountId,
+	};
+};
+
 const normalizeRestaurantProcessingFeeBasis = (value) =>
 	["subtotal", "salesAndTax", "total"].includes(value) ? value : "total";
 
@@ -1505,18 +1639,6 @@ exports.createBrowserCheckoutSession = functions
 				);
 			}
 
-			const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
-			const restaurantStripeReady =
-				restaurantStripeAccountId &&
-				(restaurantData.stripeAccountStatus === "verified" ||
-					restaurantData.stripeChargesEnabled === true);
-			if (!restaurantStripeReady) {
-				throw new functions.https.HttpsError(
-					"failed-precondition",
-					"This restaurant has not completed Stripe payout onboarding yet.",
-				);
-			}
-
 			const customerDoc = await db.collection("customers").doc(userId).get();
 			if (!customerDoc.exists) {
 				throw new functions.https.HttpsError(
@@ -1591,6 +1713,17 @@ exports.createBrowserCheckoutSession = functions
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
+			const stripeAccountResolution =
+				await resolveRestaurantStripeAccountForCharge({
+					restaurantData,
+					stripeInstance,
+					keys,
+					restaurantId,
+				});
+			const restaurantStripeAccountId =
+				stripeAccountResolution.connectedAccountId;
+			const stripeConnectChargeType =
+				stripeAccountResolution.stripeConnectChargeType;
 			const stripeCustomerId = await createStripeCustomerHelper(
 				userId,
 				restaurantId,
@@ -1685,6 +1818,10 @@ exports.createBrowserCheckoutSession = functions
 				currency: "usd",
 				restaurantCountry,
 				connectedAccountId: restaurantStripeAccountId,
+				configuredStripeAccountId:
+					stripeAccountResolution.configuredAccountId || null,
+				stripeAccountMode: stripeAccountResolution.mode,
+				stripeAccountSource: stripeAccountResolution.source,
 				payoutRouting: restaurantData.payoutMethod || "stripe_connect",
 				restaurantStripeAccountStatus:
 					restaurantData.stripeAccountStatus || null,
@@ -1723,9 +1860,13 @@ exports.createBrowserCheckoutSession = functions
 				restaurantProcessingFeeBasis:
 					paymentPolicy.restaurantProcessingFeeBasis,
 				restaurantProcessingFeeBasisAmount,
-				applicationFeeAmount,
-				stripeApplicationFeeAmount: applicationFeeAmount,
-				stripeConnectChargeType: "destination_charge",
+				applicationFeeAmount: stripeAccountResolution.usesDestinationCharge
+					? applicationFeeAmount
+					: 0,
+				stripeApplicationFeeAmount: stripeAccountResolution.usesDestinationCharge
+					? applicationFeeAmount
+					: 0,
+				stripeConnectChargeType,
 				restaurantTransferAmount,
 				total,
 				totalPrice: total,
@@ -1750,8 +1891,11 @@ exports.createBrowserCheckoutSession = functions
 					pricingTier: paymentPolicy.pricingTier,
 					itemIds: sentItems.map((item) => item.id),
 					browserSessionId: sessionId,
-					stripeApplicationFeeAmount: applicationFeeAmount,
-					stripeConnectChargeType: "destination_charge",
+					stripeApplicationFeeAmount:
+						stripeAccountResolution.usesDestinationCharge
+							? applicationFeeAmount
+							: 0,
+					stripeConnectChargeType,
 					restaurantTransferAmount,
 				}),
 			};
@@ -1777,8 +1921,12 @@ exports.createBrowserCheckoutSession = functions
 				platformFee: String(platformFee),
 				processorFeeRecoveryAmount: String(processorFeeRecoveryAmount),
 				restaurantProcessingFeeAmount: String(processorFeeRecoveryAmount),
-				stripeApplicationFeeAmount: String(applicationFeeAmount),
-				stripeConnectChargeType: "destination_charge",
+				stripeApplicationFeeAmount: String(
+					stripeAccountResolution.usesDestinationCharge
+						? applicationFeeAmount
+						: 0,
+				),
+				stripeConnectChargeType,
 				restaurantTransferAmount: String(restaurantTransferAmount),
 				pricingTier: paymentPolicy.pricingTier,
 				scervFeeBasis: paymentPolicy.scervFeeBasis,
@@ -1807,13 +1955,10 @@ exports.createBrowserCheckoutSession = functions
 						receipt_email: customerEmail || undefined,
 						description: `Scerv browser table order ${pendingOrderId}`,
 						setup_future_usage: "off_session",
-						...(applicationFeeAmount > 0 && {
-							application_fee_amount: applicationFeeAmount,
+						...buildStripeConnectPaymentIntentParams({
+							stripeAccountResolution,
+							applicationFeeAmount,
 						}),
-						transfer_data: {
-							destination: restaurantStripeAccountId,
-						},
-						on_behalf_of: restaurantStripeAccountId,
 						metadata,
 					},
 					metadata,
@@ -2196,24 +2341,22 @@ exports.preparePayment = functions
 				);
 			}
 
-			const restaurantStripeAccountId = restaurantData.stripeAccountId || null;
-			const restaurantStripeReady =
-				restaurantStripeAccountId &&
-				(restaurantData.stripeAccountStatus === "verified" ||
-					restaurantData.stripeChargesEnabled === true);
-
-			if (!restaurantStripeReady) {
-				throw new functions.https.HttpsError(
-					"failed-precondition",
-					"This restaurant has not completed Stripe payout onboarding yet.",
-				);
-			}
-
 			// 2. ============== STRIPE INITIALIZATION & CUSTOMER FETCH ==============
 			const keys = await getStripeKeys(restaurantId);
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
+			const stripeAccountResolution =
+				await resolveRestaurantStripeAccountForCharge({
+					restaurantData,
+					stripeInstance,
+					keys,
+					restaurantId,
+				});
+			const restaurantStripeAccountId =
+				stripeAccountResolution.connectedAccountId;
+			const stripeConnectChargeType =
+				stripeAccountResolution.stripeConnectChargeType;
 
 			const userDoc = await db.collection("customers").doc(userId).get();
 			if (!userDoc.exists) {
@@ -2588,6 +2731,10 @@ exports.preparePayment = functions
 				currency: "usd",
 				restaurantCountry,
 				connectedAccountId: restaurantStripeAccountId,
+				configuredStripeAccountId:
+					stripeAccountResolution.configuredAccountId || null,
+				stripeAccountMode: stripeAccountResolution.mode,
+				stripeAccountSource: stripeAccountResolution.source,
 				payoutRouting: restaurantData.payoutMethod || "stripe_connect",
 				restaurantStripeAccountStatus:
 					restaurantData.stripeAccountStatus || null,
@@ -2628,9 +2775,13 @@ exports.preparePayment = functions
 				restaurantProcessingFeeBasis:
 					paymentPolicy.restaurantProcessingFeeBasis,
 				restaurantProcessingFeeBasisAmount,
-				applicationFeeAmount,
-				stripeApplicationFeeAmount: applicationFeeAmount,
-				stripeConnectChargeType: "destination_charge",
+				applicationFeeAmount: stripeAccountResolution.usesDestinationCharge
+					? applicationFeeAmount
+					: 0,
+				stripeApplicationFeeAmount: stripeAccountResolution.usesDestinationCharge
+					? applicationFeeAmount
+					: 0,
+				stripeConnectChargeType,
 				restaurantTransferAmount,
 				clientExpectedTotal: clientExpectedTotal || null,
 				total: finalAmount,
@@ -2671,8 +2822,11 @@ exports.preparePayment = functions
 					restaurantProcessingFeeBasis:
 						paymentPolicy.restaurantProcessingFeeBasis,
 					restaurantProcessingFeeBasisAmount,
-					stripeApplicationFeeAmount: applicationFeeAmount,
-					stripeConnectChargeType: "destination_charge",
+					stripeApplicationFeeAmount:
+						stripeAccountResolution.usesDestinationCharge
+							? applicationFeeAmount
+							: 0,
+					stripeConnectChargeType,
 					scervFeeWaived: paymentPolicy.scervFeeWaived,
 					feeWaiverReason: paymentPolicy.feeWaiverReason,
 					stripeFeeResponsibility: paymentPolicy.stripeFeeResponsibility,
@@ -2729,13 +2883,10 @@ exports.preparePayment = functions
 					// --- THIS IS THE CRITICAL LINE FOR CARD VAULTING ---
 					setup_future_usage: "off_session",
 					automatic_payment_methods: { enabled: true },
-					...(applicationFeeAmount > 0 && {
-						application_fee_amount: applicationFeeAmount,
+					...buildStripeConnectPaymentIntentParams({
+						stripeAccountResolution,
+						applicationFeeAmount,
 					}),
-					transfer_data: {
-						destination: restaurantStripeAccountId,
-					},
-					on_behalf_of: restaurantStripeAccountId,
 					metadata: {
 						orderId: newOrderId,
 						userId,
@@ -2783,8 +2934,12 @@ exports.preparePayment = functions
 						restaurantProcessingFeeBasisAmount: String(
 							restaurantProcessingFeeBasisAmount,
 						),
-						stripeApplicationFeeAmount: String(applicationFeeAmount),
-						stripeConnectChargeType: "destination_charge",
+						stripeApplicationFeeAmount: String(
+							stripeAccountResolution.usesDestinationCharge
+								? applicationFeeAmount
+								: 0,
+						),
+						stripeConnectChargeType,
 						restaurantTransferAmount: String(restaurantTransferAmount),
 						pricingTier: paymentPolicy.pricingTier,
 						scervFeeBasis: paymentPolicy.scervFeeBasis,
@@ -3046,10 +3201,12 @@ const createKitchenOrderForPaidPickup = async ({
 	partyId = null,
 	items = [],
 	fulfillmentType = "hotel_pickup",
-	locationName = "Hotel Pickup",
+	locationName = "Pickup Order",
+	customerId = "",
 	customerName = "",
 	customerEmail = "",
 	pickupSpecialInstructions = "",
+	readableOrderId = "",
 }) => {
 	if (!orderId || !restaurantId) {
 		throw new Error(
@@ -3137,33 +3294,7 @@ const createKitchenOrderForPaidPickup = async ({
 	const kitchenOrderData = {
 		restaurantId,
 		orderId,
-		partyId,
-
-		table: {
-			id: "hotel_pickup",
-			name: locationName,
-		},
-
-		server: {
-			id: "pickup_queue",
-			name: "Pickup Queue",
-		},
-
-		// ✅ ADD THESE (CRITICAL)
-		customerName: customerName || "Pickup Guest",
-		customerEmail: customerEmail || null,
-		pickupSpecialInstructions: pickupSpecialInstructions || "",
-
-		items: normalizedItems,
-
-		stationStatuses: initialStationStatuses,
-		overallStatus: "active",
-		status: "new",
-		fulfillmentType,
-		orderMode: "pickup",
-		createdAt: admin.firestore.FieldValue.serverTimestamp(),
-		restaurantId,
-		orderId,
+		readableOrderId: readableOrderId || orderId,
 		partyId,
 		table: {
 			id: "hotel_pickup",
@@ -3175,6 +3306,7 @@ const createKitchenOrderForPaidPickup = async ({
 		},
 
 		customerName: customerName || "Pickup Guest",
+		customerId: customerId || null,
 		customerEmail: customerEmail || null,
 		pickupSpecialInstructions: pickupSpecialInstructions || "",
 
@@ -3590,6 +3722,11 @@ const fulfillOrder = async ({
 				transactionalPendingOrderData.orderMode === "pickup" ||
 				transactionalPendingOrderData.fulfillmentType === "hotel_pickup" ||
 				transactionalPendingOrderData.type === "pickup";
+			const paidForUserIds = Array.isArray(
+				transactionalPendingOrderData.paidForUserIds,
+			)
+				? transactionalPendingOrderData.paidForUserIds.filter(Boolean)
+				: [payerUserId].filter(Boolean);
 
 			let partySnap = null;
 			let basketSnap = null;
@@ -3821,11 +3958,6 @@ const fulfillOrder = async ({
 					: [];
 				let remainingOrderedItemsAfterPayment = [];
 				let hasRemainingPosCloseoutItems = false;
-				const paidForUserIds = Array.isArray(
-					transactionalPendingOrderData.paidForUserIds,
-				)
-					? transactionalPendingOrderData.paidForUserIds.filter(Boolean)
-					: [payerUserId].filter(Boolean);
 				const paidForRealUserIds = new Set(
 					currentGuestPips
 						.filter((pip) =>
@@ -4265,7 +4397,9 @@ const fulfillOrder = async ({
 				locationName:
 					(pendingOrderData.table && pendingOrderData.table.name) ||
 					pendingOrderData.locationName ||
-					"Hotel Pickup",
+					"Pickup Order",
+
+				customerId: pendingOrderData.customerId || payerUserId || "",
 
 				customerName:
 					resolvedCustomerName ||
@@ -4277,6 +4411,8 @@ const fulfillOrder = async ({
 
 				pickupSpecialInstructions:
 					pendingOrderData.pickupSpecialInstructions || "",
+
+				readableOrderId,
 			});
 
 			console.log(

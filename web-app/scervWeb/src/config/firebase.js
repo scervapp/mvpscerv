@@ -18,6 +18,18 @@ const WEB_ENVIRONMENTS = {
 			appId: "1:464887665401:web:208fbf2c5c7163e1480828",
 		},
 	},
+	testing: {
+		key: "testing",
+		label: "Testing",
+		firebaseConfig: {
+			apiKey: "AIzaSyCjPv5xcEm0brH0fG9UR0v9ONqZ8y9H3Os",
+			authDomain: "scervmvp-testing.firebaseapp.com",
+			projectId: "scervmvp-testing",
+			storageBucket: "scervmvp-testing.firebasestorage.app",
+			messagingSenderId: "97306361036",
+			appId: "1:97306361036:android:76c5d6c550633903b5d669",
+		},
+	},
 	production: {
 		key: "production",
 		label: "Production",
@@ -36,7 +48,9 @@ const WEB_ENVIRONMENTS = {
 const requestedEnvironment =
 	process.env.REACT_APP_SCERV_ENV === "development"
 		? "development"
-		: "production";
+		: process.env.REACT_APP_SCERV_ENV === "testing"
+			? "testing"
+			: "production";
 export const selectedWebEnvironment = WEB_ENVIRONMENTS[requestedEnvironment];
 
 const app =

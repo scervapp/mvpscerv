@@ -7,6 +7,7 @@ const BASE_FEATURES = {
 	tableScanOrdering: true,
 	serviceRequests: true,
 	loyaltyClub: true,
+	scervPayLiteOnly: false,
 };
 
 const OPERATIONAL_FEATURES = [
@@ -18,6 +19,7 @@ const OPERATIONAL_FEATURES = [
 	"tableScanOrdering",
 	"serviceRequests",
 	"loyaltyClub",
+	"scervPayLiteOnly",
 ];
 
 const STYLE_DEFAULTS = {
@@ -59,6 +61,7 @@ const FEATURE_ALIASES = {
 	tableScanOrdering: ["tableScanOrdering", "tableScanOrderingEnabled"],
 	serviceRequests: ["serviceRequests", "serviceRequestsEnabled"],
 	loyaltyClub: ["loyaltyClub", "loyaltyClubEnabled"],
+	scervPayLiteOnly: ["scervPayLiteOnly", "scervPayLite", "scervpaylite"],
 };
 
 const ENTITLEMENT_SOURCES = [

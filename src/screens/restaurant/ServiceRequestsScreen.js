@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { httpsCallable } from "@react-native-firebase/functions";
 
 import colors from "../../utils/styles/appStyles";
-import { db, functions } from "../../config/firebase";
+import { functions } from "../../config/firebase";
 import { AuthContext } from "../../context/authContext";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
@@ -72,9 +72,13 @@ const ServiceRequestsScreen = ({ navigation }) => {
 		}),
 		[requests],
 	);
-	const acknowledgePartyServiceRequestFunction = httpsCallable(
-		functions,
-		"acknowledgePartyServiceRequest",
+	const acknowledgePartyServiceRequestFunction = useMemo(
+		() => httpsCallable(functions, "acknowledgePartyServiceRequest"),
+		[],
+	);
+	const listStaffServiceRequestsFunction = useMemo(
+		() => httpsCallable(functions, "listStaffServiceRequests"),
+		[],
 	);
 
 	useEffect(() => {
@@ -83,40 +87,61 @@ const ServiceRequestsScreen = ({ navigation }) => {
 			return undefined;
 		}
 
-		const unsubscribe = db
-			.collection("parties")
-			.where("restaurantId", "==", restaurantId)
-			.where("serviceRequested", "==", true)
-			.onSnapshot(
-				(snapshot) => {
-					const activeRequests = snapshot.docs
-						.map((doc) => ({
-							id: doc.id,
-							...doc.data(),
-						}))
-						.filter((party) => party.fulfillmentType !== "hotel_pickup")
-						.sort((a, b) => {
-							const aDate = getRequestDate(a.serviceRequestedAt);
-							const bDate = getRequestDate(b.serviceRequestedAt);
-							return (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
-						});
+		let cancelled = false;
+		let timer = null;
 
-					setRequests(
-						getVisibleRequestsForSession(activeRequests, activeSession),
-					);
-					setIsLoading(false);
-				},
-				(error) => {
+		const loadRequests = async () => {
+			try {
+				const result = await listStaffServiceRequestsFunction({
+					restaurantId,
+					staffId: activeSession?.id || null,
+				});
+				if (cancelled) return;
+
+				const activeRequests = (result.data?.serviceRequests || [])
+					.map((request) => ({
+						id: request.partyId || request.id,
+						partyId: request.partyId || request.id,
+						table: request.table,
+						serviceTableName: request.tableName,
+						server: request.server,
+						hostName: request.guestName,
+						customerName: request.guestName,
+						serviceRequestType: request.requestType,
+						serviceRequestMessage: request.message,
+						serviceRequestStatus: request.status,
+						serviceRequestedAt: request.requestedAt,
+					}))
+					.sort((a, b) => {
+						const aDate = getRequestDate(a.serviceRequestedAt);
+						const bDate = getRequestDate(b.serviceRequestedAt);
+						return (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
+					});
+
+				setRequests(
+					getVisibleRequestsForSession(activeRequests, activeSession),
+				);
+				setIsLoading(false);
+			} catch (error) {
+				if (!cancelled) {
 					console.error("Error fetching service requests:", error);
 					setIsLoading(false);
-				},
-			);
+				}
+			}
+		};
 
-		return () => unsubscribe();
+		loadRequests();
+		timer = setInterval(loadRequests, 10000);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearInterval(timer);
+		};
 	}, [
 		activeSession?.id,
 		activeSession?.jobTitle,
 		activeSession?.role,
+		listStaffServiceRequestsFunction,
 		restaurantId,
 	]);
 
