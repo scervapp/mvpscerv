@@ -145,6 +145,7 @@ const assertRestaurantAccess = async (uid, restaurantId) => {
 	const ownerIds = [
 		restaurantId,
 		restaurantData.uid,
+		restaurantData.ownerUid,
 		restaurantData.ownerId,
 		restaurantData.restaurantOwnerId,
 	].filter(Boolean);
@@ -194,19 +195,24 @@ const assertReservationSettingsReadAccess = async (
 
 	const tokenRestaurantId =
 		context.auth.token && context.auth.token.restaurantId;
-	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
-		if (!employeeId || context.auth.uid === restaurantId) {
-			const restaurantSnap = await db
-				.collection("restaurants")
-				.doc(restaurantId)
-				.get();
-			if (!restaurantSnap.exists) {
-				throw new functions.https.HttpsError(
-					"not-found",
-					"Restaurant not found.",
-				);
-			}
+	const restaurantSnap = await db.collection("restaurants").doc(restaurantId).get();
+	if (!restaurantSnap.exists) {
+		throw new functions.https.HttpsError(
+			"not-found",
+			"Restaurant not found.",
+		);
+	}
 
+	const restaurantData = restaurantSnap.data() || {};
+	const isRestaurantOwner =
+		context.auth.uid === restaurantId ||
+		tokenRestaurantId === restaurantId ||
+		restaurantData.ownerUid === context.auth.uid ||
+		restaurantData.ownerId === context.auth.uid ||
+		restaurantData.uid === context.auth.uid;
+
+	if (isRestaurantOwner) {
+		if (!employeeId || context.auth.uid === restaurantId) {
 			return {
 				employee: {
 					id: employeeId || context.auth.uid,
