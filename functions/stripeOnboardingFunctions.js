@@ -61,6 +61,125 @@ const createOnboardingLink = async (stripeInstance, accountId) => {
 	return accountLink.url;
 };
 
+const getStripeMode = (keys = {}) => (keys.isTestMode ? "test" : "live");
+
+const getStripeAccountIdField = (mode) =>
+	mode === "live" ? "stripeAccountId_live" : "stripeAccountId_test";
+
+const getStripeStatusField = (mode) =>
+	mode === "live" ? "stripeAccountStatus_live" : "stripeAccountStatus_test";
+
+const getModeAwareStripeAccountId = (restaurantData = {}, mode = "test") => {
+	const modeSpecificId = restaurantData[getStripeAccountIdField(mode)];
+	if (modeSpecificId) return modeSpecificId;
+
+	const legacyMode = restaurantData.stripeAccountMode;
+	const legacyId = restaurantData.stripeAccountId;
+	if (legacyId && (!legacyMode || legacyMode === mode)) return legacyId;
+
+	return null;
+};
+
+const buildStripeAccountPatch = ({
+	account,
+	mode,
+	status = "pending",
+	isOnboarded = false,
+}) => ({
+	[getStripeAccountIdField(mode)]: account.id,
+	[getStripeStatusField(mode)]: status,
+	stripeAccountId: account.id,
+	stripeAccountStatus: status,
+	stripeAccountMode: mode,
+	canAcceptPayments: isOnboarded && account.charges_enabled === true,
+	stripeChargesEnabled: account.charges_enabled === true,
+	stripeDetailsSubmitted: account.details_submitted === true,
+	stripePayoutsEnabled: account.payouts_enabled === true,
+	stripeCapabilities: {
+		card_payments: account.capabilities.card_payments || null,
+		transfers: account.capabilities.transfers || null,
+	},
+	updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+});
+
+const createStripeAccountForRestaurant = async ({
+	stripeInstance,
+	restaurantId,
+	restaurantRef,
+	restaurantData,
+	context,
+	mode,
+}) => {
+	const country = normalizeCountryCode(
+		restaurantData.countryCode || restaurantData.country,
+	);
+	const account = await stripeInstance.accounts.create({
+		type: "express",
+		country,
+		email: restaurantData.email || context.auth.token.email || undefined,
+		capabilities: {
+			card_payments: { requested: true },
+			transfers: { requested: true },
+		},
+		business_profile: {
+			name:
+				restaurantData.restaurantName ||
+				restaurantData.businessName ||
+				restaurantData.name ||
+				undefined,
+		},
+		metadata: {
+			restaurantId,
+			firebaseUID: context.auth.uid,
+			scervEnvironment: mode,
+		},
+	});
+
+	await restaurantRef.update({
+		...buildStripeAccountPatch({
+			account,
+			mode,
+			status: "pending",
+			isOnboarded: false,
+		}),
+		canAcceptPayments: false,
+		stripeOnboardingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+	});
+
+	return account;
+};
+
+const ensureConnectedAccountForMode = async ({
+	stripeInstance,
+	restaurantId,
+	restaurantRef,
+	restaurantData,
+	context,
+	mode,
+}) => {
+	const existingAccountId = getModeAwareStripeAccountId(restaurantData, mode);
+	if (existingAccountId) {
+		return {
+			accountId: existingAccountId,
+			reusedExistingAccount: true,
+		};
+	}
+
+	const account = await createStripeAccountForRestaurant({
+		stripeInstance,
+		restaurantId,
+		restaurantRef,
+		restaurantData,
+		context,
+		mode,
+	});
+
+	return {
+		accountId: account.id,
+		reusedExistingAccount: false,
+	};
+};
+
 const toStripeOnboardingError = (error) => {
 	const message = error && error.message ? error.message : "";
 	if (
@@ -94,66 +213,29 @@ exports.createConnectedAccount = functions
 		const keys = await getStripeKeys(restaurantId);
 		const stripeSecretKey = keys.stripeSecretKey;
 		const stripeInstance = stripe(stripeSecretKey);
+		const mode = getStripeMode(keys);
 
 		try {
-			if (restaurantData.stripeAccountId) {
-				const accountLinkUrl = await createOnboardingLink(
-					stripeInstance,
-					restaurantData.stripeAccountId,
-				);
-				return {
-					accountId: restaurantData.stripeAccountId,
-					url: accountLinkUrl,
-					accountLinkUrl,
-					reusedExistingAccount: true,
-				};
-			}
-
-			const country = normalizeCountryCode(
-				restaurantData.countryCode || restaurantData.country,
-			);
-			const account = await stripeInstance.accounts.create({
-				type: "express",
-				country,
-				email: restaurantData.email || context.auth.token.email || undefined,
-				capabilities: {
-					card_payments: { requested: true },
-					transfers: { requested: true },
-				},
-				business_profile: {
-					name:
-						restaurantData.restaurantName ||
-						restaurantData.businessName ||
-						restaurantData.name ||
-						undefined,
-				},
-				metadata: {
-					restaurantId,
-					firebaseUID: context.auth.uid,
-					scervEnvironment: keys.isTestMode ? "test" : "live",
-				},
+			const accountResult = await ensureConnectedAccountForMode({
+				stripeInstance,
+				restaurantId,
+				restaurantRef,
+				restaurantData,
+				context,
+				mode,
 			});
 
 			const accountLinkUrl = await createOnboardingLink(
 				stripeInstance,
-				account.id,
+				accountResult.accountId,
 			);
 
-			await restaurantRef.update({
-				stripeAccountId: account.id,
-				stripeAccountStatus: "pending",
-				stripeAccountMode: keys.isTestMode ? "test" : "live",
-				canAcceptPayments: false,
-				stripeCapabilities: {
-					card_payments: account.capabilities.card_payments || null,
-					transfers: account.capabilities.transfers || null,
-				},
-				stripeOnboardingStartedAt:
-					admin.firestore.FieldValue.serverTimestamp(),
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-			});
-
-			return { accountId: account.id, url: accountLinkUrl, accountLinkUrl };
+			return {
+				accountId: accountResult.accountId,
+				url: accountLinkUrl,
+				accountLinkUrl,
+				reusedExistingAccount: accountResult.reusedExistingAccount,
+			};
 		} catch (error) {
 			console.error("Error creating connected account:", error);
 			throw toStripeOnboardingError(error);
@@ -172,15 +254,20 @@ exports.createLoginLink = functions
 	.https.onCall(async (data, context) => {
 		const { accountId, restaurantId } = data;
 		const { restaurantData } = await assertRestaurantOwner(context, restaurantId);
+		const keys = await getStripeKeys(restaurantId);
+		const mode = getStripeMode(keys);
+		const expectedAccountId = getModeAwareStripeAccountId(
+			restaurantData,
+			mode,
+		);
 
-		if (!accountId || restaurantData.stripeAccountId !== accountId) {
+		if (!accountId || expectedAccountId !== accountId) {
 			throw new functions.https.HttpsError(
 				"permission-denied",
 				"Stripe account does not belong to this restaurant.",
 			);
 		}
 
-		const keys = await getStripeKeys(restaurantId);
 		const stripeSecretKey = keys.stripeSecretKey;
 		const stripeInstance = stripe(stripeSecretKey);
 
@@ -212,15 +299,50 @@ exports.checkOnboardingStatus = functions
 			context,
 			restaurantId,
 		);
+		const keys = await getStripeKeys(restaurantId);
+		const mode = getStripeMode(keys);
+		const expectedAccountId = getModeAwareStripeAccountId(
+			restaurantData,
+			mode,
+		);
 
-		if (!accountId || restaurantData.stripeAccountId !== accountId) {
+		if (!accountId || expectedAccountId !== accountId) {
+			const legacyMode = restaurantData.stripeAccountMode;
+			const legacyAccountId = restaurantData.stripeAccountId;
+			if (legacyAccountId === accountId && legacyMode && legacyMode !== mode) {
+				try {
+					const stripeInstance = stripe(keys.stripeSecretKey);
+					const accountResult = await ensureConnectedAccountForMode({
+						stripeInstance,
+						restaurantId,
+						restaurantRef,
+						restaurantData,
+						context,
+						mode,
+					});
+					const accountLinkUrl = await createOnboardingLink(
+						stripeInstance,
+						accountResult.accountId,
+					);
+					return {
+						isOnboarded: false,
+						accountId: accountResult.accountId,
+						accountLinkUrl,
+						reusedExistingAccount: accountResult.reusedExistingAccount,
+						createdForMode: mode,
+					};
+				} catch (error) {
+					console.error("Error creating mode-aware connected account:", error);
+					throw toStripeOnboardingError(error);
+				}
+			}
+
 			throw new functions.https.HttpsError(
 				"permission-denied",
 				"Stripe account does not belong to this restaurant.",
 			);
 		}
 
-		const keys = await getStripeKeys(restaurantId);
 		const stripeInstance = stripe(keys.stripeSecretKey);
 
 		try {
@@ -238,20 +360,16 @@ exports.checkOnboardingStatus = functions
 			);
 
 			await restaurantRef.update({
-				canAcceptPayments: isOnboarded && account.charges_enabled === true,
-				stripeChargesEnabled: account.charges_enabled === true,
-				stripeDetailsSubmitted: account.details_submitted === true,
-				stripePayoutsEnabled: account.payouts_enabled === true,
+				...buildStripeAccountPatch({
+					account,
+					mode,
+					status: isOnboarded ? "verified" : "pending",
+					isOnboarded,
+				}),
 				stripeRequirementsCurrentlyDue:
 					account.requirements.currently_due || [],
 				stripeRequirementsEventuallyDue:
 					account.requirements.eventually_due || [],
-				stripeCapabilities: {
-					card_payments: account.capabilities.card_payments || null,
-					transfers: account.capabilities.transfers || null,
-				},
-				stripeAccountStatus: isOnboarded ? "verified" : "pending",
-				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 			});
 
 			if (isOnboarded) {

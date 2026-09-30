@@ -27,6 +27,20 @@ import { StatusIndicator } from "./StatusIndicator";
 import { useTranslation } from "react-i18next";
 import i18n from "../../config/i18n";
 
+const getActiveStripeAccountId = (restaurant = {}, isTestMode = true) => {
+	const mode = isTestMode ? "test" : "live";
+	const modeSpecificId = isTestMode
+		? restaurant.stripeAccountId_test
+		: restaurant.stripeAccountId_live;
+	if (modeSpecificId) return modeSpecificId;
+
+	const legacyMode = restaurant.stripeAccountMode;
+	const legacyId = restaurant.stripeAccountId;
+	if (legacyId && (!legacyMode || legacyMode === mode)) return legacyId;
+
+	return "";
+};
+
 const BackOfficeScreen = ({ navigation }) => {
 	const { t } = useTranslation();
 	const { currentUserData, logout } = useContext(AuthContext);
@@ -48,8 +62,19 @@ const BackOfficeScreen = ({ navigation }) => {
 	const country = currentUserData?.country || currentUserData?.countryCode || "";
 	const isPanama =
 		country.toUpperCase() === "PA" || country.toLowerCase() === "panama";
-	const stripeVerified = currentUserData?.stripeAccountStatus === "verified";
-	const stripeStarted = !!currentUserData?.stripeAccountId;
+	const activeStripeAccountId = getActiveStripeAccountId(
+		currentUserData,
+		isTestMode,
+	);
+	const activeStripeStatus =
+		(isTestMode
+			? currentUserData?.stripeAccountStatus_test
+			: currentUserData?.stripeAccountStatus_live) ||
+		(currentUserData?.stripeAccountId === activeStripeAccountId
+			? currentUserData?.stripeAccountStatus
+			: "");
+	const stripeVerified = activeStripeStatus === "verified";
+	const stripeStarted = !!activeStripeAccountId;
 	const profileComplete = [
 		currentUserData?.restaurantName,
 		currentUserData?.phone,
@@ -160,7 +185,7 @@ const BackOfficeScreen = ({ navigation }) => {
 			country.toUpperCase() === "PA" || country.toLowerCase() === "panama";
 
 		if (!isPanama) {
-			if (!currentUserData?.stripeAccountId) {
+			if (!stripeStarted) {
 				dynamicScreens.push({
 					id: "6",
 					name: "CreateStripeAccount",
@@ -183,7 +208,7 @@ const BackOfficeScreen = ({ navigation }) => {
 			}
 		}
 		setScreens(dynamicScreens);
-	}, [currentUserData, t]);
+	}, [currentUserData, restaurantId, stripeStarted, isTestMode, t]);
 
 	const loadSetupStatus = useCallback(async () => {
 		if (!restaurantId) return;
@@ -246,7 +271,7 @@ const BackOfficeScreen = ({ navigation }) => {
 	};
 
 	const handleCheckOnboardingStatus = async () => {
-		if (isStripeLoading || !currentUserData?.stripeAccountId) return;
+		if (isStripeLoading || !activeStripeAccountId) return;
 		setIsStripeLoading(true);
 		try {
 			const checkOnboardingStatus = httpsCallable(
@@ -254,7 +279,7 @@ const BackOfficeScreen = ({ navigation }) => {
 				"checkOnboardingStatus",
 			);
 			const response = await checkOnboardingStatus({
-				accountId: currentUserData.stripeAccountId,
+				accountId: activeStripeAccountId,
 				restaurantId: currentUserData.uid,
 			});
 
@@ -278,7 +303,7 @@ const BackOfficeScreen = ({ navigation }) => {
 		try {
 			const createLoginLink = httpsCallable(functions, "createLoginLink");
 			const response = await createLoginLink({
-				accountId: currentUserData.stripeAccountId,
+				accountId: activeStripeAccountId,
 				restaurantId: currentUserData.uid,
 			});
 
