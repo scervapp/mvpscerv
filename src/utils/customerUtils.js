@@ -23,7 +23,10 @@ const fetchRestaurants = async () => {
 			})
 			.filter(Boolean);
 
-		return restaurants;
+		return restaurants.filter(
+			(restaurant) =>
+				restaurant.isLive === true && restaurant.isCustomerVisible !== false,
+		);
 	} catch (error) {
 		console.log("Error fetching restaurants:", error);
 		throw error;

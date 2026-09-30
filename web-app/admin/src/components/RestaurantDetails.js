@@ -284,6 +284,15 @@ const RestaurantDetails = () => {
 					<span className={restaurant.isLive ? "good-pill" : "warn-pill"}>
 						{restaurant.isLive ? "Live" : "Not live"}
 					</span>
+					<span
+						className={
+							restaurant.isCustomerVisible === false ? "warn-pill" : "good-pill"
+						}
+					>
+						{restaurant.isCustomerVisible === false
+							? "Customer hidden"
+							: "Customer visible"}
+					</span>
 					<span className="neutral-pill">
 						{restaurant.planLevel || restaurant.subscription?.planLevel || "starter"}
 					</span>
@@ -441,7 +450,29 @@ const RestaurantDetails = () => {
 								checked={formData.isActive !== false}
 								onChange={handleChange}
 							/>
-							Active
+							Active account
+						</label>
+						<label className="check-field">
+							<input
+								type="checkbox"
+								name="isLive"
+								checked={formData.isLive === true}
+								onChange={handleChange}
+							/>
+							Live operations / payments enabled
+						</label>
+						<label className="check-field">
+							<input
+								type="checkbox"
+								name="isCustomerVisible"
+								checked={formData.isCustomerVisible !== false}
+								onChange={handleChange}
+							/>
+							Customer-visible listing
+							<span className="field-help">
+								Turn this off for Pay Lite-only restaurants that should not appear
+								in customer discovery or public restaurant pages yet.
+							</span>
 						</label>
 						<button type="submit" disabled={saving}>
 							{saving ? "Saving..." : "Save Profile"}

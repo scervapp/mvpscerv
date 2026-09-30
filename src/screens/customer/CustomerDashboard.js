@@ -575,7 +575,10 @@ const CustomerDashboard = ({ navigation }) => {
 						if (currentUserData?.canViewHiddenRestaurants) {
 							return true;
 						}
-						return true;
+						return (
+							restaurant.isLive === true &&
+							restaurant.isCustomerVisible !== false
+						);
 					});
 
 				setAllRestaurants(validRestaurants);

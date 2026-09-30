@@ -3061,6 +3061,7 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 			"geoLat",
 			"geoLong",
 			"isActive",
+			"isCustomerVisible",
 			"isLive",
 			"isFeatured",
 			"backOfficePin",
@@ -3069,7 +3070,11 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 
 		allowedFields.forEach((field) => {
 			if (updates[field] === undefined) return;
-			if (["isActive", "isLive", "isFeatured"].includes(field)) {
+			if (
+				["isActive", "isCustomerVisible", "isLive", "isFeatured"].includes(
+					field,
+				)
+			) {
 				cleanUpdates[field] = Boolean(updates[field]);
 			} else if (field === "listingStatus" || field === "scervStatus") {
 				cleanUpdates[field] = normalizeListingStatus(updates[field]);

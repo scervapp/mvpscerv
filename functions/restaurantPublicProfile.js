@@ -22,6 +22,7 @@ const PUBLIC_RESTAURANT_FIELDS = [
 	"imageUri",
 	"imageUrl",
 	"isActive",
+	"isCustomerVisible",
 	"isLive",
 	"location",
 	"logoUrl",
@@ -79,7 +80,10 @@ const buildRestaurantPublicProfile = (restaurantId, restaurantData = {}) => {
 		return null;
 	}
 
-	if (restaurantData.isLive !== true) {
+	if (
+		restaurantData.isLive !== true ||
+		restaurantData.isCustomerVisible === false
+	) {
 		return null;
 	}
 

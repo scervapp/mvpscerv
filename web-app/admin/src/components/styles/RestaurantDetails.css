@@ -203,6 +203,7 @@
 }
 
 .restaurant-profile-form input,
+.restaurant-profile-form select,
 .restaurant-profile-form textarea,
 .setup-link-box textarea {
 	border: 1px solid #cfcfcf;
@@ -227,6 +228,17 @@
 .check-field {
 	align-items: center;
 	flex-direction: row !important;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.field-help {
+	color: #555;
+	flex-basis: 100%;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.35;
+	margin-left: 26px;
 }
 
 .restaurant-profile-form button,

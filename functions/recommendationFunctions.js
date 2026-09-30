@@ -339,7 +339,11 @@ exports.getScervTasteRecommendations = functions.https.onCall(
 			.get();
 		const restaurants = restaurantSnap.docs
 			.map((doc) => ({ id: doc.id, ...doc.data() }))
-			.filter((restaurant) => restaurant.isActive !== false);
+			.filter(
+				(restaurant) =>
+					restaurant.isActive !== false &&
+					restaurant.isCustomerVisible !== false,
+			);
 		const restaurantsById = new Map(
 			restaurants.map((restaurant) => [restaurant.id, restaurant]),
 		);
@@ -583,6 +587,7 @@ exports.getScervFeed = functions.https.onCall(async (data, context) => {
 		const menuItem = menuItemsById.get(rating.menuItemId);
 		const restaurant = restaurantsById.get(rating.restaurantId);
 		if (!menuItem || !restaurant || restaurant.isLive !== true) return;
+		if (restaurant.isCustomerVisible === false) return;
 		if (restaurant.countryCode && restaurant.countryCode !== countryCode) return;
 
 		const customer = customersById.get(rating.customerId) || {};

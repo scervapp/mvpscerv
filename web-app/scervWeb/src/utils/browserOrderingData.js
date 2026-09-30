@@ -33,13 +33,17 @@ const compactRestaurant = (docSnap) => {
 	};
 };
 
+const isPublishedRestaurant = (restaurant = {}) =>
+	restaurant.isLive === true && restaurant.isCustomerVisible !== false;
+
 export const getRestaurantBySlug = async (slug) => {
 	const cleanSlug = slugify(slug);
 	if (!cleanSlug) return null;
 
 	const directDoc = await getDoc(doc(db, "restaurantPublic", cleanSlug));
 	if (directDoc.exists()) {
-		return compactRestaurant(directDoc);
+		const restaurant = compactRestaurant(directDoc);
+		return isPublishedRestaurant(restaurant) ? restaurant : null;
 	}
 
 	const restaurantRef = collection(db, "restaurantPublic");
@@ -48,7 +52,10 @@ export const getRestaurantBySlug = async (slug) => {
 		const snapshot = await getDocs(
 			query(restaurantRef, where(field, "==", cleanSlug), limit(1)),
 		);
-		if (!snapshot.empty) return compactRestaurant(snapshot.docs[0]);
+		if (!snapshot.empty) {
+			const restaurant = compactRestaurant(snapshot.docs[0]);
+			if (isPublishedRestaurant(restaurant)) return restaurant;
+		}
 	}
 
 	// Many existing records do not have public slugs yet. For this first web
@@ -56,7 +63,10 @@ export const getRestaurantBySlug = async (slug) => {
 	const fallbackSnapshot = await getDocs(query(restaurantRef, limit(150)));
 	const match = fallbackSnapshot.docs
 		.map(compactRestaurant)
-		.find((restaurant) => restaurant.slug === cleanSlug);
+		.find(
+			(restaurant) =>
+				restaurant.slug === cleanSlug && isPublishedRestaurant(restaurant),
+		);
 
 	return match || null;
 };
