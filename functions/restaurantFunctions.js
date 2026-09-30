@@ -181,6 +181,20 @@ const buildOwnerStaffProfile = (context, staffId = null) => ({
 	isActive: true,
 });
 
+const isOwnerOfRestaurantRecord = async (uid, restaurantId) => {
+	if (!uid || !restaurantId) return false;
+
+	const restaurantSnap = await db.collection("restaurants").doc(restaurantId).get();
+	if (!restaurantSnap.exists) return false;
+
+	const restaurant = restaurantSnap.data() || {};
+	return (
+		restaurant.ownerUid === uid ||
+		restaurant.ownerId === uid ||
+		restaurant.uid === uid
+	);
+};
+
 const assertStaffReadAccess = async ({
 	context,
 	restaurantId,
@@ -205,7 +219,12 @@ const assertStaffReadAccess = async ({
 
 	const tokenRestaurantId =
 		context.auth.token && context.auth.token.restaurantId;
-	if (context.auth.uid === restaurantId || tokenRestaurantId === restaurantId) {
+	const hasRestaurantAccess =
+		context.auth.uid === restaurantId ||
+		tokenRestaurantId === restaurantId ||
+		(await isOwnerOfRestaurantRecord(context.auth.uid, restaurantId));
+
+	if (hasRestaurantAccess) {
 		if (!employeeId || context.auth.uid === restaurantId) {
 			return buildOwnerStaffProfile(context, employeeId);
 		}

@@ -107,11 +107,29 @@ const getRestaurantEmployee = async ({
 	return null;
 };
 
-const hasAllowedRestaurantClaim = (context, restaurantId) => {
+const isOwnerOfRestaurantRecord = async (db, uid, restaurantId) => {
+	if (!uid || !restaurantId) return false;
+
+	const restaurantSnap = await db.collection("restaurants").doc(restaurantId).get();
+	if (!restaurantSnap.exists) return false;
+
+	const restaurant = restaurantSnap.data() || {};
+	return (
+		restaurant.ownerUid === uid ||
+		restaurant.ownerId === uid ||
+		restaurant.uid === uid
+	);
+};
+
+const hasAllowedRestaurantClaim = async (db, context, restaurantId) => {
 	const token = context.auth && context.auth.token ? context.auth.token : {};
 	const tokenRestaurantId = token.restaurantId;
 
-	return context.auth.uid === restaurantId || tokenRestaurantId === restaurantId;
+	return (
+		context.auth.uid === restaurantId ||
+		tokenRestaurantId === restaurantId ||
+		(await isOwnerOfRestaurantRecord(db, context.auth.uid, restaurantId))
+	);
 };
 
 const assertRestaurantPermission = async ({
@@ -123,7 +141,7 @@ const assertRestaurantPermission = async ({
 	allowedJobTitles = [],
 	action = "perform this restaurant action",
 }) => {
-	if (!hasAllowedRestaurantClaim(context, restaurantId)) {
+	if (!(await hasAllowedRestaurantClaim(db, context, restaurantId))) {
 		throw new functions.https.HttpsError(
 			"permission-denied",
 			"User is not authorized for this restaurant.",
