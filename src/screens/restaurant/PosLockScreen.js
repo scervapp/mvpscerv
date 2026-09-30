@@ -16,6 +16,8 @@ import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionCont
 import { fetchEmployees } from "../../utils/firebaseUtils"; // Fetch ALL employees, not just managers
 import ManagerPinModal from "../../components/restaurant/ManagerPinModal";
 import colors from "../../utils/styles/appStyles";
+import { functions } from "../../config/firebase.native";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 const getEmployeeDisplayName = (employee) =>
 	employee?.name ||
@@ -60,29 +62,64 @@ const PosLockScreen = () => {
 
 	// Handle initial owner setup (from your original logic)
 	useEffect(() => {
+		if (isLoading) return;
 		if (
 			currentUserData?.role === "owner" &&
-			currentUserData?.hasSetupEmployees === false
+			currentUserData?.hasSetupEmployees === false &&
+			staffList.length === 0
 		) {
-			Alert.alert(
-				t("welcome_owner"),
-				t("to_secure_your_pos_please_create_an_employee_profile_and_pin"),
-				[
-					{
-						text: t("ok"),
-						onPress: () => {
-							// Temporarily unlock them as owner so they can go to Back Office
-							startSession({
-								id: currentUserData.uid,
-								name: "Owner Setup",
-								role: "owner",
-							});
+			let cancelled = false;
+
+			const confirmOwnerSetupNeeded = async () => {
+				try {
+					const getSetupStatus = httpsCallable(
+						functions,
+						"getStaffBackOfficeSetupStatus",
+					);
+					const result = await getSetupStatus({
+						restaurantId,
+						staffId: null,
+					});
+					const counts = result.data?.counts || {};
+					const activeEmployeeCount = Number(
+						counts.activeEmployees ?? counts.employees ?? 0,
+					);
+					if (cancelled || activeEmployeeCount > 0) return;
+				} catch (error) {
+					console.error(
+						"PosLockScreen: Could not verify owner setup status:",
+						error,
+					);
+					if (cancelled) return;
+				}
+
+				Alert.alert(
+					t("welcome_owner"),
+					t("to_secure_your_pos_please_create_an_employee_profile_and_pin"),
+					[
+						{
+							text: t("ok"),
+							onPress: () => {
+								// Temporarily unlock them as owner so they can go to Back Office
+								startSession({
+									id: currentUserData.uid,
+									name: "Owner Setup",
+									role: "owner",
+								});
+							},
 						},
-					},
-				],
-			);
+					],
+				);
+			};
+
+			confirmOwnerSetupNeeded();
+
+			return () => {
+				cancelled = true;
+			};
 		}
-	}, [currentUserData]);
+		return undefined;
+	}, [currentUserData, isLoading, restaurantId, staffList.length, startSession, t]);
 
 	const handleEmployeeSelect = (employee) => {
 		setEmployeeToVerify(employee);
