@@ -2,8 +2,9 @@ import React from "react";
 import { Alert } from "react-native";
 
 import * as ImagePicker from "expo-image-picker";
-import { nativeStorage, db } from "../config/firebase.native";
+import { nativeStorage, db, functions } from "../config/firebase.native";
 import { updateDoc } from "@react-native-firebase/firestore";
+import { httpsCallable } from "@react-native-firebase/functions";
 
 /* Uploads an image file to Firebase Storage and returns the download URL.
 
@@ -192,7 +193,7 @@ export const fetchTables = (restaurantId, callback, onError) => {
 };
 
 /**
- * Fetches employees from a restaurant's subcollection based on their permission ROLE.
+ * Fetches employees from the hardened staff-directory callable based on permission ROLE.
  * This is used for security checks, like seeing if any managers exist.
  * @param {string} restaurantId - The UID of the restaurant.
  * @param {string[]} roles - An array of roles to search for (e.g., ['manager', 'owner']).
@@ -212,17 +213,9 @@ export const fetchEmployeesByRole = async (restaurantId, roles) => {
 	}
 
 	try {
-		const employeesRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees");
-
-		// Use the 'in' operator to find any employee whose role is in the provided array
-		const snapshot = await employeesRef.where("role", "in", roles).get();
-		const employeesList = snapshot.docs.map((doc) => ({
-			id: doc.id,
-			...doc.data(),
-		}));
+		const employeesList = (await fetchEmployees(restaurantId)).filter(
+			(employee) => roles.includes(employee.role)
+		);
 
 		console.log(`Found ${employeesList.length} employees with matching roles.`);
 		return employeesList;
@@ -233,7 +226,7 @@ export const fetchEmployeesByRole = async (restaurantId, roles) => {
 };
 
 /**
- * Fetches employees from a restaurant's subcollection based on their operational JOB TITLE.
+ * Fetches employees from the hardened staff-directory callable based on operational JOB TITLE.
  * This is used for operational tasks, like assigning a server to a table.
  * @param {string} restaurantId - The UID of the restaurant.
  * @param {string} jobTitle - A specific job title string to filter by (e.g., 'Server').
@@ -251,17 +244,7 @@ export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
 	}
 
 	try {
-		const employeesRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees");
-
-		// Use the '==' operator to find all employees with a specific job title
-		const snapshot = await employeesRef.where("jobTitle", "==", jobTitle).get();
-		const employeesList = snapshot.docs.map((doc) => ({
-			id: doc.id,
-			...doc.data(),
-		}));
+		const employeesList = await fetchEmployees(restaurantId, jobTitle);
 
 		console.log(
 			`Found ${employeesList.length} employees with matching job title.`
@@ -273,8 +256,8 @@ export const fetchEmployeesByJobTitle = async (restaurantId, jobTitle) => {
 	}
 };
 /**
- * Fetches employees for a given restaurant, optionally filtering by a single job title or an array of job titles.
- * This function now uses the @react-native- API.
+ * Fetches employees for a given restaurant through the hardened staff-directory callable,
+ * optionally filtering by a single job title or an array of job titles.
  *
  * @param {string} restaurantId The ID of the restaurant.
  * @param {string|Array<string>} [jobTitles] Optional. A single job title string or an array of job title strings to filter by.
@@ -293,41 +276,23 @@ export const fetchEmployees = async (restaurantId, jobTitles) => {
 	}
 
 	try {
-		const employeesSubcollectionRef = db
-			.collection("restaurants")
-			.doc(restaurantId)
-			.collection("employees");
-		let employeesQuery;
+		const listStaffDirectory = httpsCallable(functions, "listStaffDirectory");
+		const result = await listStaffDirectory({ restaurantId });
+		let employeesList = result.data?.employees || [];
 
-		// The logic for building the query remains the same.
 		if (Array.isArray(jobTitles) && jobTitles.length > 0) {
-			console.log("... using 'in' query for multiple job titles.");
-			employeesQuery = employeesSubcollectionRef.where(
-				"jobTitle",
-				"in",
-				jobTitles
+			console.log("... filtering callable staff directory by job title list.");
+			employeesList = employeesList.filter((employee) =>
+				jobTitles.includes(employee.jobTitle)
 			);
 		} else if (typeof jobTitles === "string" && jobTitles) {
-			console.log("... using '==' query for a single job title.");
-			employeesQuery = employeesSubcollectionRef.where(
-				"jobTitle",
-				"==",
-				jobTitles
+			console.log("... filtering callable staff directory by job title.");
+			employeesList = employeesList.filter(
+				(employee) => employee.jobTitle === jobTitles
 			);
 		} else {
-			console.log("... no job title filter, fetching all employees.");
-			employeesQuery = employeesSubcollectionRef;
+			console.log("... no job title filter, using callable staff directory.");
 		}
-
-		// --- REFACTORED QUERY EXECUTION ---
-
-		const snapshot = await employeesQuery.get();
-
-		// The logic for mapping the results remains the same.
-		const employeesList = snapshot.docs.map((doc) => ({
-			id: doc.id,
-			...doc.data(),
-		}));
 
 		console.log(
 			`firebaseUtils.fetchEmployees: Found ${employeesList.length} employees matching query.`

@@ -239,8 +239,8 @@ service cloud.firestore {
       }
 
       match /employees/{employeeId} {
-        allow read: if isRestaurantUser(restaurantId);
         allow write: if false;
+        allow read: if false;
       }
 
       match /work_days/{workDayId} {
@@ -254,13 +254,8 @@ service cloud.firestore {
       }
 
       match /private/{docId} {
-        allow read: if isRestaurantUser(restaurantId);
         allow write: if false;
-      }
-
-      match /{document=**} {
-        allow read: if isRestaurantUser(restaurantId);
-        allow write: if false;
+        allow read: if false;
       }
     }
 

@@ -2,13 +2,13 @@
 
 Date: 2026-09-30
 Project lane: `scervmvp-testing`
-Status: R1 deployed to testing; post-deploy device smoke pending.
+Status: R1 deployed to testing; R2 prepared locally; R2 deploy blocked until compatible client build is installed.
 
 ## Objective
 
 Deploy Firestore rules lockdown steps R1 through R4 separately, with local rules tests before each deploy and testing-lane evidence after each deploy.
 
-This report starts with R1 only. R2-R4 remain pending.
+R1 is deployed to testing. R2 is prepared and verified locally, but held from testing deploy until a compatible native testing build is installed. R3-R4 remain pending.
 
 ## R1 Scope
 
@@ -86,7 +86,38 @@ Next action: run a testing-lane app smoke focused on checkout, Terminal/Pay Lite
 
 ## Remaining B-09 Work
 
-- R1 testing-lane deploy and smoke.
-- R2: employee/private recursive restaurant subdocument lockdown.
+- R1 app smoke focused on checkout, Terminal/Pay Lite status, OTP login and staff PIN unlock.
+- R2 compatible native testing build and install.
+- R2 testing-lane deploy and smoke.
 - R3: menu/table/profile/work-day/payment-event/raw-order lockdown.
 - R4: customer field allowlist, restaurant create allowlist and legacy OTP deny verification.
+
+## R2 Local Preparation
+
+R2 source is prepared locally but is not deployed.
+
+Local changes:
+
+- `src/utils/firebaseUtils.js` now resolves employee lists through `listStaffDirectory` instead of direct `restaurants/{restaurantId}/employees` reads.
+- `fetchEmployeesByRole`, `fetchEmployeesByJobTitle` and `fetchEmployees` retain their existing caller-facing contracts while using the hardened callable result.
+- `restaurants/{restaurantId}/employees/{employeeId}` now denies all client read/write access.
+- `restaurants/{restaurantId}/private/{docId}` now denies all client read/write access.
+- The broad recursive `restaurants/{restaurantId}/{document=**}` client read grant was removed.
+- Added rules coverage proving restaurant owner/manager/server clients cannot read employee docs, private owner docs or arbitrary reservation-settings subdocs through the old recursive grant.
+
+Local verification:
+
+```powershell
+node --check src\utils\firebaseUtils.js
+npm.cmd run test:rules
+```
+
+Result:
+
+- `src\utils\firebaseUtils.js` syntax passed.
+- Firestore emulator rules tests: 10 passed, 0 failed.
+
+Deployment blocker:
+
+- The currently installed Android testing app was built before this helper migration. Deploying R2 rules now would risk breaking lock-screen staff selection, table/server assignment and back-office manager verification on that installed build.
+- R2 requires a new testing-profile native build installed on the test device, followed by device smoke of POS unlock, manager back-office verification, host seating/table-server assignment and table selection.

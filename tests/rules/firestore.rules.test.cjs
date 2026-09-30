@@ -206,6 +206,42 @@ test("restaurant managers can manage tables but guests cannot", async () => {
 	);
 });
 
+test("R2 employee, private, and recursive restaurant subdocument reads are locked down", async () => {
+	await seed("restaurants/rest-a/employees/employee-a", {
+		firstName: "Sam",
+		role: "manager",
+		pinHash: "server-only",
+	});
+	await seed("restaurants/rest-a/private/owner", {
+		email: "owner@example.com",
+	});
+	await seed("restaurants/rest-a/reservationSettings/general", {
+		enabled: true,
+	});
+
+	const owner = authed("rest-a", { role: "owner", restaurantId: "rest-a" });
+	const manager = authed("manager-a", {
+		role: "manager",
+		restaurantId: "rest-a",
+	});
+	const server = authed("server-a", {
+		role: "server",
+		restaurantId: "rest-a",
+	});
+
+	await assertFails(getDoc(doc(owner, "restaurants/rest-a/employees/employee-a")));
+	await assertFails(getDoc(doc(manager, "restaurants/rest-a/employees/employee-a")));
+	await assertFails(getDoc(doc(server, "restaurants/rest-a/employees/employee-a")));
+	await assertFails(getDoc(doc(owner, "restaurants/rest-a/private/owner")));
+	await assertFails(getDoc(doc(manager, "restaurants/rest-a/private/owner")));
+	await assertFails(
+		getDoc(doc(owner, "restaurants/rest-a/reservationSettings/general")),
+	);
+	await assertFails(
+		getDoc(doc(manager, "restaurants/rest-a/reservationSettings/general")),
+	);
+});
+
 test("server-owned operational collections reject client writes", async () => {
 	const customer = authed("alice");
 	const staff = authed("server-a", {
