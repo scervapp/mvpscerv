@@ -19,6 +19,8 @@ import colors from "../../utils/styles/appStyles";
 import { useTranslation } from "react-i18next";
 import { useEmployeeSession } from "../../context/restaurant/EmployeeSessionContext";
 import { getRestaurantPermissions } from "../../utils/restaurantPermissions";
+import { functions } from "../../config/firebase.native";
+import { httpsCallable } from "@react-native-firebase/functions";
 // This is a simple modal to let the user select which manager is authorizing the action.
 const ManagerSelectionModal = ({ isVisible, onClose, managers, onSelect }) => {
 	const { t } = useTranslation();
@@ -97,12 +99,35 @@ const BackOfficeAuthGate = () => {
 				}
 
 				const userRole = currentUserData.role;
-				const needsOnboarding = currentUserData.hasSetupEmployees === false;
+				let activeEmployeeCount = null;
+				try {
+					const getSetupStatus = httpsCallable(
+						functions,
+						"getStaffBackOfficeSetupStatus",
+					);
+					const setupResult = await getSetupStatus({
+						restaurantId,
+						staffId: activeSession?.id || null,
+					});
+					const counts = setupResult.data?.counts || {};
+					activeEmployeeCount = Number(
+						counts.activeEmployees ?? counts.employees ?? 0,
+					);
+				} catch (error) {
+					console.error(
+						"BackOfficeAuthGate: Could not verify employee setup status:",
+						error,
+					);
+				}
+				const needsOnboarding =
+					userRole === "owner" &&
+					currentUserData.hasSetupEmployees === false &&
+					activeEmployeeCount === 0;
 
 				// --- THIS IS THE NEW ONBOARDING LOGIC ---
 				// If the user is the owner AND they haven't set up employees yet,
 				// give them a one-time pass to the back office.
-				if (userRole === "owner" && needsOnboarding) {
+				if (needsOnboarding) {
 					console.log(
 						"BackOfficeAuthGate: New owner detected. Granting one-time access to Back Office."
 					);
@@ -152,6 +177,7 @@ const BackOfficeAuthGate = () => {
 
 			checkPermissions();
 		}, [
+			activeSession?.id,
 			currentUserData?.uid,
 			currentUserData?.restaurantId,
 			hasVerifiedRef.current,
