@@ -21,10 +21,10 @@
         "NSCameraUsageDescription": "This app uses the camera to allow you to upload profile pictures or add photos of menu items.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "35"
+      "buildNumber": "36"
     },
     "android": {
-      "versionCode": 37,
+      "versionCode": 38,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
