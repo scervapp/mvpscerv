@@ -13,6 +13,7 @@ import {
 	Platform,
 	SafeAreaView,
 	ScrollView,
+	Share,
 	StyleSheet,
 	Text,
 	TextInput,
@@ -72,6 +73,56 @@ const getReaderName = (reader = {}) =>
 	reader.id ||
 	reader.deviceType ||
 	"Stripe reader";
+
+const formatReceiptTimestamp = (value = new Date()) => {
+	const date = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(date.getTime())) return "";
+	return date.toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+	});
+};
+
+const formatReceiptAmount = (cents = 0) =>
+	formatCurrencyFromDollars(Number(cents || 0) / 100);
+
+const getReceiptPaymentLabel = (paymentIntentId = "") => {
+	const id = String(paymentIntentId || "").trim();
+	return id ? id.slice(-8).toUpperCase() : "Recorded";
+};
+
+const buildPayLiteCustomerReceiptText = (receipt = {}) => {
+	const lines = [
+		receipt.restaurantName || "Restaurant",
+		"Scerv Pay Lite Receipt",
+		formatReceiptTimestamp(receipt.paidAt),
+		"",
+		`Sale amount: ${formatReceiptAmount(receipt.merchantNetSalesAmount)}`,
+	];
+
+	if (Number(receipt.customerServiceFeeAmount || 0) > 0) {
+		lines.push(
+			`Card fee: ${formatReceiptAmount(receipt.customerServiceFeeAmount)}`,
+		);
+	}
+
+	lines.push(`Tip: ${formatReceiptAmount(receipt.gratuityAmount)}`);
+	lines.push(`Total paid: ${formatReceiptAmount(receipt.amount)}`);
+	lines.push("");
+	lines.push(`Payment: ${getReceiptPaymentLabel(receipt.paymentIntentId)}`);
+
+	if (receipt.staffName) lines.push(`Staff: ${receipt.staffName}`);
+	if (receipt.readerLabel) lines.push(`Reader: ${receipt.readerLabel}`);
+	if (receipt.note) lines.push(`Reference: ${receipt.note}`);
+
+	lines.push("");
+	lines.push("Thank you.");
+
+	return lines.filter((line) => line !== null && line !== undefined).join("\n");
+};
 
 const getDiscoveryMethodLabel = (discoveryMethod) =>
 	discoveryMethod === "bluetoothScan"
@@ -277,6 +328,7 @@ const RestaurantTerminalPaymentContent = ({
 	const [processedPaymentIntentId, setProcessedPaymentIntentId] = useState("");
 	const [payLiteAmountText, setPayLiteAmountText] = useState("");
 	const [payLiteNote, setPayLiteNote] = useState("");
+	const [lastPayLiteReceipt, setLastPayLiteReceipt] = useState(null);
 	const [lastDiscoveryMethod, setLastDiscoveryMethod] = useState("internet");
 	const [preferredCollectorOverride, setPreferredCollectorOverride] =
 		useState(null);
@@ -395,6 +447,36 @@ const RestaurantTerminalPaymentContent = ({
 	const totalLabel = useMemo(
 		() => formatCurrencyFromDollars(Number(paymentTotalCents || 0) / 100),
 		[paymentTotalCents],
+	);
+
+	const resetPayLitePayment = useCallback(() => {
+		setPayLiteAmountText("");
+		setPayLiteNote("");
+		setProcessedPaymentIntentId("");
+		setLastPayLiteReceipt(null);
+		setErrorText("");
+		setStepText("Reader connected. Ready to collect payment.");
+	}, []);
+
+	const sharePayLiteCustomerReceipt = useCallback(
+		async (receipt = lastPayLiteReceipt) => {
+			if (!receipt) return;
+			try {
+				await Share.share({
+					title: "Customer receipt",
+					message: buildPayLiteCustomerReceiptText(receipt),
+				});
+			} catch (error) {
+				console.error("[PAY LITE RECEIPT] share failed", {
+					message: error?.message,
+				});
+				Alert.alert(
+					"Receipt unavailable",
+					"Could not open the receipt share sheet.",
+				);
+			}
+		},
+		[lastPayLiteReceipt],
 	);
 
 	const goToActiveTables = useCallback(() => {
@@ -981,6 +1063,10 @@ const RestaurantTerminalPaymentContent = ({
 			setErrorText("Enter the POS sale amount before collecting payment.");
 			return;
 		}
+		if (isPayLite && lastPayLiteReceipt) {
+			setErrorText("Start a new payment before collecting another charge.");
+			return;
+		}
 
 		setErrorText("");
 		setIsPaying(true);
@@ -1192,38 +1278,38 @@ const RestaurantTerminalPaymentContent = ({
 
 			if (isPayLite) {
 				const tipAmount = Number(captureData.gratuityAmount || 0);
-				const tipLine =
-					tipAmount > 0
-						? ` Tip recorded: ${formatCurrencyFromDollars(tipAmount / 100)}.`
-						: "";
-				Alert.alert(
-					"Payment Recorded",
-					`${formatCurrencyFromDollars(
-						Number(captureData.amount || paymentTotalCents || 0) / 100,
-					)} collected.${tipLine}`,
-					[
-						{
-							text: "New Payment",
-							onPress: () => {
-								setPayLiteAmountText("");
-								setPayLiteNote("");
-								setProcessedPaymentIntentId("");
-								setStepText("Reader connected. Ready to collect payment.");
-							},
-						},
-						lockToPayLite
-							? {
-									text: "Lock",
-									onPress: () => {
-										setPayLiteAmountText("");
-										setPayLiteNote("");
-										setProcessedPaymentIntentId("");
-										endSession?.();
-									},
-								}
-							: { text: "Done", onPress: () => navigation.goBack() },
-					],
+				const totalPaidAmount = Number(
+					captureData.amount || prepData.amount || paymentTotalCents || 0,
 				);
+				const customerFeeAmount = Number(
+					captureData.customerServiceFeeAmount ||
+						prepData.customerServiceFeeAmount ||
+						payLiteServiceFeeCents ||
+						0,
+				);
+				const receipt = {
+					paymentIntentId,
+					restaurantName:
+						currentUserData?.restaurantName ||
+						currentUserData?.name ||
+						"Restaurant",
+					staffName: getStaffName(activeSession, currentUserData),
+					paidAt: new Date().toISOString(),
+					merchantNetSalesAmount: Number(
+						captureData.merchantNetSalesAmount ||
+							prepData.merchantNetSalesAmount ||
+							payLiteSaleAmountCents ||
+							0,
+					),
+					customerServiceFeeAmount: customerFeeAmount,
+					gratuityAmount: tipAmount,
+					amount: totalPaidAmount,
+					readerLabel: getReaderName(connectedReader || {}),
+					readerSerialNumber: connectedReader?.serialNumber || "",
+					note: String(payLiteNote || "").trim(),
+				};
+				setLastPayLiteReceipt(receipt);
+				setStepText("Payment recorded. Receipt ready.");
 				return;
 			}
 
@@ -1303,17 +1389,25 @@ const RestaurantTerminalPaymentContent = ({
 						onChangeText={setPayLiteAmountText}
 						placeholder="0.00"
 						keyboardType="decimal-pad"
-						editable={!isBusy}
+						editable={!isBusy && !lastPayLiteReceipt}
 						autoFocus={lockToPayLite}
 					/>
 					<TouchableOpacity
 						style={[
 							styles.payLiteCollectButton,
-							(!connectedReader || isBusy || payLiteSaleAmountCents <= 0) &&
+							(!connectedReader ||
+								isBusy ||
+								lastPayLiteReceipt ||
+								payLiteSaleAmountCents <= 0) &&
 								styles.buttonDisabled,
 						]}
 						onPress={handleCollectPayment}
-						disabled={!connectedReader || isBusy || payLiteSaleAmountCents <= 0}
+						disabled={
+							!connectedReader ||
+							isBusy ||
+							!!lastPayLiteReceipt ||
+							payLiteSaleAmountCents <= 0
+						}
 					>
 						{isPaying || isFinalizing ? (
 							<ActivityIndicator size="small" color={colors.surfaceWhite} />
@@ -1326,6 +1420,88 @@ const RestaurantTerminalPaymentContent = ({
 						reader.
 					</Text>
 				</View>
+
+				{lastPayLiteReceipt ? (
+					<View style={styles.payLiteReceiptCard}>
+						<View style={styles.payLiteReceiptHeader}>
+							<View style={styles.payLiteReceiptIcon}>
+								<MaterialCommunityIcons
+									name="receipt"
+									size={22}
+									color={colors.statusSuccess}
+								/>
+							</View>
+							<View style={styles.payLiteReceiptText}>
+								<Text style={styles.payLiteReceiptTitle}>Payment recorded</Text>
+								<Text style={styles.payLiteReceiptMeta}>
+									Receipt {getReceiptPaymentLabel(lastPayLiteReceipt.paymentIntentId)}
+								</Text>
+							</View>
+							<Text style={styles.payLiteReceiptTotal}>
+								{formatReceiptAmount(lastPayLiteReceipt.amount)}
+							</Text>
+						</View>
+
+						<View style={styles.payLiteReceiptRows}>
+							<View style={styles.payLiteReceiptRow}>
+								<Text style={styles.payLiteReceiptLabel}>Sale</Text>
+								<Text style={styles.payLiteReceiptValue}>
+									{formatReceiptAmount(
+										lastPayLiteReceipt.merchantNetSalesAmount,
+									)}
+								</Text>
+							</View>
+							{Number(lastPayLiteReceipt.customerServiceFeeAmount || 0) > 0 ? (
+								<View style={styles.payLiteReceiptRow}>
+									<Text style={styles.payLiteReceiptLabel}>Card fee</Text>
+									<Text style={styles.payLiteReceiptValue}>
+										{formatReceiptAmount(
+											lastPayLiteReceipt.customerServiceFeeAmount,
+										)}
+									</Text>
+								</View>
+							) : null}
+							<View style={styles.payLiteReceiptRow}>
+								<Text style={styles.payLiteReceiptLabel}>Tip</Text>
+								<Text style={styles.payLiteReceiptValue}>
+									{formatReceiptAmount(lastPayLiteReceipt.gratuityAmount)}
+								</Text>
+							</View>
+						</View>
+
+						<View style={styles.payLiteReceiptActions}>
+							<TouchableOpacity
+								style={styles.payLiteReceiptPrimaryButton}
+								onPress={() => sharePayLiteCustomerReceipt(lastPayLiteReceipt)}
+							>
+								<MaterialCommunityIcons
+									name="printer"
+									size={18}
+									color={colors.surfaceWhite}
+								/>
+								<Text style={styles.payLiteReceiptPrimaryText}>
+									Print / Share receipt
+								</Text>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={styles.payLiteReceiptSecondaryButton}
+								onPress={resetPayLitePayment}
+							>
+								<Text style={styles.payLiteReceiptSecondaryText}>
+									New payment
+								</Text>
+							</TouchableOpacity>
+							{lockToPayLite ? (
+								<TouchableOpacity
+									style={styles.payLiteReceiptSecondaryButton}
+									onPress={() => endSession?.()}
+								>
+									<Text style={styles.payLiteReceiptSecondaryText}>Lock</Text>
+								</TouchableOpacity>
+							) : null}
+						</View>
+					</View>
+				) : null}
 
 				<View style={styles.payLiteStatusCard}>
 					<View style={styles.payLiteStatusRow}>
@@ -1437,16 +1613,18 @@ const RestaurantTerminalPaymentContent = ({
 					) : null}
 				</View>
 
-				<View style={styles.payLiteDetailsCard}>
-					<TextInput
-						style={styles.payLiteCompactNote}
-						value={payLiteNote}
-						onChangeText={setPayLiteNote}
-						placeholder="Optional POS ticket or note"
-						editable={!isBusy}
-						maxLength={160}
-					/>
-				</View>
+				{!lastPayLiteReceipt ? (
+					<View style={styles.payLiteDetailsCard}>
+						<TextInput
+							style={styles.payLiteCompactNote}
+							value={payLiteNote}
+							onChangeText={setPayLiteNote}
+							placeholder="Optional POS ticket or note"
+							editable={!isBusy}
+							maxLength={160}
+						/>
+					</View>
+				) : null}
 
 				{errorText ? (
 					<View style={styles.payLiteErrorBox}>
@@ -1891,6 +2069,106 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: colors.borderLight,
 		padding: 12,
+	},
+	payLiteReceiptCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.statusSuccess + "66",
+		padding: 12,
+	},
+	payLiteReceiptHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+	},
+	payLiteReceiptIcon: {
+		width: 38,
+		height: 38,
+		borderRadius: 10,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: colors.statusSuccess + "12",
+	},
+	payLiteReceiptText: {
+		flex: 1,
+	},
+	payLiteReceiptTitle: {
+		fontSize: 16,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteReceiptMeta: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	payLiteReceiptTotal: {
+		fontSize: 20,
+		fontWeight: "900",
+		color: colors.statusSuccess,
+	},
+	payLiteReceiptRows: {
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		marginTop: 10,
+		paddingTop: 8,
+	},
+	payLiteReceiptRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingVertical: 3,
+	},
+	payLiteReceiptLabel: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+	},
+	payLiteReceiptValue: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteReceiptActions: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 8,
+		marginTop: 12,
+	},
+	payLiteReceiptPrimaryButton: {
+		flexGrow: 1,
+		flexBasis: "52%",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 6,
+		borderRadius: 10,
+		backgroundColor: colors.primary,
+		paddingVertical: 12,
+		paddingHorizontal: 10,
+	},
+	payLiteReceiptPrimaryText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.surfaceWhite,
+	},
+	payLiteReceiptSecondaryButton: {
+		flexGrow: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		backgroundColor: colors.surfaceWhite,
+		paddingVertical: 12,
+		paddingHorizontal: 10,
+	},
+	payLiteReceiptSecondaryText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	payLiteStatusRow: {
 		flexDirection: "row",
