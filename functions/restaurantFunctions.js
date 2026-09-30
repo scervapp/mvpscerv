@@ -679,6 +679,22 @@ const countQuery = async (query) => {
 	return snapshot.size;
 };
 
+const markEmployeeSetupCompleteIfNeeded = async (restaurantRef, hasEmployees) => {
+	if (!restaurantRef || !hasEmployees) return;
+
+	try {
+		await restaurantRef.set(
+			{
+				hasSetupEmployees: true,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+	} catch (error) {
+		console.error("Could not repair restaurant employee setup flag:", error);
+	}
+};
+
 exports.listStaffDirectory = functions.https.onCall(async (data, context) => {
 	const restaurantId = sanitizeString(data && data.restaurantId, 120);
 	const employeeId = getStaffIdFromData(data);
@@ -692,12 +708,9 @@ exports.listStaffDirectory = functions.https.onCall(async (data, context) => {
 		action: "view staff directory",
 	});
 
-	const snapshot = await db
-		.collection("restaurants")
-		.doc(restaurantId)
-		.collection("employees")
-		.limit(250)
-		.get();
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const snapshot = await restaurantRef.collection("employees").limit(250).get();
+	await markEmployeeSetupCompleteIfNeeded(restaurantRef, !snapshot.empty);
 
 	return {
 		success: true,
@@ -847,6 +860,10 @@ exports.getStaffBackOfficeSetupStatus = functions.https.onCall(
 			const employee = doc.data() || {};
 			return employee.isActive !== false;
 		}).length;
+		await markEmployeeSetupCompleteIfNeeded(
+			restaurantRef,
+			activeEmployeeCount > 0,
+		);
 
 		const counts = {
 			employees: employeeCount,
