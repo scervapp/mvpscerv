@@ -35,9 +35,14 @@ const TerminalContext = createContext({
 	disconnectReader: async () => ({ error: null }),
 	clearCachedCredentials: async () => ({ error: null }),
 	getCurrentReaders: () => [],
+	refreshConnectionToken: async () => "",
 	retrievePaymentIntent: async () => ({ error: null }),
 	collectPaymentMethod: async () => ({ error: null }),
+	confirmPaymentIntent: async () => ({ error: null }),
 	processPaymentIntent: async () => ({ error: null }),
+	cancelPaymentIntent: async () => ({ error: null }),
+	cancelCollectPaymentMethod: async () => ({ error: null }),
+	cancelProcessPaymentIntent: async () => ({ error: null }),
 });
 
 const getReaderName = (reader = {}) =>
@@ -80,6 +85,7 @@ const TerminalLifecycle = ({
 	children,
 	enabled,
 	liveMode,
+	refreshConnectionToken,
 	tokenStatus,
 	setTokenStatus,
 }) => {
@@ -98,7 +104,11 @@ const TerminalLifecycle = ({
 		clearCachedCredentials,
 		retrievePaymentIntent,
 		collectPaymentMethod,
+		confirmPaymentIntent,
 		processPaymentIntent,
+		cancelPaymentIntent,
+		cancelCollectPaymentMethod,
+		cancelProcessPaymentIntent,
 	} = useStripeTerminal({
 		onUpdateDiscoveredReaders: (readers) => {
 			const nextReaders = readers || [];
@@ -158,13 +168,22 @@ const TerminalLifecycle = ({
 			disconnectReader,
 			clearCachedCredentials,
 			getCurrentReaders: () => readerListRef.current || [],
+			refreshConnectionToken,
 			retrievePaymentIntent,
 			collectPaymentMethod,
+			confirmPaymentIntent,
 			processPaymentIntent,
+			cancelPaymentIntent,
+			cancelCollectPaymentMethod,
+			cancelProcessPaymentIntent,
 		}),
 		[
+			cancelCollectPaymentMethod,
 			cancelDiscovering,
+			cancelPaymentIntent,
+			cancelProcessPaymentIntent,
 			collectPaymentMethod,
+			confirmPaymentIntent,
 			connectReader,
 			clearCachedCredentials,
 			connectedReader,
@@ -176,6 +195,7 @@ const TerminalLifecycle = ({
 			liveMode,
 			processPaymentIntent,
 			readerList,
+			refreshConnectionToken,
 			retrievePaymentIntent,
 			tokenStatus,
 		],
@@ -258,9 +278,14 @@ export const RestaurantTerminalProvider = ({ children }) => {
 		terminalEnabled,
 	]);
 
-	const tokenProvider = useCallback(async () => {
-		console.log("[TERMINAL TOKEN] tokenProvider called");
-		setTokenStatus("SDK requesting token...");
+	const refreshConnectionToken = useCallback(async (options = {}) => {
+		const reason = options?.reason || "sdk";
+		console.log("[TERMINAL TOKEN] tokenProvider called", { reason });
+		setTokenStatus(
+			reason === "payment"
+				? "Preparing secure reader session..."
+				: "SDK requesting token...",
+		);
 		const startedAt = Date.now();
 		try {
 			const secret = await fetchConnectionTokenFromServer();
@@ -279,6 +304,11 @@ export const RestaurantTerminalProvider = ({ children }) => {
 		}
 	}, [fetchConnectionTokenFromServer]);
 
+	const tokenProvider = useCallback(
+		() => refreshConnectionToken({ reason: "sdk" }),
+		[refreshConnectionToken],
+	);
+
 	return (
 		<>
 			{terminalEnabled ? (
@@ -286,6 +316,7 @@ export const RestaurantTerminalProvider = ({ children }) => {
 					<TerminalLifecycle
 						enabled={!!restaurantId}
 						liveMode={liveMode}
+						refreshConnectionToken={refreshConnectionToken}
 						tokenStatus={tokenStatus}
 						setTokenStatus={setTokenStatus}
 					>

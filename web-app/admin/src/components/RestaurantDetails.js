@@ -184,6 +184,20 @@ const RestaurantDetails = () => {
 		}));
 	};
 
+	const updatePayLiteDefaultCollector = (field, value) => {
+		setFormData((prev) => ({
+			...prev,
+			payLiteDefaultCollector: {
+				...(prev.payLiteDefaultCollector || {}),
+				[field]: value,
+				discoveryMethod:
+					field === "discoveryMethod"
+						? value
+						: prev.payLiteDefaultCollector?.discoveryMethod || "internet",
+			},
+		}));
+	};
+
 	const saveProfile = async (event) => {
 		event.preventDefault();
 		setSaving(true);
@@ -200,6 +214,7 @@ const RestaurantDetails = () => {
 				restaurantNumber: Number(formData.restaurantNumber || 0),
 				taxRate: Number(formData.taxRate || 0),
 				payLitePolicy: formData.payLitePolicy || {},
+				payLiteDefaultCollector: formData.payLiteDefaultCollector || {},
 			};
 			await updateProfile({ restaurantId: id, updates });
 			setRestaurant(updates);
@@ -602,6 +617,116 @@ const RestaurantDetails = () => {
 									}
 								/>
 							</label>
+							<label>
+								Terminal account scope
+								<select
+									value={
+										formData.payLitePolicy?.terminalAccountScope ||
+										formData.payLiteTerminalAccountScope ||
+										"connected_account"
+									}
+									onChange={(event) =>
+										updatePayLitePolicy(
+											"terminalAccountScope",
+											event.target.value,
+										)
+									}
+								>
+									<option value="connected_account">
+										Restaurant connected account reader
+									</option>
+									<option value="platform">
+										Scerv platform reader, restaurant payout
+									</option>
+								</select>
+								<span className="field-help no-indent">
+									Use platform for Scerv-owned S710 readers. The restaurant
+									connected account is still used as the payout destination.
+								</span>
+							</label>
+							<label>
+								Live Terminal location ID
+								<input
+									type="text"
+									name="stripeTerminalLocationId_live"
+									value={formData.stripeTerminalLocationId_live || ""}
+									placeholder="tml_live..."
+									onChange={handleChange}
+								/>
+							</label>
+							<label>
+								Test Terminal location ID
+								<input
+									type="text"
+									name="stripeTerminalLocationId_test"
+									value={formData.stripeTerminalLocationId_test || ""}
+									placeholder="tml_test..."
+									onChange={handleChange}
+								/>
+							</label>
+							<div className="pay-lite-reader-config">
+								<h3>Default reader</h3>
+								<label>
+									Reader label
+									<input
+										type="text"
+										value={formData.payLiteDefaultCollector?.label || ""}
+										placeholder="Gemini S710"
+										onChange={(event) =>
+											updatePayLiteDefaultCollector(
+												"label",
+												event.target.value,
+											)
+										}
+									/>
+								</label>
+								<label>
+									Reader ID
+									<input
+										type="text"
+										value={
+											formData.payLiteDefaultCollector?.readerId ||
+											formData.payLiteDefaultCollector?.id ||
+											""
+										}
+										placeholder="tmr_..."
+										onChange={(event) =>
+											updatePayLiteDefaultCollector(
+												"readerId",
+												event.target.value,
+											)
+										}
+									/>
+								</label>
+								<label>
+									Serial number
+									<input
+										type="text"
+										value={formData.payLiteDefaultCollector?.serialNumber || ""}
+										placeholder="STR..."
+										onChange={(event) =>
+											updatePayLiteDefaultCollector(
+												"serialNumber",
+												event.target.value,
+											)
+										}
+									/>
+								</label>
+								<label>
+									Reader location ID
+									<input
+										type="text"
+										value={formData.payLiteDefaultCollector?.locationId || ""}
+										placeholder="tml_..."
+										onChange={(event) =>
+											updatePayLiteDefaultCollector(
+												"locationId",
+												event.target.value,
+											)
+										}
+									/>
+								</label>
+							</div>
 						</fieldset>
 						<button type="submit" disabled={saving}>
 							{saving ? "Saving..." : "Save Profile"}

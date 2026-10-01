@@ -55,6 +55,14 @@
         "buildType": "app-bundle",
         "credentialsSource": "local"
       }
+    },
+    "productionDevelopment": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "scervmvp"
+      }
     }
   },
   "submit": {

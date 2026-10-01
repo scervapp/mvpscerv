@@ -111,6 +111,8 @@ exports.getScervPayLiteDailyReport =
 	terminalFunctions.getScervPayLiteDailyReport;
 exports.getScervPayLiteReceipt =
 	terminalFunctions.getScervPayLiteReceipt;
+exports.getRecentScervPayLiteReceipts =
+	terminalFunctions.getRecentScervPayLiteReceipts;
 exports.getStaffTerminalPaymentStatus =
 	terminalFunctions.getStaffTerminalPaymentStatus;
 exports.setDefaultTerminalCollector =

@@ -145,6 +145,20 @@ const getPreferredCollector = (restaurantData = {}) =>
 const getCollectorLocationId = (collector = {}) =>
 	String(collector?.locationId || collector?.terminalLocationId || "").trim();
 
+const getCollectorReaderId = (collector = {}) =>
+	String(collector?.readerId || collector?.id || "").trim();
+
+const getCollectorSerialNumber = (collector = {}) =>
+	String(collector?.serialNumber || "").trim();
+
+const getInternetDiscoveryFilter = (collector = {}) => {
+	const readerId = getCollectorReaderId(collector);
+	if (readerId) return { readerId };
+	const serialNumber = getCollectorSerialNumber(collector);
+	if (serialNumber) return { serialNumber };
+	return null;
+};
+
 const normalizeRole = (value) => String(value || "").trim().toLowerCase();
 
 const isManagementSession = (activeSession = {}) =>
@@ -286,6 +300,17 @@ const isConnectionTokenTimeout = (error) =>
 		.toLowerCase()
 		.includes("timed out waiting for connection token");
 
+const getTerminalErrorDetails = (error) => ({
+	message: error?.message,
+	code: error?.code,
+	nativeErrorCode: error?.nativeErrorCode,
+	apiErrorCode: error?.apiError?.code,
+	declineCode: error?.apiError?.declineCode,
+	apiErrorMessage: error?.apiError?.message,
+	underlyingCode: error?.underlyingError?.code,
+	underlyingMessage: error?.underlyingError?.message,
+});
+
 const isAlreadyConnectedReaderError = (error) => {
 	const message = String(error?.code || error?.message || error || "")
 		.toLowerCase()
@@ -294,6 +319,36 @@ const isAlreadyConnectedReaderError = (error) => {
 		message.includes("already_connected") ||
 		(message.includes("already") && message.includes("connected"))
 	);
+};
+
+const isReaderInUseError = (error) => {
+	const message = String(
+		error?.code ||
+			error?.nativeErrorCode ||
+			error?.message ||
+			error ||
+			"",
+	)
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+	return (
+		message.includes("reader_busy") ||
+		message.includes("reader_in_use") ||
+		message.includes("already_in_use") ||
+		(message.includes("already") && message.includes("use")) ||
+		(message.includes("currently") && message.includes("use"))
+	);
+};
+
+const formatTerminalErrorDetails = (error) => {
+	const parts = [
+		error?.code,
+		error?.nativeErrorCode,
+		error?.message || (typeof error === "string" ? error : ""),
+	]
+		.map((part) => String(part || "").trim())
+		.filter(Boolean);
+	return Array.from(new Set(parts)).join(" - ");
 };
 
 const getFriendlyReaderError = (error, fallback) => {
@@ -314,6 +369,12 @@ const getFriendlyReaderError = (error, fallback) => {
 	if (message.includes("amount")) {
 		return "The total changed. Reopen closeout and review the amount.";
 	}
+	if (isReaderInUseError(error)) {
+		return "The S710 is already tied to another session. Restart the reader or wait a moment, then reconnect.";
+	}
+
+	const details = formatTerminalErrorDetails(error);
+	if (details) return details;
 
 	return fallback;
 };
@@ -336,11 +397,12 @@ const RestaurantTerminalPaymentContent = ({
 	const [payLiteAmountText, setPayLiteAmountText] = useState("");
 	const [payLiteNote, setPayLiteNote] = useState("");
 	const [lastPayLiteReceipt, setLastPayLiteReceipt] = useState(null);
+	const [recentPayLiteReceipts, setRecentPayLiteReceipts] = useState([]);
 	const [lastDiscoveryMethod, setLastDiscoveryMethod] = useState("internet");
 	const [preferredCollectorOverride, setPreferredCollectorOverride] =
 		useState(null);
 	const showDiagnostics = typeof __DEV__ !== "undefined" && __DEV__;
-	const showReaderControls = false;
+	const showReaderControls = isManagementSession(activeSession);
 
 	const {
 		liveMode,
@@ -351,10 +413,15 @@ const RestaurantTerminalPaymentContent = ({
 		connectReader,
 		disconnectReader,
 		getCurrentReaders,
+		terminalInitialized,
 		connectedReader,
+		refreshConnectionToken,
 		retrievePaymentIntent,
 		collectPaymentMethod,
-		processPaymentIntent,
+		confirmPaymentIntent,
+		cancelPaymentIntent,
+		cancelCollectPaymentMethod,
+		cancelProcessPaymentIntent,
 	} = useRestaurantTerminal();
 	const autoConnectAttemptedRef = useRef(false);
 
@@ -496,13 +563,19 @@ const RestaurantTerminalPaymentContent = ({
 		[paymentTotalCents],
 	);
 
-	const resetPayLitePayment = useCallback(() => {
-		setPayLiteAmountText("");
+	const recordPayLiteReceipt = useCallback((receipt) => {
+		if (!receipt) return;
+		setLastPayLiteReceipt(receipt);
+		setRecentPayLiteReceipts((current) => {
+			const receiptId = receipt.paymentIntentId || receipt.id || "";
+			const withoutDuplicate = current.filter((item) => {
+				const itemId = item.paymentIntentId || item.id || "";
+				return itemId !== receiptId;
+			});
+			return [receipt, ...withoutDuplicate].slice(0, 5);
+		});
+		setPayLiteAmountText("0.00");
 		setPayLiteNote("");
-		setProcessedPaymentIntentId("");
-		setLastPayLiteReceipt(null);
-		setErrorText("");
-		setStepText("Reader connected. Ready to collect payment.");
 	}, []);
 
 	const sharePayLiteCustomerReceipt = useCallback(
@@ -526,6 +599,185 @@ const RestaurantTerminalPaymentContent = ({
 		[lastPayLiteReceipt],
 	);
 
+	const loadRecentPayLiteReceipts = useCallback(async () => {
+		if (!isPayLite || !restaurantId || !activeSession?.id) return;
+
+		try {
+			const getRecentReceipts = httpsCallable(
+				functions,
+				"getRecentScervPayLiteReceipts",
+			);
+			const result = await getRecentReceipts({
+				restaurantId,
+				staffId: activeSession.id,
+				limit: 5,
+			});
+			const receipts = Array.isArray(result?.data?.receipts)
+				? result.data.receipts
+				: [];
+			setRecentPayLiteReceipts(receipts);
+			setLastPayLiteReceipt((current) => {
+				if (!current) return receipts[0] || null;
+				const currentId = current.paymentIntentId || current.id || "";
+				const stillInRecentReceipts = receipts.some((receipt) => {
+					const receiptId = receipt.paymentIntentId || receipt.id || "";
+					return receiptId && receiptId === currentId;
+				});
+				return stillInRecentReceipts ? current : receipts[0] || null;
+			});
+		} catch (error) {
+			const code = String(error?.code || "").toLowerCase();
+			const message = String(error?.message || "").toLowerCase();
+			if (code.includes("not-found") || message.includes("not_found")) {
+				console.log("[PAY LITE RECEIPT] recent receipts callable unavailable", {
+					message: error?.message,
+					code: error?.code,
+				});
+				return;
+			}
+			console.warn("[PAY LITE RECEIPT] recent receipts load failed", {
+				message: error?.message,
+				code: error?.code,
+			});
+		}
+	}, [activeSession?.id, isPayLite, restaurantId]);
+
+	useEffect(() => {
+		loadRecentPayLiteReceipts();
+	}, [loadRecentPayLiteReceipts]);
+
+	const cleanupFailedTerminalAttempt = useCallback(
+		async ({ paymentIntent = null, stage = "" } = {}) => {
+			try {
+				if (stage === "collectPaymentMethod") {
+					await withTerminalTimeout(
+						cancelCollectPaymentMethod(),
+						5000,
+						"Timed out clearing card collection.",
+					);
+				} else if (stage === "processPaymentIntent") {
+					await withTerminalTimeout(
+						cancelProcessPaymentIntent(),
+						5000,
+						"Timed out clearing card processing.",
+					);
+				}
+			} catch (cancelActionError) {
+				console.log("[TERMINAL PAYMENT] reader action cleanup skipped", {
+					stage,
+					...getTerminalErrorDetails(cancelActionError),
+				});
+			}
+
+			if (!paymentIntent) return;
+
+			try {
+				await withTerminalTimeout(
+					cancelPaymentIntent({ paymentIntent }),
+					8000,
+					"Timed out cancelling failed payment intent.",
+				);
+			} catch (cancelIntentError) {
+				console.log("[TERMINAL PAYMENT] payment intent cleanup skipped", {
+					stage,
+					paymentIntentId: paymentIntent?.id || null,
+					...getTerminalErrorDetails(cancelIntentError),
+				});
+			}
+		},
+		[
+			cancelCollectPaymentMethod,
+			cancelPaymentIntent,
+			cancelProcessPaymentIntent,
+		],
+	);
+
+	const finalizeAuthorizedPayLitePayment = useCallback(
+		async (paymentIntentId = processedPaymentIntentId) => {
+			if (!paymentIntentId) return;
+
+			setErrorText("");
+			setIsFinalizing(true);
+			setStepText("Finalizing authorized payment...");
+
+			try {
+				const captureStaffTerminalPayment = httpsCallable(
+					functions,
+					"captureStaffTerminalPayment",
+				);
+				const captureResult = await captureStaffTerminalPayment({
+					paymentIntentId,
+					staffId: activeSession?.id || null,
+				});
+				const captureData = captureResult?.data || {};
+				if (!captureData.success) {
+					throw new Error("Could not capture the Terminal payment.");
+				}
+
+				await waitForTerminalPaymentStatus(paymentIntentId, 15000);
+
+				const receipt =
+					captureData.customerReceipt || {
+						paymentIntentId,
+						restaurantName:
+							currentUserData?.restaurantName ||
+							currentUserData?.name ||
+							"Restaurant",
+						staffName: getStaffName(activeSession, currentUserData),
+						paidAt: new Date().toISOString(),
+						merchantNetSalesAmount: Number(
+							captureData.merchantNetSalesAmount ||
+								payLiteSaleAmountCents ||
+								0,
+						),
+						taxAmount: Number(captureData.taxAmount || payLiteTaxAmountCents || 0),
+						customerServiceFeeAmount: Number(
+							captureData.customerServiceFeeAmount ||
+								payLiteServiceFeeCents ||
+								0,
+						),
+						gratuityAmount: Number(captureData.gratuityAmount || 0),
+						amount: Number(captureData.amount || paymentTotalCents || 0),
+						readerLabel: getReaderName(connectedReader || {}),
+						readerSerialNumber: connectedReader?.serialNumber || "",
+						note: String(payLiteNote || "").trim(),
+					};
+
+				recordPayLiteReceipt(receipt);
+				setProcessedPaymentIntentId("");
+				setStepText("Payment recorded. Receipt ready.");
+			} catch (error) {
+				console.error("[TERMINAL PAYMENT] Pay Lite finalize failed", {
+					message: error?.message,
+					code: error?.code,
+					details: error?.details,
+					paymentIntentId,
+				});
+				setErrorText(
+					getFriendlyReaderError(
+						error,
+						"Payment is authorized, but capture did not finish. Do not run the card again; try finalizing again.",
+					),
+				);
+				setStepText("Payment authorized. Capture still needs finalizing.");
+			} finally {
+				setIsFinalizing(false);
+			}
+		},
+		[
+			activeSession,
+			connectedReader,
+			currentUserData,
+			payLiteNote,
+			payLiteSaleAmountCents,
+			payLiteServiceFeeCents,
+			payLiteTaxAmountCents,
+			paymentTotalCents,
+			processedPaymentIntentId,
+			recordPayLiteReceipt,
+		],
+	);
+
 	const goToActiveTables = useCallback(() => {
 		navigation.dispatch(
 			CommonActions.reset({
@@ -535,10 +787,18 @@ const RestaurantTerminalPaymentContent = ({
 		);
 	}, [navigation]);
 
+	const ensureTerminalReady = () => {
+		if (terminalInitialized) return true;
+		setErrorText("");
+		setStepText("Preparing card reader. Try again in a moment.");
+		return false;
+	};
+
 	const startDiscovery = async ({
 		simulated = false,
 		discoveryMethod = "internet",
 	} = {}) => {
+		if (!ensureTerminalReady()) return;
 		const previousDiscoveryMethod = lastDiscoveryMethod;
 		const hasRequiredPermissions =
 			await requestTerminalDiscoveryPermissions(discoveryMethod);
@@ -626,16 +886,26 @@ const RestaurantTerminalPaymentContent = ({
 			functions,
 			"listRestaurantTerminalReaders",
 		);
-		const result = await withTerminalTimeout(
-			listRestaurantTerminalReaders({
-				restaurantId,
-				staffId: activeSession?.id || null,
-				locationId: effectiveTerminalLocationId || "",
-			}),
-			8000,
-			"Timed out checking Stripe readers.",
-		);
-		const data = result?.data || null;
+		const loadReaders = async (locationId = "") => {
+			const result = await withTerminalTimeout(
+				listRestaurantTerminalReaders({
+					restaurantId,
+					staffId: activeSession?.id || null,
+					locationId,
+				}),
+				8000,
+				"Timed out checking Stripe readers.",
+			);
+			return result?.data || null;
+		};
+		let data = await loadReaders("");
+		if (
+			effectiveTerminalLocationId &&
+			Array.isArray(data?.readers) &&
+			!data.readers.length
+		) {
+			data = await loadReaders(effectiveTerminalLocationId || "");
+		}
 
 		const recommendedReader = data?.recommendedReader || null;
 		if (recommendedReader) {
@@ -665,6 +935,7 @@ const RestaurantTerminalPaymentContent = ({
 	};
 
 	const connectS710Reader = useCallback(async ({ simulated = false, auto = false } = {}) => {
+		if (!ensureTerminalReady()) return;
 		const hasRequiredPermissions =
 			await requestTerminalDiscoveryPermissions("internet");
 		if (!hasRequiredPermissions) {
@@ -733,14 +1004,23 @@ const RestaurantTerminalPaymentContent = ({
 				3000,
 				"Timed out resetting reader discovery.",
 			);
+			const hasSavedReaderIdentity =
+				!!getInternetDiscoveryFilter(connectionTarget);
+			const discoveryLocationId =
+				!simulated && !hasSavedReaderIdentity
+					? getCollectorLocationId(connectionTarget) || effectiveTerminalLocationId
+					: "";
 			setStepText(
-				effectiveTerminalLocationId
+				hasSavedReaderIdentity
+					? "Finding saved S710..."
+					: discoveryLocationId
 					? "Finding S710 at saved Terminal location..."
 					: "Finding S710...",
 			);
 			console.log("[TERMINAL S710] starting internet discovery", {
-				locationId: effectiveTerminalLocationId || null,
+				locationId: discoveryLocationId || null,
 				hasPreferredCollector: !!connectionTarget,
+				discoveryFilter: getInternetDiscoveryFilter(connectionTarget),
 				preferredCollector: connectionTarget
 					? {
 							label: connectionTarget.label || connectionTarget.name || "",
@@ -751,35 +1031,79 @@ const RestaurantTerminalPaymentContent = ({
 						}
 					: null,
 			});
-			const discoveryResult = await withTerminalTimeout(
-				discoverReaders({
-					discoveryMethod: "internet",
-					timeout: 8,
-					simulated,
-					...(effectiveTerminalLocationId && !simulated
-						? { locationId: effectiveTerminalLocationId }
-						: {}),
-				}),
-				10000,
-				"Timed out looking for internet readers.",
-			);
+			const discoverInternetReaders = async (locationId = "", useFilter = true) =>
+				withTerminalTimeout(
+					discoverReaders({
+						discoveryMethod: "internet",
+						timeout: 8,
+						simulated,
+						...(useFilter && getInternetDiscoveryFilter(connectionTarget)
+							? {
+									discoveryFilter:
+										getInternetDiscoveryFilter(connectionTarget),
+								}
+							: {}),
+						...(locationId && !simulated ? { locationId } : {}),
+					}),
+					10000,
+					"Timed out looking for internet readers.",
+				);
+			let discoveryResult = null;
+			try {
+				discoveryResult = await discoverInternetReaders(discoveryLocationId);
+			} catch (discoveryError) {
+				console.log("[TERMINAL S710] internet discovery timed out", {
+					locationId: discoveryLocationId || null,
+					error: discoveryError,
+				});
+				if (!discoveryLocationId && !getInternetDiscoveryFilter(connectionTarget)) {
+					throw discoveryError;
+				}
+				setStepText(
+					discoveryLocationId
+						? "Saved location missed. Searching Stripe account..."
+						: "Saved reader missed. Searching all readers...",
+				);
+				await withTerminalTimeout(
+					cancelDiscovering(),
+					3000,
+					"Timed out resetting reader discovery.",
+				);
+				discoveryResult = await discoverInternetReaders("", !!discoveryLocationId);
+			}
 
 			if (discoveryResult?.error) {
 				console.log("[TERMINAL S710] discovery failed", {
-					locationId: effectiveTerminalLocationId || null,
+					locationId: discoveryLocationId || null,
 					error: discoveryResult.error,
 				});
 				if (isAlreadyConnectedReaderError(discoveryResult.error)) {
 					setStepText("Reader connected. Ready to collect payment.");
 					return;
 				}
-				throw discoveryResult.error;
+				if (!discoveryLocationId && !getInternetDiscoveryFilter(connectionTarget)) {
+					throw discoveryResult.error;
+				}
+				setStepText(
+					discoveryLocationId
+						? "Saved location missed. Searching Stripe account..."
+						: "Saved reader missed. Searching all readers...",
+				);
+				await withTerminalTimeout(
+					cancelDiscovering(),
+					3000,
+					"Timed out resetting reader discovery.",
+				);
+				discoveryResult = await discoverInternetReaders("", !!discoveryLocationId);
+				if (discoveryResult?.error) {
+					throw discoveryResult.error;
+				}
 			}
 
-			const discoveredReaders = await waitForDiscoveredReaders(getCurrentReaders);
+			let discoveredReaders = await waitForDiscoveredReaders(getCurrentReaders);
 			console.log("[TERMINAL S710] discovered internet readers", {
 				count: discoveredReaders.length,
-				locationId: effectiveTerminalLocationId || null,
+				locationId: discoveryLocationId || null,
 				readers: discoveredReaders.map((reader) => ({
 					label: reader.label || "",
 					serialNumber: reader.serialNumber || "",
@@ -789,22 +1113,76 @@ const RestaurantTerminalPaymentContent = ({
 				})),
 			});
 
-			const selectedReader = selectInternetReader(
+			let selectedReader = selectInternetReader(
 				discoveredReaders,
 				connectionTarget,
 			);
+			if (
+				!selectedReader &&
+				(discoveryLocationId || getInternetDiscoveryFilter(connectionTarget))
+			) {
+				setStepText(
+					discoveryLocationId
+						? "S710 not found at saved location. Searching account..."
+						: "Saved reader not found. Searching all readers...",
+				);
+				await withTerminalTimeout(
+					cancelDiscovering(),
+					3000,
+					"Timed out resetting reader discovery.",
+				);
+				const accountDiscoveryResult = await discoverInternetReaders(
+					"",
+					!!discoveryLocationId,
+				);
+				if (accountDiscoveryResult?.error) {
+					throw accountDiscoveryResult.error;
+				}
+				discoveredReaders = await waitForDiscoveredReaders(getCurrentReaders);
+				if (!discoveredReaders.length && getInternetDiscoveryFilter(connectionTarget)) {
+					setStepText("Saved reader filter missed. Searching all readers...");
+					await withTerminalTimeout(
+						cancelDiscovering(),
+						3000,
+						"Timed out resetting reader discovery.",
+					);
+					const allReadersDiscoveryResult = await discoverInternetReaders(
+						"",
+						false,
+					);
+					if (allReadersDiscoveryResult?.error) {
+						throw allReadersDiscoveryResult.error;
+					}
+					discoveredReaders =
+						await waitForDiscoveredReaders(getCurrentReaders);
+				}
+				console.log("[TERMINAL S710] discovered account internet readers", {
+					count: discoveredReaders.length,
+					readers: discoveredReaders.map((reader) => ({
+						label: reader.label || "",
+						serialNumber: reader.serialNumber || "",
+						locationId: reader.locationId || "",
+						deviceType: reader.deviceType || "",
+						status: reader.status || "",
+					})),
+				});
+				selectedReader = selectInternetReader(
+					discoveredReaders,
+					connectionTarget,
+				);
+			}
 			let result = null;
 
 			if (selectedReader) {
 				setStepText(`Connecting ${getReaderName(selectedReader)}...`);
-				result = await withTerminalTimeout(
-					connectReader({
-						reader: selectedReader,
-						discoveryMethod: "internet",
-						failIfInUse: true,
-					}),
-					15000,
-					"Timed out connecting to the internet reader.",
+					result = await withTerminalTimeout(
+						connectReader({
+							reader: selectedReader,
+							discoveryMethod: "internet",
+							failIfInUse: false,
+						}),
+						15000,
+						"Timed out connecting to the internet reader.",
 				);
 			} else {
 				setStepText("S710 not found at saved location. Searching account...");
@@ -812,7 +1190,13 @@ const RestaurantTerminalPaymentContent = ({
 					easyConnect({
 						discoveryMethod: "internet",
 						timeout: 8,
-						failIfInUse: true,
+						failIfInUse: false,
+						...(getInternetDiscoveryFilter(connectionTarget)
+							? {
+									discoveryFilter:
+										getInternetDiscoveryFilter(connectionTarget),
+								}
+							: {}),
 					}),
 					12000,
 					"Timed out connecting to an available internet reader.",
@@ -829,6 +1213,37 @@ const RestaurantTerminalPaymentContent = ({
 					return;
 				}
 				throw result.error;
+			}
+
+			const connectedS710 = result?.reader || selectedReader || null;
+			if (connectedS710) {
+				setPreferredCollectorOverride({
+					...(connectionTarget || {}),
+					id: connectedS710.id || connectionTarget?.id || "",
+					readerId:
+						connectedS710.id ||
+						connectionTarget?.readerId ||
+						connectionTarget?.id ||
+						"",
+					label:
+						connectedS710.label ||
+						connectionTarget?.label ||
+						connectionTarget?.name ||
+						"",
+					serialNumber:
+						connectedS710.serialNumber || connectionTarget?.serialNumber || "",
+					deviceType:
+						connectedS710.deviceType ||
+						connectionTarget?.deviceType ||
+						"stripeS710",
+					discoveryMethod: "internet",
+					locationId:
+						connectedS710.locationId ||
+						getCollectorLocationId(connectionTarget) ||
+						effectiveTerminalLocationId ||
+						"",
+					simulated: connectedS710.simulated === true,
+				});
 			}
 
 			setStepText(
@@ -894,8 +1309,8 @@ const RestaurantTerminalPaymentContent = ({
 		if (isBusy) {
 			return;
 		}
-		if (!effectiveTerminalLocationId) {
-			setStepText("Default reader location is not configured.");
+		if (!terminalInitialized) {
+			setStepText("Preparing card reader...");
 			return;
 		}
 
@@ -922,9 +1337,11 @@ const RestaurantTerminalPaymentContent = ({
 		isPayLite,
 		preferredCollector,
 		effectiveTerminalLocationId,
+		terminalInitialized,
 	]);
 
 	const handleConnectReader = async (reader) => {
+		if (!ensureTerminalReady()) return;
 		setErrorText("");
 		setIsConnecting(true);
 		setStepText(`Connecting to ${getReaderName(reader)}...`);
@@ -1102,6 +1519,7 @@ const RestaurantTerminalPaymentContent = ({
 	);
 
 	const handleCollectPayment = async () => {
+		if (!ensureTerminalReady()) return;
 		if (!connectedReader) {
 			setErrorText("Connect a reader before collecting payment.");
 			return;
@@ -1110,19 +1528,24 @@ const RestaurantTerminalPaymentContent = ({
 			setErrorText("Enter the POS sale amount before collecting payment.");
 			return;
 		}
-		if (isPayLite && lastPayLiteReceipt) {
-			setErrorText("Start a new payment before collecting another charge.");
-			return;
-		}
-
 		setErrorText("");
 		setIsPaying(true);
 		setProcessedPaymentIntentId("");
 		let capturedPaymentIntentId = "";
+		let authorizedPaymentIntentId = "";
 		let terminalStage = "start";
 		let preparedPaymentIntentId = "";
+		let paymentIntentForCleanup = null;
 
 		try {
+			terminalStage = "refreshConnectionToken";
+			setStepText("Preparing secure reader session...");
+			await withTerminalTimeout(
+				refreshConnectionToken({ reason: "payment" }),
+				12000,
+				"Reader session could not refresh. Reconnect the S710 and try again.",
+			);
+
 			terminalStage = "prepare";
 			setStepText("Preparing payment...");
 			const prepareStaffTerminalPayment = httpsCallable(
@@ -1221,12 +1644,26 @@ const RestaurantTerminalPaymentContent = ({
 			console.log("[TERMINAL PAYMENT] Retrieving payment intent", {
 				paymentIntentId: prepData.paymentIntentId,
 			});
-			const retrieved = await withTerminalTimeout(
+			let retrieved = await withTerminalTimeout(
 				retrievePaymentIntent(prepData.clientSecret),
-				15000,
+				30000,
 				"Reader session could not load this payment. Reconnect the S710 and try again.",
 			);
+			if (retrieved?.error && isConnectionTokenTimeout(retrieved.error)) {
+				setStepText("Refreshing secure reader session...");
+				await withTerminalTimeout(
+					refreshConnectionToken({ reason: "payment_retry" }),
+					12000,
+					"Reader session could not refresh. Reconnect the S710 and try again.",
+				);
+				retrieved = await withTerminalTimeout(
+					retrievePaymentIntent(prepData.clientSecret),
+					30000,
+					"Reader session could not load this payment. Reconnect the S710 and try again.",
+				);
+			}
 			if (retrieved?.error) throw retrieved.error;
+			paymentIntentForCleanup = retrieved.paymentIntent || null;
 			console.log("[TERMINAL PAYMENT] Payment intent retrieved", {
 				paymentIntentId:
 					retrieved?.paymentIntent?.id || prepData.paymentIntentId,
@@ -1262,36 +1699,50 @@ const RestaurantTerminalPaymentContent = ({
 					skipTipping: isSimulatedReader,
 					...(isSimulatedReader ? {} : { tipEligibleAmount }),
 					updatePaymentIntent: true,
+					customerCancellation: "enableIfAvailable",
 				}),
-				30000,
-				"The S710 did not display the payment. Reconnect the reader and try again.",
+				75000,
+				"The S710 took too long to display the payment. Wake the reader, reconnect, and try again.",
 			);
-			if (collected?.error) throw collected.error;
+			if (collected?.error) {
+				paymentIntentForCleanup =
+					collected.error.paymentIntent ||
+					collected.paymentIntent ||
+					paymentIntentForCleanup;
+				throw collected.error;
+			}
+			paymentIntentForCleanup = collected.paymentIntent || paymentIntentForCleanup;
 			console.log("[TERMINAL PAYMENT] Payment method collected", {
 				paymentIntentId:
 					collected?.paymentIntent?.id || prepData.paymentIntentId,
 				status: collected?.paymentIntent?.status || null,
 			});
 
-			terminalStage = "processPaymentIntent";
-			setStepText("Processing card...");
-			console.log("[TERMINAL PAYMENT] Processing payment intent", {
+			terminalStage = "confirmPaymentIntent";
+			setStepText("Authorizing card...");
+			console.log("[TERMINAL PAYMENT] Confirming payment intent", {
 				paymentIntentId:
 					collected?.paymentIntent?.id || prepData.paymentIntentId,
 			});
-			const processed = await processPaymentIntent({
+			const confirmed = await confirmPaymentIntent({
 				paymentIntent: collected.paymentIntent,
 			});
-			if (processed?.error) throw processed.error;
-			console.log("[TERMINAL PAYMENT] Payment intent processed", {
+			if (confirmed?.error) {
+				paymentIntentForCleanup =
+					confirmed.error.paymentIntent ||
+					confirmed.paymentIntent ||
+					paymentIntentForCleanup;
+				throw confirmed.error;
+			}
+			console.log("[TERMINAL PAYMENT] Payment intent confirmed", {
 				paymentIntentId:
-					processed?.paymentIntent?.id || prepData.paymentIntentId,
-				status: processed?.paymentIntent?.status || null,
+					confirmed?.paymentIntent?.id || prepData.paymentIntentId,
+				status: confirmed?.paymentIntent?.status || null,
 			});
 
 			const paymentIntentId =
-				processed?.paymentIntent?.id || prepData.paymentIntentId;
-			capturedPaymentIntentId = paymentIntentId;
+				confirmed?.paymentIntent?.id || prepData.paymentIntentId;
+			authorizedPaymentIntentId = paymentIntentId;
 			setProcessedPaymentIntentId(paymentIntentId);
 			terminalStage = "captureStaffTerminalPayment";
 			setStepText("Capturing reader payment...");
@@ -1307,6 +1758,7 @@ const RestaurantTerminalPaymentContent = ({
 			if (!captureData.success) {
 				throw new Error("Could not capture the Terminal payment.");
 			}
+			capturedPaymentIntentId = paymentIntentId;
 
 			setStepText(
 				isPayLite
@@ -1359,7 +1811,7 @@ const RestaurantTerminalPaymentContent = ({
 						readerSerialNumber: connectedReader?.serialNumber || "",
 						note: String(payLiteNote || "").trim(),
 					};
-				setLastPayLiteReceipt(receipt);
+				recordPayLiteReceipt(receipt);
 				setStepText("Payment recorded. Receipt ready.");
 				return;
 			}
@@ -1368,21 +1820,36 @@ const RestaurantTerminalPaymentContent = ({
 		} catch (error) {
 			console.error("[TERMINAL PAYMENT] Terminal flow failed", {
 				stage: terminalStage,
-				message: error?.message,
-				code: error?.code,
-				details: error?.details,
-				paymentIntentId: capturedPaymentIntentId || preparedPaymentIntentId,
+				...getTerminalErrorDetails(error),
+				paymentIntentId:
+					capturedPaymentIntentId ||
+					authorizedPaymentIntentId ||
+					preparedPaymentIntentId,
 			});
+			if (
+				!capturedPaymentIntentId &&
+				!authorizedPaymentIntentId &&
+				paymentIntentForCleanup
+			) {
+				await cleanupFailedTerminalAttempt({
+					stage: terminalStage,
+					paymentIntent: paymentIntentForCleanup,
+				});
+			}
 			setErrorText(
 				capturedPaymentIntentId
-					? "Payment captured. Closeout still needs finalizing."
+					? "Payment captured. Receipt finalization is still syncing."
+					: authorizedPaymentIntentId
+						? "Payment authorized, but capture did not finish. Do not run the card again; finalize this payment from Stripe or try finalizing again."
 					: getFriendlyReaderError(
 							error,
 							"Card reader payment could not be completed. Try again.",
 						),
 			);
 			if (capturedPaymentIntentId) {
-				setStepText("Payment captured. Closeout still needs finalizing.");
+				setStepText("Payment captured. Receipt finalization is still syncing.");
+			} else if (authorizedPaymentIntentId) {
+				setStepText("Payment authorized. Capture still needs finalizing.");
 			}
 		} finally {
 			setIsPaying(false);
@@ -1439,8 +1906,9 @@ const RestaurantTerminalPaymentContent = ({
 						value={payLiteAmountText}
 						onChangeText={setPayLiteAmountText}
 						placeholder="0.00"
+						placeholderTextColor={colors.textMedium}
 						keyboardType="decimal-pad"
-						editable={!isBusy && !lastPayLiteReceipt}
+						editable={!isBusy}
 						autoFocus={lockToPayLite}
 					/>
 					<TouchableOpacity
@@ -1448,7 +1916,6 @@ const RestaurantTerminalPaymentContent = ({
 							styles.payLiteCollectButton,
 							(!connectedReader ||
 								isBusy ||
-								lastPayLiteReceipt ||
 								payLiteSaleAmountCents <= 0) &&
 								styles.buttonDisabled,
 						]}
@@ -1456,7 +1923,6 @@ const RestaurantTerminalPaymentContent = ({
 						disabled={
 							!connectedReader ||
 							isBusy ||
-							!!lastPayLiteReceipt ||
 							payLiteSaleAmountCents <= 0
 						}
 					>
@@ -1483,7 +1949,7 @@ const RestaurantTerminalPaymentContent = ({
 								/>
 							</View>
 							<View style={styles.payLiteReceiptText}>
-								<Text style={styles.payLiteReceiptTitle}>Payment recorded</Text>
+								<Text style={styles.payLiteReceiptTitle}>Receipt ready</Text>
 								<Text style={styles.payLiteReceiptMeta}>
 									Receipt {getReceiptPaymentLabel(lastPayLiteReceipt.paymentIntentId)}
 								</Text>
@@ -1539,15 +2005,7 @@ const RestaurantTerminalPaymentContent = ({
 									color={colors.surfaceWhite}
 								/>
 								<Text style={styles.payLiteReceiptPrimaryText}>
-									Print / Share receipt
-								</Text>
-							</TouchableOpacity>
-							<TouchableOpacity
-								style={styles.payLiteReceiptSecondaryButton}
-								onPress={resetPayLitePayment}
-							>
-								<Text style={styles.payLiteReceiptSecondaryText}>
-									New payment
+									Print receipt
 								</Text>
 							</TouchableOpacity>
 							{lockToPayLite ? (
@@ -1559,6 +2017,43 @@ const RestaurantTerminalPaymentContent = ({
 								</TouchableOpacity>
 							) : null}
 						</View>
+					</View>
+				) : (
+					<View style={styles.payLiteNoReceiptCard}>
+						<MaterialCommunityIcons
+							name="receipt"
+							size={18}
+							color={colors.textMedium}
+						/>
+						<Text style={styles.payLiteNoReceiptText}>No receipts yet</Text>
+					</View>
+				)}
+
+				{recentPayLiteReceipts.length > 0 ? (
+					<View style={styles.payLiteRecentCard}>
+						<Text style={styles.payLiteRecentTitle}>Recent receipts</Text>
+						{recentPayLiteReceipts.map((receipt) => (
+							<View
+								key={receipt.paymentIntentId || receipt.id}
+								style={styles.payLiteRecentRow}
+							>
+								<View style={styles.payLiteRecentText}>
+									<Text style={styles.payLiteRecentAmount}>
+										{formatReceiptAmount(receipt.amount)}
+									</Text>
+									<Text style={styles.payLiteRecentMeta}>
+										{formatReceiptTimestamp(receipt.paidAt)} · Tip{" "}
+										{formatReceiptAmount(receipt.gratuityAmount)}
+									</Text>
+								</View>
+								<TouchableOpacity
+									style={styles.payLiteRecentPrintButton}
+									onPress={() => sharePayLiteCustomerReceipt(receipt)}
+								>
+									<Text style={styles.payLiteRecentPrintText}>Print</Text>
+								</TouchableOpacity>
+							</View>
+						))}
 					</View>
 				) : null}
 
@@ -1672,22 +2167,39 @@ const RestaurantTerminalPaymentContent = ({
 					) : null}
 				</View>
 
-				{!lastPayLiteReceipt ? (
-					<View style={styles.payLiteDetailsCard}>
-						<TextInput
-							style={styles.payLiteCompactNote}
-							value={payLiteNote}
-							onChangeText={setPayLiteNote}
-							placeholder="Optional POS ticket or note"
-							editable={!isBusy}
-							maxLength={160}
-						/>
-					</View>
-				) : null}
+				<View style={styles.payLiteDetailsCard}>
+					<TextInput
+						style={styles.payLiteCompactNote}
+						value={payLiteNote}
+						onChangeText={setPayLiteNote}
+						placeholder="Optional POS ticket or note"
+						placeholderTextColor={colors.textMedium}
+						editable={!isBusy}
+						maxLength={160}
+					/>
+				</View>
 
 				{errorText ? (
 					<View style={styles.payLiteErrorBox}>
 						<Text style={styles.errorText}>{errorText}</Text>
+						{processedPaymentIntentId && !lastPayLiteReceipt ? (
+							<TouchableOpacity
+								style={styles.payLiteFinalizeButton}
+								onPress={() => finalizeAuthorizedPayLitePayment()}
+								disabled={isFinalizing}
+							>
+								{isFinalizing ? (
+									<ActivityIndicator
+										size="small"
+										color={colors.surfaceWhite}
+									/>
+								) : (
+									<Text style={styles.primaryButtonText}>
+										Finalize authorized payment
+									</Text>
+								)}
+							</TouchableOpacity>
+						) : null}
 					</View>
 				) : null}
 			</SafeAreaView>
@@ -1729,6 +2241,7 @@ const RestaurantTerminalPaymentContent = ({
 							value={payLiteAmountText}
 							onChangeText={setPayLiteAmountText}
 							placeholder="0.00"
+							placeholderTextColor={colors.textMedium}
 							keyboardType="decimal-pad"
 							editable={!isBusy}
 							autoFocus={lockToPayLite}
@@ -1772,6 +2285,7 @@ const RestaurantTerminalPaymentContent = ({
 							value={payLiteNote}
 							onChangeText={setPayLiteNote}
 							placeholder="Optional shift, register, or POS ticket"
+							placeholderTextColor={colors.textMedium}
 							editable={!isBusy}
 							maxLength={160}
 						/>
@@ -2229,6 +2743,71 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: colors.primary,
 	},
+	payLiteNoReceiptCard: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+	},
+	payLiteNoReceiptText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textMedium,
+	},
+	payLiteRecentCard: {
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 12,
+	},
+	payLiteRecentTitle: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: colors.textDark,
+		marginBottom: 8,
+		textTransform: "uppercase",
+	},
+	payLiteRecentRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		borderTopWidth: 1,
+		borderTopColor: colors.borderLight,
+		paddingTop: 8,
+		marginTop: 8,
+		gap: 10,
+	},
+	payLiteRecentText: {
+		flex: 1,
+	},
+	payLiteRecentAmount: {
+		fontSize: 14,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	payLiteRecentMeta: {
+		fontSize: 11,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 2,
+	},
+	payLiteRecentPrintButton: {
+		borderRadius: 9,
+		borderWidth: 1,
+		borderColor: colors.primary,
+		paddingVertical: 8,
+		paddingHorizontal: 12,
+	},
+	payLiteRecentPrintText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: colors.primary,
+	},
 	payLiteStatusRow: {
 		flexDirection: "row",
 		alignItems: "center",
@@ -2308,6 +2887,15 @@ const styles = StyleSheet.create({
 		borderColor: colors.statusDanger + "55",
 		borderRadius: 10,
 		padding: 10,
+	},
+	payLiteFinalizeButton: {
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 10,
+		backgroundColor: colors.primary,
+		paddingVertical: 12,
+		paddingHorizontal: 12,
+		marginTop: 10,
 	},
 	totalPanel: {
 		backgroundColor: colors.surfaceWhite,

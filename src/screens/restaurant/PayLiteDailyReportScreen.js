@@ -22,19 +22,36 @@ import colors from "../../utils/styles/appStyles";
 
 const getDayBounds = (date) => {
 	const start = new Date(date);
-	start.setHours(0, 0, 0, 0);
+	start.setHours(16, 0, 0, 0);
 	const end = new Date(start);
 	end.setDate(end.getDate() + 1);
+	end.setHours(10, 0, 0, 0);
+	const dateLabel = start.toLocaleDateString(undefined, {
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+	});
+	const endDateLabel = end.toLocaleDateString(undefined, {
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+	});
 	return {
 		startAt: start.toISOString(),
 		endAt: end.toISOString(),
-		label: start.toLocaleDateString(undefined, {
-			weekday: "short",
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-		}),
+		label: `${dateLabel}, 4:00 PM - ${endDateLabel}, 10:00 AM`,
+		windowLabel: "4:00 PM - 10:00 AM next day",
 	};
+};
+
+const getInitialOperationalDate = () => {
+	const now = new Date();
+	const initial = new Date(now);
+	if (now.getHours() < 10) {
+		initial.setDate(initial.getDate() - 1);
+	}
+	return initial;
 };
 
 const formatTime = (value) => {
@@ -50,28 +67,51 @@ const formatTime = (value) => {
 const buildReceiptText = ({ report, dayLabel }) => {
 	const summary = report?.summary || {};
 	const transactions = report?.transactions || [];
+	const tipsByEmployee = report?.tipsByEmployee || [];
 	const lines = [
-		"SCERV PAY LITE DAILY RECEIPT",
+		"SCERV PAY LITE CLOSEOUT",
 		report?.restaurantName || "Restaurant",
 		dayLabel,
 		"",
 		`Transactions: ${summary.transactionCount || 0}`,
-		`POS sales entered: ${formatCurrency(summary.merchantNetSalesAmount)}`,
+		`Net sales: ${formatCurrency(summary.netSalesAmount)}`,
+		`Total taxes: ${formatCurrency(summary.taxAmount)}`,
 		`Tips: ${formatCurrency(summary.gratuityAmount)}`,
-		`Card totals collected: ${formatCurrency(summary.amount)}`,
-		`Customer card fees: ${formatCurrency(summary.customerServiceFeeAmount)}`,
-		`Scerv fees: ${formatCurrency(summary.applicationFeeAmount)}`,
-		`Restaurant target: ${formatCurrency(summary.restaurantTransferAmount)}`,
+		`Transaction fees: ${formatCurrency(summary.transactionFeeAmount)}`,
+		`Total collected: ${formatCurrency(summary.amount)}`,
+		"",
+		"TIPS BY EMPLOYEE",
+	];
+
+	if (tipsByEmployee.length) {
+		tipsByEmployee.forEach((employee) => {
+			lines.push(
+				`${employee.staffName || "Staff"}: ${formatCurrency(
+					employee.gratuityAmount,
+				)} (${employee.tipCount || 0} tipped payment${
+					employee.tipCount === 1 ? "" : "s"
+				})`,
+			);
+		});
+	} else {
+		lines.push("No tips recorded.");
+	}
+
+	lines.push(
 		"",
 		"TRANSACTIONS",
-	];
+	);
 
 	transactions.forEach((item, index) => {
 		lines.push(
 			`${index + 1}. ${formatTime(item.paidAt)} - ${item.staffName || "Staff"}`,
-			`POS sale ${formatCurrency(item.merchantNetSalesAmount)} | Tip ${formatCurrency(
+			`Net ${formatCurrency(item.netSalesAmount)} | Tax ${formatCurrency(
+				item.taxAmount,
+			)} | Tip ${formatCurrency(
 				item.gratuityAmount,
-			)} | Card total ${formatCurrency(item.amount)}`,
+			)} | Fee ${formatCurrency(
+				item.transactionFeeAmount,
+			)} | Total ${formatCurrency(item.amount)}`,
 			`Reader ${item.readerLabel || "-"}${
 				item.readerSerialNumber ? ` (${item.readerSerialNumber})` : ""
 			}`,
@@ -100,7 +140,7 @@ const Metric = ({ label, value, accent = false }) => (
 const PayLiteDailyReportScreen = () => {
 	const { currentUserData } = useContext(AuthContext);
 	const { activeSession } = useEmployeeSession();
-	const [selectedDate, setSelectedDate] = useState(() => new Date());
+	const [selectedDate, setSelectedDate] = useState(getInitialOperationalDate);
 	const [isLoading, setIsLoading] = useState(true);
 	const [report, setReport] = useState(null);
 
@@ -118,7 +158,8 @@ const PayLiteDailyReportScreen = () => {
 				startAt: dayBounds.startAt,
 				endAt: dayBounds.endAt,
 			});
-			setReport(response?.data || null);
+			const nextReport = response?.data || null;
+			setReport(nextReport);
 		} catch (error) {
 			console.error("PayLiteDailyReportScreen load error:", error);
 			Alert.alert(
@@ -129,7 +170,12 @@ const PayLiteDailyReportScreen = () => {
 		} finally {
 			setIsLoading(false);
 		}
-	}, [activeSession?.id, dayBounds.endAt, dayBounds.startAt, restaurantId]);
+	}, [
+		activeSession?.id,
+		dayBounds.endAt,
+		dayBounds.startAt,
+		restaurantId,
+	]);
 
 	useEffect(() => {
 		loadReport();
@@ -146,8 +192,8 @@ const PayLiteDailyReportScreen = () => {
 	const shareReport = async () => {
 		try {
 			await Share.share({
-				title: "Scerv Pay Lite Daily Receipt",
-				message: buildReceiptText({ report, dayLabel: dayBounds.label }),
+				title: "Scerv Pay Lite Closeout",
+				message: buildReceiptText({ report, dayLabel: reportLabel }),
 			});
 		} catch (error) {
 			Alert.alert("Share failed", "Could not open the share sheet.");
@@ -156,6 +202,8 @@ const PayLiteDailyReportScreen = () => {
 
 	const summary = report?.summary || {};
 	const transactions = report?.transactions || [];
+	const tipsByEmployee = report?.tipsByEmployee || [];
+	const reportLabel = dayBounds.label;
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
@@ -168,9 +216,9 @@ const PayLiteDailyReportScreen = () => {
 				<View style={styles.header}>
 					<View>
 						<Text style={styles.eyebrow}>SCERV PAY LITE</Text>
-						<Text style={styles.title}>Daily receipt</Text>
+						<Text style={styles.title}>Day closeout</Text>
 						<Text style={styles.subtitle}>
-							Payments, tips, staff, and times for POS reconciliation.
+							Net sales, taxes, tips, transaction fees, and staff totals for POS reconciliation.
 						</Text>
 					</View>
 				</View>
@@ -180,8 +228,9 @@ const PayLiteDailyReportScreen = () => {
 						<MaterialCommunityIcons name="chevron-left" size={24} color={colors.textDark} />
 					</TouchableOpacity>
 					<View style={styles.dateCenter}>
-						<Text style={styles.dateLabel}>{dayBounds.label}</Text>
+						<Text style={styles.dateLabel}>{reportLabel}</Text>
 						<Text style={styles.dateMeta}>
+							Closeout window: {dayBounds.windowLabel} ·{" "}
 							{summary.transactionCount || 0} payment
 							{summary.transactionCount === 1 ? "" : "s"}
 						</Text>
@@ -189,6 +238,17 @@ const PayLiteDailyReportScreen = () => {
 					<TouchableOpacity style={styles.dateButton} onPress={() => moveDay(1)}>
 						<MaterialCommunityIcons name="chevron-right" size={24} color={colors.textDark} />
 					</TouchableOpacity>
+				</View>
+
+				<View style={styles.windowNotice}>
+					<MaterialCommunityIcons
+						name="clock-time-four-outline"
+						size={18}
+						color={colors.primary}
+					/>
+					<Text style={styles.windowNoticeText}>
+						Each Pay Lite closeout covers payments from 4:00 PM through 10:00 AM the next day.
+					</Text>
 				</View>
 
 				<View style={styles.actionsRow}>
@@ -219,21 +279,17 @@ const PayLiteDailyReportScreen = () => {
 					<>
 						<View style={styles.summaryGrid}>
 							<Metric
-								label="POS sales entered"
-								value={summary.merchantNetSalesAmount}
+								label="Net sales"
+								value={summary.netSalesAmount}
 								accent
 							/>
+							<Metric label="Total taxes" value={summary.taxAmount} />
 							<Metric label="Tips" value={summary.gratuityAmount} />
-							<Metric label="Card totals" value={summary.amount} />
 							<Metric
-								label="Restaurant target"
-								value={summary.restaurantTransferAmount}
+								label="Transaction fees"
+								value={summary.transactionFeeAmount}
 							/>
-							<Metric
-								label="Customer card fees"
-								value={summary.customerServiceFeeAmount}
-							/>
-							<Metric label="Scerv fees" value={summary.applicationFeeAmount} />
+							<Metric label="Total collected" value={summary.amount} />
 						</View>
 
 						{report?.truncated ? (
@@ -246,13 +302,48 @@ const PayLiteDailyReportScreen = () => {
 						) : null}
 
 						<View style={styles.sectionHeader}>
+							<Text style={styles.sectionTitle}>Tips by employee</Text>
+						</View>
+
+						{tipsByEmployee.length === 0 ? (
+							<View style={styles.emptyCard}>
+								<Text style={styles.emptyTitle}>No tips recorded</Text>
+								<Text style={styles.emptyText}>
+									Tips entered on the reader will summarize here by employee.
+								</Text>
+							</View>
+						) : (
+							tipsByEmployee.map((employee) => (
+								<View
+									key={employee.staffId || employee.staffName}
+									style={styles.tipEmployeeRow}
+								>
+									<View style={styles.tipEmployeeText}>
+										<Text style={styles.tipEmployeeName}>
+											{employee.staffName || "Staff"}
+										</Text>
+										<Text style={styles.tipEmployeeMeta}>
+											{employee.tipCount || 0} tipped payment
+											{employee.tipCount === 1 ? "" : "s"} ·{" "}
+											{employee.transactionCount || 0} total payment
+											{employee.transactionCount === 1 ? "" : "s"}
+										</Text>
+									</View>
+									<Text style={styles.tipEmployeeAmount}>
+										{formatCurrency(employee.gratuityAmount)}
+									</Text>
+								</View>
+							))
+						)}
+
+						<View style={styles.sectionHeader}>
 							<Text style={styles.sectionTitle}>Transactions</Text>
 						</View>
 
 						{transactions.length === 0 ? (
 							<View style={styles.emptyCard}>
 								<MaterialCommunityIcons
-									name="receipt-text-outline"
+									name="receipt"
 									size={28}
 									color={colors.textMedium}
 								/>
@@ -279,9 +370,9 @@ const PayLiteDailyReportScreen = () => {
 									</View>
 									<View style={styles.transactionGrid}>
 										<View style={styles.transactionMetric}>
-											<Text style={styles.transactionLabel}>POS sale</Text>
+											<Text style={styles.transactionLabel}>Net sales</Text>
 											<Text style={styles.transactionValue}>
-												{formatCurrency(item.merchantNetSalesAmount)}
+												{formatCurrency(item.netSalesAmount)}
 											</Text>
 										</View>
 										<View style={styles.transactionMetric}>
@@ -291,15 +382,15 @@ const PayLiteDailyReportScreen = () => {
 											</Text>
 										</View>
 										<View style={styles.transactionMetric}>
-											<Text style={styles.transactionLabel}>Card fee</Text>
+											<Text style={styles.transactionLabel}>Transaction fee</Text>
 											<Text style={styles.transactionValue}>
-												{formatCurrency(item.customerServiceFeeAmount)}
+												{formatCurrency(item.transactionFeeAmount)}
 											</Text>
 										</View>
 										<View style={styles.transactionMetric}>
-											<Text style={styles.transactionLabel}>Scerv fee</Text>
+											<Text style={styles.transactionLabel}>Tax</Text>
 											<Text style={styles.transactionValue}>
-												{formatCurrency(item.applicationFeeAmount)}
+												{formatCurrency(item.taxAmount)}
 											</Text>
 										</View>
 									</View>
@@ -419,6 +510,24 @@ const styles = StyleSheet.create({
 		fontWeight: "900",
 		color: colors.primary,
 	},
+	windowNotice: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		backgroundColor: colors.primary + "10",
+		borderWidth: 1,
+		borderColor: colors.primary + "22",
+		borderRadius: 12,
+		padding: 12,
+		marginBottom: 14,
+	},
+	windowNoticeText: {
+		flex: 1,
+		fontSize: 13,
+		fontWeight: "800",
+		color: colors.textDark,
+		lineHeight: 18,
+	},
 	loadingCard: {
 		backgroundColor: colors.surfaceWhite,
 		borderRadius: 14,
@@ -492,6 +601,7 @@ const styles = StyleSheet.create({
 		borderColor: colors.borderLight,
 		padding: 22,
 		alignItems: "center",
+		marginBottom: 14,
 	},
 	emptyTitle: {
 		fontSize: 16,
@@ -506,6 +616,37 @@ const styles = StyleSheet.create({
 		textAlign: "center",
 		lineHeight: 18,
 		marginTop: 4,
+	},
+	tipEmployeeRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		backgroundColor: colors.surfaceWhite,
+		borderRadius: 14,
+		borderWidth: 1,
+		borderColor: colors.borderLight,
+		padding: 14,
+		marginBottom: 10,
+		gap: 12,
+	},
+	tipEmployeeText: {
+		flex: 1,
+	},
+	tipEmployeeName: {
+		fontSize: 15,
+		fontWeight: "900",
+		color: colors.textDark,
+	},
+	tipEmployeeMeta: {
+		fontSize: 12,
+		fontWeight: "800",
+		color: colors.textMedium,
+		marginTop: 3,
+	},
+	tipEmployeeAmount: {
+		fontSize: 18,
+		fontWeight: "900",
+		color: colors.primary,
 	},
 	transactionCard: {
 		backgroundColor: colors.surfaceWhite,

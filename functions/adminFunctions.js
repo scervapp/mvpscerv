@@ -680,6 +680,7 @@ const normalizePayLitePolicyInput = (input = {}) => {
 	const allowedTaxModes = ["pos_included", "scerv_calculated", "none", "waived"];
 	const allowedCustomerFeeModes = ["pass_to_customer", "none", "waived"];
 	const allowedCustomerFeeBases = ["sale", "sales_and_tax"];
+	const allowedTerminalAccountScopes = ["platform", "connected_account"];
 	const allowedScervFeeModes = [
 		"sale_percentage",
 		"customer_fee",
@@ -747,6 +748,44 @@ const normalizePayLitePolicyInput = (input = {}) => {
 			firstDefined(policy.scervFeeMinimumCents, policy.platformFeeMinimumCents),
 			0,
 		),
+		terminalAccountScope: pick(
+			policy.terminalAccountScope || policy.readerAccountScope,
+			allowedTerminalAccountScopes,
+			"connected_account",
+		),
+		usePlatformTerminalAccount:
+			policy.usePlatformTerminalAccount === true ||
+			policy.terminalAccountScope === "platform" ||
+			policy.readerAccountScope === "platform",
+	};
+};
+
+const normalizePayLiteDefaultCollectorInput = (input = {}) => {
+	const collector = input && typeof input === "object" ? input : {};
+	const readerId = sanitizeString(collector.readerId || collector.id, 128);
+	const label = sanitizeString(
+		collector.label || collector.name || collector.serialNumber || readerId,
+		160,
+	);
+	const discoveryMethod = ["internet", "bluetoothScan"].includes(
+		collector.discoveryMethod,
+	)
+		? collector.discoveryMethod
+		: "internet";
+
+	return {
+		id: readerId,
+		readerId,
+		label,
+		name: label,
+		serialNumber: sanitizeString(collector.serialNumber, 128),
+		deviceType: sanitizeString(collector.deviceType || "stripeS710", 80),
+		discoveryMethod,
+		locationId: sanitizeString(
+			collector.locationId || collector.terminalLocationId,
+			128,
+		),
+		simulated: collector.simulated === true,
 	};
 };
 
@@ -3153,6 +3192,17 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 			"isLive",
 			"isFeatured",
 			"payLitePolicy",
+			"payLiteDefaultCollector",
+			"defaultTerminalCollector",
+			"terminalDefaultCollector",
+			"stripeTerminalLocationId",
+			"stripeTerminalLocationId_test",
+			"stripeTerminalLocationId_live",
+			"terminalLocationId",
+			"terminalLocationId_test",
+			"terminalLocationId_live",
+			"payLiteTerminalAccountScope",
+			"terminalAccountScope",
 			"backOfficePin",
 		];
 		const cleanUpdates = {};
@@ -3173,6 +3223,24 @@ exports.updateScervRestaurantProfile = functions.https.onCall(
 					.replace(/[\s-]+/g, "_");
 			} else if (field === "payLitePolicy") {
 				cleanUpdates[field] = normalizePayLitePolicyInput(updates[field]);
+			} else if (
+				[
+					"payLiteDefaultCollector",
+					"defaultTerminalCollector",
+					"terminalDefaultCollector",
+				].includes(field)
+			) {
+				cleanUpdates[field] = normalizePayLiteDefaultCollectorInput(
+					updates[field],
+				);
+			} else if (
+				["payLiteTerminalAccountScope", "terminalAccountScope"].includes(field)
+			) {
+				cleanUpdates[field] = ["platform", "connected_account"].includes(
+					updates[field],
+				)
+					? updates[field]
+					: "connected_account";
 			} else if (["restaurantNumber", "taxRate", "geoLat", "geoLong"].includes(field)) {
 				const numericValue = Number(updates[field]);
 				cleanUpdates[field] = Number.isFinite(numericValue) ? numericValue : 0;

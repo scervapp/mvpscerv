@@ -157,7 +157,7 @@ const BackOfficeScreen = ({ navigation }) => {
 				id: "pay-lite-report",
 				name: "PayLiteDailyReportScreen",
 				label: t("pay_lite_daily_receipt", "Pay Lite Receipt"),
-				iconName: "receipt-text-outline",
+				iconName: "receipt",
 				color: "#0f766e",
 				desc: "Daily payments, tips & staff",
 			},

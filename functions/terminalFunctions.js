@@ -316,6 +316,9 @@ const buildScervPayLiteDailyReport = ({
 	restaurantId = "",
 	startMs = 0,
 	endMs = 0,
+	workDayId = null,
+	reportWorkDayId = null,
+	workDayData = null,
 }) => {
 	const rows = payments
 		.map((payment) => ({ ...(payment || {}) }))
@@ -330,6 +333,9 @@ const buildScervPayLiteDailyReport = ({
 			const paidMillis = toTimestampMillis(
 				payment.paidAt || payment.capturedAt || payment.updatedAt || payment.createdAt,
 			);
+			if (workDayId) {
+				return isPayLite && isPaid && payment.workDayId === workDayId;
+			}
 			return isPayLite && isPaid && paidMillis >= startMs && paidMillis < endMs;
 		})
 		.sort((a, b) => {
@@ -350,6 +356,7 @@ const buildScervPayLiteDailyReport = ({
 				payment.customerServiceFeeAmount || payment.customerServiceFee,
 				0,
 			);
+			const taxAmount = normalizeNonNegativeCents(payment.taxAmount, 0);
 			const gratuityAmount = normalizeNonNegativeCents(
 				payment.gratuityAmount || payment.tipAmountCents,
 				0,
@@ -389,11 +396,15 @@ const buildScervPayLiteDailyReport = ({
 				readerLabel: reader.label || reader.name || null,
 				readerSerialNumber: reader.serialNumber || null,
 				merchantNetSalesAmount,
+				netSalesAmount: merchantNetSalesAmount,
+				taxAmount,
 				customerServiceFeeAmount,
 				gratuityAmount,
 				amount,
 				applicationFeeAmount,
+				transactionFeeAmount: applicationFeeAmount,
 				restaurantTransferAmount,
+				workDayId: payment.workDayId || null,
 				customerFeeMode: payment.customerFeeMode || null,
 				scervFeeMode: payment.scervFeeMode || null,
 			};
@@ -403,31 +414,70 @@ const buildScervPayLiteDailyReport = ({
 		(acc, row) => {
 			acc.transactionCount += 1;
 			acc.merchantNetSalesAmount += row.merchantNetSalesAmount;
+			acc.netSalesAmount += row.netSalesAmount;
+			acc.taxAmount += row.taxAmount;
 			acc.customerServiceFeeAmount += row.customerServiceFeeAmount;
 			acc.gratuityAmount += row.gratuityAmount;
 			acc.amount += row.amount;
 			acc.applicationFeeAmount += row.applicationFeeAmount;
+			acc.transactionFeeAmount += row.transactionFeeAmount;
 			acc.restaurantTransferAmount += row.restaurantTransferAmount;
 			return acc;
 		},
 		{
 			transactionCount: 0,
 			merchantNetSalesAmount: 0,
+			netSalesAmount: 0,
+			taxAmount: 0,
 			customerServiceFeeAmount: 0,
 			gratuityAmount: 0,
 			amount: 0,
 			applicationFeeAmount: 0,
+			transactionFeeAmount: 0,
 			restaurantTransferAmount: 0,
 		},
 	);
+	const tipsByEmployeeMap = new Map();
+	rows.forEach((row) => {
+		const key = row.staffId || row.staffName || "unknown";
+		const current =
+			tipsByEmployeeMap.get(key) || {
+				staffId: row.staffId || null,
+				staffName: row.staffName || "Staff",
+				transactionCount: 0,
+				tipCount: 0,
+				gratuityAmount: 0,
+				netSalesAmount: 0,
+				amount: 0,
+			};
+		current.transactionCount += 1;
+		current.netSalesAmount += row.netSalesAmount;
+		current.amount += row.amount;
+		if (row.gratuityAmount > 0) {
+			current.tipCount += 1;
+			current.gratuityAmount += row.gratuityAmount;
+		}
+		tipsByEmployeeMap.set(key, current);
+	});
+	const tipsByEmployee = Array.from(tipsByEmployeeMap.values()).sort(
+		(a, b) => b.gratuityAmount - a.gratuityAmount,
+	);
+	const effectiveWorkDayId =
+		workDayId ||
+		(rows.find((row) => row.workDayId) || {}).workDayId ||
+		reportWorkDayId ||
+		null;
 
 	return {
 		restaurantId,
 		restaurantName:
 			restaurantData.restaurantName || restaurantData.name || "Restaurant",
+		workDayId: effectiveWorkDayId,
+		workDayStatus: workDayData ? workDayData.status || null : null,
 		startAt: new Date(startMs).toISOString(),
 		endAt: new Date(endMs).toISOString(),
 		summary,
+		tipsByEmployee,
 		transactions: rows,
 	};
 };
@@ -551,6 +601,63 @@ const getOpenWorkDaySnapshot = async (restaurantId) => {
 	if (snapshot.empty) return null;
 	const doc = snapshot.docs[0];
 	return { id: doc.id, data: doc.data() || {} };
+};
+
+const ensureOpenPayLiteWorkDaySnapshot = async ({
+	restaurantId,
+	context,
+	staffMember = {},
+	staffId = null,
+	staffName = "",
+}) => {
+	const restaurantRef = db.collection("restaurants").doc(restaurantId);
+	const workDaysRef = restaurantRef.collection("work_days");
+
+	return db.runTransaction(async (transaction) => {
+		const openSnapshot = await transaction.get(
+			workDaysRef.where("status", "==", "OPEN").limit(1),
+		);
+		if (!openSnapshot.empty) {
+			const doc = openSnapshot.docs[0];
+			return { id: doc.id, data: doc.data() || {}, created: false };
+		}
+
+		const workDayRef = workDaysRef.doc();
+		const openedBy = {
+			uid: context.auth.uid,
+			staffId: staffMember.id || staffId || null,
+			name:
+				staffName ||
+				staffMember.name ||
+				context.auth.token.name ||
+				"Staff",
+			role: staffMember.role || null,
+			jobTitle: staffMember.jobTitle || null,
+		};
+		const workDayData = {
+			status: "OPEN",
+			source: "scerv_pay_lite",
+			autoOpened: true,
+			startTime: admin.firestore.FieldValue.serverTimestamp(),
+			endTime: null,
+			managerWhoOpened: openedBy,
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		};
+
+		transaction.set(workDayRef, workDayData);
+		transaction.set(
+			restaurantRef,
+			{
+				isOpen: true,
+				currentWorkDayId: workDayRef.id,
+				updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		return { id: workDayRef.id, data: workDayData, created: true };
+	});
 };
 
 const isCustomerAppInitiatedItem = (item = {}) =>
@@ -1069,6 +1176,105 @@ const getStripeConnectedAccountOptions = (connectedAccountId, extraOptions = {})
 			}
 		: extraOptions;
 
+const createStripeTerminalConnectionToken = (
+	stripeInstance,
+	params = {},
+	requestOptions = {},
+) => {
+	const hasParams = Object.keys(params || {}).length > 0;
+	const hasRequestOptions = Object.keys(requestOptions || {}).length > 0;
+
+	if (hasParams && hasRequestOptions) {
+		return stripeInstance.terminal.connectionTokens.create(
+			params,
+			requestOptions,
+		);
+	}
+	if (hasParams) {
+		return stripeInstance.terminal.connectionTokens.create(params);
+	}
+	if (hasRequestOptions) {
+		return stripeInstance.terminal.connectionTokens.create(requestOptions);
+	}
+	return stripeInstance.terminal.connectionTokens.create();
+};
+
+const hasStripeRequestOptions = (requestOptions = {}) =>
+	Object.keys(requestOptions || {}).length > 0;
+
+const retrieveStripePaymentIntent = (
+	stripeInstance,
+	paymentIntentId,
+	requestOptions = {},
+) =>
+	hasStripeRequestOptions(requestOptions)
+		? stripeInstance.paymentIntents.retrieve(paymentIntentId, requestOptions)
+		: stripeInstance.paymentIntents.retrieve(paymentIntentId);
+
+const updateStripePaymentIntent = (
+	stripeInstance,
+	paymentIntentId,
+	params = {},
+	requestOptions = {},
+) =>
+	hasStripeRequestOptions(requestOptions)
+		? stripeInstance.paymentIntents.update(
+				paymentIntentId,
+				params,
+				requestOptions,
+			)
+		: stripeInstance.paymentIntents.update(paymentIntentId, params);
+
+const captureStripePaymentIntent = (
+	stripeInstance,
+	paymentIntentId,
+	params = {},
+	requestOptions = {},
+) =>
+	hasStripeRequestOptions(requestOptions)
+		? stripeInstance.paymentIntents.capture(
+				paymentIntentId,
+				params,
+				requestOptions,
+			)
+		: stripeInstance.paymentIntents.capture(paymentIntentId, params);
+
+const resolveTerminalAccountScope = ({
+	restaurantData = {},
+	defaultScope = "connected_account",
+} = {}) => {
+	const paymentPolicy =
+		restaurantData.paymentPolicy && typeof restaurantData.paymentPolicy === "object"
+			? restaurantData.paymentPolicy
+			: {};
+	const payLitePolicy =
+		restaurantData.payLitePolicy && typeof restaurantData.payLitePolicy === "object"
+			? restaurantData.payLitePolicy
+			: {};
+	const rawScope =
+		payLitePolicy.terminalAccountScope ||
+		payLitePolicy.readerAccountScope ||
+		paymentPolicy.payLiteTerminalAccountScope ||
+		paymentPolicy.terminalAccountScope ||
+		restaurantData.payLiteTerminalAccountScope ||
+		restaurantData.terminalAccountScope ||
+		"";
+
+	if (
+		payLitePolicy.usePlatformTerminalAccount === true ||
+		paymentPolicy.usePlatformTerminalAccount === true ||
+		restaurantData.usePlatformTerminalAccount === true
+	) {
+		return "platform";
+	}
+
+	return normalizePolicyString(
+		rawScope,
+		["platform", "connected_account"],
+		defaultScope,
+	);
+};
+
 const resolveRestaurantTerminalLocation = ({ restaurantData = {}, keys }) => {
 	const mode = keys.isTestMode ? "test" : "live";
 	const resolved = resolveStripeModeValue({
@@ -1237,33 +1443,52 @@ exports.createTerminalConnectionToken = functions
 				keys,
 			});
 			const restaurantStripeAccountId = resolvedStripeAccount.value || "";
+			const terminalAccountScope = resolveTerminalAccountScope({
+				restaurantData,
+				defaultScope: restaurantStripeAccountId
+					? "connected_account"
+					: "platform",
+			});
+			const terminalStripeAccountId =
+				terminalAccountScope === "platform" ? "" : restaurantStripeAccountId;
 			const resolvedTerminalLocation = resolveRestaurantTerminalLocation({
 				restaurantData,
 				keys,
 			});
-			const resolvedLocationId = String(
-				locationId || resolvedTerminalLocation.value || "",
+			const requestedLocationId = String(locationId || "").trim();
+			const configuredLocationId = String(
+				resolvedTerminalLocation.value || "",
 			).trim();
+			const shouldScopeTokenToConfiguredLocation =
+				terminalAccountScope !== "platform" || Boolean(requestedLocationId);
+			const resolvedLocationId = shouldScopeTokenToConfiguredLocation
+				? requestedLocationId || configuredLocationId
+				: "";
 
 			const stripeInstance = require("stripe")(keys.stripeSecretKey, {
 				apiVersion: "2024-04-10",
 			});
-			const token = await stripeInstance.terminal.connectionTokens.create(
+			const token = await createStripeTerminalConnectionToken(
+				stripeInstance,
 				resolvedLocationId ? { location: resolvedLocationId } : {},
-				getStripeConnectedAccountOptions(restaurantStripeAccountId),
+				getStripeConnectedAccountOptions(terminalStripeAccountId),
 			);
 
 			return {
 				secret: token.secret,
 				liveMode: !keys.isTestMode,
 				locationId: resolvedLocationId || null,
-				locationSource: locationId
+				locationSource: requestedLocationId
 					? "request"
-					: resolvedTerminalLocation.source,
-				terminalAccountScope: restaurantStripeAccountId
-					? "connected_account"
-					: "platform",
-				connectedAccountId: restaurantStripeAccountId || null,
+					: resolvedLocationId
+						? resolvedTerminalLocation.source
+						: "platform_account_all_locations",
+				terminalAccountScope,
+				connectedAccountId:
+					terminalAccountScope === "connected_account"
+						? restaurantStripeAccountId || null
+						: null,
+				payoutConnectedAccountId: restaurantStripeAccountId || null,
 			};
 		} catch (error) {
 			console.error("Error creating Terminal connection token:", error);
@@ -1334,6 +1559,14 @@ exports.listRestaurantTerminalReaders = functions
 				keys,
 			});
 			const restaurantStripeAccountId = resolvedStripeAccount.value || "";
+			const terminalAccountScope = resolveTerminalAccountScope({
+				restaurantData,
+				defaultScope: restaurantStripeAccountId
+					? "connected_account"
+					: "platform",
+			});
+			const terminalStripeAccountId =
+				terminalAccountScope === "platform" ? "" : restaurantStripeAccountId;
 			const resolvedTerminalLocation = resolveRestaurantTerminalLocation({
 				restaurantData,
 				keys,
@@ -1351,7 +1584,7 @@ exports.listRestaurantTerminalReaders = functions
 			};
 			const stripeReaders = await stripeInstance.terminal.readers.list(
 				listParams,
-				getStripeConnectedAccountOptions(restaurantStripeAccountId),
+				getStripeConnectedAccountOptions(terminalStripeAccountId),
 			);
 			const readers = (stripeReaders.data || []).map(
 				normalizeStripeTerminalReader,
@@ -1370,10 +1603,12 @@ exports.listRestaurantTerminalReaders = functions
 				locationSource: locationId
 					? "request"
 					: resolvedTerminalLocation.source,
-				terminalAccountScope: restaurantStripeAccountId
-					? "connected_account"
-					: "platform",
-				connectedAccountId: restaurantStripeAccountId || null,
+				terminalAccountScope,
+				connectedAccountId:
+					terminalAccountScope === "connected_account"
+						? restaurantStripeAccountId || null
+						: null,
+				payoutConnectedAccountId: restaurantStripeAccountId || null,
 				defaultCollector: defaultCollector || null,
 				readers,
 				recommendedReader: recommended.reader,
@@ -1870,6 +2105,18 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				keys,
 			});
 			const restaurantStripeAccountId = resolvedStripeAccount.value || null;
+			const terminalAccountScope = resolveTerminalAccountScope({
+				restaurantData,
+				defaultScope: restaurantStripeAccountId
+					? "connected_account"
+					: "platform",
+			});
+			const stripeChargeMode =
+				terminalAccountScope === "platform" && restaurantStripeAccountId
+					? "platform_destination_charge"
+					: restaurantStripeAccountId
+						? "connected_account_direct_charge"
+						: "platform_charge";
 			const restaurantStripeReady =
 				restaurantStripeAccountId &&
 				(!restaurantData.stripeAccountMode ||
@@ -1906,7 +2153,13 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				payLiteFinancials.restaurantTransferAmount;
 			const tipEligibleAmount = merchantNetSalesAmount;
 			const readableNote = sanitizeTerminalNote(note);
-			const openWorkDay = await getOpenWorkDaySnapshot(restaurantId);
+			const openWorkDay = await ensureOpenPayLiteWorkDaySnapshot({
+				restaurantId,
+				context,
+				staffMember,
+				staffId,
+				staffName,
+			});
 			const readerMetadata = terminalReader && typeof terminalReader === "object"
 				? {
 						id: sanitizeMetadataString(terminalReader.id),
@@ -1933,6 +2186,7 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				"pay_lite:v2",
 				resolvedStripeAccount.mode,
 				restaurantStripeAccountId,
+				stripeChargeMode,
 				context.auth.uid,
 				staffMember.id || staffId || "",
 				merchantNetSalesAmount,
@@ -1947,7 +2201,9 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				apiVersion: "2024-04-10",
 			});
 			const stripeRequestOptions = getStripeConnectedAccountOptions(
-				restaurantStripeAccountId,
+				stripeChargeMode === "connected_account_direct_charge"
+					? restaurantStripeAccountId
+					: null,
 				{ idempotencyKey: prepareIdempotencyKey },
 			);
 			const paymentIntent = await stripeInstance.paymentIntents.create(
@@ -1957,6 +2213,13 @@ exports.prepareScervPayLiteTerminalPayment = functions
 					payment_method_types: ["card_present"],
 					capture_method: "manual",
 					description: `Scerv Pay Lite ${restaurantId}`,
+					...(stripeChargeMode === "platform_destination_charge" && {
+						on_behalf_of: restaurantStripeAccountId,
+						transfer_data: {
+							destination: restaurantStripeAccountId,
+						},
+						application_fee_amount: scervPayLiteFeeAmount,
+					}),
 					metadata: {
 						type: "scerv_pay_lite",
 						restaurantId,
@@ -1987,9 +2250,8 @@ exports.prepareScervPayLiteTerminalPayment = functions
 						tipBasis: "manual_sale_amount",
 						stripeAccountMode: resolvedStripeAccount.mode,
 						stripeAccountSource: resolvedStripeAccount.source || "",
-						stripeChargeMode: restaurantStripeAccountId
-							? "connected_account_direct_charge"
-							: "platform_charge",
+						stripeChargeMode,
+						terminalAccountScope,
 						workDayId: openWorkDay ? openWorkDay.id : "",
 						terminalReaderId: readerMetadata.id || "",
 						terminalReaderSerialNumber: readerMetadata.serialNumber || "",
@@ -2006,9 +2268,8 @@ exports.prepareScervPayLiteTerminalPayment = functions
 				connectedAccountId: restaurantStripeAccountId,
 				connectedAccountMode: resolvedStripeAccount.mode,
 				connectedAccountSource: resolvedStripeAccount.source,
-				stripeChargeMode: restaurantStripeAccountId
-					? "connected_account_direct_charge"
-					: "platform_charge",
+				stripeChargeMode,
+				terminalAccountScope,
 				status: "requires_payment_method",
 				paymentStatus: "pending",
 				paymentMethod: "stripe_terminal",
@@ -2217,12 +2478,15 @@ exports.captureStaffTerminalPayment = functions
 				terminalPaymentData.connectedAccountId
 					? terminalPaymentData.connectedAccountId
 					: null;
+			const captureUsesPlatformDestinationCharge =
+				terminalPaymentData.stripeChargeMode ===
+				"platform_destination_charge";
 			const stripeRequestOptions =
 				getStripeConnectedAccountOptions(captureConnectedAccountId);
 
-			let paymentIntent = await stripeInstance.paymentIntents.retrieve(
+			let paymentIntent = await retrieveStripePaymentIntent(
+				stripeInstance,
 				paymentIntentId,
-				{},
 				stripeRequestOptions,
 			);
 			const preTipAmount = Math.max(
@@ -2347,7 +2611,8 @@ exports.captureStaffTerminalPayment = functions
 			const createdBy = terminalPaymentData.createdBy || {};
 
 			if (paymentIntent.status === "requires_capture") {
-				await stripeInstance.paymentIntents.update(
+				await updateStripePaymentIntent(
+					stripeInstance,
 					paymentIntentId,
 					{
 						metadata: {
@@ -2387,11 +2652,13 @@ exports.captureStaffTerminalPayment = functions
 					},
 					stripeRequestOptions,
 				);
-				paymentIntent = await stripeInstance.paymentIntents.capture(
+				paymentIntent = await captureStripePaymentIntent(
+					stripeInstance,
 					paymentIntentId,
 					{
 						amount_to_capture: finalAmount,
-						...(applicationFeeAmount > 0 && {
+						...(captureConnectedAccountId &&
+							applicationFeeAmount > 0 && {
 							application_fee_amount: applicationFeeAmount,
 						}),
 					},
@@ -2429,6 +2696,13 @@ exports.captureStaffTerminalPayment = functions
 					stripeApplicationFeeAmount: applicationFeeAmount,
 					platformFee: applicationFeeAmount,
 					scervFee: applicationFeeAmount,
+					stripeChargeMode:
+						terminalPaymentData.stripeChargeMode ||
+						(captureUsesPlatformDestinationCharge
+							? "platform_destination_charge"
+							: captureConnectedAccountId
+								? "connected_account_direct_charge"
+								: "platform_charge"),
 					scervFeeMode:
 						terminalPaymentData.scervFeeMode ||
 						storedPayLitePolicy.scervFeeMode ||
@@ -2666,6 +2940,106 @@ exports.getScervPayLiteReceipt = functions.https.onCall(
 	},
 );
 
+exports.getRecentScervPayLiteReceipts = functions.https.onCall(
+	async (data, context) => {
+		if (!context.auth || !context.auth.uid) {
+			throw new functions.https.HttpsError(
+				"unauthenticated",
+				"User must be authenticated.",
+			);
+		}
+
+		const restaurantId = sanitizeMetadataString(data && data.restaurantId, 120);
+		const staffId = sanitizeMetadataString(
+			data && (data.staffId || data.employeeId),
+			140,
+		);
+		if (!restaurantId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Restaurant ID is required.",
+			);
+		}
+		if (!staffId) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Staff ID is required.",
+			);
+		}
+
+		await assertRestaurantPermission({
+			db,
+			context,
+			restaurantId,
+			employeeId: staffId,
+			allowedRoles: ["owner", "manager", "admin"],
+			allowedJobTitles: ["server", "bartender", "bar"],
+			action: "view recent Pay Lite receipts",
+		});
+
+		const cappedLimit = Math.min(
+			Math.max(Math.round(Number(data && data.limit) || 5), 1),
+			5,
+		);
+
+		const [restaurantSnap, paymentsSnap] = await Promise.all([
+			db.collection("restaurants").doc(restaurantId).get(),
+			db
+				.collection("terminal_payments")
+				.where("restaurantId", "==", restaurantId)
+				.limit(100)
+				.get(),
+		]);
+		const restaurantData = restaurantSnap.exists
+			? restaurantSnap.data() || {}
+			: {};
+
+		const receipts = paymentsSnap.docs
+			.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+			.filter((payment) => {
+				const isPayLite =
+					payment.type === "scerv_pay_lite" ||
+					payment.source === "scerv_pay_lite";
+				const isPaid =
+					payment.paymentStatus === "paid" ||
+					payment.status === "succeeded" ||
+					payment.status === "paid";
+				const enteredBy = payment.enteredBy || {};
+				const capturedBy = payment.capturedBy || {};
+				const paymentStaffId =
+					enteredBy.staffId ||
+					enteredBy.id ||
+					capturedBy.enteredByStaffId ||
+					capturedBy.staffId ||
+					"";
+				return isPayLite && isPaid && paymentStaffId === staffId;
+			})
+			.sort((a, b) => {
+				const aMs = toTimestampMillis(
+					a.paidAt || a.capturedAt || a.updatedAt || a.createdAt,
+				);
+				const bMs = toTimestampMillis(
+					b.paidAt || b.capturedAt || b.updatedAt || b.createdAt,
+				);
+				return bMs - aMs;
+			})
+			.slice(0, cappedLimit)
+			.map((payment) =>
+				payment.customerReceipt ||
+				buildScervPayLiteCustomerReceipt({
+					paymentIntentId: payment.paymentIntentId || payment.id,
+					restaurantData,
+					payment,
+				}),
+			);
+
+		return {
+			success: true,
+			receipts,
+		};
+	},
+);
+
 exports.getStaffTerminalPaymentStatus = functions.https.onCall(
 	async (data, context) => {
 		const paymentIntentId = sanitizeMetadataString(
@@ -2753,6 +3127,7 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 			staffId = null,
 			startAt = null,
 			endAt = null,
+			workDayId = null,
 			limit = 1000,
 		} = data || {};
 		if (!restaurantId) {
@@ -2762,15 +3137,11 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 			);
 		}
 
-		const startMs = Date.parse(startAt);
-		const endMs = Date.parse(endAt);
-		if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-			throw new functions.https.HttpsError(
-				"invalid-argument",
-				"Valid report start and end timestamps are required.",
-			);
-		}
-
+		const requestedWorkDayId = sanitizeMetadataString(workDayId, 140);
+		let startMs = Date.parse(startAt);
+		let endMs = Date.parse(endAt);
+		let workDayData = null;
+		let reportWorkDayId = null;
 		await assertRestaurantPermission({
 			db,
 			context,
@@ -2779,6 +3150,34 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 			allowedRoles: ["owner", "manager"],
 			action: "view Scerv Pay Lite reports",
 		});
+
+		if (requestedWorkDayId) {
+			const workDaySnap = await db
+				.collection("restaurants")
+				.doc(restaurantId)
+				.collection("work_days")
+				.doc(requestedWorkDayId)
+				.get();
+			if (!workDaySnap.exists) {
+				throw new functions.https.HttpsError(
+					"not-found",
+					"Work day was not found.",
+				);
+			}
+			workDayData = workDaySnap.data() || {};
+			startMs = toTimestampMillis(
+				workDayData.startTime || workDayData.openedAt || startAt,
+			);
+			endMs =
+				toTimestampMillis(workDayData.endTime || workDayData.closedAt) ||
+				Date.now();
+		}
+		if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+			throw new functions.https.HttpsError(
+				"invalid-argument",
+				"Valid report start and end timestamps are required.",
+			);
+		}
 
 		const cappedLimit = Math.min(
 			Math.max(Math.round(Number(limit) || 1000), 50),
@@ -2794,6 +3193,41 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 				.get(),
 		]);
 		const restaurantData = restaurantSnap.data() || {};
+		if (!requestedWorkDayId) {
+			const currentWorkDayId = sanitizeMetadataString(
+				restaurantData.currentWorkDayId,
+				140,
+			);
+			let openWorkDaySnap = null;
+			if (currentWorkDayId) {
+				const currentSnap = await db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("work_days")
+					.doc(currentWorkDayId)
+					.get();
+				if (currentSnap.exists) {
+					const currentData = currentSnap.data() || {};
+					if (currentData.status === "OPEN") {
+						openWorkDaySnap = currentSnap;
+					}
+				}
+			}
+			if (!openWorkDaySnap) {
+				const openSnap = await db
+					.collection("restaurants")
+					.doc(restaurantId)
+					.collection("work_days")
+					.where("status", "==", "OPEN")
+					.limit(1)
+					.get();
+				openWorkDaySnap = openSnap.empty ? null : openSnap.docs[0];
+			}
+			if (openWorkDaySnap) {
+				reportWorkDayId = openWorkDaySnap.id;
+				workDayData = openWorkDaySnap.data() || {};
+			}
+		}
 
 		const report = buildScervPayLiteDailyReport({
 			payments: paymentsSnap.docs.map((doc) => ({
@@ -2804,6 +3238,9 @@ exports.getScervPayLiteDailyReport = functions.https.onCall(
 			restaurantData,
 			startMs,
 			endMs,
+			workDayId: requestedWorkDayId || null,
+			reportWorkDayId,
+			workDayData,
 		});
 
 		return {

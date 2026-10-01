@@ -262,6 +262,22 @@
 	padding: 0 6px;
 }
 
+.pay-lite-reader-config {
+	border-top: 1px solid #d7e2e4;
+	display: grid;
+	gap: 12px;
+	grid-column: 1 / -1;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	padding-top: 12px;
+}
+
+.pay-lite-reader-config h3 {
+	color: #004f56;
+	font-size: 14px;
+	grid-column: 1 / -1;
+	margin: 0;
+}
+
 .restaurant-profile-form button,
 .restaurant-panel button {
 	background: #007bff;
